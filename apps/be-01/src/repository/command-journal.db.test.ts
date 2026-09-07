@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { projectRow } from '../testing/project-fixture';
 import { CommandJournalRepository } from './command-journal';
 import { openDatabase, openDrizzle } from './db';
+import { OPEN } from './gate';
 import {
   JOURNAL_DEPTH,
   type NewJournalEntry,
@@ -77,13 +78,13 @@ describe('appending a command', () => {
     runMigrations(path, FOLDER);
     const db = openDrizzle(path);
     sqlite = openDatabase(path);
-    journal = new CommandJournalRepository(db);
-    events = new PlanEventRepository(db);
-    await new UserRepository(db).create(
+    journal = new CommandJournalRepository(db, OPEN);
+    events = new PlanEventRepository(db, OPEN);
+    await new UserRepository(db, OPEN).create(
       { id: 'owner', username: 'owner', passwordHash: 'x', createdAt: 1 },
       wrote,
     );
-    await new ProjectRepository(db).create(project('p1'), [], wrote);
+    await new ProjectRepository(db, OPEN).create(project('p1'), [], wrote);
   });
 
   afterEach(() => {
@@ -162,7 +163,7 @@ describe('appending a command', () => {
   it('records one project’s history whoever ran the command', async () => {
     // Per project, not per (project, account): two people editing one plan produce
     // two disjoint stacks and **one** history, which is the difference R5 asks for.
-    await new UserRepository(openDrizzle(join(dir, 'test.db'))).create(
+    await new UserRepository(openDrizzle(join(dir, 'test.db')), OPEN).create(
       { id: 'someone-else', username: 'someone-else', passwordHash: 'x', createdAt: 1 },
       { at: 1, by: 'someone-else' },
     );

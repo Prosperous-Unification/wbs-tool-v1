@@ -4,6 +4,8 @@ import { buildApp } from './app';
 import type { OidcRouteOptions } from './controller/oidc-options';
 import { readDeployedCommit } from './deployed-commit';
 import { drizzleOuterTransaction, openConnection } from './repository/db';
+import { OPEN } from './repository/gate';
+import { WriteCoordinator } from './repository/gate';
 import { probeSchema } from './repository/health-probe';
 import { runMigrations } from './repository/migrate';
 import { SavedPlanRepository } from './repository/saved-plan';
@@ -11,7 +13,6 @@ import { SavedPlanCaptureRepository } from './repository/saved-plan-capture';
 import { UserRepository } from './repository/user';
 import type { AuthenticatedUser } from './service/auth.service';
 import { SavedPlanService } from './service/saved-plan.service';
-import { WriteLock } from './service/write-lock';
 import { type BeServices, buildServices, type OptimizerRuntime } from './services';
 
 export interface BootOptions {
@@ -69,13 +70,13 @@ export function bootBe01(opts: BootOptions): RunningBe {
   // per-connection pragmas (WAL, busy_timeout) are set and asserted.
   const connection = openConnection(opts.dbPath);
   const db = connection.db;
-  // One lock for the process, created before the services because the
-  // broadcaster records under it: `buildApp` gets this same object as
-  // `writes.lock` below, and a second one would exclude nothing.
-  const writeLock = new WriteLock();
+  // One coordinator for the process, created before the services because every
+  // store takes its turn at it: `buildApp` gets this same object as
+  // `writes.gate` below, and a second one would exclude nothing.
+  const writeCoordinator = new WriteCoordinator();
   const services = buildServices({
     db,
-    lock: writeLock,
+    gate: writeCoordinator,
     logger: opts.logger,
     jwtKey: opts.jwtKey,
     gwUrl: opts.gwUrl,
@@ -131,7 +132,11 @@ export function bootBe01(opts: BootOptions): RunningBe {
     probeDatabase: () => probeSchema(db),
     writes: {
       transactions: drizzleOuterTransaction(db),
-      lock: writeLock,
+      gate: writeCoordinator,
+      // The batch's own services, over stores that hold no turn: the runner
+      // takes the process's one turn for the whole batch, and a store of its
+      // own that asked for another would wait for the batch itself.
+      batch: services.batch,
       announcements: services.announcements,
     },
     // Read per call, not captured here: dev's deploy is a `git reset` under
@@ -163,7 +168,9 @@ export function bootBe01(opts: BootOptions): RunningBe {
       // answers 503 `migrating` until the line below, and both things that send
       // the first request wait for a 200 first. Playwright's `webServer` does,
       // and so does the deploy poller before it routes traffic to green.
-      new UserRepository(db).ensureLocalIdentity(opts.localIdentity, {
+      // `OPEN`: boot runs before the server listens, so there is no batch for
+      // this write to land inside and no turn to wait for.
+      new UserRepository(db, OPEN).ensureLocalIdentity(opts.localIdentity, {
         at: Date.now(),
         by: opts.localIdentity.id,
       });

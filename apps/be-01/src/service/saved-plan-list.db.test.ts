@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import type { Connection } from '../repository/db';
 import { openConnection } from '../repository/db';
+import { OPEN } from '../repository/gate';
 import type { WriteStamp } from '../repository/index';
 import { runMigrations } from '../repository/migrate';
 import { ProjectRepository } from '../repository/project';
@@ -59,21 +60,21 @@ describe("listing a project's saved plans", () => {
     runMigrations(path, FOLDER);
     const seed = openConnection(path);
     const db = seed.db;
-    await new UserRepository(db).create(
+    await new UserRepository(db, OPEN).create(
       { id: 'owner', username: 'owner', passwordHash: 'x', createdAt: 1 },
       wrote,
     );
-    await new ProjectRepository(db).create(
+    await new ProjectRepository(db, OPEN).create(
       projectRow({ id: 'p1', name: 'Rewire the shed', ownerId: 'owner' }),
       [{ id: 'st-1', projectId: 'p1', name: 'Dev', position: 10 }],
       wrote,
     );
-    await new ProjectRepository(db).create(
+    await new ProjectRepository(db, OPEN).create(
       projectRow({ id: 'p2', name: 'Somebody else', ownerId: 'owner' }),
       [{ id: 'st-2', projectId: 'p2', name: 'Dev', position: 10 }],
       wrote,
     );
-    await new WorkItemRepository(db).insert(item('wi-1', 10), [], wrote);
+    await new WorkItemRepository(db, OPEN).insert(item('wi-1', 10), [], wrote);
     seed.close();
     reader = openConnection(path);
   });

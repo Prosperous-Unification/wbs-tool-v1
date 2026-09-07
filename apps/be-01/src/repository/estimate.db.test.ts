@@ -8,6 +8,7 @@ import { projectRow } from '../testing/project-fixture';
 import { workItemRow } from '../testing/work-item-fixture';
 import { openDrizzle } from './db';
 import { EstimateRepository } from './estimate';
+import { OPEN } from './gate';
 import type { Project, Step, WorkItem, WriteStamp } from './index';
 import { runMigrations } from './migrate';
 import { ProjectRepository } from './project';
@@ -52,11 +53,11 @@ beforeEach(async () => {
   const path = join(dir, 'test.db');
   runMigrations(path, FOLDER);
   const db = openDrizzle(path);
-  repo = new EstimateRepository(db);
-  const workItems = new WorkItemRepository(db);
+  repo = new EstimateRepository(db, OPEN);
+  const workItems = new WorkItemRepository(db, OPEN);
 
   ownerId = crypto.randomUUID();
-  await new UserRepository(db).create(
+  await new UserRepository(db, OPEN).create(
     { id: ownerId, username: 'owner', passwordHash: 'x', createdAt: 1 },
     wrote(),
   );
@@ -74,7 +75,7 @@ beforeEach(async () => {
     { id: devId, projectId, name: 'Dev', position: 10 },
     { id: qaId, projectId, name: 'QA', position: 20 },
   ];
-  await new ProjectRepository(db).create(project, steps, wrote());
+  await new ProjectRepository(db, OPEN).create(project, steps, wrote());
 
   stripId = crypto.randomUUID();
   sandId = crypto.randomUUID();
@@ -218,7 +219,7 @@ describe('EstimateRepository', () => {
     // · Received length: 2`; and with the project's own `where` written as
     // `inArray(workItem.projectId, [projectId])` — one statement, an `IN` list
     // of one — on `Expected to not contain: "in ("`. Observed 2026-09-02.
-    const workItems = new WorkItemRepository(openDrizzle(join(dir, 'test.db')));
+    const workItems = new WorkItemRepository(openDrizzle(join(dir, 'test.db')), OPEN);
     for (let made = 0; made < 20; made += 1) {
       const id = `row-${String(made)}`;
       await insertItem(workItems, id, 100 + made, `Row ${String(made)}`);
@@ -234,6 +235,7 @@ describe('EstimateRepository', () => {
           statements.push(query);
         },
       }),
+      OPEN,
     );
 
     const held = await counted.listByProject(projectId);

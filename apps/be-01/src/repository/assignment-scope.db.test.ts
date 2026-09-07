@@ -11,6 +11,7 @@ import { projectRow } from '../testing/project-fixture';
 import { workItemRow } from '../testing/work-item-fixture';
 import { openDatabase, openDrizzle } from './db';
 import { DirectoryRepository } from './directory';
+import { OPEN } from './gate';
 import { runMigrations } from './migrate';
 import { ProjectRepository } from './project';
 import { UserRepository } from './user';
@@ -34,11 +35,11 @@ beforeEach(async () => {
       recorded.push({ sql, bindings });
     },
   });
-  directory = new DirectoryRepository(db);
-  const projects = new ProjectRepository(db);
-  const workItems = new WorkItemRepository(db);
+  directory = new DirectoryRepository(db, OPEN);
+  const projects = new ProjectRepository(db, OPEN);
+  const workItems = new WorkItemRepository(db, OPEN);
   service = inMemoryServices({ projects, workItems, directory }).service;
-  await new UserRepository(db).create(
+  await new UserRepository(db, OPEN).create(
     { id: 'owner', username: 'owner', passwordHash: 'x', createdAt: 1 },
     STAMP,
   );

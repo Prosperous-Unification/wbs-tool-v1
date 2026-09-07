@@ -19,6 +19,8 @@ import { drizzleOuterTransaction, openDrizzle } from '../repository/db';
 import { DependencyRepository } from '../repository/dependency';
 import { DirectoryRepository } from '../repository/directory';
 import { EstimateRepository } from '../repository/estimate';
+import { OPEN } from '../repository/gate';
+import { WriteCoordinator } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { PlanEventRepository } from '../repository/plan-event';
 import { PriorityBandRepository } from '../repository/priority-band';
@@ -44,7 +46,6 @@ import {
 import { PriorityBandService } from './priority-band.service';
 import { ProjectService } from './project.service';
 import { WorkItemService, type WorkItemServiceOptions } from './work-item.service';
-import { WriteLock } from './write-lock';
 
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 
@@ -78,21 +79,21 @@ beforeEach(async () => {
   const path = join(dir, 'test.db');
   runMigrations(path, FOLDER);
   db = openDrizzle(path);
-  projectStore = new ProjectRepository(db);
-  workItemStore = new WorkItemRepository(db);
-  estimateStore = new EstimateRepository(db);
-  dependencyStore = new DependencyRepository(db);
-  directoryStore = new DirectoryRepository(db);
-  journalStore = new CommandJournalRepository(db);
-  planEvents = new PlanEventRepository(db);
-  const capacityStore = new CapacityRepository(db);
-  const bandStore = new PriorityBandRepository(db);
+  projectStore = new ProjectRepository(db, OPEN);
+  workItemStore = new WorkItemRepository(db, OPEN);
+  estimateStore = new EstimateRepository(db, OPEN);
+  dependencyStore = new DependencyRepository(db, OPEN);
+  directoryStore = new DirectoryRepository(db, OPEN);
+  journalStore = new CommandJournalRepository(db, OPEN);
+  planEvents = new PlanEventRepository(db, OPEN);
+  const capacityStore = new CapacityRepository(db, OPEN);
+  const bandStore = new PriorityBandRepository(db, OPEN);
   const broadcast = recordingBroadcaster();
 
   ownerId = crypto.randomUUID();
   // The account stamps itself, which is what a signup does — and `created_by`
   // references `users(id)`, so nothing else could satisfy it for the first row.
-  await new UserRepository(db).create(
+  await new UserRepository(db, OPEN).create(
     {
       id: ownerId,
       username: 'owner',
@@ -106,14 +107,14 @@ beforeEach(async () => {
     workItems: workItemStore,
     projects: projectStore,
     estimates: estimateStore,
-    actuals: new ActualRepository(db),
-    measures: new StepMeasureRepository(db),
-    progress: new StepProgressRepository(db),
+    actuals: new ActualRepository(db, OPEN),
+    measures: new StepMeasureRepository(db, OPEN),
+    progress: new StepProgressRepository(db, OPEN),
     directory: directoryStore,
     capacity: capacityStore,
     priorityBands: bandStore,
     dependencies: dependencyStore,
-    subtrees: new SubtreeRepository(db),
+    subtrees: new SubtreeRepository(db, OPEN),
     journal: journalStore,
     broadcast,
   };
@@ -137,7 +138,7 @@ beforeEach(async () => {
       broadcast: announcements,
     }),
     transactions: drizzleOuterTransaction(db),
-    lock: new WriteLock(),
+    gate: new WriteCoordinator(),
     announcements,
   };
   runner = new PlanCommandRunner(runnerOptions);

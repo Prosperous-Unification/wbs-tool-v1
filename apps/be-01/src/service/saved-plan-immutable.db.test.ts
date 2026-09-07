@@ -9,6 +9,7 @@ import { CapacityRepository } from '../repository/capacity';
 import type { Connection } from '../repository/db';
 import { openConnection } from '../repository/db';
 import { DirectoryRepository } from '../repository/directory';
+import { OPEN } from '../repository/gate';
 import type { WriteStamp } from '../repository/index';
 import { runMigrations } from '../repository/migrate';
 import { ProjectRepository } from '../repository/project';
@@ -67,11 +68,11 @@ describe('a saved plan does not move when the live plan does', () => {
     runMigrations(path, FOLDER);
     const seed = openConnection(path);
     const db = seed.db;
-    await new UserRepository(db).create(
+    await new UserRepository(db, OPEN).create(
       { id: 'owner', username: 'owner', passwordHash: 'x', createdAt: 1 },
       wrote,
     );
-    await new ProjectRepository(db).create(
+    await new ProjectRepository(db, OPEN).create(
       projectRow({
         id: 'p1',
         name: 'Rewire the shed',
@@ -85,11 +86,11 @@ describe('a saved plan does not move when the live plan does', () => {
       ],
       wrote,
     );
-    const directory = new DirectoryRepository(db);
+    const directory = new DirectoryRepository(db, OPEN);
     await directory.addTeam({ id: 't-platform', name: 'Platform' }, wrote);
     await directory.addPerson({ id: 'pp-ada', name: 'Ada' }, ['t-platform'], wrote);
-    await new CapacityRepository(db).set('p1', 't-platform', 4, wrote);
-    const items = new WorkItemRepository(db);
+    await new CapacityRepository(db, OPEN).set('p1', 't-platform', 4, wrote);
+    const items = new WorkItemRepository(db, OPEN);
     await items.insert(item('wi-1', 10), [], wrote);
     await items.insert(item('wi-2', 20), [], wrote);
     seed.close();
@@ -117,11 +118,11 @@ describe('a saved plan does not move when the live plan does', () => {
   /** The five edits task 4.2 names, each reaching the capture by its own route. */
   const moveTheLivePlan = async (): Promise<void> => {
     const live = openConnection(path);
-    const items = new WorkItemRepository(live.db);
+    const items = new WorkItemRepository(live.db, OPEN);
     await items.patch('wi-1', { name: 'renamed after the save' }, wrote);
     await items.remove(['wi-2'], [], wrote);
-    await new StepRepository(live.db).remove('p1', 'st-2', true, wrote);
-    await new ProjectRepository(live.db).update(
+    await new StepRepository(live.db, OPEN).remove('p1', 'st-2', true, wrote);
+    await new ProjectRepository(live.db, OPEN).update(
       'p1',
       { estimateMethod: 'optimistic', startDate: '2027-01-04' },
       wrote,
@@ -154,9 +155,9 @@ describe('a saved plan does not move when the live plan does', () => {
     // The live plan really did move — otherwise the assertions below are a
     // comparison of a record against itself and would pass on any writer.
     const moved = openConnection(path);
-    const nowItems = await new WorkItemRepository(moved.db).listByProject('p1');
-    const nowProject = await new ProjectRepository(moved.db).findById('p1');
-    const nowSteps = await new ProjectRepository(moved.db).stepsOf('p1');
+    const nowItems = await new WorkItemRepository(moved.db, OPEN).listByProject('p1');
+    const nowProject = await new ProjectRepository(moved.db, OPEN).findById('p1');
+    const nowSteps = await new ProjectRepository(moved.db, OPEN).stepsOf('p1');
     moved.close();
     expect(nowItems.map((row) => row.name)).toEqual(['renamed after the save']);
     expect(nowSteps.map((row) => row.id)).toEqual(['st-1']);

@@ -10,6 +10,7 @@ import { messagesOf } from './constraint';
 import type { Drizzle } from './db';
 import { openDrizzle } from './db';
 import { DependencyRepository } from './dependency';
+import { OPEN } from './gate';
 import type { WriteStamp } from './index';
 import { runMigrations } from './migrate';
 import { ProjectRepository } from './project';
@@ -38,16 +39,16 @@ beforeEach(async () => {
   dbPath = join(dir, 'test.db');
   runMigrations(dbPath, FOLDER);
   db = openDrizzle(dbPath);
-  repo = new DependencyRepository(db);
-  workItems = new WorkItemRepository(db);
+  repo = new DependencyRepository(db, OPEN);
+  workItems = new WorkItemRepository(db, OPEN);
 
   ownerId = crypto.randomUUID();
-  await new UserRepository(db).create(
+  await new UserRepository(db, OPEN).create(
     { id: ownerId, username: 'owner', passwordHash: 'x', createdAt: 1 },
     wrote(),
   );
   projectId = crypto.randomUUID();
-  await new ProjectRepository(db).create(
+  await new ProjectRepository(db, OPEN).create(
     projectRow({
       id: projectId,
       ownerId,
@@ -191,6 +192,7 @@ describe('DependencyRepository', () => {
           statements.push(query);
         },
       }),
+      OPEN,
     );
 
     await counted.removeAllFor([a, b], wrote());
@@ -248,7 +250,7 @@ describe('a work item deleted by a release that knows nothing about edges', () =
     await repo.add(edge(a, b), wrote());
 
     // Exactly what the old release runs: no edge cleanup first.
-    await new WorkItemRepository(db).remove([a], [], wrote());
+    await new WorkItemRepository(db, OPEN).remove([a], [], wrote());
 
     expect(await repo.listByProject(projectId)).toEqual([]);
   });

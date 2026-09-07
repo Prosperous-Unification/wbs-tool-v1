@@ -9,6 +9,7 @@ import { buildApp } from '../app';
 import type { WorkItem, WriteStamp } from '../repository';
 import { CalendarMarkerRepository } from '../repository/calendar-marker';
 import { type Drizzle, openDatabase, openDrizzle } from '../repository/db';
+import { OPEN } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { ProjectRepository } from '../repository/project';
 import { UserRepository } from '../repository/user';
@@ -148,9 +149,9 @@ describe('the calendar-marker routes', () => {
         statements.push(query);
       },
     });
-    const projects = new ProjectRepository(db);
+    const projects = new ProjectRepository(db, OPEN);
 
-    auth = new AuthService({ users: new UserRepository(db), jwtKey: TEST_JWT_KEY });
+    auth = new AuthService({ users: new UserRepository(db, OPEN), jwtKey: TEST_JWT_KEY });
     app = buildApp({
       appOrigin: 'http://localhost',
       auth,
@@ -161,7 +162,7 @@ describe('the calendar-marker routes', () => {
       // anything at all.
       calendarMarkers: new CalendarMarkerService({
         projects,
-        markers: new CalendarMarkerRepository(db),
+        markers: new CalendarMarkerRepository(db, OPEN),
         clock: clockOf({ now: () => FIXED_NOW, newId: () => MINTED }),
       }),
       savedPlans: testSavedPlanService(),
@@ -433,7 +434,7 @@ describe('the calendar-marker routes', () => {
     expect(((await renamed.json()) as { marker: { color: string } }).marker.color).toBe(fill);
 
     // The column itself, which no response can show.
-    expect(await new CalendarMarkerRepository(db).listFor(projectId)).toMatchObject([
+    expect(await new CalendarMarkerRepository(db, OPEN).listFor(projectId)).toMatchObject([
       { color: null },
     ]);
   });
@@ -1201,7 +1202,7 @@ describe('the calendar-marker routes', () => {
   // Proof: querying work_item by marker.id in repository create produced a logged
   // SELECT where this mounted test requires an empty work_item statement list.
   it('creates, renames, recolours and deletes without naming the work_item table', async () => {
-    const owner = await new ProjectRepository(db).findById(projectId);
+    const owner = await new ProjectRepository(db, OPEN).findById(projectId);
     expect(owner).not.toBeNull();
     const wrote: WriteStamp = { at: FIXED_NOW, by: owner?.ownerId ?? '' };
     const seeded: WorkItem = {
@@ -1221,7 +1222,7 @@ describe('the calendar-marker routes', () => {
       maxParallel: 1,
       revision: 0,
     };
-    await new WorkItemRepository(db).insert(seeded, [], wrote);
+    await new WorkItemRepository(db, OPEN).insert(seeded, [], wrote);
     const before = workItemRows();
     expect(before).toHaveLength(1);
 

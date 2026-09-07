@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { projectRow } from '../testing/project-fixture';
 import { openDatabase, openDrizzle } from './db';
+import { OPEN } from './gate';
 import type { PlanEvent, Project, WriteStamp } from './index';
 import { runMigrations } from './migrate';
 import { PlanEventRepository } from './plan-event';
@@ -81,12 +82,12 @@ describe('the plan’s history, against a real database', () => {
     runMigrations(path, FOLDER);
     const db = openDrizzle(path);
     sqlite = openDatabase(path);
-    events = new PlanEventRepository(db);
-    await new UserRepository(db).create(
+    events = new PlanEventRepository(db, OPEN);
+    await new UserRepository(db, OPEN).create(
       { id: 'owner', username: 'owner', passwordHash: 'x', createdAt: 1 },
       wrote,
     );
-    const projects = new ProjectRepository(db);
+    const projects = new ProjectRepository(db, OPEN);
     await projects.create(project('p1', 'Rewire the shed'), [], wrote);
     await projects.create(project('p2', 'Reroof the barn'), [], wrote);
   });

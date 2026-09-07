@@ -1,6 +1,7 @@
 import { and, asc, eq } from 'drizzle-orm';
 import type { SQLiteBunDatabase } from 'drizzle-orm/bun-sqlite';
 
+import type { Gate } from './gate';
 import type { CalendarMarker, CalendarMarkerStore, CalendarMarkerWritten } from './index';
 import { calendarMarker, project } from './schema';
 
@@ -31,7 +32,10 @@ const COLUMNS = {
  * kept doing so.
  */
 export class CalendarMarkerRepository implements CalendarMarkerStore {
-  constructor(private readonly db: SQLiteBunDatabase) {}
+  constructor(
+    private readonly db: SQLiteBunDatabase,
+    private readonly gate: Gate,
+  ) {}
 
   /**
    * This project's markers, totally ordered by `(date, createdAt, id)`.
@@ -84,25 +88,27 @@ export class CalendarMarkerRepository implements CalendarMarkerStore {
    * Watched 2026-09-05.
    */
   async create(marker: CalendarMarker): Promise<CalendarMarkerWritten> {
-    await Promise.resolve();
-    return this.db.transaction((tx) => {
-      const held = tx
-        .select({ id: project.id })
-        .from(project)
-        .where(eq(project.id, marker.projectId))
-        .all();
-      if (held.length === 0) return { ok: false, reason: 'not_found' };
-      // By id alone and not by `(projectId, id)`: the id is the primary key of
-      // the whole table, so a collision with another project's marker is still
-      // a collision and still has to be refused rather than thrown.
-      const taken = tx
-        .select({ id: calendarMarker.id })
-        .from(calendarMarker)
-        .where(eq(calendarMarker.id, marker.id))
-        .all();
-      if (taken.length > 0) return { ok: false, reason: 'taken' };
-      tx.insert(calendarMarker).values(marker).run();
-      return { ok: true, marker };
+    return await this.gate.enter(async () => {
+      await Promise.resolve();
+      return this.db.transaction((tx) => {
+        const held = tx
+          .select({ id: project.id })
+          .from(project)
+          .where(eq(project.id, marker.projectId))
+          .all();
+        if (held.length === 0) return { ok: false, reason: 'not_found' };
+        // By id alone and not by `(projectId, id)`: the id is the primary key of
+        // the whole table, so a collision with another project's marker is still
+        // a collision and still has to be refused rather than thrown.
+        const taken = tx
+          .select({ id: calendarMarker.id })
+          .from(calendarMarker)
+          .where(eq(calendarMarker.id, marker.id))
+          .all();
+        if (taken.length > 0) return { ok: false, reason: 'taken' };
+        tx.insert(calendarMarker).values(marker).run();
+        return { ok: true, marker };
+      });
     });
   }
 
@@ -115,7 +121,9 @@ export class CalendarMarkerRepository implements CalendarMarkerStore {
    * nobody named.
    */
   async rename(projectId: string, id: string, name: string): Promise<CalendarMarkerWritten> {
-    return await this.touch(projectId, id, { name });
+    return await this.gate.enter(async () => {
+      return await this.touch(projectId, id, { name });
+    });
   }
 
   /**
@@ -131,7 +139,9 @@ export class CalendarMarkerRepository implements CalendarMarkerStore {
     id: string,
     color: string | null,
   ): Promise<CalendarMarkerWritten> {
-    return await this.touch(projectId, id, { color });
+    return await this.gate.enter(async () => {
+      return await this.touch(projectId, id, { color });
+    });
   }
 
   /**
@@ -141,14 +151,16 @@ export class CalendarMarkerRepository implements CalendarMarkerStore {
    * caller that has to announce what went away cannot re-read it afterwards.
    */
   async remove(projectId: string, id: string): Promise<CalendarMarkerWritten> {
-    await Promise.resolve();
-    return this.db.transaction((tx) => {
-      const found = this.one(tx, projectId, id);
-      if (found === undefined) return { ok: false, reason: 'not_found' };
-      tx.delete(calendarMarker)
-        .where(and(eq(calendarMarker.projectId, projectId), eq(calendarMarker.id, id)))
-        .run();
-      return { ok: true, marker: found };
+    return await this.gate.enter(async () => {
+      await Promise.resolve();
+      return this.db.transaction((tx) => {
+        const found = this.one(tx, projectId, id);
+        if (found === undefined) return { ok: false, reason: 'not_found' };
+        tx.delete(calendarMarker)
+          .where(and(eq(calendarMarker.projectId, projectId), eq(calendarMarker.id, id)))
+          .run();
+        return { ok: true, marker: found };
+      });
     });
   }
 

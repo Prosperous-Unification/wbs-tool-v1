@@ -11,6 +11,7 @@ import { openDatabase, openDrizzle } from '../repository/db';
 import { DependencyRepository } from '../repository/dependency';
 import { DirectoryRepository } from '../repository/directory';
 import { EstimateRepository } from '../repository/estimate';
+import { OPEN } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { PlanEventRepository } from '../repository/plan-event';
 import { ProjectRepository } from '../repository/project';
@@ -84,17 +85,17 @@ beforeEach(async () => {
   runMigrations(path, FOLDER);
   const db = openDrizzle(path);
 
-  const projectStore = new ProjectRepository(db);
-  workItemStore = new WorkItemRepository(db);
-  estimateStore = new EstimateRepository(db);
-  actualStore = new ActualRepository(db);
-  measureStore = new StepMeasureRepository(db);
-  progressStore = new StepProgressRepository(db);
-  dependencyStore = new DependencyRepository(db);
-  directoryStore = new DirectoryRepository(db);
-  journalStore = new CommandJournalRepository(db);
+  const projectStore = new ProjectRepository(db, OPEN);
+  workItemStore = new WorkItemRepository(db, OPEN);
+  estimateStore = new EstimateRepository(db, OPEN);
+  actualStore = new ActualRepository(db, OPEN);
+  measureStore = new StepMeasureRepository(db, OPEN);
+  progressStore = new StepProgressRepository(db, OPEN);
+  dependencyStore = new DependencyRepository(db, OPEN);
+  directoryStore = new DirectoryRepository(db, OPEN);
+  journalStore = new CommandJournalRepository(db, OPEN);
 
-  const users = new UserRepository(db);
+  const users = new UserRepository(db, OPEN);
   ownerId = crypto.randomUUID();
   await users.create(
     { id: ownerId, username: 'owner', passwordHash: 'x', createdAt: 1 },
@@ -120,7 +121,7 @@ beforeEach(async () => {
     capacity: inMemoryCapacity(),
     priorityBands: inMemoryPriorityBands(),
     dependencies: dependencyStore,
-    subtrees: new SubtreeRepository(db),
+    subtrees: new SubtreeRepository(db, OPEN),
     journal: journalStore,
     broadcast: recordingBroadcaster(),
   });
@@ -1445,7 +1446,7 @@ async function person(name: string): Promise<string> {
 
 describe('what an undo leaves in the plan’s history', () => {
   /** The project's history, read straight out of the table the route reads. */
-  const history = () => new PlanEventRepository(openDrizzle(path)).listFor(projectId, {});
+  const history = () => new PlanEventRepository(openDrizzle(path), OPEN).listFor(projectId, {});
 
   it('records the command, and records nothing at all for undoing it', async () => {
     // The one thing a reader of the history will be surprised by, asserted rather

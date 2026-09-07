@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { buildApp } from '../app';
 import { openDrizzle } from '../repository/db';
+import { OPEN } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { PriorityBandRepository } from '../repository/priority-band';
 import { ProjectRepository } from '../repository/project';
@@ -87,26 +88,29 @@ describe('setPriorityBands on POST /api/projects/:id/commands', () => {
     const path = join(dir, 'test.db');
     runMigrations(path, FOLDER);
     const db = openDrizzle(path);
-    const projectStore = new ProjectRepository(db);
-    bands = new PriorityBandRepository(db);
+    const projectStore = new ProjectRepository(db, OPEN);
+    bands = new PriorityBandRepository(db, OPEN);
     broadcast = recordingBroadcaster();
-    const auth = new AuthService({ users: new UserRepository(db), jwtKey: TEST_JWT_KEY });
-    app = buildApp({
-      appOrigin: 'http://localhost',
-      auth,
+    const auth = new AuthService({ users: new UserRepository(db, OPEN), jwtKey: TEST_JWT_KEY });
+    const writing = {
       projects: new ProjectService({ projects: projectStore, broadcast: recordingBroadcaster() }),
       directory: testDirectoryService(),
       capacity: testCapacityService(),
       priorityBands: new PriorityBandService({ projects: projectStore, bands, broadcast }),
-      history: testHistoryService(projectStore),
       calendarMarkers: testCalendarMarkerService(),
       steps: testStepService(),
       workItems: testWorkItemService(),
+    };
+    app = buildApp({
+      ...writing,
+      appOrigin: 'http://localhost',
+      auth,
+      history: testHistoryService(projectStore),
       savedPlans: testSavedPlanService(),
       replay: testReplay().replay,
       probeDatabase: () => 'ok',
       internalAuthSecret: 'x'.repeat(32),
-      writes: testWrites(),
+      writes: testWrites(undefined, writing),
       migrationsApplied: true,
     });
 

@@ -12,6 +12,7 @@ import { DependencyRepository } from './repository/dependency';
 import { DirectoryRepository } from './repository/directory';
 import { EstimateRepository } from './repository/estimate';
 import { DrizzleEventLogRepo } from './repository/event-log';
+import { type Gate, OPEN, type WriteCoordinator } from './repository/gate';
 import { PlanEventRepository } from './repository/plan-event';
 import { PriorityBandRepository } from './repository/priority-band';
 import { ProjectRepository } from './repository/project';
@@ -21,10 +22,10 @@ import { StepProgressRepository } from './repository/step-progress';
 import { UserRepository } from './repository/user';
 import { SubtreeRepository, WorkItemRepository } from './repository/work-item';
 import { AuthService, type AuthServiceOptions } from './service/auth.service';
-import { DeferringBroadcaster } from './service/broadcast';
+import { type Broadcaster, DeferringBroadcaster } from './service/broadcast';
 import { CalendarMarkerService } from './service/calendar-marker.service';
 import { CapacityService } from './service/capacity.service';
-import { clockOf } from './service/clock';
+import { type Clock, clockOf } from './service/clock';
 import { DirectoryService } from './service/directory.service';
 import { GatewayBroadcaster } from './service/gateway-broadcaster';
 import { HistoryService } from './service/history.service';
@@ -39,7 +40,6 @@ import { ReplayOrchestrator } from './service/replay-orchestrator';
 import { RetentionTimer } from './service/retention-timer';
 import { StepService } from './service/step.service';
 import { WorkItemService } from './service/work-item.service';
-import type { WriteLock } from './service/write-lock';
 
 /**
  * How much of the event stream is kept, and how often.
@@ -64,16 +64,16 @@ export interface OptimizerRuntime {
 export interface ServicesOptions {
   db: Drizzle;
   /**
-   * The process's one write lock, which `boot.ts` must hand to **both** this
-   * factory and `buildApp`'s `writes.lock`.
+   * The process's one write coordinator, which `boot.ts` must hand to **both**
+   * this factory and `buildApp`'s `writes.gate`.
    *
-   * The broadcaster built here records each event under it so the row can never
-   * land inside a command batch's outer transaction on `db`; the runner opens
-   * that transaction under the same lock. Two locks would each look healthy and
+   * Every store built here takes its turn at this object, so nothing can write
+   * inside a command batch's outer transaction on `db`; the runner takes one
+   * turn for the whole batch. Two coordinators would each look healthy and
    * exclude nothing — the same failure mode the one-broadcaster and one-buffer
    * comments below describe.
    */
-  lock: WriteLock;
+  gate: WriteCoordinator;
   logger: Logger;
   jwtKey: string;
   gwUrl: string;
@@ -86,7 +86,7 @@ export interface ServicesOptions {
   optimizer?: OptimizerRuntime;
 }
 
-export interface BeServices {
+export interface BeServices extends WritingServices {
   /**
    * The one broadcaster every service publishes through, wrapped so a command
    * batch can hold its announcements until it has committed and released the
@@ -106,19 +106,155 @@ export interface BeServices {
    * describing a write that is not there.
    */
   gatewayBroadcaster: GatewayBroadcaster;
+  /**
+   * The process's one write coordinator, exposed for the same single reader
+   * `gatewayBroadcaster` is: a regression that reads the object off the graph
+   * rather than restating the wiring. Nothing publishes or writes through it.
+   */
+  gate: WriteCoordinator;
   auth: AuthService;
-  projects: ProjectService;
-  calendarMarkers: CalendarMarkerService;
-  capacity: CapacityService;
-  priorityBands: PriorityBandService;
-  steps: StepService;
-  directory: DirectoryService;
-  workItems: WorkItemService;
+  /**
+   * The batch's own service graph, built over stores that hold no turn because
+   * `UnitOfWork.run` holds it for them (D20). `PlanCommandRunner` is its only
+   * caller; a route reaching for it would write inside somebody else's batch.
+   */
+  batch: WritingServices;
   history: HistoryService;
   replay: ReplayOrchestrator;
   retention: RetentionTimer;
   optimizer: OptimizationCoordinator | undefined;
 }
+
+/**
+ * Every transactional store of the SQLite source, built over one gate.
+ *
+ * Built **twice** in this process and that is the whole point (D20): once over
+ * the {@link WriteCoordinator}, which is what a route write goes through and
+ * what makes it wait for an open batch's turn, and once over {@link OPEN} for
+ * the batch itself, whose services already hold that turn. A batch built over
+ * the coordinator would wait for the turn it is holding — a deadlock, not a
+ * slow write.
+ *
+ * The saved-plan stores are **not** here: they open their own connection per
+ * call, take no turn, and are independent of any batch (ADR 0015, D12/D27).
+ */
+export function buildStores(db: Drizzle, gate: Gate) {
+  return {
+    projects: new ProjectRepository(db, gate),
+    users: new UserRepository(db, gate),
+    directory: new DirectoryRepository(db, gate),
+    capacity: new CapacityRepository(db, gate),
+    priorityBands: new PriorityBandRepository(db, gate),
+    calendarMarkers: new CalendarMarkerRepository(db, gate),
+    eventLog: new DrizzleEventLogRepo(db, gate),
+    planEvents: new PlanEventRepository(db, gate),
+    steps: new StepRepository(db, gate),
+    workItems: new WorkItemRepository(db, gate),
+    estimates: new EstimateRepository(db, gate),
+    // Its own store beside the estimates rather than more methods on that one:
+    // the two tables answer different questions, and the day one of them grows
+    // a rule the other must not have is the day a shared class becomes a
+    // conditional. See `actual` in `schema.ts`.
+    actuals: new ActualRepository(db, gate),
+    measures: new StepMeasureRepository(db, gate),
+    // And its own store again, for the same reason once more: a state is a
+    // sentence about work and an actual is a number about it, and the table
+    // that holds one must not grow a rule the other has to carry. See
+    // `step_progress` in `schema.ts`.
+    progress: new StepProgressRepository(db, gate),
+    dependencies: new DependencyRepository(db, gate),
+    // The one store that writes across all four of the tables above, because
+    // a duplicated subtree is one act — see {@link SubtreeRepository}.
+    subtrees: new SubtreeRepository(db, gate),
+    // The undo stack, on the server so it survives a reload — one per account
+    // per project. See `command_journal` in `schema.ts`. It is also what writes
+    // the plan's history, in the same transaction, because a journalled command
+    // and a recorded one are the same act.
+    journal: new CommandJournalRepository(db, gate),
+  };
+}
+
+/** The transactional stores of one source, over one gate. */
+export type Stores = ReturnType<typeof buildStores>;
+
+/** What a service graph needs that is not a store, and is shared across graphs. */
+export interface SharedRuntime {
+  clock: Clock;
+  /**
+   * Where a write announces itself. The process's own graph publishes straight
+   * through; a batch's graph is given the collector that holds its events until
+   * it has committed and released its turn.
+   */
+  broadcast: Broadcaster;
+  optimized: ReturnType<typeof optimizerWiring>;
+}
+
+/**
+ * The services that write through one set of stores.
+ *
+ * Called once for the process's own graph and once for the batch's, so that the
+ * difference between them is exactly the two arguments: which gate their stores
+ * hold, and where their announcements go. Everything shared — the clock, the
+ * replay buffer, the throttle, the optimizer wiring — is built by
+ * {@link buildServices} and passed in.
+ */
+export function servicesOver(stores: Stores, shared: SharedRuntime) {
+  const { clock, broadcast } = shared;
+  return {
+    projects: new ProjectService({
+      clock,
+      projects: stores.projects,
+      broadcast,
+      optimizerAvailable: shared.optimized.available,
+    }),
+    capacity: new CapacityService({
+      clock,
+      projects: stores.projects,
+      capacity: stores.capacity,
+      broadcast,
+    }),
+    calendarMarkers: new CalendarMarkerService({
+      clock,
+      projects: stores.projects,
+      markers: stores.calendarMarkers,
+      broadcast,
+    }),
+    priorityBands: new PriorityBandService({
+      clock,
+      projects: stores.projects,
+      bands: stores.priorityBands,
+      broadcast,
+    }),
+    steps: new StepService({ clock, projects: stores.projects, steps: stores.steps, broadcast }),
+    directory: new DirectoryService({ clock, directory: stores.directory, broadcast }),
+    workItems: new WorkItemService({
+      clock,
+      workItems: stores.workItems,
+      projects: stores.projects,
+      estimates: stores.estimates,
+      actuals: stores.actuals,
+      measures: stores.measures,
+      progress: stores.progress,
+      dependencies: stores.dependencies,
+      directory: stores.directory,
+      capacity: stores.capacity,
+      // Read by `tree()` alone: the ladder is what every face draws priorities
+      // through, and it rides the payload the dates ride so a client cannot
+      // hold labels from one moment over numbers from another.
+      priorityBands: stores.priorityBands,
+      subtrees: stores.subtrees,
+      journal: stores.journal,
+      broadcast,
+      // The other half of the same `optimizerWiring` the settings gate reads,
+      // so this process cannot serve optimized plans while refusing to be
+      // switched on to them, or the reverse.
+      optimized: shared.optimized.read,
+    }),
+  };
+}
+
+/** One graph of the services a write goes through — see {@link servicesOver}. */
+export type WritingServices = ReturnType<typeof servicesOver>;
 
 /**
  * Everything be-01 runs, built once and wired together.
@@ -138,15 +274,16 @@ export function buildServices(opts: ServicesOptions): BeServices {
   // their own `now`, so "an act reads the clock once" (ADR 0012) was seven
   // separate promises about seven separate objects.
   const clock = clockOf();
-  const projectStore = new ProjectRepository(opts.db);
-  const userStore = new UserRepository(opts.db);
-  const directoryStore = new DirectoryRepository(opts.db);
-  const capacityStore = new CapacityRepository(opts.db);
-  const priorityBandStore = new PriorityBandRepository(opts.db);
-  const calendarMarkerStore = new CalendarMarkerRepository(opts.db);
-  const eventLog = new DrizzleEventLogRepo(opts.db);
+  // The process's own stores: every write through them waits for its turn at
+  // the coordinator, which is what keeps a route write out of an open batch's
+  // transaction. The batch's own stores are `admitted` below.
+  const stores = buildStores(opts.db, opts.gate);
+  // The batch's, over `OPEN`: their caller already holds the turn. See
+  // {@link buildStores}.
+  const admitted = buildStores(opts.db, OPEN);
+  const { projects: projectStore, users: userStore, eventLog } = stores;
   // One store for the route that reads the history and the timer that prunes it.
-  const planEventStore = new PlanEventRepository(opts.db);
+  const planEventStore = stores.planEvents;
 
   // One buffer, shared by the two halves of resume: the broadcaster fills it as
   // it publishes, the orchestrator serves reconnects from it. Two buffers would
@@ -164,10 +301,6 @@ export function buildServices(opts: ServicesOptions): BeServices {
     eventLog,
     clock,
     buffer: replayBuffer,
-    // `eventLog` is on `opts.db`, which is the connection a batch holds its
-    // outer transaction open on, so the durable record has to wait for that
-    // transaction to close. See `GatewayBroadcasterOptions.lock`.
-    lock: opts.lock,
     push: new PushClient({
       gwUrl: opts.gwUrl,
       secret: opts.internalAuthSecret,
@@ -230,6 +363,10 @@ export function buildServices(opts: ServicesOptions): BeServices {
   const services: BeServices = {
     announcements,
     gatewayBroadcaster: broadcast,
+    // The process's one coordinator, for **one** reader: `boot.db.test.ts` has
+    // to take a turn off the object the stores were built with, or it restates
+    // the wiring instead of observing it. Nothing writes through this.
+    gate: opts.gate,
     optimizer: coordinator,
     auth: new AuthService({
       clock,
@@ -240,96 +377,15 @@ export function buildServices(opts: ServicesOptions): BeServices {
       passwordSessions: opts.passwordSessions,
       localIdentity: opts.localIdentity,
     }),
-    // The same broadcaster once more, so `project_settings_changed` takes its
-    // place in the project's one sequence beside the step, capacity and tree
-    // events (tasks.md 3b.3).
-    projects: new ProjectService({
-      clock,
-      projects: projectStore,
-      broadcast: announcements,
-      optimizerAvailable: optimizer.available,
-    }),
-    // The same broadcaster again: a capacity event takes its place in the
-    // project's one sequence, so a client resuming from a work item's sequence is
-    // not replayed a capacity change it has seen — or handed none it has not.
-    capacity: new CapacityService({
-      clock,
-      projects: projectStore,
-      capacity: capacityStore,
-      broadcast: announcements,
-    }),
-    // The same broadcaster again, and this argument is load-bearing in a way
-    // the others are not: `CalendarMarkerServiceOptions.broadcast` is optional
-    // and `announce` calls it through `?.`, so a service built without one
-    // announces nothing and throws nothing. Every marker route test, service
-    // test and HTTP assertion stayed green for the whole of slices 4 and 9
-    // while the deployed process published no marker event at all (TASK-279).
-    // Nothing but wiring can catch that, which is why `services.db.test.ts` ›
-    // "announces a marker write through the shared broadcaster" drives a real
-    // write through the real `buildServices` and reads the event back.
-    calendarMarkers: new CalendarMarkerService({
-      clock,
-      projects: projectStore,
-      markers: calendarMarkerStore,
-      broadcast: announcements,
-    }),
-    // The same broadcaster again, for the capacity service's reason: a ladder
-    // event takes its place in the project's one sequence, so a client resuming
-    // from a work item's sequence is not replayed a rename of a rung it has seen.
-    priorityBands: new PriorityBandService({
-      clock,
-      projects: projectStore,
-      bands: priorityBandStore,
-      broadcast: announcements,
-    }),
-    steps: new StepService({
-      clock,
-      projects: projectStore,
-      steps: new StepRepository(opts.db),
-      broadcast: announcements,
-    }),
-    // The same broadcaster the steps and the work items use, so a directory
-    // event takes its place in the project's one sequence — a client resuming
-    // from a work item's sequence must not be replayed a rename it has seen,
-    // or miss one it has not.
-    directory: new DirectoryService({ clock, directory: directoryStore, broadcast: announcements }),
-    workItems: new WorkItemService({
-      clock,
-      workItems: new WorkItemRepository(opts.db),
-      projects: projectStore,
-      estimates: new EstimateRepository(opts.db),
-      // Its own store beside the estimates rather than more methods on that one:
-      // the two tables answer different questions, and the day one of them grows
-      // a rule the other must not have is the day a shared class becomes a
-      // conditional. See `actual` in `schema.ts`.
-      actuals: new ActualRepository(opts.db),
-      measures: new StepMeasureRepository(opts.db),
-      // And its own store again, for the same reason once more: a state is a
-      // sentence about work and an actual is a number about it, and the table
-      // that holds one must not grow a rule the other has to carry. See
-      // `step_progress` in `schema.ts`.
-      progress: new StepProgressRepository(opts.db),
-      dependencies: new DependencyRepository(opts.db),
-      directory: directoryStore,
-      capacity: capacityStore,
-      // Read by `tree()` alone: the ladder is what every face draws priorities
-      // through, and it rides the payload the dates ride so a client cannot hold
-      // labels from one moment over numbers from another.
-      priorityBands: priorityBandStore,
-      // The one store that writes across all four of the tables above, because
-      // a duplicated subtree is one act — see {@link SubtreeRepository}.
-      subtrees: new SubtreeRepository(opts.db),
-      // The undo stack, on the server so it survives a reload — one per
-      // account per project. See `command_journal` in `schema.ts`. It is also
-      // what writes the plan's history, in the same transaction, because a
-      // journalled command and a recorded one are the same act.
-      journal: new CommandJournalRepository(opts.db),
-      broadcast: announcements,
-      // The other half of the same `optimizerWiring` the settings gate reads,
-      // so this process cannot serve optimized plans while refusing to be
-      // switched on to them, or the reverse.
-      optimized: optimizer.read,
-    }),
+    // Every writing service in one call, over the stores that take a turn and
+    // the wrapper the announcements are held in. `announcements` is the same
+    // object for both graphs deliberately: there is exactly one broadcaster in
+    // the process, so a batch cannot hold one while a service publishes through
+    // another (see {@link DeferringBroadcaster}).
+    ...servicesOver(stores, { clock, broadcast: announcements, optimized: optimizer }),
+    // The batch's own graph, over the admitted stores: its writes are already
+    // the batch's, so nothing in it waits for the turn `UnitOfWork` holds.
+    batch: servicesOver(admitted, { clock, broadcast: announcements, optimized: optimizer }),
     history: new HistoryService({ projects: projectStore, events: planEventStore }),
     replay: new ReplayOrchestrator({ log: eventLog, buffer: replayBuffer }),
     retention: new RetentionTimer({

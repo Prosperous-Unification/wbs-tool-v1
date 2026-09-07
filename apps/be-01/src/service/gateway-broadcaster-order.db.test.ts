@@ -7,18 +7,18 @@ import { expect, it } from 'bun:test';
 
 import { openDrizzle } from '../repository/db';
 import { DrizzleEventLogRepo } from '../repository/event-log';
+import { OPEN } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { GatewayBroadcaster } from './gateway-broadcaster';
 import { PushClient } from './push-client';
 import { ReplayBuffer } from './replay-buffer';
-import { WriteLock } from './write-lock';
 
 /** A transport barrier exposes the production publisher's record/push ordering. */
 it('allows C to overtake recorded B while its push is held', async () => {
   const folder = mkdtempSync(join(tmpdir(), 'wbs-broadcast-order-'));
   const path = join(folder, 'test.db');
   runMigrations(path, join(import.meta.dir, '..', '..', 'drizzle'));
-  const eventLog = new DrizzleEventLogRepo(openDrizzle(path));
+  const eventLog = new DrizzleEventLogRepo(openDrizzle(path), OPEN);
   let releaseB!: () => void;
   let startedB!: () => void;
   const heldB = new Promise<void>((resolve) => {
@@ -31,7 +31,6 @@ it('allows C to overtake recorded B while its push is held', async () => {
   const broadcaster = new GatewayBroadcaster({
     eventLog,
     buffer: new ReplayBuffer({ maxPerSubscription: 100, maxAgeMs: 60_000 }),
-    lock: new WriteLock(),
     push: new PushClient({
       gwUrl: 'http://transport.test',
       secret: 'fixture',

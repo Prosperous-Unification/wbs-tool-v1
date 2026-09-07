@@ -12,6 +12,7 @@ import { openDrizzle } from '../repository/db';
 import { DependencyRepository } from '../repository/dependency';
 import { DirectoryRepository } from '../repository/directory';
 import { EstimateRepository } from '../repository/estimate';
+import { OPEN } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { ProjectRepository } from '../repository/project';
 import { StepRepository } from '../repository/step';
@@ -67,17 +68,14 @@ describe('setCapacity on POST /api/projects/:id/commands', () => {
     runMigrations(path, FOLDER);
     const db = openDrizzle(path);
 
-    projectStore = new ProjectRepository(db);
-    directoryStore = new DirectoryRepository(db);
-    capacityStore = new CapacityRepository(db);
-    const workItems = new WorkItemRepository(db);
+    projectStore = new ProjectRepository(db, OPEN);
+    directoryStore = new DirectoryRepository(db, OPEN);
+    capacityStore = new CapacityRepository(db, OPEN);
+    const workItems = new WorkItemRepository(db, OPEN);
     broadcast = recordingBroadcaster();
-    const auth = new AuthService({ users: new UserRepository(db), jwtKey: TEST_JWT_KEY });
+    const auth = new AuthService({ users: new UserRepository(db, OPEN), jwtKey: TEST_JWT_KEY });
 
-    app = buildApp({
-      appOrigin: 'http://localhost',
-      savedPlans: testSavedPlanService(),
-      auth,
+    const writing = {
       projects: new ProjectService({ projects: projectStore, broadcast: recordingBroadcaster() }),
       directory: new DirectoryService({ directory: directoryStore, broadcast }),
       capacity: new CapacityService({
@@ -86,32 +84,38 @@ describe('setCapacity on POST /api/projects/:id/commands', () => {
         broadcast,
       }),
       priorityBands: testPriorityBandService(),
-      history: testHistoryService(),
       calendarMarkers: testCalendarMarkerService(),
       steps: new StepService({
         projects: projectStore,
-        steps: new StepRepository(db),
+        steps: new StepRepository(db, OPEN),
         broadcast,
       }),
       workItems: new WorkItemService({
         workItems,
         projects: projectStore,
-        estimates: new EstimateRepository(db),
-        actuals: new ActualRepository(db),
-        measures: new StepMeasureRepository(db),
-        progress: new StepProgressRepository(db),
-        dependencies: new DependencyRepository(db),
+        estimates: new EstimateRepository(db, OPEN),
+        actuals: new ActualRepository(db, OPEN),
+        measures: new StepMeasureRepository(db, OPEN),
+        progress: new StepProgressRepository(db, OPEN),
+        dependencies: new DependencyRepository(db, OPEN),
         directory: directoryStore,
         capacity: capacityStore,
         priorityBands: inMemoryPriorityBands(),
-        subtrees: new SubtreeRepository(db),
-        journal: new CommandJournalRepository(db),
+        subtrees: new SubtreeRepository(db, OPEN),
+        journal: new CommandJournalRepository(db, OPEN),
         broadcast,
       }),
+    };
+    app = buildApp({
+      ...writing,
+      appOrigin: 'http://localhost',
+      savedPlans: testSavedPlanService(),
+      auth,
+      history: testHistoryService(),
       replay: testReplay().replay,
       probeDatabase: () => 'ok',
       internalAuthSecret: 'x'.repeat(32),
-      writes: testWrites(),
+      writes: testWrites(undefined, writing),
       migrationsApplied: true,
     });
 

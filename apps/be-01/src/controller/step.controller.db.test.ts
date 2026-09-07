@@ -12,6 +12,7 @@ import { openDrizzle } from '../repository/db';
 import { DependencyRepository } from '../repository/dependency';
 import { DirectoryRepository } from '../repository/directory';
 import { EstimateRepository } from '../repository/estimate';
+import { OPEN } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { ProjectRepository } from '../repository/project';
 import { StepRepository } from '../repository/step';
@@ -20,6 +21,7 @@ import { StepProgressRepository } from '../repository/step-progress';
 import { UserRepository } from '../repository/user';
 import { SubtreeRepository, WorkItemRepository } from '../repository/work-item';
 import { AuthService } from '../service/auth.service';
+import { DeferringBroadcaster } from '../service/broadcast';
 import { DirectoryService } from '../service/directory.service';
 import { ProjectService } from '../service/project.service';
 import { StepService } from '../service/step.service';
@@ -88,43 +90,42 @@ beforeEach(async () => {
   runMigrations(path, FOLDER);
   const db = openDrizzle(path);
 
-  projects = new ProjectRepository(db);
-  stepStore = new StepRepository(db);
-  estimates = new EstimateRepository(db);
-  actuals = new ActualRepository(db);
-  measures = new StepMeasureRepository(db);
-  progressStore = new StepProgressRepository(db);
-  directory = new DirectoryRepository(db);
-  workItems = new WorkItemRepository(db);
+  projects = new ProjectRepository(db, OPEN);
+  stepStore = new StepRepository(db, OPEN);
+  estimates = new EstimateRepository(db, OPEN);
+  actuals = new ActualRepository(db, OPEN);
+  measures = new StepMeasureRepository(db, OPEN);
+  progressStore = new StepProgressRepository(db, OPEN);
+  directory = new DirectoryRepository(db, OPEN);
+  workItems = new WorkItemRepository(db, OPEN);
 
   seededBy = crypto.randomUUID();
-  await new UserRepository(db).create(
+  await new UserRepository(db, OPEN).create(
     { id: seededBy, username: 'the-fixture', passwordHash: 'x', createdAt: 1 },
     { at: 1, by: seededBy },
   );
 
   broadcast = recordingBroadcaster();
-  writes = testWrites(broadcast);
+  const announcements = new DeferringBroadcaster(broadcast);
 
-  auth = new AuthService({ users: new UserRepository(db), jwtKey: TEST_JWT_KEY });
-  app = buildApp({
-    appOrigin: 'http://localhost',
-    savedPlans: testSavedPlanService(),
+  auth = new AuthService({ users: new UserRepository(db, OPEN), jwtKey: TEST_JWT_KEY });
+  // One graph for the routes and the batch alike — these stores hold no turn,
+  // so there is nothing for a second graph to keep apart, and a batch given its
+  // own would write into stores nothing here reads.
+  const writing = {
     directory: new DirectoryService({ directory, broadcast: recordingBroadcaster() }),
     capacity: testCapacityService(),
     priorityBands: testPriorityBandService(),
-    history: testHistoryService(),
     calendarMarkers: testCalendarMarkerService(),
-    auth,
     // The shared wrapper here too, from Gemini's Minor on PR 203: this line
     // handed `ProjectService` a PRIVATE recorder, so anything it announced
     // landed in a log nothing reads. Harmless while no step route mutates
     // project settings — and exactly the shape in which a future assertion
     // reads an empty log and passes. See {@link writes}.
-    projects: new ProjectService({ projects, broadcast: writes.announcements }),
+    projects: new ProjectService({ projects, broadcast: announcements }),
     // The shared wrapper, as `services.ts` wires `StepService` — not a private
     // recorder. See {@link writes}.
-    steps: new StepService({ projects, steps: stepStore, broadcast: writes.announcements }),
+    steps: new StepService({ projects, steps: stepStore, broadcast: announcements }),
     workItems: new WorkItemService({
       workItems,
       projects,
@@ -132,14 +133,22 @@ beforeEach(async () => {
       actuals,
       measures,
       progress: progressStore,
-      dependencies: new DependencyRepository(db),
+      dependencies: new DependencyRepository(db, OPEN),
       directory,
       capacity: inMemoryCapacity(),
       priorityBands: inMemoryPriorityBands(),
-      subtrees: new SubtreeRepository(db),
-      journal: new CommandJournalRepository(db),
+      subtrees: new SubtreeRepository(db, OPEN),
+      journal: new CommandJournalRepository(db, OPEN),
       broadcast: recordingBroadcaster(),
     }),
+  };
+  writes = testWrites(broadcast, writing);
+  app = buildApp({
+    appOrigin: 'http://localhost',
+    savedPlans: testSavedPlanService(),
+    history: testHistoryService(),
+    auth,
+    ...writing,
     replay: testReplay().replay,
     probeDatabase: () => 'ok',
     internalAuthSecret: 'x'.repeat(32),

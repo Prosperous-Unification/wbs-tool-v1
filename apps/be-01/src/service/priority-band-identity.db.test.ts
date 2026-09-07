@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import type { Project, Step, StoredDependency, WorkItem, WriteStamp } from '../repository';
 import { STEP_POSITION_STEP } from '../repository';
 import { openDatabase, openDrizzle } from '../repository/db';
+import { OPEN } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { rollbackTo } from '../repository/migrate-down';
 import { PriorityBandRepository } from '../repository/priority-band';
@@ -659,7 +660,7 @@ describe('a priority ladder moves no date', () => {
 
     runMigrations(path, FOLDER);
 
-    const store = new PriorityBandRepository(openDrizzle(path));
+    const store = new PriorityBandRepository(openDrizzle(path), OPEN);
     const first = oracle.plans.at(0);
     if (first === undefined) throw new Error('the oracle holds no plans');
     const seeded = await store.listFor(first.projectId);

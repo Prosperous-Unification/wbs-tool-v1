@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { projectRow } from '../testing/project-fixture';
 import { messagesOf } from './constraint';
 import { openDatabase, openDrizzle } from './db';
+import { OPEN } from './gate';
 import type { NewProject, Project, Step, WriteStamp } from './index';
 import { STEP_POSITION_STEP } from './index';
 import { runMigrations } from './migrate';
@@ -33,9 +34,9 @@ beforeEach(async () => {
   const path = join(dir, 'test.db');
   runMigrations(path, FOLDER);
   const db = openDrizzle(path);
-  repo = new ProjectRepository(db);
+  repo = new ProjectRepository(db, OPEN);
   ownerId = crypto.randomUUID();
-  await new UserRepository(db).create(
+  await new UserRepository(db, OPEN).create(
     { id: ownerId, username: 'owner', passwordHash: 'x', createdAt: 1 },
     wrote(),
   );
@@ -229,7 +230,7 @@ describe('ProjectRepository', () => {
 
   it('gives another account its own order', async () => {
     const other = crypto.randomUUID();
-    await new UserRepository(openDrizzle(join(dir, 'test.db'))).create(
+    await new UserRepository(openDrizzle(join(dir, 'test.db')), OPEN).create(
       { id: other, username: 'other', passwordHash: 'x', createdAt: 1 },
       { at: 1, by: other },
     );
@@ -249,7 +250,7 @@ describe('ProjectRepository', () => {
     // pass with one account in the database and be wrong for every list that
     // holds somebody else's project — which is the whole reason for the field.
     const strip = crypto.randomUUID();
-    await new UserRepository(openDrizzle(join(dir, 'test.db'))).create(
+    await new UserRepository(openDrizzle(join(dir, 'test.db')), OPEN).create(
       { id: strip, username: 'strip', passwordHash: 'x', createdAt: 1 },
       { at: 1, by: strip },
     );
@@ -452,6 +453,7 @@ describe('ProjectRepository', () => {
           statements.push(query);
         },
       }),
+      OPEN,
     );
 
     const listed = await counted.listFor(ownerId);

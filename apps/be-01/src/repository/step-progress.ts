@@ -3,6 +3,7 @@ import type { SQLiteBunDatabase } from 'drizzle-orm/bun-sqlite';
 
 import { auditOnCreate, auditOnUpdate } from './audit';
 import { rowsChanged } from './changes';
+import type { Gate } from './gate';
 import type { StepProgressStore, StoredProgress, WriteStamp } from './index';
 import { bumpWorkItems } from './revision';
 import { step, stepProgress, workItem } from './schema';
@@ -21,7 +22,10 @@ import { step, stepProgress, workItem } from './schema';
  * follow a subtree and the statement about them quietly does not.
  */
 export class StepProgressRepository implements StepProgressStore {
-  constructor(private readonly db: SQLiteBunDatabase) {}
+  constructor(
+    private readonly db: SQLiteBunDatabase,
+    private readonly gate: Gate,
+  ) {}
 
   /**
    * Every stated step in the project, **in step order** within each work item.
@@ -71,31 +75,35 @@ export class StepProgressRepository implements StepProgressStore {
    * today.
    */
   async set(toSet: StoredProgress, stamp: WriteStamp): Promise<void> {
-    await Promise.resolve();
-    this.db.transaction((tx) => {
-      tx.insert(stepProgress)
-        .values({ ...toSet, ...auditOnCreate(stamp) })
-        .onConflictDoUpdate({
-          target: [stepProgress.workItemId, stepProgress.stepId],
-          set: { state: toSet.state, statedAt: toSet.statedAt, ...auditOnUpdate(stamp) },
-        })
-        .run();
-      bumpWorkItems(tx, [toSet.workItemId], stamp);
+    await this.gate.enter(async () => {
+      await Promise.resolve();
+      this.db.transaction((tx) => {
+        tx.insert(stepProgress)
+          .values({ ...toSet, ...auditOnCreate(stamp) })
+          .onConflictDoUpdate({
+            target: [stepProgress.workItemId, stepProgress.stepId],
+            set: { state: toSet.state, statedAt: toSet.statedAt, ...auditOnUpdate(stamp) },
+          })
+          .run();
+        bumpWorkItems(tx, [toSet.workItemId], stamp);
+      });
     });
   }
 
   async remove(workItemId: string, stepId: string, stamp: WriteStamp): Promise<void> {
-    // Both halves of the key, not the step alone: the composite primary key is
-    // (work item, step), and narrowing to one of them would take that step's
-    // state off every row in the database. `step-progress.test.ts` keeps a
-    // survivor for each half so that mistake cannot pass — the same guard
-    // `estimate.test.ts` and `actual.test.ts` keep.
-    await Promise.resolve();
-    this.db.transaction((tx) => {
-      tx.delete(stepProgress)
-        .where(and(eq(stepProgress.workItemId, workItemId), eq(stepProgress.stepId, stepId)))
-        .run();
-      bumpWorkItems(tx, [workItemId], stamp);
+    await this.gate.enter(async () => {
+      // Both halves of the key, not the step alone: the composite primary key is
+      // (work item, step), and narrowing to one of them would take that step's
+      // state off every row in the database. `step-progress.test.ts` keeps a
+      // survivor for each half so that mistake cannot pass — the same guard
+      // `estimate.test.ts` and `actual.test.ts` keep.
+      await Promise.resolve();
+      this.db.transaction((tx) => {
+        tx.delete(stepProgress)
+          .where(and(eq(stepProgress.workItemId, workItemId), eq(stepProgress.stepId, stepId)))
+          .run();
+        bumpWorkItems(tx, [workItemId], stamp);
+      });
     });
   }
 
@@ -120,14 +128,16 @@ export class StepProgressRepository implements StepProgressStore {
    * 2 where 1 is owed; watched 2026-08-18.
    */
   async moveAll(fromWorkItemId: string, toWorkItemId: string, stamp: WriteStamp): Promise<void> {
-    await Promise.resolve();
-    this.db.transaction((tx) => {
-      tx.update(stepProgress)
-        .set({ workItemId: toWorkItemId, ...auditOnUpdate(stamp) })
-        .where(eq(stepProgress.workItemId, fromWorkItemId))
-        .run();
-      if (rowsChanged(tx, 'moving stated progress') === 0) return;
-      bumpWorkItems(tx, [fromWorkItemId, toWorkItemId], stamp);
+    await this.gate.enter(async () => {
+      await Promise.resolve();
+      this.db.transaction((tx) => {
+        tx.update(stepProgress)
+          .set({ workItemId: toWorkItemId, ...auditOnUpdate(stamp) })
+          .where(eq(stepProgress.workItemId, fromWorkItemId))
+          .run();
+        if (rowsChanged(tx, 'moving stated progress') === 0) return;
+        bumpWorkItems(tx, [fromWorkItemId, toWorkItemId], stamp);
+      });
     });
   }
 }

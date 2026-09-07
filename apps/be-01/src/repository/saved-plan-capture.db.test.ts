@@ -15,6 +15,7 @@ import { CapacityRepository } from './capacity';
 import type { Connection, Drizzle } from './db';
 import { openConnection, openDatabase } from './db';
 import { DirectoryRepository } from './directory';
+import { OPEN } from './gate';
 import type { WriteStamp } from './index';
 import { runMigrations } from './migrate';
 import { ProjectRepository } from './project';
@@ -133,11 +134,11 @@ describe('capturing a project’s plan input', () => {
     sqlite = openDatabase(path);
     const seed = openConnection(path);
     const db = seed.db;
-    await new UserRepository(db).create(
+    await new UserRepository(db, OPEN).create(
       { id: 'owner', username: 'owner', passwordHash: 'x', createdAt: 1 },
       wrote,
     );
-    await new ProjectRepository(db).create(
+    await new ProjectRepository(db, OPEN).create(
       // `name` and `estimateMethod` are generation markers for the torn-read
       // cases below: `before`/`pert` is the seeded state, and the one edit
       // committed mid-capture moves both.
@@ -145,7 +146,7 @@ describe('capturing a project’s plan input', () => {
       [{ id: 'st-1', projectId: 'p1', name: 'before', position: 10 }],
       wrote,
     );
-    const directory = new DirectoryRepository(db);
+    const directory = new DirectoryRepository(db, OPEN);
     // The first hole: a team the capacity map names and no junction row does.
     await directory.addTeam({ id: 't-platform', name: 'Platform' }, wrote);
     // The second: a person on a team and on no work item.
@@ -153,8 +154,8 @@ describe('capturing a project’s plan input', () => {
     await directory.addTag({ id: 'tag-1', name: 'urgent' }, wrote);
     await directory.addService({ id: 'svc-1', name: 'Wiring' }, wrote);
     await directory.addWorkItemType({ id: 'wit-1', name: 'Task' }, wrote);
-    await new CapacityRepository(db).set('p1', 't-platform', 4, wrote);
-    const items = new WorkItemRepository(db);
+    await new CapacityRepository(db, OPEN).set('p1', 't-platform', 4, wrote);
+    const items = new WorkItemRepository(db, OPEN);
     await items.insert(
       {
         id: 'wi-1',
@@ -243,7 +244,7 @@ describe('capturing a project’s plan input', () => {
     // — the claim is about a database that has markers in it, whoever put them
     // there.
     const writing = openConnection(path);
-    const markers = new CalendarMarkerRepository(writing.db);
+    const markers = new CalendarMarkerRepository(writing.db, OPEN);
     for (const [index, date] of ['2026-08-18', '2026-08-20', '2026-08-25'].entries()) {
       const written = await markers.create({
         id: `cm-${String(index)}`,
@@ -257,7 +258,7 @@ describe('capturing a project’s plan input', () => {
     }
     // The rows really are there, so "the hash did not move" is a claim about a
     // project with markers rather than about a failed write.
-    expect(await new CalendarMarkerRepository(writing.db).listFor('p1')).toHaveLength(3);
+    expect(await new CalendarMarkerRepository(writing.db, OPEN).listFor('p1')).toHaveLength(3);
     writing.close();
 
     expect(await hashNow()).toBe(before);

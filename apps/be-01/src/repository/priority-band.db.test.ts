@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { projectRow } from '../testing/project-fixture';
 import { openDatabase, openDrizzle } from './db';
+import { OPEN } from './gate';
 import type { Project, WriteStamp } from './index';
 import { runMigrations } from './migrate';
 import { PriorityBandRepository } from './priority-band';
@@ -57,12 +58,12 @@ describe('a project’s priority ladder', () => {
     runMigrations(path, FOLDER);
     const db = openDrizzle(path);
     sqlite = openDatabase(path);
-    bands = new PriorityBandRepository(db);
-    await new UserRepository(db).create(
+    bands = new PriorityBandRepository(db, OPEN);
+    await new UserRepository(db, OPEN).create(
       { id: 'owner', username: 'owner', passwordHash: 'x', createdAt: 1 },
       wrote,
     );
-    const projects = new ProjectRepository(db);
+    const projects = new ProjectRepository(db, OPEN);
     // Created **through the repository**, which is the release under test — so
     // neither project is seeded by the migration and both are in the state every
     // project made after the deploy is in. That is the state the read's default

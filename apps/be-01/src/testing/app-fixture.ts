@@ -28,22 +28,40 @@ import { testWrites } from './writes-fixture';
  * inherits the rest.
  */
 export function testApp(overrides: Partial<AppOptions> = {}): ReturnType<typeof buildApp> {
+  const workItems = testWorkItemService();
+  const directory = testDirectoryService();
+  const capacity = testCapacityService();
+  const priorityBands = testPriorityBandService();
+  const projects = testProjectService();
+  const steps = testStepService();
+  const calendarMarkers = testCalendarMarkerService();
   return buildApp({
     appOrigin: 'http://localhost',
     auth: testAuthService(),
-    projects: testProjectService(),
-    workItems: testWorkItemService(),
+    projects,
+    workItems,
     savedPlans: testSavedPlanService(),
-    steps: testStepService(),
-    directory: testDirectoryService(),
-    capacity: testCapacityService(),
-    priorityBands: testPriorityBandService(),
+    steps,
+    directory,
+    capacity,
+    priorityBands,
     history: testHistoryService(),
-    calendarMarkers: testCalendarMarkerService(),
+    calendarMarkers,
     replay: testReplay().replay,
     probeDatabase: () => 'ok',
     internalAuthSecret: 'x'.repeat(32),
-    writes: testWrites(),
+    // The same doubles the routes were given: on the fixtures there is one set
+    // of stores and no turn to hold, so the batch's graph and the routes' are
+    // the same objects. See {@link testWrites}.
+    writes: testWrites(undefined, {
+      workItems,
+      directory,
+      capacity,
+      priorityBands,
+      projects,
+      steps,
+      calendarMarkers,
+    }),
     migrationsApplied: true,
     ...overrides,
   });

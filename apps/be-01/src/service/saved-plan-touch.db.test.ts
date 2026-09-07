@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { openConnection, openDatabase } from '../repository/db';
+import { OPEN } from '../repository/gate';
 import type { WriteStamp } from '../repository/index';
 import { runMigrations } from '../repository/migrate';
 import { ProjectRepository } from '../repository/project';
@@ -70,16 +71,16 @@ describe('renaming and deleting a saved plan', () => {
     runMigrations(path, FOLDER);
     const seed = openConnection(path);
     const db = seed.db;
-    const users = new UserRepository(db);
+    const users = new UserRepository(db, OPEN);
     for (const id of ['owner', 'ada', 'mallory']) {
       await users.create({ id, username: id, passwordHash: 'x', createdAt: 1 }, wrote);
     }
-    await new ProjectRepository(db).create(
+    await new ProjectRepository(db, OPEN).create(
       projectRow({ id: 'p1', name: 'Rewire the shed', ownerId: 'owner' }),
       [{ id: 'st-1', projectId: 'p1', name: 'Dev', position: 10 }],
       wrote,
     );
-    await new WorkItemRepository(db).insert(item('wi-1', 10), [], wrote);
+    await new WorkItemRepository(db, OPEN).insert(item('wi-1', 10), [], wrote);
     seed.close();
     reader = openDatabase(path);
   });

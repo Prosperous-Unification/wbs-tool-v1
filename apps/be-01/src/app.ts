@@ -19,6 +19,7 @@ import { mountEndpoints } from './http/elysia/mount';
 import type { BoundEndpoint } from './http/endpoint';
 import { identityResolver } from './http/identity';
 import { openApiPlugin } from './openapi/openapi-plugin';
+import type { WriteCoordinator } from './repository/gate';
 import type { DatabaseHealth } from './repository/health-probe';
 import type { AuthService } from './service/auth.service';
 import type { DeferringBroadcaster } from './service/broadcast';
@@ -36,7 +37,7 @@ import type { ReplayOrchestrator } from './service/replay-orchestrator';
 import type { SavedPlanService } from './service/saved-plan.service';
 import type { StepService } from './service/step.service';
 import type { WorkItemService } from './service/work-item.service';
-import type { WriteLock } from './service/write-lock';
+import type { WritingServices } from './services';
 
 export interface AppOptions {
   /** Trusted browser origin, resolved from operator configuration before boot. */
@@ -128,13 +129,22 @@ export interface AppOptions {
   probeDatabase: () => DatabaseHealth;
   /**
    * What a command batch runs inside: the outer transaction on the one
-   * connection and the write lock — `drizzleOuterTransaction(db)` and a
-   * `WriteLock` in production, the counting fixture on in-memory stores. See
-   * `service/plan-commands.ts` and ADR 0007.
+   * connection, the write coordinator it takes one turn at, and the batch's own
+   * service graph — `drizzleOuterTransaction(db)` and a `WriteCoordinator` in
+   * production, the counting fixture on in-memory stores. See
+   * `service/plan-commands.ts`, ADR 0007 and ADR 0015.
    */
   writes: {
     transactions: OuterTransaction;
-    lock: WriteLock;
+    /** The process's one write coordinator — see {@link ServicesOptions.gate}. */
+    gate: WriteCoordinator;
+    /**
+     * The services a batch writes through, built over stores that hold no turn
+     * because the batch holds it for them (D20). These are **not** the services
+     * beside them in these options: those take a turn per write, which is what
+     * keeps a route write out of an open batch.
+     */
+    batch: WritingServices;
     /**
      * The broadcaster the directory, capacity and priority-band services were
      * built with, so a batch can hold their announcements until it has committed
@@ -181,12 +191,12 @@ export function mountedEndpoints(
     maxConcurrent: opts.maxConcurrentLogins ?? 8,
   });
   const commands = new PlanCommandRunner({
-    workItems: opts.workItems,
-    directory: opts.directory,
-    capacity: opts.capacity,
-    priorityBands: opts.priorityBands,
+    workItems: opts.writes.batch.workItems,
+    directory: opts.writes.batch.directory,
+    capacity: opts.writes.batch.capacity,
+    priorityBands: opts.writes.batch.priorityBands,
     transactions: opts.writes.transactions,
-    lock: opts.writes.lock,
+    gate: opts.writes.gate,
     announcements: opts.writes.announcements,
   });
   return [

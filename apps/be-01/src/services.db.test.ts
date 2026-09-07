@@ -8,6 +8,8 @@ import { afterEach, describe, expect, it } from 'bun:test';
 
 import { openDrizzle } from './repository/db';
 import { DrizzleEventLogRepo } from './repository/event-log';
+import { OPEN } from './repository/gate';
+import { WriteCoordinator } from './repository/gate';
 import { runMigrations } from './repository/migrate';
 import { allocateGeneration } from './repository/optimization-generation';
 import { ProjectRepository } from './repository/project';
@@ -15,7 +17,6 @@ import { optimizedScheduleCache } from './repository/schema';
 import { UserRepository } from './repository/user';
 import type { ReservedSpawner, ReservedSpawnRequest } from './service/optimization-coordinator';
 import { readRuntimeSolverVersion } from './service/solver-launcher-process';
-import { WriteLock } from './service/write-lock';
 import { buildServices } from './services';
 import { projectRow } from './testing/project-fixture';
 
@@ -40,7 +41,7 @@ function bootstrap(optimizer?: {
   const db = openDrizzle(path);
   const services = buildServices({
     db,
-    lock: new WriteLock(),
+    gate: new WriteCoordinator(),
     logger: createLogger({ service: 'be-01' }),
     jwtKey: 'k'.repeat(32),
     gwUrl: 'http://gw.invalid',
@@ -62,7 +63,7 @@ async function seedProject(db: ReturnType<typeof openDrizzle>): Promise<{
   ownerId: string;
 }> {
   const ownerId = crypto.randomUUID();
-  await new UserRepository(db).create(
+  await new UserRepository(db, OPEN).create(
     {
       id: ownerId,
       username: 'owner',
@@ -72,7 +73,7 @@ async function seedProject(db: ReturnType<typeof openDrizzle>): Promise<{
     { at: 1, by: ownerId },
   );
   const projectId = crypto.randomUUID();
-  const project = await new ProjectRepository(db).create(
+  const project = await new ProjectRepository(db, OPEN).create(
     projectRow({
       id: projectId,
       ownerId,
@@ -110,7 +111,7 @@ describe('buildServices', () => {
 
     // Emptying the log leaves the replay intact, which it could only do if the
     // event is in the buffer the orchestrator was handed.
-    await new DrizzleEventLogRepo(db).pruneBeyond(0);
+    await new DrizzleEventLogRepo(db, OPEN).pruneBeyond(0);
     expect(await services.replay.replay({ [subscription]: -1 })).toEqual(fromBuffer);
   });
 
@@ -131,7 +132,7 @@ describe('buildServices', () => {
     const { projectId, ownerId } = await seedProject(db);
 
     const subscription = `project:${projectId}`;
-    const log = new DrizzleEventLogRepo(db);
+    const log = new DrizzleEventLogRepo(db, OPEN);
     const before = await log.latestSeq(subscription);
 
     const written = await services.calendarMarkers.create(projectId, ownerId, {
@@ -161,7 +162,7 @@ describe('buildServices', () => {
     const { projectId, ownerId } = await seedProject(db);
 
     const subscription = `project:${projectId}`;
-    const log = new DrizzleEventLogRepo(db);
+    const log = new DrizzleEventLogRepo(db, OPEN);
     const seq = () => log.latestSeq(subscription);
     const start = await seq();
 

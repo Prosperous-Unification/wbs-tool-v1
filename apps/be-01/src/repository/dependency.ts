@@ -2,6 +2,7 @@ import { and, eq, inArray, or } from 'drizzle-orm';
 
 import { auditOnCreate } from './audit';
 import type { Drizzle } from './db';
+import type { Gate } from './gate';
 import type { DependencyStore, StoredDependency, WriteStamp } from './index';
 import { bumpWorkItems } from './revision';
 import { dependency } from './schema';
@@ -16,7 +17,10 @@ import { dependency } from './schema';
  * in `service/revision.test.ts` fails on the predecessor; watched 2026-08-07.
  */
 export class DependencyRepository implements DependencyStore {
-  constructor(private readonly db: Drizzle) {}
+  constructor(
+    private readonly db: Drizzle,
+    private readonly gate: Gate,
+  ) {}
 
   async listByProject(projectId: string): Promise<StoredDependency[]> {
     // Projected rather than `select()`, and every read that crosses this
@@ -48,29 +52,36 @@ export class DependencyRepository implements DependencyStore {
    * retry where a missing one costs a lost edit.
    */
   async add(toAdd: StoredDependency, stamp: WriteStamp): Promise<void> {
-    await Promise.resolve();
-    this.db.transaction((tx) => {
-      // `onConflictDoNothing`, so an edge that is already there keeps the stamp
-      // of the act that first drew it. Re-adding a dependency is not a change to
-      // it, and the audit columns say who drew the edge rather than who last
-      // asked for it.
-      tx.insert(dependency)
-        .values({ ...toAdd, ...auditOnCreate(stamp) })
-        .onConflictDoNothing()
-        .run();
-      bumpWorkItems(tx, [toAdd.predecessorId, toAdd.successorId], stamp);
+    await this.gate.enter(async () => {
+      await Promise.resolve();
+      this.db.transaction((tx) => {
+        // `onConflictDoNothing`, so an edge that is already there keeps the stamp
+        // of the act that first drew it. Re-adding a dependency is not a change to
+        // it, and the audit columns say who drew the edge rather than who last
+        // asked for it.
+        tx.insert(dependency)
+          .values({ ...toAdd, ...auditOnCreate(stamp) })
+          .onConflictDoNothing()
+          .run();
+        bumpWorkItems(tx, [toAdd.predecessorId, toAdd.successorId], stamp);
+      });
     });
   }
 
   async remove(predecessorId: string, successorId: string, stamp: WriteStamp): Promise<void> {
-    await Promise.resolve();
-    this.db.transaction((tx) => {
-      tx.delete(dependency)
-        .where(
-          and(eq(dependency.predecessorId, predecessorId), eq(dependency.successorId, successorId)),
-        )
-        .run();
-      bumpWorkItems(tx, [predecessorId, successorId], stamp);
+    await this.gate.enter(async () => {
+      await Promise.resolve();
+      this.db.transaction((tx) => {
+        tx.delete(dependency)
+          .where(
+            and(
+              eq(dependency.predecessorId, predecessorId),
+              eq(dependency.successorId, successorId),
+            ),
+          )
+          .run();
+        bumpWorkItems(tx, [predecessorId, successorId], stamp);
+      });
     });
   }
 
@@ -100,27 +111,29 @@ export class DependencyRepository implements DependencyStore {
    * sibling bumped on its way out (2026-09-02).
    */
   async removeAllFor(workItemIds: readonly string[], stamp: WriteStamp): Promise<void> {
-    await Promise.resolve();
-    if (workItemIds.length === 0) return;
-    const doomed = new Set(workItemIds);
-    const touchesAny = or(
-      inArray(dependency.predecessorId, workItemIds),
-      inArray(dependency.successorId, workItemIds),
-    );
-    this.db.transaction((tx) => {
-      const losing = tx
-        .select({ predecessorId: dependency.predecessorId, successorId: dependency.successorId })
-        .from(dependency)
-        .where(touchesAny)
-        .all();
-      tx.delete(dependency).where(touchesAny).run();
-      bumpWorkItems(
-        tx,
-        losing
-          .flatMap((edge) => [edge.predecessorId, edge.successorId])
-          .filter((id) => !doomed.has(id)),
-        stamp,
+    await this.gate.enter(async () => {
+      await Promise.resolve();
+      if (workItemIds.length === 0) return;
+      const doomed = new Set(workItemIds);
+      const touchesAny = or(
+        inArray(dependency.predecessorId, workItemIds),
+        inArray(dependency.successorId, workItemIds),
       );
+      this.db.transaction((tx) => {
+        const losing = tx
+          .select({ predecessorId: dependency.predecessorId, successorId: dependency.successorId })
+          .from(dependency)
+          .where(touchesAny)
+          .all();
+        tx.delete(dependency).where(touchesAny).run();
+        bumpWorkItems(
+          tx,
+          losing
+            .flatMap((edge) => [edge.predecessorId, edge.successorId])
+            .filter((id) => !doomed.has(id)),
+          stamp,
+        );
+      });
     });
   }
 }

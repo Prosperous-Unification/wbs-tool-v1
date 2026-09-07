@@ -9,6 +9,7 @@ import { projectRow } from '../testing/project-fixture';
 import { CapacityRepository } from './capacity';
 import { openDatabase, openDrizzle } from './db';
 import { DirectoryRepository } from './directory';
+import { OPEN } from './gate';
 import type { Project, WriteStamp } from './index';
 import { runMigrations } from './migrate';
 import { ProjectRepository } from './project';
@@ -49,15 +50,15 @@ describe('a project’s capacity for a team', () => {
     runMigrations(path, FOLDER);
     const db = openDrizzle(path);
     sqlite = openDatabase(path);
-    capacity = new CapacityRepository(db);
-    await new UserRepository(db).create(
+    capacity = new CapacityRepository(db, OPEN);
+    await new UserRepository(db, OPEN).create(
       { id: 'owner', username: 'owner', passwordHash: 'x', createdAt: 1 },
       wrote,
     );
-    const projects = new ProjectRepository(db);
+    const projects = new ProjectRepository(db, OPEN);
     await projects.create(project('p1', 'Rewire the shed'), [], wrote);
     await projects.create(project('p2', 'Reroof the barn'), [], wrote);
-    const directory = new DirectoryRepository(db);
+    const directory = new DirectoryRepository(db, OPEN);
     // Both created unsized, because a global size is read by nothing now — and a
     // fixture that seeded one would be handing the fallback a way to look right.
     // `addTeam` has no size to give them any more; the one test below that needs

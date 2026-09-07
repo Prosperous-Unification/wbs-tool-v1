@@ -7,6 +7,7 @@ import type {
   TeamWithServices,
   WorkItemType,
 } from '../repository';
+import type { Gate } from '../repository/gate';
 import type { DeferringBroadcaster, HeldAnnouncement } from './broadcast';
 import type { CapacityService } from './capacity.service';
 import type {
@@ -21,7 +22,6 @@ import { MOST_COMMANDS_IN_A_BATCH, type PlanCommand, type PlanCommandKind } from
 import type { PriorityBandService } from './priority-band.service';
 import type { WorkItemRefusal } from './work-item.service';
 import type { Collected, UndoOutcome, WorkItemService } from './work-item.service';
-import type { WriteLock } from './write-lock';
 
 /**
  * What one step of an applied batch produced: the id of anything it created,
@@ -101,7 +101,13 @@ export interface PlanCommandRunnerOptions {
   capacity: CapacityService;
   priorityBands: PriorityBandService;
   transactions: OuterTransaction;
-  lock: WriteLock;
+  /**
+   * The source's write coordinator. The runner takes **one** turn for the whole
+   * batch; the services above write through stores built over {@link OPEN},
+   * because they are the batch's own and a second turn would wait for this one
+   * (D20, ADR 0015).
+   */
+  gate: Gate;
   /**
    * The broadcaster the directory, capacity and priority-band services publish
    * through, so this runner can hold their announcements until the batch has
@@ -142,7 +148,7 @@ class Refused extends Error {
 
 /**
  * Applies a {@link Command batch}: every step through the service it belongs
- * to, inside one {@link OuterTransaction}, behind the {@link Write lock}, then
+ * to, inside one {@link OuterTransaction}, behind one {@link Turn} at the {@link Write coordinator}, then
  * one journal entry and one broadcast — `plan-commands` D2–D4 and ADR 0007.
  *
  * Refs are the runner's: a create's id is remembered under its `ref`, and any
@@ -203,7 +209,7 @@ export class PlanCommandRunner {
     commands: readonly PlanCommand[],
   ): Promise<BatchOutcome> {
     const { announcements } = this.opts;
-    const done = await this.opts.lock.run(
+    const done = await this.opts.gate.enter(
       async (): Promise<{
         applied: BatchOutcome | Collected<AppliedCommand[]>;
         pending: HeldAnnouncement[];
@@ -284,7 +290,7 @@ export class PlanCommandRunner {
     const { transactions, workItems } = this.opts;
     // The step's own broadcast is collected rather than sent, for the reason
     // `execute` gives: the push happens after the lock is let go.
-    const walked = await this.opts.lock.run(async () => {
+    const walked = await this.opts.gate.enter(async () => {
       transactions.begin();
       let collected: Collected<UndoOutcome>;
       try {

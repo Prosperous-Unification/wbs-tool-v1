@@ -1,6 +1,7 @@
 import { and, asc, eq, lt, sql } from 'drizzle-orm';
 
 import type { Drizzle } from './db';
+import type { Gate } from './gate';
 import {
   type CommandJournalStore,
   JOURNAL_DEPTH,
@@ -30,7 +31,10 @@ import { commandJournal, type CommandJournalRow, planEvent } from './schema';
  * inserts are both choosing a number.
  */
 export class CommandJournalRepository implements CommandJournalStore {
-  constructor(private readonly db: Drizzle) {}
+  constructor(
+    private readonly db: Drizzle,
+    private readonly gate: Gate,
+  ) {}
 
   /**
    * Appends, clears this account's redo branch, prunes the stack and writes the
@@ -61,61 +65,63 @@ export class CommandJournalRepository implements CommandJournalStore {
    * refuses to be able to have. 4 pass, 1 fail; watched 2026-08-17.
    */
   async append(entry: NewJournalEntry, event: PlanEvent): Promise<void> {
-    await Promise.resolve();
-    const mine = and(
-      eq(commandJournal.projectId, entry.projectId),
-      eq(commandJournal.userId, entry.userId),
-    );
-    this.db.transaction((tx) => {
-      tx.delete(commandJournal)
-        .where(and(mine, eq(commandJournal.undone, true)))
-        .run();
-      tx.insert(commandJournal)
-        .values({
-          id: entry.id,
-          projectId: entry.projectId,
-          userId: entry.userId,
-          // Never a number this process read and wrote back. See the class note.
-          seq: sql`(select coalesce(max(${commandJournal.seq}), 0) + 1 from ${commandJournal} where ${commandJournal.projectId} = ${entry.projectId} and ${commandJournal.userId} = ${entry.userId})`,
-          kind: entry.kind,
-          payload: JSON.stringify(entry.payload),
-          inverse: JSON.stringify(entry.inverse),
-          preconditions: JSON.stringify(entry.preconditions),
-          undone: false,
-          createdAt: entry.createdAt,
-        })
-        .run();
-      // Everything more than JOURNAL_DEPTH entries below the newest. Compared
-      // against the maximum in SQL rather than against a count read out first,
-      // so the prune describes the table the insert just left behind.
-      tx.delete(commandJournal)
-        .where(
-          and(
-            mine,
-            lt(
-              commandJournal.seq,
-              sql`(select max(${commandJournal.seq}) from ${commandJournal} where ${commandJournal.projectId} = ${entry.projectId} and ${commandJournal.userId} = ${entry.userId}) - ${JOURNAL_DEPTH - 1}`,
+    await this.gate.enter(async () => {
+      await Promise.resolve();
+      const mine = and(
+        eq(commandJournal.projectId, entry.projectId),
+        eq(commandJournal.userId, entry.userId),
+      );
+      this.db.transaction((tx) => {
+        tx.delete(commandJournal)
+          .where(and(mine, eq(commandJournal.undone, true)))
+          .run();
+        tx.insert(commandJournal)
+          .values({
+            id: entry.id,
+            projectId: entry.projectId,
+            userId: entry.userId,
+            // Never a number this process read and wrote back. See the class note.
+            seq: sql`(select coalesce(max(${commandJournal.seq}), 0) + 1 from ${commandJournal} where ${commandJournal.projectId} = ${entry.projectId} and ${commandJournal.userId} = ${entry.userId})`,
+            kind: entry.kind,
+            payload: JSON.stringify(entry.payload),
+            inverse: JSON.stringify(entry.inverse),
+            preconditions: JSON.stringify(entry.preconditions),
+            undone: false,
+            createdAt: entry.createdAt,
+          })
+          .run();
+        // Everything more than JOURNAL_DEPTH entries below the newest. Compared
+        // against the maximum in SQL rather than against a count read out first,
+        // so the prune describes the table the insert just left behind.
+        tx.delete(commandJournal)
+          .where(
+            and(
+              mine,
+              lt(
+                commandJournal.seq,
+                sql`(select max(${commandJournal.seq}) from ${commandJournal} where ${commandJournal.projectId} = ${entry.projectId} and ${commandJournal.userId} = ${entry.userId}) - ${JOURNAL_DEPTH - 1}`,
+              ),
             ),
-          ),
-        )
-        .run();
-      // The history, in the same transaction and after the prune, so that a
-      // journal write which fails for any reason takes this with it. Never
-      // pruned here: the plan's history is kept by age, by the retention timer.
-      tx.insert(planEvent)
-        .values({
-          id: event.id,
-          projectId: event.projectId,
-          userId: event.userId,
-          kind: event.kind,
-          label: event.label,
-          workItemId: event.workItemId,
-          stepId: event.stepId,
-          before: JSON.stringify(event.before),
-          after: JSON.stringify(event.after),
-          createdAt: event.createdAt,
-        })
-        .run();
+          )
+          .run();
+        // The history, in the same transaction and after the prune, so that a
+        // journal write which fails for any reason takes this with it. Never
+        // pruned here: the plan's history is kept by age, by the retention timer.
+        tx.insert(planEvent)
+          .values({
+            id: event.id,
+            projectId: event.projectId,
+            userId: event.userId,
+            kind: event.kind,
+            label: event.label,
+            workItemId: event.workItemId,
+            stepId: event.stepId,
+            before: JSON.stringify(event.before),
+            after: JSON.stringify(event.after),
+            createdAt: event.createdAt,
+          })
+          .run();
+      });
     });
   }
 
@@ -129,21 +135,27 @@ export class CommandJournalRepository implements CommandJournalStore {
   }
 
   async flip(id: string, undone: boolean, preconditions: unknown): Promise<void> {
-    await this.db
-      .update(commandJournal)
-      .set({ undone, preconditions: JSON.stringify(preconditions) })
-      .where(eq(commandJournal.id, id));
+    await this.gate.enter(async () => {
+      await this.db
+        .update(commandJournal)
+        .set({ undone, preconditions: JSON.stringify(preconditions) })
+        .where(eq(commandJournal.id, id));
+    });
   }
 
   async restamp(id: string, preconditions: unknown): Promise<void> {
-    await this.db
-      .update(commandJournal)
-      .set({ preconditions: JSON.stringify(preconditions) })
-      .where(eq(commandJournal.id, id));
+    await this.gate.enter(async () => {
+      await this.db
+        .update(commandJournal)
+        .set({ preconditions: JSON.stringify(preconditions) })
+        .where(eq(commandJournal.id, id));
+    });
   }
 
   async discard(id: string): Promise<void> {
-    await this.db.delete(commandJournal).where(eq(commandJournal.id, id));
+    await this.gate.enter(async () => {
+      await this.db.delete(commandJournal).where(eq(commandJournal.id, id));
+    });
   }
 
   /**

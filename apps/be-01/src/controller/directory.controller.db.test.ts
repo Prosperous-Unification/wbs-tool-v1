@@ -11,6 +11,7 @@ import { openDatabase, openDrizzle } from '../repository/db';
 import { DependencyRepository } from '../repository/dependency';
 import { DirectoryRepository } from '../repository/directory';
 import { EstimateRepository } from '../repository/estimate';
+import { OPEN } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { ProjectRepository } from '../repository/project';
 import { StepRepository } from '../repository/step';
@@ -60,41 +61,48 @@ beforeEach(async () => {
   const db = openDrizzle(path);
   sqlite = openDatabase(path);
 
-  projects = new ProjectRepository(db);
-  store = new DirectoryRepository(db);
-  workItems = new WorkItemRepository(db);
-  stepStore = new StepRepository(db);
+  projects = new ProjectRepository(db, OPEN);
+  store = new DirectoryRepository(db, OPEN);
+  workItems = new WorkItemRepository(db, OPEN);
+  stepStore = new StepRepository(db, OPEN);
 
-  app = buildApp({
-    appOrigin: 'http://localhost',
-    savedPlans: testSavedPlanService(),
+  // One graph, used by the routes and by the batch alike: these stores hold no
+  // turn (`OPEN`), so there is nothing here for a second graph to keep apart.
+  // Handing the batch its own would put a `createTeam` command in stores the
+  // routes never read.
+  const writing = {
     directory: new DirectoryService({ directory: store, broadcast: recordingBroadcaster() }),
     capacity: testCapacityService(),
     priorityBands: testPriorityBandService(),
-    history: testHistoryService(),
     calendarMarkers: testCalendarMarkerService(),
-    auth: new AuthService({ users: new UserRepository(db), jwtKey: TEST_JWT_KEY }),
     projects: new ProjectService({ projects, broadcast: recordingBroadcaster() }),
     steps: new StepService({ projects, steps: stepStore, broadcast: recordingBroadcaster() }),
     workItems: new WorkItemService({
       workItems,
       projects,
-      estimates: new EstimateRepository(db),
-      actuals: new ActualRepository(db),
-      measures: new StepMeasureRepository(db),
-      progress: new StepProgressRepository(db),
-      dependencies: new DependencyRepository(db),
+      estimates: new EstimateRepository(db, OPEN),
+      actuals: new ActualRepository(db, OPEN),
+      measures: new StepMeasureRepository(db, OPEN),
+      progress: new StepProgressRepository(db, OPEN),
+      dependencies: new DependencyRepository(db, OPEN),
       directory: store,
       capacity: inMemoryCapacity(),
       priorityBands: inMemoryPriorityBands(),
-      subtrees: new SubtreeRepository(db),
-      journal: new CommandJournalRepository(db),
+      subtrees: new SubtreeRepository(db, OPEN),
+      journal: new CommandJournalRepository(db, OPEN),
       broadcast: recordingBroadcaster(),
     }),
+  };
+  app = buildApp({
+    appOrigin: 'http://localhost',
+    savedPlans: testSavedPlanService(),
+    ...writing,
+    history: testHistoryService(),
+    auth: new AuthService({ users: new UserRepository(db, OPEN), jwtKey: TEST_JWT_KEY }),
     replay: testReplay().replay,
     probeDatabase: () => 'ok',
     internalAuthSecret: 'x'.repeat(32),
-    writes: testWrites(),
+    writes: testWrites(undefined, writing),
     migrationsApplied: true,
   });
   token = await register('owner');

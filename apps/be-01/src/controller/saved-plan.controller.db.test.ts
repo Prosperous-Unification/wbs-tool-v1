@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, spyOn, test } from 'bun:te
 
 import { buildApp } from '../app';
 import { openConnection } from '../repository/db';
+import { OPEN } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { ProjectRepository } from '../repository/project';
 import type { SavedPlanWrite } from '../repository/saved-plan';
@@ -88,11 +89,14 @@ describe('the saved-plan routes', () => {
     broadcast = recordingBroadcaster();
     writes = testWrites(broadcast);
     const connection = openConnection(path);
-    const projects = new ProjectRepository(connection.db);
+    const projects = new ProjectRepository(connection.db, OPEN);
 
     app = buildApp({
       appOrigin: 'http://localhost',
-      auth: new AuthService({ users: new UserRepository(connection.db), jwtKey: TEST_JWT_KEY }),
+      auth: new AuthService({
+        users: new UserRepository(connection.db, OPEN),
+        jwtKey: TEST_JWT_KEY,
+      }),
       // The same recorder the rest of this app is built on, not a second one:
       // `ProjectServiceOptions.broadcast` is required (project.service.ts), and
       // production hands every service one announcer. A private recorder here

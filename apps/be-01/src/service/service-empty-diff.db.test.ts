@@ -12,6 +12,7 @@ import { openDrizzle } from '../repository/db';
 import { DependencyRepository } from '../repository/dependency';
 import { DirectoryRepository } from '../repository/directory';
 import { EstimateRepository } from '../repository/estimate';
+import { OPEN } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { ProjectRepository } from '../repository/project';
 import { StepMeasureRepository } from '../repository/step-measure';
@@ -120,13 +121,13 @@ beforeEach(async () => {
   runMigrations(path, FOLDER);
   const db = openDrizzle(path);
 
-  const projectStore = new ProjectRepository(db);
-  workItemStore = new WorkItemRepository(db);
-  directoryStore = new DirectoryRepository(db);
-  capacityStore = new CapacityRepository(db);
+  const projectStore = new ProjectRepository(db, OPEN);
+  workItemStore = new WorkItemRepository(db, OPEN);
+  directoryStore = new DirectoryRepository(db, OPEN);
+  capacityStore = new CapacityRepository(db, OPEN);
 
   ownerId = crypto.randomUUID();
-  await new UserRepository(db).create(
+  await new UserRepository(db, OPEN).create(
     {
       id: ownerId,
       username: 'owner',
@@ -140,16 +141,16 @@ beforeEach(async () => {
   workItems = new WorkItemService({
     workItems: workItemStore,
     projects: projectStore,
-    estimates: new EstimateRepository(db),
-    actuals: new ActualRepository(db),
-    measures: new StepMeasureRepository(db),
-    progress: new StepProgressRepository(db),
+    estimates: new EstimateRepository(db, OPEN),
+    actuals: new ActualRepository(db, OPEN),
+    measures: new StepMeasureRepository(db, OPEN),
+    progress: new StepProgressRepository(db, OPEN),
     directory: directoryStore,
     capacity: capacityStore,
     priorityBands: inMemoryPriorityBands(),
-    dependencies: new DependencyRepository(db),
-    subtrees: new SubtreeRepository(db),
-    journal: new CommandJournalRepository(db),
+    dependencies: new DependencyRepository(db, OPEN),
+    subtrees: new SubtreeRepository(db, OPEN),
+    journal: new CommandJournalRepository(db, OPEN),
     broadcast: recordingBroadcaster(),
   });
 

@@ -20,6 +20,7 @@ import { DependencyRepository } from '../repository/dependency';
 import { DirectoryRepository } from '../repository/directory';
 import { EstimateRepository } from '../repository/estimate';
 import { DrizzleEventLogRepo } from '../repository/event-log';
+import { OPEN } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { ProjectRepository } from '../repository/project';
 import { StepRepository } from '../repository/step';
@@ -40,7 +41,6 @@ import { ReplayBuffer } from './replay-buffer';
 import { ReplayOrchestrator } from './replay-orchestrator';
 import { StepService } from './step.service';
 import { WorkItemService } from './work-item.service';
-import { WriteLock } from './write-lock';
 
 /**
  * The step service, against real SQLite.
@@ -98,17 +98,17 @@ beforeEach(async () => {
   runMigrations(path, FOLDER);
   db = openDrizzle(path);
 
-  projectStore = new ProjectRepository(db);
-  stepStore = new StepRepository(db);
-  estimates = new EstimateRepository(db);
-  actuals = new ActualRepository(db);
-  measures = new StepMeasureRepository(db);
-  progressStore = new StepProgressRepository(db);
-  directory = new DirectoryRepository(db);
+  projectStore = new ProjectRepository(db, OPEN);
+  stepStore = new StepRepository(db, OPEN);
+  estimates = new EstimateRepository(db, OPEN);
+  actuals = new ActualRepository(db, OPEN);
+  measures = new StepMeasureRepository(db, OPEN);
+  progressStore = new StepProgressRepository(db, OPEN);
+  directory = new DirectoryRepository(db, OPEN);
   broadcast = recordingBroadcaster();
   steps = new StepService({ projects: projectStore, steps: stepStore, broadcast });
 
-  const users = new UserRepository(db);
+  const users = new UserRepository(db, OPEN);
   ownerId = crypto.randomUUID();
   strangerId = crypto.randomUUID();
   await users.create(
@@ -128,7 +128,7 @@ beforeEach(async () => {
   devId = (await stepNamed('Dev')).id;
   qaId = (await stepNamed('QA')).id;
 
-  const workItems = new WorkItemRepository(db);
+  const workItems = new WorkItemRepository(db, OPEN);
   await workItems.insert(newItem('strip', 10, 'Strip'), [], wrote());
   await workItems.insert(newItem('sand', 20, 'Sand'), [], wrote());
 });
@@ -493,18 +493,18 @@ describe('a step removed between the check and the write', () => {
       },
     });
     return new WorkItemService({
-      workItems: new WorkItemRepository(db),
+      workItems: new WorkItemRepository(db, OPEN),
       projects: projectStore,
       estimates: vanishing,
-      actuals: new ActualRepository(db),
-      measures: new StepMeasureRepository(db),
-      progress: new StepProgressRepository(db),
+      actuals: new ActualRepository(db, OPEN),
+      measures: new StepMeasureRepository(db, OPEN),
+      progress: new StepProgressRepository(db, OPEN),
       directory: vanishingToo,
       capacity: inMemoryCapacity(),
       priorityBands: inMemoryPriorityBands(),
-      dependencies: new DependencyRepository(db),
-      subtrees: new SubtreeRepository(db),
-      journal: new CommandJournalRepository(db),
+      dependencies: new DependencyRepository(db, OPEN),
+      subtrees: new SubtreeRepository(db, OPEN),
+      journal: new CommandJournalRepository(db, OPEN),
       broadcast: recordingBroadcaster(),
     });
   }
@@ -535,7 +535,7 @@ describe('a step removed between the check and the write', () => {
     // reads the person inside its own transaction — but the thing being
     // asserted is unchanged: `writeNamingStep` must not claim the step.
     const workItems = new WorkItemService({
-      workItems: new WorkItemRepository(db),
+      workItems: new WorkItemRepository(db, OPEN),
       projects: projectStore,
       estimates,
       actuals,
@@ -544,9 +544,9 @@ describe('a step removed between the check and the write', () => {
       directory,
       capacity: inMemoryCapacity(),
       priorityBands: inMemoryPriorityBands(),
-      dependencies: new DependencyRepository(db),
-      subtrees: new SubtreeRepository(db),
-      journal: new CommandJournalRepository(db),
+      dependencies: new DependencyRepository(db, OPEN),
+      subtrees: new SubtreeRepository(db, OPEN),
+      journal: new CommandJournalRepository(db, OPEN),
       broadcast: recordingBroadcaster(),
     });
 
@@ -592,7 +592,7 @@ describe('step events', () => {
   });
 
   it('replays a step event to a client that reconnects', async () => {
-    const eventLog = new DrizzleEventLogRepo(db);
+    const eventLog = new DrizzleEventLogRepo(db, OPEN);
     const buffer = new ReplayBuffer({ maxPerSubscription: 100, maxAgeMs: 60_000 });
     const durable = new StepService({
       projects: projectStore,
@@ -600,7 +600,6 @@ describe('step events', () => {
       broadcast: new GatewayBroadcaster({
         eventLog,
         buffer,
-        lock: new WriteLock(),
         // Nowhere to push, deliberately: the replay must come from what was
         // recorded, not from a delivery that happened to succeed.
         push: new PushClient({

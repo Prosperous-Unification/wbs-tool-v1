@@ -75,22 +75,27 @@ function buildHarness(
     }),
   });
   const workItems = buildWorkItemService(projectStore);
-  const app = buildApp({
-    appOrigin: 'http://localhost',
+  // The routes' graph and the batch's are one here: these services hold no
+  // turn, and a batch given its own would write where nothing reads.
+  const writing = {
     directory: testDirectoryService(),
     capacity: testCapacityService(),
     priorityBands: testPriorityBandService(),
-    history: testHistoryService(),
     calendarMarkers: testCalendarMarkerService(),
-    auth,
     projects,
     workItems,
-    savedPlans: testSavedPlanService(),
     steps: testStepService(projectStore),
+  };
+  const app = buildApp({
+    appOrigin: 'http://localhost',
+    history: testHistoryService(),
+    auth,
+    ...writing,
+    savedPlans: testSavedPlanService(),
     replay: testReplay().replay,
     probeDatabase: () => 'ok',
     internalAuthSecret: 'x'.repeat(32),
-    writes: testWrites(),
+    writes: testWrites(undefined, writing),
     migrationsApplied: true,
     ...(options.retry === undefined ? {} : { optimizer: { retry: options.retry } }),
   });

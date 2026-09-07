@@ -7,7 +7,6 @@ import { GatewayBroadcaster } from './gateway-broadcaster';
 import { type PushClient, PushFailed } from './push-client';
 import { ReplayBuffer } from './replay-buffer';
 import { ReplayOrchestrator } from './replay-orchestrator';
-import { WriteLock } from './write-lock';
 
 const EVENT: ProjectEvent = { type: 'tree_replaced', workItems: [] };
 
@@ -33,7 +32,6 @@ function bootstrap(mode: 'accepts' | 'refuses' = 'accepts') {
     eventLog: log,
     clock: clockOf({ now: () => 1_000 }),
     buffer,
-    lock: new WriteLock(),
     push: client,
     onPushFailed: (_err, subscription) => failures.push(subscription),
   });

@@ -11,6 +11,7 @@ import { openDrizzle } from '../repository/db';
 import { DependencyRepository } from '../repository/dependency';
 import { DirectoryRepository } from '../repository/directory';
 import { EstimateRepository } from '../repository/estimate';
+import { OPEN } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { ProjectRepository } from '../repository/project';
 import { StepRepository } from '../repository/step';
@@ -57,30 +58,29 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'wbs-undo-http-'));
   const db = openDrizzle(join(dir, 'test.db'));
   runMigrations(join(dir, 'test.db'), FOLDER);
-  journal = new CommandJournalRepository(db);
+  journal = new CommandJournalRepository(db, OPEN);
 
-  const projects = new ProjectRepository(db);
-  const workItems = new WorkItemRepository(db);
-  const estimates = new EstimateRepository(db);
-  const actuals = new ActualRepository(db);
-  const measures = new StepMeasureRepository(db);
-  const progressStore = new StepProgressRepository(db);
-  const dependencies = new DependencyRepository(db);
-  const directory = new DirectoryRepository(db);
+  const projects = new ProjectRepository(db, OPEN);
+  const workItems = new WorkItemRepository(db, OPEN);
+  const estimates = new EstimateRepository(db, OPEN);
+  const actuals = new ActualRepository(db, OPEN);
+  const measures = new StepMeasureRepository(db, OPEN);
+  const progressStore = new StepProgressRepository(db, OPEN);
+  const dependencies = new DependencyRepository(db, OPEN);
+  const directory = new DirectoryRepository(db, OPEN);
 
-  app = buildApp({
-    appOrigin: 'http://localhost',
-    savedPlans: testSavedPlanService(),
+  // One graph for the routes and the batch: undo runs through the batch's
+  // services, and a second graph would put its journal in a store this file
+  // never reads.
+  const writing = {
     directory: testDirectoryService(),
     capacity: testCapacityService(),
     priorityBands: testPriorityBandService(),
-    history: testHistoryService(),
     calendarMarkers: testCalendarMarkerService(),
-    auth: new AuthService({ users: new UserRepository(db), jwtKey: TEST_JWT_KEY }),
     projects: new ProjectService({ projects, broadcast: recordingBroadcaster() }),
     steps: new StepService({
       projects,
-      steps: new StepRepository(db),
+      steps: new StepRepository(db, OPEN),
       broadcast: recordingBroadcaster(),
     }),
     workItems: new WorkItemService({
@@ -94,14 +94,21 @@ beforeEach(() => {
       directory,
       capacity: inMemoryCapacity(),
       priorityBands: inMemoryPriorityBands(),
-      subtrees: new SubtreeRepository(db),
+      subtrees: new SubtreeRepository(db, OPEN),
       journal,
       broadcast: recordingBroadcaster(),
     }),
+  };
+  app = buildApp({
+    appOrigin: 'http://localhost',
+    savedPlans: testSavedPlanService(),
+    history: testHistoryService(),
+    auth: new AuthService({ users: new UserRepository(db, OPEN), jwtKey: TEST_JWT_KEY }),
+    ...writing,
     replay: testReplay().replay,
     probeDatabase: () => 'ok',
     internalAuthSecret: 'x'.repeat(32),
-    writes: testWrites(),
+    writes: testWrites(undefined, writing),
     migrationsApplied: true,
   });
 });

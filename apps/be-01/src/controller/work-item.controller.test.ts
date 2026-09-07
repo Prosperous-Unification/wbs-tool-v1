@@ -22,9 +22,35 @@ import { testStepService } from '../testing/step-fixture';
 import { testWrites } from '../testing/writes-fixture';
 
 function buildHarness(optimized?: OptimizedScheduleReader) {
-  const writes = testWrites();
   const plan = inMemoryServices();
   const { projects: projectStore, directory: directoryStore, measures: measureStore } = plan.stores;
+  const directory = testDirectoryService(directoryStore);
+  const capacity = testCapacityService();
+  const priorityBands = testPriorityBandService();
+  const projects = new ProjectService({
+    projects: projectStore,
+    broadcast: recordingBroadcaster(),
+    ...(optimized === undefined ? {} : { optimizerAvailable: () => true }),
+  });
+  const steps = testStepService(projectStore);
+  const calendarMarkers = testCalendarMarkerService();
+  const workItems =
+    optimized === undefined
+      ? plan.service
+      : new WorkItemService({ ...plan.stores, broadcast: plan.broadcast, optimized });
+  // The batch writes through the **same** services the routes do: on the
+  // in-memory fixtures there is one set of stores and no turn to hold, so the
+  // two graphs the composition root keeps apart are one object here. Given a
+  // second set, a `createWorkItem` command would land in stores nothing reads.
+  const writes = testWrites(undefined, {
+    workItems,
+    directory,
+    capacity,
+    priorityBands,
+    projects,
+    steps,
+    calendarMarkers,
+  });
   const app = buildApp({
     appOrigin: 'http://localhost',
     // **One** directory, shared with the work item service below. Two would
@@ -32,22 +58,15 @@ function buildHarness(optimized?: OptimizedScheduleReader) {
     // command was invisible to the assignment that names them — which is
     // exactly what this harness did until the write began reading the person
     // it writes.
-    directory: testDirectoryService(directoryStore),
-    capacity: testCapacityService(),
-    priorityBands: testPriorityBandService(),
+    directory,
+    capacity,
+    priorityBands,
     history: testHistoryService(),
-    calendarMarkers: testCalendarMarkerService(),
+    calendarMarkers,
     auth: testAuthService(inMemoryUsers()),
-    projects: new ProjectService({
-      projects: projectStore,
-      broadcast: recordingBroadcaster(),
-      ...(optimized === undefined ? {} : { optimizerAvailable: () => true }),
-    }),
-    steps: testStepService(projectStore),
-    workItems:
-      optimized === undefined
-        ? plan.service
-        : new WorkItemService({ ...plan.stores, broadcast: plan.broadcast, optimized }),
+    projects,
+    steps,
+    workItems,
     savedPlans: testSavedPlanService(),
     replay: testReplay().replay,
     probeDatabase: () => 'ok',

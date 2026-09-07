@@ -13,6 +13,7 @@ import { openDrizzle } from '../repository/db';
 import { DependencyRepository } from '../repository/dependency';
 import { DirectoryRepository } from '../repository/directory';
 import { EstimateRepository } from '../repository/estimate';
+import { OPEN } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { ProjectRepository } from '../repository/project';
 import { StepRepository } from '../repository/step';
@@ -131,46 +132,49 @@ describe('the schedule identity guarantee', () => {
     });
     const broadcast = recordingBroadcaster();
 
-    const projects = new ProjectRepository(db);
+    const projects = new ProjectRepository(db, OPEN);
 
-    app = buildApp({
-      appOrigin: 'http://localhost',
-      auth: new AuthService({ users: new UserRepository(db), jwtKey: TEST_JWT_KEY }),
+    const writing = {
       projects: new ProjectService({ projects, broadcast }),
-      steps: new StepService({ projects, steps: new StepRepository(db), broadcast }),
+      steps: new StepService({ projects, steps: new StepRepository(db, OPEN), broadcast }),
       workItems: new WorkItemService({
-        workItems: new WorkItemRepository(db),
+        workItems: new WorkItemRepository(db, OPEN),
         projects,
-        estimates: new EstimateRepository(db),
-        actuals: new ActualRepository(db),
-        measures: new StepMeasureRepository(db),
-        progress: new StepProgressRepository(db),
-        dependencies: new DependencyRepository(db),
-        directory: new DirectoryRepository(db),
+        estimates: new EstimateRepository(db, OPEN),
+        actuals: new ActualRepository(db, OPEN),
+        measures: new StepMeasureRepository(db, OPEN),
+        progress: new StepProgressRepository(db, OPEN),
+        dependencies: new DependencyRepository(db, OPEN),
+        directory: new DirectoryRepository(db, OPEN),
         capacity: inMemoryCapacity(),
         priorityBands: inMemoryPriorityBands(),
-        subtrees: new SubtreeRepository(db),
-        journal: new CommandJournalRepository(db),
+        subtrees: new SubtreeRepository(db, OPEN),
+        journal: new CommandJournalRepository(db, OPEN),
         broadcast,
       }),
+      directory: testDirectoryService(),
+      capacity: testCapacityService(),
+      priorityBands: testPriorityBandService(),
       // The real store and the real service, because the claim is about what a
       // marker write does to the database the schedule is read from. A double
       // that never writes a row would make "nothing moved" true for the wrong
       // reason.
       calendarMarkers: new CalendarMarkerService({
         projects,
-        markers: new CalendarMarkerRepository(db),
+        markers: new CalendarMarkerRepository(db, OPEN),
         clock: clockOf(),
       }),
+    };
+    app = buildApp({
+      ...writing,
+      appOrigin: 'http://localhost',
+      auth: new AuthService({ users: new UserRepository(db, OPEN), jwtKey: TEST_JWT_KEY }),
       savedPlans: testSavedPlanService(),
-      directory: testDirectoryService(),
-      capacity: testCapacityService(),
-      priorityBands: testPriorityBandService(),
       history: testHistoryService(),
       replay: testReplay().replay,
       probeDatabase: () => 'ok',
       internalAuthSecret: 'x'.repeat(32),
-      writes: testWrites(broadcast),
+      writes: testWrites(broadcast, writing),
       migrationsApplied: true,
     });
   });
