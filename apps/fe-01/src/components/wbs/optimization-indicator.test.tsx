@@ -190,6 +190,7 @@ describe('schedule comparison indicator', () => {
       comparison: undefined,
     });
 
+    fireEvent.click(screen.getByText('Show affected work items'));
     expect(screen.getByText('Migration · Work item deadline before project start')).toBeVisible();
   });
 
@@ -220,6 +221,7 @@ describe('schedule comparison indicator', () => {
       />,
     );
 
+    fireEvent.click(screen.getByText('Show affected work items'));
     expect(screen.getByText('Migration · Work item deadline date unavailable')).toBeVisible();
   });
 
