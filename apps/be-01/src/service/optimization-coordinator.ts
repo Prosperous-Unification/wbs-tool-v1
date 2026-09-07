@@ -21,7 +21,7 @@ import {
   reconcileOptimizationDrains,
   releaseSolverSlot,
 } from '../repository/optimization-drain';
-import { allocateGeneration, readGeneration } from '../repository/optimization-generation';
+import { allocateEnabledGeneration, readGeneration } from '../repository/optimization-generation';
 import {
   dequeueSolverRequest,
   enqueueSolverRequest,
@@ -267,7 +267,9 @@ export class OptimizationCoordinator {
     if (!(await this.options.enabledOf(projectId))) return;
     const input = await this.options.inputOf(projectId);
     if (input === null) return;
-    this.read({ projectId, objective: 'pri', input });
+    const enabled = await this.options.enabledOf(projectId);
+    if (!enabled) return;
+    this.readPlan({ projectId, objective: 'pri', input, enabled });
   }
 
   private slotOf(request: ReservedSpawnRequest) {
@@ -458,8 +460,14 @@ export class OptimizationCoordinator {
       }
       if (scheduleInputHash(input) !== next.inputHash) {
         releaseSolverSlot(this.options.db, slot);
-        if (!(await this.options.enabledOf(next.entry.projectId))) continue;
-        this.read({ projectId: next.entry.projectId, objective: next.entry.objective, input });
+        const enabled = await this.options.enabledOf(next.entry.projectId);
+        if (!enabled) continue;
+        this.readPlan({
+          projectId: next.entry.projectId,
+          objective: next.entry.objective,
+          input,
+          enabled,
+        });
         continue;
       }
 
@@ -473,7 +481,10 @@ export class OptimizationCoordinator {
             inputHash: next.inputHash,
             admittedCancelEpoch: next.admission.admittedCancelEpoch,
             outcome: { kind: 'failed', reason: dispositionOfPreflightFailure(built.failure) },
-            now: this.options.now(),
+            now: Math.max(
+              this.options.now(),
+              solverAdmissionStartedAt(next.admission, next.entry.budgetMs),
+            ),
           });
         } finally {
           releaseSolverSlot(this.options.db, slot);
@@ -518,57 +529,63 @@ export class OptimizationCoordinator {
       budgetMs: this.options.budgetMs,
     };
     const now = this.options.now();
-    const decision: OptimizationRetryDecision = this.options.db.transaction((tx) => {
-      const current = readGeneration(tx, ask.projectId, this.options.contractVersion);
-      if (current?.inputHash !== currentInputHash) {
-        return { kind: 'not-retryable', state: 'idle' } as const;
-      }
+    const decision: OptimizationRetryDecision = this.options.db.transaction(
+      (tx) => {
+        const current = readGeneration(tx, ask.projectId, this.options.contractVersion);
+        if (current?.inputHash !== currentInputHash) {
+          return { kind: 'not-retryable', state: 'idle' } as const;
+        }
 
-      const outcome = readOptimizedPair(tx, key)[ask.objective];
-      const live = optimizedVariantIsLive(tx, key, current.generation, ask.objective);
-      if (outcome.kind !== 'failed' && outcome.kind !== 'corrupt') {
-        return {
-          kind: 'not-retryable',
-          state: optimizationVariantState(outcome, live).state,
-        } as const;
-      }
-      if (live) return { kind: 'already-running' } as const;
+        const outcome = readOptimizedPair(tx, key)[ask.objective];
+        const live = optimizedVariantIsLive(tx, key, current.generation, ask.objective);
+        if (outcome.kind !== 'failed' && outcome.kind !== 'corrupt') {
+          return {
+            kind: 'not-retryable',
+            state: optimizationVariantState(outcome, live).state,
+          } as const;
+        }
+        if (live) return { kind: 'already-running' } as const;
 
-      // Strictly after the marker even when a deterministic test clock has not
-      // advanced: storeOptimizedOutcomeIn uses this order to permit one update.
-      const admittedAt = Math.max(now, outcome.createdAt + 1);
-      const request = {
-        projectId: ask.projectId,
-        contractVersion: this.options.contractVersion,
-        generation: current.generation,
-        objective: ask.objective,
-        budgetMs: this.options.budgetMs,
-        ownerId: this.options.ownerId,
-        attemptToken: this.options.attemptToken(),
-        now: admittedAt,
-      };
-      const admission = reserveSolverSlotIn(tx, request);
-      if (admission.kind === 'already-present') return { kind: 'already-running' } as const;
-      if (admission.kind === 'closed') {
-        return { kind: 'not-retryable', state: outcome.kind } as const;
-      }
-      if (admission.kind === 'reserved') {
-        return { kind: 'accepted', generation: current.generation, admission } as const;
-      }
-      const queued = enqueueSolverRequestIn(tx, {
-        projectId: ask.projectId,
-        contractVersion: this.options.contractVersion,
-        generation: current.generation,
-        objective: ask.objective,
-        budgetMs: this.options.budgetMs,
-        enqueuedAt: admittedAt,
-      });
-      if (queued.kind === 'closed') {
-        return { kind: 'not-retryable', state: outcome.kind } as const;
-      }
-      if (queued.kind === 'already-present') return { kind: 'already-running' } as const;
-      return { kind: 'accepted', generation: current.generation, admission: null } as const;
-    });
+        // Strictly after the marker even when a deterministic test clock has not
+        // advanced: storeOptimizedOutcomeIn uses this order to permit one update.
+        const admittedAt = Math.max(now, outcome.createdAt + 1);
+        const request = {
+          projectId: ask.projectId,
+          contractVersion: this.options.contractVersion,
+          generation: current.generation,
+          objective: ask.objective,
+          budgetMs: this.options.budgetMs,
+          ownerId: this.options.ownerId,
+          attemptToken: this.options.attemptToken(),
+          now: admittedAt,
+        };
+        const admission = reserveSolverSlotIn(tx, request);
+        if (admission.kind === 'already-present') return { kind: 'already-running' } as const;
+        if (admission.kind === 'closed') {
+          return { kind: 'not-retryable', state: outcome.kind } as const;
+        }
+        if (admission.kind === 'reserved') {
+          return { kind: 'accepted', generation: current.generation, admission } as const;
+        }
+        const queued = enqueueSolverRequestIn(tx, {
+          projectId: ask.projectId,
+          contractVersion: this.options.contractVersion,
+          generation: current.generation,
+          objective: ask.objective,
+          budgetMs: this.options.budgetMs,
+          enqueuedAt: admittedAt,
+        });
+        if (queued.kind === 'closed') {
+          return { kind: 'not-retryable', state: outcome.kind } as const;
+        }
+        if (queued.kind === 'already-present') return { kind: 'already-running' } as const;
+        return { kind: 'accepted', generation: current.generation, admission: null } as const;
+      },
+      // Drizzle's installed bun-sqlite adapter defaults to DEFERRED. Retry reads
+      // eligibility before writing, so own SQLite's writer slot at BEGIN and
+      // prevent an intervening WAL commit from causing SQLITE_BUSY_SNAPSHOT.
+      { behavior: 'immediate' },
+    );
 
     if (decision.kind !== 'accepted') return decision;
     if (decision.admission !== null) {
@@ -641,13 +658,21 @@ export class OptimizationCoordinator {
     }
 
     const now = this.options.now();
-    const generation = allocateGeneration(
+    const generation = allocateEnabledGeneration(
       this.options.db,
       ask.projectId,
       this.options.contractVersion,
       inputHash,
       now,
     );
+    if (generation === null) {
+      return {
+        ...key,
+        generation: null,
+        variants: { pri: { state: 'idle' }, time: { state: 'idle' } },
+        selectedSchedule: null,
+      };
+    }
     let requests: SolverRequestPair | undefined;
     const pair = readOptimizedPairAndSpawn(this.options.db, key, (request) => {
       const admission = reserveSolverSlot(this.options.db, {

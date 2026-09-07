@@ -109,17 +109,24 @@ stable copy of the exact gate interpreter together after their reviewed commit l
 ```sh
 scp bin/dev-poll.sh h2puni:/home/puni1/wbs-dev/bin/poll.next.sh
 scp bin/dev-poll-sync.sh h2puni:/home/puni1/wbs-dev/bin/dev-poll-sync.next.sh
+scp .bun-version h2puni:/home/puni1/wbs-dev/bin/bun-version.next
 ssh h2puni 'flock -n /home/puni1/wbs-dev/state/poll.lock sh -c \
-  "bun_source=\$(command -v bun) && \
-   test \"\$(\"\$bun_source\" --version)\" = 1.3.14 && \
+  "bun_version=\$(cat /home/puni1/wbs-dev/bin/bun-version.next) && \
+   bun_source=\$(command -v bun) && \
+   test \"\$(\"\$bun_source\" --version)\" = \"\$bun_version\" && \
    install -m 0755 \"\$bun_source\" /home/puni1/wbs-dev/bin/bun.next && \
    chmod 0755 /home/puni1/wbs-dev/bin/poll.next.sh \
     /home/puni1/wbs-dev/bin/dev-poll-sync.next.sh && \
    mv /home/puni1/wbs-dev/bin/bun.next /home/puni1/wbs-dev/bin/bun && \
+   mv /home/puni1/wbs-dev/bin/bun-version.next /home/puni1/wbs-dev/bin/bun-version && \
    mv /home/puni1/wbs-dev/bin/dev-poll-sync.next.sh \
     /home/puni1/wbs-dev/bin/dev-poll-sync.sh && \
    mv /home/puni1/wbs-dev/bin/poll.next.sh /home/puni1/wbs-dev/bin/poll.sh"'
 ```
+
+`.bun-version` is the poller's version source of truth. On a Bun bump, update that file first,
+install the matching interpreter, and rerun the whole lock-held block so the binary and installed
+version file move together; changing a literal in the loader is neither necessary nor sufficient.
 
 Puni1's existing every-minute crontab continues to run `/home/puni1/wbs-dev/bin/poll.sh`. Each tick
 fetches `origin/main`, resolves that named remote ref rather than the process-global `FETCH_HEAD`,

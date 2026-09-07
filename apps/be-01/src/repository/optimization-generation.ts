@@ -6,6 +6,7 @@ import {
   optimizationGeneration,
   type OptimizationGenerationRow,
   optimizedScheduleCache,
+  project,
   solverQueue,
   solverSlot,
 } from './schema';
@@ -85,15 +86,37 @@ export function readGeneration(
  * two first readers of one hash converge on generation 1, while an equal hash
  * on any later read returns before evicting or cancelling anything.
  */
-export function allocateGeneration(
-  db: SQLiteBunDatabase,
+function allocateGenerationIn(
+  tx: Transaction,
   projectId: string,
   contractVersion: string,
   inputHash: string,
   now: number,
 ): number {
-  return db.transaction((tx) => {
-    let current = tx
+  let current = tx
+    .select()
+    .from(optimizationGeneration)
+    .where(
+      and(
+        eq(optimizationGeneration.projectId, projectId),
+        eq(optimizationGeneration.contractVersion, contractVersion),
+      ),
+    )
+    .get();
+  if (current === undefined) {
+    tx.insert(optimizationGeneration)
+      .values({
+        projectId,
+        contractVersion,
+        generation: 1,
+        inputHash,
+        cancelEpoch: 0,
+        admissionState: 'open',
+        updatedAt: now,
+      })
+      .onConflictDoNothing()
+      .run();
+    current = tx
       .select()
       .from(optimizationGeneration)
       .where(
@@ -103,77 +126,88 @@ export function allocateGeneration(
         ),
       )
       .get();
-    if (current === undefined) {
-      tx.insert(optimizationGeneration)
-        .values({
-          projectId,
-          contractVersion,
-          generation: 1,
-          inputHash,
-          cancelEpoch: 0,
-          admissionState: 'open',
-          updatedAt: now,
-        })
-        .onConflictDoNothing()
-        .run();
-      current = tx
-        .select()
-        .from(optimizationGeneration)
-        .where(
-          and(
-            eq(optimizationGeneration.projectId, projectId),
-            eq(optimizationGeneration.contractVersion, contractVersion),
-          ),
-        )
-        .get();
-      if (current === undefined) throw new Error('generation allocation did not create a row');
-    }
+    if (current === undefined) throw new Error('generation allocation did not create a row');
+  }
 
-    if (current.inputHash === inputHash) return current.generation;
+  if (current.inputHash === inputHash) return current.generation;
 
-    const next = current.generation + 1;
-    tx.update(optimizationGeneration)
-      .set({ generation: next, inputHash, updatedAt: now })
-      .where(
-        and(
-          eq(optimizationGeneration.projectId, projectId),
-          eq(optimizationGeneration.contractVersion, contractVersion),
-          eq(optimizationGeneration.generation, current.generation),
-        ),
-      )
-      .run();
+  const next = current.generation + 1;
+  tx.update(optimizationGeneration)
+    .set({ generation: next, inputHash, updatedAt: now })
+    .where(
+      and(
+        eq(optimizationGeneration.projectId, projectId),
+        eq(optimizationGeneration.contractVersion, contractVersion),
+        eq(optimizationGeneration.generation, current.generation),
+      ),
+    )
+    .run();
 
-    tx.update(solverSlot)
-      .set({ cancelRequestedAt: now })
-      .where(
-        and(
-          eq(solverSlot.projectId, projectId),
-          eq(solverSlot.contractVersion, contractVersion),
-          lt(solverSlot.generation, next),
-          isNull(solverSlot.cancelRequestedAt),
-        ),
-      )
-      .run();
+  tx.update(solverSlot)
+    .set({ cancelRequestedAt: now })
+    .where(
+      and(
+        eq(solverSlot.projectId, projectId),
+        eq(solverSlot.contractVersion, contractVersion),
+        lt(solverSlot.generation, next),
+        isNull(solverSlot.cancelRequestedAt),
+      ),
+    )
+    .run();
 
-    tx.delete(optimizedScheduleCache)
-      .where(
-        and(
-          eq(optimizedScheduleCache.projectId, projectId),
-          eq(optimizedScheduleCache.contractVersion, contractVersion),
-          lt(optimizedScheduleCache.generation, next),
-        ),
-      )
-      .run();
-    tx.delete(solverQueue)
-      .where(
-        and(
-          eq(solverQueue.projectId, projectId),
-          eq(solverQueue.contractVersion, contractVersion),
-          lt(solverQueue.generation, next),
-        ),
-      )
-      .run();
+  tx.delete(optimizedScheduleCache)
+    .where(
+      and(
+        eq(optimizedScheduleCache.projectId, projectId),
+        eq(optimizedScheduleCache.contractVersion, contractVersion),
+        lt(optimizedScheduleCache.generation, next),
+      ),
+    )
+    .run();
+  tx.delete(solverQueue)
+    .where(
+      and(
+        eq(solverQueue.projectId, projectId),
+        eq(solverQueue.contractVersion, contractVersion),
+        lt(solverQueue.generation, next),
+      ),
+    )
+    .run();
 
-    return next;
-  });
+  return next;
+}
+
+export function allocateGeneration(
+  db: SQLiteBunDatabase,
+  projectId: string,
+  contractVersion: string,
+  inputHash: string,
+  now: number,
+): number {
+  return db.transaction((tx) =>
+    allocateGenerationIn(tx, projectId, contractVersion, inputHash, now),
+  );
+}
+
+/** Allocates only while the project remains enabled in the same writer-owned snapshot. */
+export function allocateEnabledGeneration(
+  db: SQLiteBunDatabase,
+  projectId: string,
+  contractVersion: string,
+  inputHash: string,
+  now: number,
+): number | null {
+  return db.transaction(
+    (tx) => {
+      const enabled = tx
+        .select({ enabled: project.optimizationEnabled })
+        .from(project)
+        .where(eq(project.id, projectId))
+        .get()?.enabled;
+      return enabled === true
+        ? allocateGenerationIn(tx, projectId, contractVersion, inputHash, now)
+        : null;
+    },
+    { behavior: 'immediate' },
+  );
 }

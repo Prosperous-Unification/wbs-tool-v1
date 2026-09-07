@@ -48,10 +48,24 @@ export const SOLVER_QUANTUM = 48;
  * The window is {@link snapWorkdays}' own, which is the point: the drift here is
  * the same accumulated-division drift that function exists for, so borrowing it
  * keeps one 1e-9 window in the domain instead of two that agree until one is
- * edited. It is applied to units rather than to workdays, and deliberately
- * after the multiplication rather than before: `durationOf`'s result is a
- * genuine fraction that must not be snapped (0.2 is not drift), and only the
- * product is supposed to be an integer.
+ * edited.
+ *
+ * **It is applied TWICE, in two different spaces, and this paragraph said the
+ * opposite until 2026-09-07.** Before PR 281 it ran only after the
+ * multiplication, and this text defended that as deliberate — but the same 1e-9
+ * constant is a window `SOLVER_QUANTUM` times narrower once its argument is
+ * units, so a duration `lastWorkdayOf` reads as a whole day could fail to snap
+ * here and cost an extra unit. PR 281 (`c1d9a40d`, TASK-302) added the snap in
+ * WORKDAY space before the multiplication; the one after it stays, because a
+ * duration nowhere near a whole day can still land off a whole unit for a width
+ * that does not divide 48. What has not changed is why `durationOf`'s result is
+ * not rounded generally: 0.2 is a genuine fraction, not drift, and the inner
+ * snap only ever moves a value already within 1e-9 of a whole workday.
+ *
+ * A doc that still described the old arrangement would invite a maintainer to
+ * restore the defect while believing they were following policy — found by peer
+ * review on TASK-323, Important 3. `solver-quantum-golden-corpus.ts` is the
+ * guard that makes removing either snap a red.
  *
  * Never rounds a real duration down, so {@link SOLVER_QUANTUM}'s feasibility
  * argument holds for every slice.

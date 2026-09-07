@@ -6,9 +6,15 @@ set -euo pipefail
 SRC=/home/puni1/wbs-dev/src
 BIN=/home/puni1/wbs-dev/bin
 BUN=/home/puni1/wbs-dev/bin/bun
+BUN_VERSION_FILE=/home/puni1/wbs-dev/bin/bun-version
 CONTAINER=wbs-dev-src
 LOG=/home/puni1/wbs-dev/logs/deploy.log
 LOCK=/home/puni1/wbs-dev/state/poll.lock
+
+if ! read -r BUN_VERSION < "$BUN_VERSION_FILE"; then
+  echo "refusing: missing managed Bun version file at $BUN_VERSION_FILE; reinstall the poller pair per docs/runbook-dev-deploy.md" >&2
+  exit 1
+fi
 
 # This outer lock covers fetch, candidate extraction, sync and the served-code
 # proof. sync.ts holds its separate deploy lock around reset/install/restart.
@@ -33,7 +39,7 @@ read_served_commit() {
   # dev-poll-sync extracts sync.ts from remote_sha into BIN before executing
   # it. Therefore a pre-reset failure cannot pin the checkout forever: a later
   # repaired remote_sha supplies and runs its repaired deployer directly.
-  "$BIN/dev-poll-sync.sh" "$SRC" "$BIN" "$BUN" "$remote_sha"
+  "$BIN/dev-poll-sync.sh" "$SRC" "$BIN" "$BUN" "$remote_sha" "$BUN_VERSION"
 
   served=''
   for attempt in 1 2 3 4 5 6; do

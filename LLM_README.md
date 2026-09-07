@@ -1,6 +1,6 @@
 # LLM_README — read this, then only the doc your task needs
 
-TASK-300 keeps raw tabs fail-closed (the verdict and full log remain), preserves literal percent spellings, and awaits refreshed exact-head gates and CI.
+TASK-312 closes TASK-268's terminal-review follow-ups on `change/optimizer-terminal-review-minors` / PR 276. All nine AC implementations are landed; next is exact-head CI and production review. Real-Docker execution is blocked by h2puni's zero-free-inode container store, so CI is the current aggregate gate.
 
 **wbs-tool-v1** — collaborative real-time WBS tool. `be-01` (API, Elysia+Drizzle+bun:sqlite, :3100),
 `gw-01` (WS gateway, :3200), `fe-01` (Vite+React, :80 in the image, :4200 under `vite dev`),

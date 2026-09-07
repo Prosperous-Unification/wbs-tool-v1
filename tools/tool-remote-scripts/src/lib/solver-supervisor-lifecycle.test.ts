@@ -49,7 +49,10 @@ class FakeDriver implements ManagedContainerDriver {
   inspectCount = 0;
   firstInspectPid = 4242;
   attachFailure: Error | undefined;
+  deadlineCancelFailure: Error | undefined;
   killFailure: Error | undefined;
+  inspectFailure: Error | undefined;
+  removeFailure: Error | undefined;
   naturalExit = true;
   stdout = output();
   stderr = output();
@@ -89,6 +92,8 @@ class FakeDriver implements ManagedContainerDriver {
       hasFired: (): Promise<boolean> => Promise.resolve(false),
       cancel: (): Promise<void> => {
         this.events.push('timer-cancel');
+        if (this.deadlineCancelFailure !== undefined)
+          return Promise.reject(this.deadlineCancelFailure);
         return Promise.resolve();
       },
     });
@@ -113,6 +118,7 @@ class FakeDriver implements ManagedContainerDriver {
   inspect(argv: readonly string[], deadlineKilled: boolean): Promise<ManagedContainerEvidence> {
     this.inspectCount += 1;
     this.events.push(`inspect${String(this.inspectCount)}:${argv.slice(1).join(' ')}`);
+    if (this.inspectFailure !== undefined) return Promise.reject(this.inspectFailure);
     return Promise.resolve(
       this.inspectCount === 1
         ? { pid: this.firstInspectPid, exitCode: 0, oomKilled: false, deadlineKilled }
@@ -122,6 +128,7 @@ class FakeDriver implements ManagedContainerDriver {
 
   remove(argv: readonly string[]): Promise<void> {
     this.events.push(`rm:${argv.slice(1).join(' ')}`);
+    if (this.removeFailure !== undefined) return Promise.reject(this.removeFailure);
     return Promise.resolve();
   }
 }
@@ -329,6 +336,24 @@ describe('the managed solver lifecycle', () => {
     ]);
   });
 
+  it('reports a removal failure ahead of a simultaneous timer cleanup failure', async () => {
+    const driver = new FakeDriver();
+    driver.attachFailure = new Error('container stopped before attach');
+    driver.deadlineCancelFailure = new Error('timer cancel refused');
+    driver.removeFailure = new Error('container remove refused');
+
+    let rejection: unknown;
+    try {
+      await runManagedSolverAttempt(START, OPTIONS, driver, channel([], driver.events));
+    } catch (error) {
+      rejection = error;
+    }
+
+    expect(rejection).toBeInstanceOf(Error);
+    expect((rejection as Error).message).toContain('container remove refused');
+    expect((rejection as Error).cause).toBe(driver.attachFailure);
+  });
+
   it('kills and reports only after an output overflow is contained', async () => {
     const driver = new FakeDriver();
     driver.naturalExit = false;
@@ -398,6 +423,21 @@ describe('the managed solver lifecycle', () => {
       rejection = error;
     }
     expect(rejection).toEqual(new Error('daemon refused kill'));
+    expect(driver.events.map((event) => event.split(':')[0])).toEqual(['list', 'kill', 'inspect1']);
+  });
+
+  it('does not hide a failed kill when the diagnostic inspect also fails', async () => {
+    const driver = new FakeDriver();
+    driver.killFailure = new Error('daemon refused kill');
+    driver.inspectFailure = new Error('daemon refused inspect');
+    let rejection: unknown;
+    try {
+      await sweepManagedSolverOrphans(driver);
+    } catch (error) {
+      rejection = error;
+    }
+    // Proof: without preserving the kill failure, this is the daemon-refused-inspect error.
+    expect(rejection).toBe(driver.killFailure);
     expect(driver.events.map((event) => event.split(':')[0])).toEqual(['list', 'kill', 'inspect1']);
   });
 

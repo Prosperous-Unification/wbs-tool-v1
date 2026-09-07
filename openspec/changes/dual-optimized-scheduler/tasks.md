@@ -3636,7 +3636,7 @@ attempt_token=:token AND lifecycle='starting'` (with `:pid` the
       coordinator killed without cleanup has its slots reclaimed once
       `now > admittedDeadlineAt` — never by a missed heartbeat — rather than
       leaking capacity forever.
-- [x] 6.8 **Proven by** `optimization-orphan.proc.test.ts`, a **real
+- [x] 6.8 **Proven by** `optimization-orphan.proc.db.test.ts`, a **real
       process-boundary test**, not a mocked restart: start an inert managed
       container, kill the coordinator, and observe (a) socket EOF makes the
       supervisor kill/wait/inspect/remove that exact container and (b) the slot

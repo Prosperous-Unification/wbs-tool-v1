@@ -1,0 +1,29 @@
+{
+  "contractVersion": 8,
+  "cases": {
+    "drift-above-a-whole-workday": {
+      "units": 48,
+      "rounded": false
+    },
+    "exact-multiple-the-double-overshoots": {
+      "units": 104,
+      "rounded": false
+    },
+    "width-the-quantum-does-not-divide": {
+      "units": 10,
+      "rounded": true
+    },
+    "exact-half-workday": {
+      "units": 24,
+      "rounded": false
+    },
+    "unestimated-takes-the-assumption-whole": {
+      "units": 96,
+      "rounded": false
+    },
+    "explicit-zero": {
+      "units": 0,
+      "rounded": false
+    }
+  }
+}

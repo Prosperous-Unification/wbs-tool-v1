@@ -120,7 +120,7 @@ describe('the solver supervisor runtime composition', () => {
     const listen = ((_, value) => {
       driver.events.push('listen');
       dependencies = value;
-      return listener as ReturnType<SupervisorListen>;
+      return Promise.resolve(listener as Awaited<ReturnType<SupervisorListen>>);
     }) satisfies SupervisorListen;
 
     const result = await startSolverSupervisor(
@@ -156,7 +156,7 @@ describe('the solver supervisor runtime composition', () => {
       listen,
     );
 
-    expect(result).toBe(listener as ReturnType<SupervisorListen>);
+    expect(result).toBe(listener as Awaited<ReturnType<SupervisorListen>>);
     // Proof: opening the socket before the awaited sweep moves listen ahead of
     // the kill/wait/inspect/remove containment sequence.
     expect(driver.events).toEqual(['list:1', 'kill', 'wait', 'inspect:1', 'remove', 'listen']);

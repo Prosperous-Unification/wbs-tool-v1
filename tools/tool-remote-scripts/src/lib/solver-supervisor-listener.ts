@@ -21,6 +21,30 @@ function connectionError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
+async function unixSocketIsAcceptingConnections(unix: string): Promise<boolean> {
+  try {
+    const probe = await Bun.connect({
+      unix,
+      socket: {
+        open(socket) {
+          socket.end();
+        },
+        data() {
+          return undefined;
+        },
+      },
+    });
+    probe.end();
+    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ECONNREFUSED' || code === 'ENOENT') return false;
+    throw new Error('solver supervisor listener: socket liveness probe failed', {
+      cause: connectionError(error),
+    });
+  }
+}
+
 /** Serializes concurrent stdout/stderr frames and observes Bun socket backpressure. */
 class SupervisorSocketWriter {
   readonly #socket: Bun.Socket<SupervisorSocketState | undefined>;
@@ -127,18 +151,23 @@ export function supervisorSocketHandler(
 }
 
 /** Opens the supervisor's host-owned Unix socket. Startup cleanup runs outside this seam. */
-export function listenForSupervisorConnections(
+export async function listenForSupervisorConnections(
   options: SupervisorUnixListenerOptions,
   dependencies: SupervisorConnectionDependencies,
-): Bun.UnixSocketListener<SupervisorSocketState | undefined> {
+): Promise<Bun.UnixSocketListener<SupervisorSocketState | undefined>> {
   try {
     const stale = lstatSync(options.unix);
     if (!stale.isSocket()) {
       throw new Error('solver supervisor listener: configured path exists and is not a socket');
     }
+    if (await unixSocketIsAcceptingConnections(options.unix)) {
+      throw new Error(
+        'solver supervisor listener: configured socket is already accepting connections',
+      );
+    }
     // A SIGKILL cannot run listener.stop(), so Restart=always inherits the
-    // dead socket inode. The runtime directory is host-owned and systemd
-    // serializes service instances; unlink only this validated socket path.
+    // dead socket inode. Unlink only after proving this validated socket path
+    // refuses connections, so a second process cannot steal a live listener.
     unlinkSync(options.unix);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {

@@ -33,7 +33,7 @@ export async function startSolverSupervisor(
   driver: SolverSupervisorDriver = new BunManagedContainerDriver(),
   host?: SupervisorPeerHostPrimitives,
   listen: SupervisorListen = listenForSupervisorConnections,
-): Promise<ReturnType<SupervisorListen>> {
+): Promise<Awaited<ReturnType<SupervisorListen>>> {
   await sweepManagedSolverOrphans(driver);
   const peer = hostSupervisorPeerDependencies(driver, host);
   return listen(options.connection, {
