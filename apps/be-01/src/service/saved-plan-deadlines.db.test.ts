@@ -260,7 +260,13 @@ describe('a captured plan and its deadlines', () => {
   });
 
   it('schedules the same project to the same placements as the live projection', async () => {
-    const live = await liveProjection();
+    // `tree` answers `null` for a project that is not there, exactly as the
+    // capture does, so both are narrowed the same way and a fixture that failed
+    // to seed reads as "the project is missing" rather than as a placement
+    // disagreement.
+    const read = await liveProjection();
+    expect(read).not.toBeNull();
+    const live = read!;
     const result = await captureAndSchedulePlan(capture(), 'p1');
     expect(result).not.toBeNull();
     const { planned } = result!;
