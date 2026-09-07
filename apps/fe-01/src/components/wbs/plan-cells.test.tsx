@@ -1279,7 +1279,9 @@ describe('the work item deadline cell', () => {
     await screen.findByLabelText('Name of 010');
     typeIntoDate('Project start date', '2026-08-06');
     await waitFor(() => {
-      expect(screen.getByLabelText<HTMLInputElement>('Deadline for 010').disabled).toBe(false);
+      expect(screen.getByLabelText<HTMLInputElement>('Work item deadline for 010').disabled).toBe(
+        false,
+      );
     });
     return api;
   }
@@ -1288,33 +1290,35 @@ describe('the work item deadline cell', () => {
    * The accessible name of the impossible-deadline mark on row 010 — named once
    * so a reworded affordance cannot leave a stale string asserting nothing.
    */
-  const IMPOSSIBLE_MARK = "Deadline for 010 falls before the project's first working day";
+  const IMPOSSIBLE_MARK = "Work item deadline for 010 falls before the project's first working day";
 
   /** Opens one row's deadline editor the way a reader does — Enter on the cell. */
   const openDeadline = (number: string): HTMLInputElement => {
-    fireEvent.keyDown(screen.getByLabelText<HTMLInputElement>(`Deadline for ${number}`), {
+    fireEvent.keyDown(screen.getByLabelText<HTMLInputElement>(`Work item deadline for ${number}`), {
       key: 'Enter',
     });
-    return screen.getByLabelText<HTMLInputElement>(`Deadline for ${number}`);
+    return screen.getByLabelText<HTMLInputElement>(`Work item deadline for ${number}`);
   };
 
   itDom('is the short date as text at rest, and an em-dash where nobody has said', async () => {
     const api = await datedPlanWithDeadlineColumn();
 
-    expect(screen.getByLabelText<HTMLInputElement>('Deadline for 010').value).toBe('—');
+    expect(screen.getByLabelText<HTMLInputElement>('Work item deadline for 010').value).toBe('—');
 
     const row = api.rows.at(0);
     if (row === undefined) throw new Error('the plan has no row');
     row.deadline = '2026-09-30';
     click('Add work item');
     await waitFor(() => {
-      expect(screen.getByLabelText<HTMLInputElement>('Deadline for 010').value).toBe('30 Sep');
+      expect(screen.getByLabelText<HTMLInputElement>('Work item deadline for 010').value).toBe(
+        '30 Sep',
+      );
     });
     // The whole day is a hover away, the same bargain Not before, Start and End
     // make in 84px and 52px.
-    expect(screen.getByLabelText('Deadline for 010').getAttribute('data-fact') ?? '').toContain(
-      '2026-09-30',
-    );
+    expect(
+      screen.getByLabelText('Work item deadline for 010').getAttribute('data-fact') ?? '',
+    ).toContain('2026-09-30');
   });
 
   itDom('sends the day as the one field, with no reason beside it', async () => {
@@ -1351,7 +1355,9 @@ describe('the work item deadline cell', () => {
     row.startNoEarlierThanReason = 'the parts arrive then';
     click('Add work item');
     await waitFor(() => {
-      expect(screen.getByLabelText<HTMLInputElement>('Deadline for 010').value).toBe('30 Sep');
+      expect(screen.getByLabelText<HTMLInputElement>('Work item deadline for 010').value).toBe(
+        '30 Sep',
+      );
     });
     const patched = recordCalls(api, 'patchWorkItem', (_id, patch) => patch);
 
@@ -1385,7 +1391,9 @@ describe('the work item deadline cell', () => {
     row.deadline = '2026-08-10';
     click('Add work item');
     await waitFor(() => {
-      expect(screen.getByLabelText<HTMLInputElement>('Deadline for 010').value).toBe('10 Aug');
+      expect(screen.getByLabelText<HTMLInputElement>('Work item deadline for 010').value).toBe(
+        '10 Aug',
+      );
     });
     // The negative control, and the half that makes the assertion below mean
     // something: a deadline at or after day zero is an ordinary date and the
@@ -1397,10 +1405,12 @@ describe('the work item deadline cell', () => {
     await screen.findByLabelText(IMPOSSIBLE_MARK);
     // Not silently dropped: the stored date is still the cell's reading, which
     // is what stops the affordance from being mistaken for a cleared field.
-    expect(screen.getByLabelText<HTMLInputElement>('Deadline for 010').value).toBe('10 Aug');
-    expect(screen.getByLabelText('Deadline for 010').getAttribute('data-fact') ?? '').toContain(
-      "falls before the project's first working day",
+    expect(screen.getByLabelText<HTMLInputElement>('Work item deadline for 010').value).toBe(
+      '10 Aug',
     );
+    expect(
+      screen.getByLabelText('Work item deadline for 010').getAttribute('data-fact') ?? '',
+    ).toContain("falls before the project's first working day");
   });
 
   itDom('says the true thing when the two dates a reader can see are equal', async () => {
@@ -1418,14 +1428,17 @@ describe('the work item deadline cell', () => {
     row.deadline = '2026-08-08';
     click('Add work item');
     await waitFor(() => {
-      expect(screen.getByLabelText<HTMLInputElement>('Deadline for 010').value).toBe('8 Aug');
+      expect(screen.getByLabelText<HTMLInputElement>('Work item deadline for 010').value).toBe(
+        '8 Aug',
+      );
     });
 
     typeIntoDate('Project start date', '2026-08-08');
 
     await screen.findByLabelText(IMPOSSIBLE_MARK);
     // Both dates read 8 Aug, and nothing the cell says claims otherwise.
-    const fact = screen.getByLabelText('Deadline for 010').getAttribute('data-fact') ?? '';
+    const fact =
+      screen.getByLabelText('Work item deadline for 010').getAttribute('data-fact') ?? '';
     expect(fact).toContain("falls before the project's first working day");
     expect(fact).not.toContain('before the project starts');
   });
@@ -1444,7 +1457,9 @@ describe('the work item deadline cell', () => {
     row.deadline = '2026-08-10';
     click('Add work item');
     await waitFor(() => {
-      expect(screen.getByLabelText<HTMLInputElement>('Deadline for 010').disabled).toBe(true);
+      expect(screen.getByLabelText<HTMLInputElement>('Work item deadline for 010').disabled).toBe(
+        true,
+      );
     });
 
     expect(screen.queryByLabelText(IMPOSSIBLE_MARK)).toBeNull();
@@ -1461,7 +1476,7 @@ describe('the work item deadline cell', () => {
     await screen.findByLabelText('Name of 010');
     const patched = recordCalls(api, 'patchWorkItem', (_id, patch) => patch);
 
-    const cell = screen.getByLabelText<HTMLInputElement>('Deadline for 010');
+    const cell = screen.getByLabelText<HTMLInputElement>('Work item deadline for 010');
     expect(cell.disabled).toBe(true);
     fireEvent.keyDown(cell, { key: 'Enter' });
 

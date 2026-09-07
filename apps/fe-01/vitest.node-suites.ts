@@ -35,6 +35,10 @@ export const NODE_SUITES: readonly string[] = [
   'src/components/wbs/project-picker.test.ts',
   'src/components/wbs/short-date.test.ts',
   'src/components/wbs/wbs-rows.test.ts',
+  // `work-item-deadline` 8.9's repository assertion. It parses `.tsx` sources
+  // with the TypeScript parser and reads them off disk, which is a file-system
+  // job and not a browser one.
+  'src/deadline-copy.test.ts',
   // Not `src/lib/api.test.ts`: `websocketUrl` reads `location`, so one of its
   // cases needs a browser after all. It is the file the plan's own measurement
   // named as the exception, and the guard below asserts it stays one.

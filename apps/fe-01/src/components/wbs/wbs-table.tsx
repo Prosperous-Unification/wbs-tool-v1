@@ -2018,7 +2018,7 @@ const notBeforeOffsetOf = (startDate: string | null, notBefore: string | null): 
  * the predicate would not have fired.
  */
 const DEADLINE_BEFORE_START =
-  "This deadline falls before the project's first working day, so nothing can finish by it. The date is kept; move the deadline or the project start.";
+  "This work item deadline falls before the project's first working day, so nothing can finish by it. The date is kept; move the work item deadline or the project start.";
 
 /**
  * Whether a stored deadline resolves before the project's day zero — the
@@ -2392,7 +2392,7 @@ function FilterFacets({
   return (
     <details ref={useClosedByPointerOutside()} data-facets className="relative">
       <summary
-        className="border-input h-8 cursor-pointer rounded-md border px-2 py-1 text-xs select-none"
+        className="border-input h-8 cursor-pointer select-none rounded-md border px-2 py-1 text-xs"
         data-hint="Narrow the plan to the rows carrying these — the table, the chart and the cards together"
       >
         Filters{chosen > 0 ? ` (${String(chosen)})` : ''}
@@ -2592,7 +2592,7 @@ function ColumnsControl({
   return (
     <details ref={useClosedByPointerOutside()} data-columns className="relative">
       <summary
-        className="border-input h-8 cursor-pointer rounded-md border px-2 py-1 text-xs select-none"
+        className="border-input h-8 cursor-pointer select-none rounded-md border px-2 py-1 text-xs"
         data-hint="Choose which columns are on the table. Number, Name and the row's controls always are."
       >
         Columns
@@ -2662,7 +2662,7 @@ function SavedViews({
   return (
     <details ref={useClosedByPointerOutside()} data-saved-views className="relative">
       <summary
-        className="border-input h-8 cursor-pointer rounded-md border px-2 py-1 text-xs select-none"
+        className="border-input h-8 cursor-pointer select-none rounded-md border px-2 py-1 text-xs"
         data-hint="Name the current filter, or pick one already named"
       >
         Views{views.length > 0 ? ` (${String(views.length)})` : ''}
@@ -10268,7 +10268,7 @@ export function WbsTable({
             };
             return editing ? (
               <DateField
-                aria-label={`Deadline for ${row.original.number}`}
+                aria-label={`Work item deadline for ${row.original.number}`}
                 data-deadline={row.original.id}
                 data-cell={cellKey(row.original.id, 'deadline')}
                 data-hint="The last day this work item may finish on. It does not move the plan; a plan that misses it says so."
@@ -10327,13 +10327,13 @@ export function WbsTable({
                 style={{ position: 'relative', display: 'block' }}
               >
                 <input
-                  aria-label={`Deadline for ${row.original.number}`}
+                  aria-label={`Work item deadline for ${row.original.number}`}
                   disabled={noCalendar}
                   data-deadline={row.original.id}
                   data-cell={cellKey(row.original.id, 'deadline')}
                   data-fact={
                     noCalendar
-                      ? 'Set the project start date first — without one there are no dates to hold a deadline against.'
+                      ? 'Set the project start date first — without one there are no dates to hold a work item deadline against.'
                       : [
                           day === null ? null : `${day}.`,
                           impossible
@@ -10412,7 +10412,7 @@ export function WbsTable({
                     // does, for the reason recorded there: raw calendar order
                     // is not what the predicate tests, and a mark claiming it
                     // contradicts the two equal dates beside it.
-                    aria-label={`Deadline for ${row.original.number} falls before the project's first working day`}
+                    aria-label={`Work item deadline for ${row.original.number} falls before the project's first working day`}
                     role="img"
                     data-deadline-impossible={row.original.id}
                     // Out of flow, so a marked row and an unmarked one lay out
@@ -11683,7 +11683,7 @@ export function WbsTable({
       */}
       <details ref={useClosedByPointerOutside()} data-export className="relative">
         <summary
-          className="border-input h-8 cursor-pointer rounded-md border px-2 py-1 text-xs select-none"
+          className="border-input h-8 cursor-pointer select-none rounded-md border px-2 py-1 text-xs"
           data-hint="Copy or download the plan — as a Markdown table, a Mermaid gantt, a CSV, or what is on screen"
         >
           Export
