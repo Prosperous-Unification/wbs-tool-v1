@@ -172,9 +172,18 @@ describe('evaluateSolverOutcome', () => {
     ).toEqual({ kind: 'failed', reason: 'internal-error' });
 
     // The neighbour, and it is what proves the ordering change refused the
-    // malformed request rather than the infeasible path. Same slice, same
-    // floor, same unsolvable plan — but 48 is a multiple, so the certificate is
-    // still earned and still stored.
+    // malformed request rather than the infeasible path: same slice, same
+    // floor, but 48 is a multiple, so the response is still dispositioned and
+    // the certificate is still stored.
+    //
+    // Narrowed on Sol's round-2 Minor. This does NOT prove the certificate is
+    // deserved, and an earlier draft of this comment said it was. With
+    // `durationUnits: 0` and `notBeforeUnits: 1` CP-SAT admits every start in
+    // `[1, 47]`, so the plan is satisfiable and the `infeasible` line below is
+    // fabricated. What the case establishes is exactly one thing — that a
+    // well-formed request still reaches status disposition — and whether the
+    // solver was right to say `infeasible` is a different question this seam
+    // does not ask.
     expect(
       evaluateSolverOutcome(DEADLINED_INPUT, withDeadline(48), {
         kind: 'response',
