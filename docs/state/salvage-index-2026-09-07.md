@@ -41,6 +41,50 @@ Two are worth a second look rather than deletion:
   never reached a commit; `verify.md` changes in particular may record
   observations nothing else captured.
 
+## Second pass — the class the first scan missed
+
+The first scan looked for worktrees that were *dirty* or *ahead of their own
+upstream*. That misses the commonest case on this box: a worktree whose branch
+was deleted after its PR merged, so `@{u}` is gone and the HEAD commit sits on
+**no remote branch at all**.
+
+Re-scanned with `git branch -r --contains HEAD`: **42 more worktrees** were in
+that state. All are now pushed. Across both passes, **50 `wip/salvage-*`
+branches** exist on the remote and **zero worktrees have a HEAD that is not on
+some remote branch.**
+
+Cross-referenced against all 311 PRs in the repository, 36 of the 42 map to a
+**merged** PR, so their commits are pre-squash history whose content already
+landed. Six do not, and those are the ones worth attention:
+
+| Branch | Preserved as | PR | Commits ahead of `main` |
+|---|---|---|---|
+| `change/multi-team-engine` | `wip/salvage-multi-team-engine-closed-pr67-20260907` | **#67 CLOSED** — never merged | 20 |
+| `test/corpus-version-lint-watched-red` | `wip/salvage-corpus-version-lint-watched-red-20260907` | none | 13 |
+| `change/deadline-copy-normative` | `wip/salvage-deadline-copy-normative-20260907` | none | 9 |
+| `spike/capacity-fit` | `wip/salvage-capacity-fit-spike-20260907` | none | 2 |
+| `change/resource-model` | `wip/salvage-resource-model-20260907` | none | 1 |
+| `wt-h2puni-capacity` (detached) | `wip/salvage-h2puni-capacity-review-20260907` | none | 28 |
+
+Notes on those six:
+
+- **`change/multi-team-engine`** is the only branch here whose PR was opened and
+  then **closed unmerged**. Twenty commits of many-to-many team/service work —
+  a wave 6 scope item. Whether it was abandoned deliberately or dropped is not
+  recorded anywhere this session could find.
+- **`test/corpus-version-lint-watched-red`** is TASK-338's watched-red control
+  at `20b7a585`, cited by its status log as the paired-green control. It is
+  evidence, not a feature, and deleting it would break that citation.
+- **`change/deadline-copy-normative`** is TASK-241 work with no PR.
+- **`spike/capacity-fit`** is a spike, throwaway by convention, kept because its
+  findings may not be written down elsewhere.
+- **`wt-h2puni-capacity`** is a detached review checkout carrying 28 commits.
+
+Three further detached review checkouts were preserved the same way:
+`wip/salvage-t267-94-review-20260907`,
+`wip/salvage-task160-pr167-review-20260907` and
+`wip/salvage-ws-auth-review2-20260907`.
+
 ## Deliberately not touched
 
 - **`/home/claw/wd/puni/wbs-tool-v1`** — a live worker checkout on
