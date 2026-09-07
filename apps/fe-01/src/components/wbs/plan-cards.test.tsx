@@ -379,7 +379,7 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
         // the deadline no reason column.
         //
         // **What this deliberately does not model, stated rather than implied:**
-        // be-01 refuses a date before the project start with
+        // be-01 refuses a date before the project's first working day with
         // `deadline_before_project_start`, and that refusal is not kept here.
         // The card sends the date unguarded on purpose (`setDeadline`'s own
         // docstring: a client-side rule the server also keeps is how the two

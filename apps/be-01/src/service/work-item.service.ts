@@ -2114,9 +2114,9 @@ export class WorkItemService {
     // would have placed it against. Duplicating the comparison here with a
     // plain `<` is what would let the two drift.
     //
-    // Proof: this refusal deleted, and `refuses a deadline before the project
-    // starts, naming the row and day zero` fails on `Expected: 422, Received:
-    // 200` — the
+    // Proof: this refusal deleted, and `refuses a deadline before the project's
+    // first working day, naming the row and day zero` fails on `Expected: 422,
+    // Received: 200` — the
     // row takes a date that no placement of the work can meet and every later
     // read of the project reports it late by a span nobody asked for.
     //

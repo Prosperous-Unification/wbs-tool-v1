@@ -768,7 +768,7 @@ describe('work item routes', () => {
     });
   });
 
-  it('refuses a deadline before the project starts, naming the row and day zero', async () => {
+  it("refuses a deadline before the project's first working day, naming the row and day zero", async () => {
     // 6.1's only deadline-specific rejection, through the route, because the
     // status is half the answer: **422 and not 400**, over the batch route's own
     // 400 default. The body parses, the row exists and the date is a real
