@@ -198,8 +198,18 @@ test.describe('the project settings control, in a browser', () => {
     await page.getByRole('button', { name: 'Add work item' }).click();
     await expect(page.getByLabel('Name of 010')).toBeVisible();
     const longWorkItemName = 'Deadline'.repeat(24);
-    await page.getByLabel('Name of 010').fill(longWorkItemName);
-    await expect(page.getByLabel('Name of 010')).toHaveValue(longWorkItemName);
+    const name = page.getByLabel('Name of 010');
+    const nameSaved = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        response.url().includes('/commands') &&
+        (response.request().postData() ?? '').includes('"kind":"patchWorkItem"') &&
+        response.ok(),
+    );
+    await name.fill(longWorkItemName);
+    await name.blur();
+    await nameSaved;
+    await expect(name).toHaveValue(longWorkItemName);
 
     await page.route('**/api/projects/*/work-items', async (route) => {
       const response = await route.fetch();
