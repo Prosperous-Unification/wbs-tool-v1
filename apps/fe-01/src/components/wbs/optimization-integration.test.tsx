@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { PlanOptimizationView } from '@/lib/wbs-api';
-import { fakeProjectApi } from '@/testing/fake-project-api';
+import { DEV, fakeProjectApi } from '@/testing/fake-project-api';
 
 import { type SubscriptionHandlers, WbsTable } from './wbs-table';
 
@@ -138,10 +138,12 @@ describe('project optimization in the plan', () => {
     async () => {
       const api = fakeProjectApi();
       const row = await api.createWorkItem('p1', { parentId: null, afterId: null, name: 'Launch' });
-      // A day zero, so the chart has something to draw: a project with no start
-      // date has no dates to place, and "Fast is still on screen" would be
-      // asserted against an empty state rather than against Fast.
+      // A day zero **and** a cost, so Fast has something to place: a project
+      // with no start date has no coordinate system, and the chart filters
+      // every unestimated slice out at rest, so without both the assertion
+      // below would pass against an empty chart.
       await api.setStartDate('p1', '2026-09-07');
+      await api.setEstimate(row.id, DEV.id, { optimistic: 2, realistic: 3, pessimistic: 8 });
       const patch = vi.spyOn(api, 'patchWorkItem');
       const readTree = api.tree.bind(api);
       api.tree = async (projectId) => ({
@@ -169,9 +171,16 @@ describe('project optimization in the plan', () => {
       // infeasible optimized plan is a statement about the optimized variant,
       // and the Fast plan it is measured against is still the one being drawn.
       // The chart is behind its own control, so opening it is part of the
-      // claim — an affordance that stopped working would fail here too.
+      // claim — an affordance that stopped working would fail here too. The
+      // assertion is a drawn **bar**, not the panel: `aria-label="Gantt chart"`
+      // sits on the section unconditionally, and the "nothing can be drawn"
+      // branch carries it too, so finding the region proves a shell. A bar is
+      // a Fast placement.
       fireEvent.click(await screen.findByRole('button', { name: 'Gantt' }));
-      expect(await screen.findByLabelText('Gantt chart')).toBeInTheDocument();
+      await screen.findByLabelText('Gantt chart');
+      await waitFor(() => {
+        expect(document.querySelectorAll('[data-gantt-bar]').length).toBeGreaterThan(0);
+      });
 
       // **Usable** has to cross the edit boundary. `CellInput` is uncontrolled
       // (`defaultValue`), so reading the node's own value back after a `change`
@@ -186,7 +195,13 @@ describe('project optimization in the plan', () => {
       await waitFor(() => {
         expect(patch).toHaveBeenCalledWith(row.id, { name: 'Launch v2' });
       });
-      expect(await screen.findByLabelText('Name of 010')).toHaveValue('Launch v2');
+      // The fake's own row, not the input's value: the cell is uncontrolled, so
+      // it holds `Launch v2` because `fireEvent.change` put it there whether or
+      // not anything was written. This is the model behind the API answering
+      // that the write landed.
+      await waitFor(() => {
+        expect(api.rows.find((each) => each.id === row.id)?.name).toBe('Launch v2');
+      });
 
       // No toast and no modal, and no Retry — the whole document, because the
       // point of the item is that the affordance is absent from the screen, not

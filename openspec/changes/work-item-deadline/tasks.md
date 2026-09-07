@@ -1179,17 +1179,28 @@ asserted instead in `optimization-integration.test.tsx`, which renders the
 whole `WbsTable` over `fakeProjectApi` with a seeded row, a project start date
 and an infeasible `pri` variant.
 
-**Both of that case's halves were first written too weak, and Sol r7 caught
-both.** _On screen_ was the row list, which an infeasible plan would keep even
-if Fast vanished; it is now Fast's own drawing — the `Gantt chart` region,
-reached by clicking the control that opens it, so an affordance that stopped
-working fails here too. (The seeded start date is why: a project with no day
-zero draws an empty state, and the clause would have been asserted against
-that.) _Usable_ read the name input's own value back after a `change` — but
+**Both of that case's halves were first written too weak, and it took two Sol
+rounds to get each one honest.** _On screen_ was the row list, which an
+infeasible plan would keep even if Fast vanished. The first fix — the
+`Gantt chart` region — was no better and r7b said so: that `aria-label` sits on
+the section **unconditionally**, and the "nothing can be drawn" branch carries
+it too, so finding the region proves a shell. The assertion is a drawn
+**`[data-gantt-bar]`**, which is a Fast placement. It needs both a project
+start date and a cost on the row: no day zero is no coordinate system, and the
+chart filters every unestimated slice out at rest, so either omission would
+have put the clause back against an empty chart. Opening the chart through its
+own control is kept, so an affordance that stopped working fails here too.
+
+_Usable_ read the name input's own value back after a `change` — but
 `CellInput` is uncontrolled through `defaultValue`, so that asserts jsdom and
 not the table; the write starts on **blur** and lands in `api.patchWorkItem`.
-The case now blurs, waits for `patchWorkItem(row.id, { name: 'Launch v2' })`,
-and rereads the cell.
+The case blurs and waits for `patchWorkItem(row.id, { name: 'Launch v2' })`.
+**It does not assert a reread, and the first draft's claim that it did was
+wrong** (r7b): the spy records the call as `run` enters `await action()`, while
+the refresh happens after, so a `waitFor` on the spy can pass before any reread
+lands — and the cell would read `Launch v2` either way, because
+`fireEvent.change` put it there. What is asserted instead is the fake's own
+row: the model behind the API says the write landed.
 
 `dialog`, `alert` and any Retry button are absent from the **document** rather
 than from one component's markup. The no-toast negative is
