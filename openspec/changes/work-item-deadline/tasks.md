@@ -952,20 +952,24 @@ reading "the indicator SHALL report one of: Earlier by N days, …" against a
 component that renders none of those four literals. 8.9b was written to stop
 exactly that and arrived after the fact.
 
-**The two sites 8.9b names are six, and two of them are this task's own.** The
-search was for the string family rather than the count, the discipline 8.7b's
-sixth site established:
+**The two sites 8.9b names are eight, across seven artifacts, and three of them
+are this task's own.** The search was for the string family rather than the
+count, the discipline 8.7b's sixth site established. An earlier revision of this
+table said six and bundled two artifacts into one row (Sol r5 Important 1);
+corrected, with each artifact given its own line:
 
-| site | artifact                                                                | state found                                                     |
-| ---- | ----------------------------------------------------------------------- | --------------------------------------------------------------- |
-| 1    | `dual-optimized-scheduler/.../spec.md` comparison-indicator requirement | all four old strings — the `SHALL` 8.9b names                   |
-| 2    | `dual-optimized-scheduler/.../spec.md` its "finishes earlier" scenario  | `"Earlier by N days"` in the **THEN**, which 8.9b does not name |
-| 3    | `dual-optimized-scheduler/design.md` §2.2 restatement                   | the four sentences, quoted                                      |
-| 4    | `dual-optimized-scheduler/proposal.md`                                  | the indicator's To-state list                                   |
-| 5    | `dual-optimized-scheduler/tasks.md` 8.3                                 | an **unticked** item still specifying the old four              |
-| 6    | `work-item-deadline` `spec.md` §rename and `design.md` §TASK-221        | **renamed only two of the four**                                |
+| site | artifact                                                                | state found                                                               |
+| ---- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| 1    | `dual-optimized-scheduler/.../spec.md` comparison-indicator requirement | all four old strings — the `SHALL` 8.9b names                             |
+| 2    | `dual-optimized-scheduler/.../spec.md` its "finishes earlier" scenario  | `"Earlier by N days"` in the **THEN**, which 8.9b does not name           |
+| 3    | `dual-optimized-scheduler/design.md` §2.2 restatement                   | the two `Same …` strings quoted, the earlier/later pair only by reference |
+| 4    | `dual-optimized-scheduler/proposal.md`                                  | the indicator's To-state list                                             |
+| 5    | `dual-optimized-scheduler/tasks.md` 8.3                                 | an **unticked** item still specifying the old four                        |
+| 6    | `work-item-deadline/specs/.../spec.md` §rename                          | **renamed only two of the four**                                          |
+| 7    | `work-item-deadline/design.md` §TASK-221                                | **renamed only two of the four**                                          |
+| 8    | `work-item-deadline/proposal.md`                                        | the change summary, `Same deadline …` only                                |
 
-Site 6 is the one worth keeping. This task's own `SHALL` renamed only the two
+Sites 6 and 7 are the ones worth keeping. This task's own `SHALL` renamed only the two
 "Same …" strings and said nothing about the earlier/later pair, so a component
 that qualified all four was **exceeding** its requirement, and a future reader
 reconciling the two could have narrowed the code back to the half-rename. Half a
@@ -974,7 +978,7 @@ a **Work item deadline** column does not say which deadline moved. Both were
 widened to all four, with the reason recorded, rather than the code narrowed to
 them.
 
-Sites 2 and 5 are the enumeration lesson again — a scenario's **THEN** and
+Sites 2, 5 and 8 are the enumeration lesson again — a scenario's **THEN** and
 another change's open task item are both places a literal string lives, and
 neither is a requirement sentence. `design.md`'s review-ledger row I1 is left
 untouched, per 7.2b.
@@ -983,29 +987,36 @@ No test changes and no gate counts: this chunk is five documents plus one
 scenario line, and the strings it aligns to are already asserted by
 `optimization-indicator.test.tsx`, green on `main`.
 
-**8.9 stays open on its second half only, and the shape of that half was
-measured here rather than guessed.** Every literal containing "deadline" in
-shipped (non-test) `apps/fe-01/src` was extracted. There are thirteen, and they
-fall into three groups that a single regex cannot separate:
+**8.9 stays open on its second half, and an earlier revision of this paragraph
+put a count on it that was wrong. The count is withdrawn (Sol r5 Critical 1).**
+It said "thirteen literals" in shipped `apps/fe-01/src`, then enumerated
+fourteen; it was built by extracting **distinct literal values** with one regex
+over `.tsx` alone, and then described as an inventory of occurrences. Comments
+were counted in the same list as runtime strings, template literals outside the
+indicator were missed, and JSX text and accessibility attributes were never
+scanned at all. Nothing downstream may rest on it.
 
-- **Identifiers, not copy** — `'deadline'` (the column id, `wbs-table.tsx:541`
-  and `:10238`), `deadline_before_project_start`, `work-item-deadline`,
-  `{ deadline: null }`. Every one is a single token with no space.
-- **Comments** — `"no deadline"` at `wbs-table.tsx:10308` and `:10363`, and
-  "no deadlines" at `gantt-panel.tsx:1688`, all inside `//` lines explaining the
-  em-dash an empty cell renders. A source scan that does not strip comments
-  fails on prose about the copy rather than on the copy.
-- **Copy** — `Work item deadline` (the column label, `wbs-table.tsx:2562`), the
-  indicator's four, and **two sentences that are legitimately unqualified**: the
-  cell's "…no dates to hold a deadline against." and its impossible-date message
-  "This deadline falls before the project's first working day…". Both sit inside
-  the **Work item deadline** cell, where the referent is the label above them.
+Sol's own inventory at `ec15361e`, offered here as the starting point for the
+re-measurement rather than as a settled number: **16** `'deadline'` identifier
+literals across `column-hints.ts`, `table-frame.ts` and `wbs-table.tsx`, and
+**12** shipped copy occurrences — the indicator's four project-comparison forms,
+three already-qualified Work-item forms at `optimization-indicator.tsx:69,79`
+and `wbs-table.tsx:2562`, and **five unqualified** cell and accessibility forms
+at `wbs-table.tsx:2021,10271,10330,10336,10415`. Three strings the withdrawn
+list called identifiers occur only inside JSDoc. Whoever writes 8.9 re-measures
+in **one declared unit** and includes JSX text and `aria-label`.
 
-So the blanket predicate — every "deadline" preceded by `project` or
-`work item` — is wrong: it reddens on two sentences whose only fix is worse
-English. **The assertion 8.9 wants is a pinned list**: extract the multi-word
-deadline-bearing literals from shipped source with comments stripped, and assert
-the set equals an explicit reviewed list, so a new one has to be added
-deliberately and read at review time, with the indicator's four spelled out in
-it. That is a code chunk with a remote gate and it is the whole of what 8.9 has
-left.
+**Two corrections that survive the withdrawn count, and they change the item.**
+
+- The claim that the two cell sentences are unqualified-but-unambiguous "because
+  the **Work item deadline** label is above them" is **false**. The visible
+  column heading is `Due` (`wbs-table.tsx:10238-10242`); `Work item deadline` is
+  the separate Columns-control label (`:2560-2562`). The referent those
+  sentences were said to inherit is not on screen beside them.
+- **A pinned exception list cannot satisfy 8.9, because a standing SHALL forbids
+  one.** This change's own scenario "no unqualified deadline copy remains"
+  (`specs/scheduler-optimization/spec.md:390-394`) requires that **every**
+  occurrence be qualified as Project deadline or Work item deadline. So 8.9 has
+  exactly two honest closures: qualify all five unqualified occurrences, or
+  amend that scenario to define a contextual exception precisely — and the
+  second is a normative change, not an assertion.
