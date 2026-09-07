@@ -5,10 +5,7 @@ import {
 import { describe, expect, it } from 'bun:test';
 
 import { BunManagedContainerDriver } from './solver-supervisor-driver';
-import {
-  type ManagedDeadlineTimer,
-  runManagedSolverAttempt,
-} from './solver-supervisor-lifecycle';
+import { type ManagedDeadlineTimer, runManagedSolverAttempt } from './solver-supervisor-lifecycle';
 
 const IMAGE = process.env['WBS_SOLVER_ORPHAN_IMAGE'];
 const realDockerDescribe = IMAGE === undefined ? describe.skip : describe;
