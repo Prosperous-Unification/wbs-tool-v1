@@ -59,9 +59,37 @@ export interface ColumnHintState {
  * it differently.** Fast's comparator (`libs/domain/src/schedule.ts`) asks
  * `slack` — the deadline minus the placement it would get with no deadline —
  * and then the effective deadline itself, *before* `priority`, so a date
- * reorders who takes a free person first. It decides an order and never a date:
- * a slice is still placed at the latest of its own floors, so a deadline cannot
- * pull work in front of its dependencies. The optimizing engines turn the same
+ * reorders who takes a free resource first.
+ *
+ * **The qualifier "Where ready work competes for the same person or team slot"
+ * is load-bearing in both of its halves, and each half was a separate peer
+ * finding.** *Ready* answers Sol's Important 1 on `fb1036a3`
+ * (`queue/reviews/t309-r1-sol.md`, 2026-09-07): `goesFirst` orders only the
+ * slices *already* admitted to the ready set, and the comparator's own
+ * docstring says it "decides an order, never a date" — a slice is placed at the
+ * latest of its own floors, so an item waiting on a dependency is not taken
+ * first however close to missing it is. A bare *"scheduled first"* read as a
+ * promise about dates, which is the same class of overstatement as
+ * the *"constrains nothing"* it replaced, in the other direction.
+ *
+ * And *or team slot* answers Sol's Important 1 on `9c08d94e`
+ * (`queue/reviews/t309-r2-sol.md`) — the same fault mirrored a third time. The
+ * draft before it said *"competes for one person"*, which names only one of the
+ * two resources this scheduler reserves: `placeSlices` reserves named-person
+ * queues **and** shared team-capacity pools, which is what
+ * `ScheduledSlice.capacityTeamId`, `boundBy: 'capacity'` and `poolSizes` (*"how
+ * many slots each pool holds"*) are for, and a pool size is routinely larger
+ * than one. A reader whose work is unassigned to a sized team would have
+ * read the person-only sentence as saying a date does nothing for them, and it
+ * does.
+ *
+ * (The reflow above is load-bearing too: `jsdoc/no-multi-asterisks` reads a
+ * middle line that *starts* with an emphasis marker as a stray asterisk and
+ * fails `fe-01:lint` — watched at `9c08d94e`, `column-hints.ts:72`, the one
+ * error in a 24-project run no suite here can see. Keep emphasis off the first
+ * column.)
+ *
+ * The optimizing engines turn the same
  * date into `start + max(duration, 1) <= deadline`
  * (`libs/solver-py/src/wbs_solver/model.py`), a CP-SAT constraint whose
  * violation is a typed `plan-infeasible` the reader is shown by name —
@@ -79,9 +107,9 @@ export interface ColumnHintState {
  * the sentence has no room to say *work item* four times.
  */
 export const DEADLINE_EFFECT_HINT =
-  'The last day this work item may finish on. The work closest to missing is scheduled first; ' +
-  'an optimized plan is refused where it cannot make the date, and a row that misses is ' +
-  'reported late.';
+  'The last day this work item may finish on. Where ready work competes for the same person or ' +
+  'team slot, the closest to missing goes first; an optimized plan is refused where it cannot ' +
+  'make the date, and a row that misses is reported late.';
 
 /**
  * The columns whose hint is the same sentence whatever the plan holds.

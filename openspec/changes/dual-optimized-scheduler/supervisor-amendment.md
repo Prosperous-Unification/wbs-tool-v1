@@ -106,7 +106,8 @@ capacity while a container may remain live. This replaces
 - `OOMKilled=true` is the only generic native-process evidence classified
   `oom`; a supervisor deadline kill is `timeout`; a non-zero exit with neither
   is `internal-error`, except the entrypoint's own `70`, which is
-  `invalid-output`. Exit text never guesses the class, and the numeric
+  `invalid-output`. Its `71` — a refused model — is `internal-error` like any
+  other non-zero exit, and is a declared code rather than a default (TASK-310). Exit text never guesses the class, and the numeric
   carve-out is the entrypoint's declared code rather than a reading of the
   exit's text.
 - `admittedDeadlineAt` remains 15 seconds later than `childDeadlineAt`, giving

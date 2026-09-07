@@ -79,7 +79,16 @@ ROW_BOUND = "bound"  # FEASIBLE / UNKNOWN-with-incumbent: `Tₖ ≤ v`, continue
 ROW_STOP_NO_SOLUTION = "stop-no-solution"  # UNKNOWN, no incumbent, k = 1
 ROW_STOP_PUBLISH = "stop-publish"  # UNKNOWN, no incumbent, k > 1
 ROW_STOP_PLAN_INFEASIBLE = "stop-plan-infeasible"  # INFEASIBLE, k = 1
-ROW_STOP_INVALID = "stop-invalid"  # INFEASIBLE, k > 1, and anything unmapped
+ROW_STOP_INVALID = "stop-invalid"  # INFEASIBLE, k > 1
+# TASK-310. Not a matrix row and deliberately not folded into the one above.
+# The three artifacts that name a disposition — spec.md's staged-lexicographic
+# requirement, design.md's `INFEASIBLE, k > 1` row and solver-wire.v1.json's
+# response `$comment` — all argue from the *staging*: every constraint a later
+# stage adds is satisfied by the previous incumbent, so the run answered and
+# the answer cannot be carried. None of them says anything about a status the
+# matrix was never written against, so nothing governed this branch while it
+# shared a row constant with that one.
+ROW_STOP_MODEL_INVALID = "stop-model-invalid"  # MODEL_INVALID, anything unmapped
 
 
 def stage_disposition(status: int, stage: int, has_incumbent: bool) -> str:
@@ -110,16 +119,33 @@ def stage_disposition(status: int, stage: int, has_incumbent: bool) -> str:
     # MODEL_INVALID and anything a future OR-Tools adds. Not a matrix row: the
     # matrix's four statuses are the whole vocabulary it was written against, so
     # a fifth is this package disagreeing with its solver and is never a
-    # schedule.
-    return ROW_STOP_INVALID
+    # schedule. That is the reason it gets its own row constant and its own exit
+    # code (TASK-310): "this package disagreeing with its solver" is the
+    # definition `solver-failure-disposition.ts` gives `internal-error`, and it
+    # is a different repair from a staging bug in this very function.
+    return ROW_STOP_MODEL_INVALID
 
 
 class SolveFailed(Exception):
     """The run cannot produce a response the wire can carry.
 
-    Raised only where the matrix's disposition is `invalid-output`: a later-stage
-    INFEASIBLE, or a model CP-SAT refuses outright. `cli.main` exits non-zero
-    with the message on stderr and nothing on stdout.
+    Raised for the one outcome the matrix assigns `invalid-output`: a
+    later-stage INFEASIBLE. `cli.main` exits `EXIT_INTERNAL` with the message on
+    stderr and nothing on stdout.
+    """
+
+
+class ModelInvalid(SolveFailed):
+    """CP-SAT refused the model, or answered a status the matrix does not know.
+
+    A subclass rather than a sibling on purpose: every caller that only cares
+    that the run produced nothing publishable keeps working, while `cli.main`
+    catches this first and exits `EXIT_MODEL_INVALID`. The split exists because
+    the two faults are repaired in different files — a later-stage INFEASIBLE
+    is a bug in the staging above, and this is `build_model` handing CP-SAT
+    something it will not accept — and the exit code is the coordinator's only
+    evidence, since a disposable container's stderr does not reach the
+    `optimized_schedule_cache` row (TASK-310).
     """
 
 
@@ -414,13 +440,24 @@ def solve_request(
             # and every later term stay out of `recorded`.
             break
 
+        if row == ROW_STOP_MODEL_INVALID:
+            raise ModelInvalid(
+                f"stage {stage} ({term_name}) returned "
+                f"{solver.status_name(status)}, which this package's stage "
+                "matrix has no row for"
+            )
+
         raise SolveFailed(
             f"stage {stage} ({term_name}) returned {solver.status_name(status)} "
             "under constraints the previous stage's incumbent already satisfies"
         )
 
     if incumbent is None:  # pragma: no cover - both paths above already returned
-        raise SolveFailed("no stage produced an incumbent and none reported why")
+        # Not a solver answer at all: every row above either returned or raised,
+        # so reaching here is this module contradicting itself rather than
+        # CP-SAT refusing anything. `internal-error` for the same reason
+        # MODEL_INVALID earns it (TASK-310).
+        raise ModelInvalid("no stage produced an incumbent and none reported why")
 
     values = evaluate_terms(request, incumbent)
     objective_values: dict[str, Any] = {}

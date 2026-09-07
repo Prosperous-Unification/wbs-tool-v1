@@ -473,6 +473,27 @@ export const revalidateOptimizedDeadlines = (
         `slice ${JSON.stringify(slice.key)} has deadlineUnits ${JSON.stringify(slice.deadlineUnits)}`,
       );
     }
+    // TASK-303. `deadlineUnits` is `(D + 1) x quantum` everywhere it is
+    // documented, but nothing enforced it: the wire schema accepts every
+    // non-negative safe integer, and a cross-field `multipleOf` against the
+    // request's own `quantum` is not expressible in JSON Schema, so this is
+    // the boundary that can hold it. Without this line the division below
+    // yields a FRACTIONAL due day — 49 units is day 1/48 — which `isOnTime`
+    // was never written to take, and the CP-SAT model and this side then
+    // disagree about the same placement: `start + max(duration, 1) <=
+    // deadlineUnits` admits it there while `deadline-violated` refuses it
+    // here. That names a plan for a fault in the request, and sends the
+    // reader to the wrong file.
+    //
+    // `deadlineUnits: 0` stays well formed on purpose. It is TASK-267's
+    // `UNMEETABLE_DEADLINE_OFFSET = -1` through `deadlineUnitsOf`, its due day
+    // is `-1`, and every non-negative placement correctly misses it.
+    if (slice.deadlineUnits % SOLVER_QUANTUM !== 0) {
+      return refuse(
+        'malformed-request',
+        `slice ${JSON.stringify(slice.key)} has deadlineUnits ${String(slice.deadlineUnits)}, which is not a multiple of the ${String(SOLVER_QUANTUM)}-unit quantum`,
+      );
+    }
     const timing = placed.slices.get(slice.key);
     if (timing === undefined) {
       return refuse(

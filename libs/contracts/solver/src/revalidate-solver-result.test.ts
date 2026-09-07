@@ -406,6 +406,53 @@ describe('revalidateOptimizedDeadlines', () => {
     expect(found.detail).toContain('day 1');
   });
 
+  /**
+   * TASK-303, and the Sol seat's own input verbatim: quantum 48, duration 0,
+   * `deadlineUnits` 49, start unit 48.
+   *
+   * **The disagreement this closes is between two halves that are each right.**
+   * The CP-SAT model accepts the placement — `48 + max(0, 1) = 49 <= 49` —
+   * while this side derives a due day of `49 / 48 - 1 = 1/48`, a *fractional*
+   * day {@link isOnTime} was never written to take, and refuses a feasible plan
+   * as `deadline-violated`. That is the same feasible/`invalid-output` mismatch
+   * 8.3 closed at the zero-duration boundary, surviving one level up through a
+   * field nothing validated: the wire schema accepts every non-negative safe
+   * integer, and a cross-field `multipleOf` against the request's own `quantum`
+   * is not expressible in JSON Schema, so this is the contract boundary.
+   *
+   * `malformed-request` and not `deadline-violated` is the whole point. The
+   * input is not a plan that misses a deadline; it is a request that does not
+   * mean anything, and the two answers send a reader to different files.
+   */
+  it('refuses a deadline that is not a whole number of workdays', () => {
+    const found = revalidateOptimizedDeadlines(
+      request({ slices: [slice({ key: 'a', durationUnits: 0, deadlineUnits: 49 })] }),
+      placedOf({ a: [1, 1] }),
+    );
+    expect(found.ok).toBe(false);
+    if (found.ok) throw new Error('unreachable');
+    expect(found.failure).toBe('malformed-request');
+    expect(found.detail).toContain('49');
+  });
+
+  /**
+   * The neighbour that keeps the new refusal from swallowing a real state.
+   * `deadlineUnits: 0` is TASK-267's `UNMEETABLE_DEADLINE_OFFSET = -1` mapped
+   * through `deadlineUnitsOf`, and `0 % 48 === 0`, so it stays a well-formed
+   * request whose due day is `-1` — every non-negative placement misses it.
+   * Refusing it as malformed would turn a deadline the user cannot meet into an
+   * engine failure, which is the confusion `plan-infeasible` exists to prevent.
+   */
+  it('keeps an unmeetable zero deadline well-formed and simply missed', () => {
+    const found = revalidateOptimizedDeadlines(
+      request({ slices: [slice({ key: 'a', durationUnits: 0, deadlineUnits: 0 })] }),
+      placedOf({ a: [0, 0] }),
+    );
+    expect(found.ok).toBe(false);
+    if (found.ok) throw new Error('unreachable');
+    expect(found.failure).toBe('deadline-violated');
+  });
+
   it('accepts the same milestone one unit inside its due day', () => {
     expect(
       revalidateOptimizedDeadlines(
