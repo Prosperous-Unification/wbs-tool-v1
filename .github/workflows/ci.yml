@@ -24,6 +24,15 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    # `Corpus version lint` compares two commits, and a manual run has neither a
+    # push boundary nor a `base_ref`. Rather than let it guess one — every guess
+    # is either a false red or a silent skip — the boundary is an input, and the
+    # step fails closed when it is empty.
+    inputs:
+      base_ref:
+        description: 'Revision to compare golden corpora against (branch, tag or SHA)'
+        required: false
+        default: 'origin/main'
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -203,6 +212,51 @@ jobs:
           fi
           # shellcheck disable=SC2086
           bun run tools/tool-git-hooks/src/hooks/migration-lint.ts $files
+
+      # The two golden corpora each assert that the fixture's `contractVersion`
+      # equals the tree's constant and that the fixture's cases equal the tree's
+      # computation. Both are assertions about ONE tree, and each writer emits
+      # the current constant beside the current cases — so a semantic change
+      # with the constant left where it is, followed by the documented writer,
+      # regenerates the fixture and both assertions still pass. This step is the
+      # two-commit half those tests cannot be. See the header of
+      # `corpus-version-lint.ts` for why it is a script here rather than a case
+      # in the suite.
+      #
+      # THE BOUNDARY IS CHOSEN HERE, never inferred by the script. `HEAD^` is
+      # the first parent, which is right for one merge commit and wrong for a
+      # multi-commit push: a push whose last commit is unrelated would compare
+      # against the commit that regenerated the fixture and see nothing. Every
+      # value is passed through `env` rather than interpolated into the shell,
+      # because `github.base_ref` is a branch name from a fork.
+      - name: Corpus version lint
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_REF: ${{ github.base_ref }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          DISPATCH_BASE_REF: ${{ inputs.base_ref }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            pull_request)
+              base="$(git merge-base "origin/$PR_BASE_REF" HEAD)"
+              ;;
+            push)
+              base="$PUSH_BEFORE"
+              ;;
+            workflow_dispatch)
+              if [ -z "$DISPATCH_BASE_REF" ]; then
+                echo "workflow_dispatch needs a base_ref input: this check compares two commits" >&2
+                exit 1
+              fi
+              base="$(git merge-base "$DISPATCH_BASE_REF" HEAD)"
+              ;;
+            *)
+              echo "corpus-version-lint has no boundary rule for event $EVENT_NAME" >&2
+              exit 1
+              ;;
+          esac
+          bun run tools/tool-git-hooks/src/hooks/corpus-version-lint.ts "$base" HEAD
 
       # The scope and version are both explicit on purpose. `bunx openspec`
       # resolves an unrelated package on npm that has no bin, so the step died

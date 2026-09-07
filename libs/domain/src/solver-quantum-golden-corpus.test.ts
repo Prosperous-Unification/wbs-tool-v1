@@ -23,11 +23,15 @@ import {
  * (`c1d9a40d`, TASK-302) changed `quantise`'s body and the Fast corpus stayed
  * green through it.
  *
- * This file closes that specific gap and claims nothing wider. It is a byte
+ * This file closes that specific gap and claims nothing wider. It is a value
  * guard over six named slices as `durationUnits` and `durationRoundedUp` render
- * them, and it reddens on a semantic change if and only if that change moves
- * one of the six. Cache-key honesty for anything else stays a human obligation
- * at `contract-version.ts`, exactly as it does next door.
+ * them — the comparison is `toEqual` over parsed JSON, so what is enforced is
+ * every stored value; whitespace and object-key order are deliberately outside
+ * this corpus's invariant. File layout is enforced separately by `bunx nx format:check --all`
+ * in CI, which does not cover key order because Prettier preserves JSON object-key order.
+ * It reddens on a semantic change if and only if that change moves one of the six.
+ * Cache-key honesty for anything else stays a human obligation at `contract-version.ts`,
+ * exactly as it does next door.
  *
  * **It is not a second copy of `solver-quantum.test.ts`.** That file asserts
  * what `quantise` does, including TASK-302's watched reds on this same
@@ -73,7 +77,7 @@ describe('the quantum golden corpus keys itself on the contract version', () => 
     expect(STORED.contractVersion).toBe(SCHEDULER_CONTRACT_VERSION);
   });
 
-  it('reproduces every stored quantisation byte for byte', () => {
+  it('reproduces every stored quantisation value for value', () => {
     expect(computeQuantumGoldenCorpus().cases).toEqual(STORED.cases);
   });
 
@@ -108,7 +112,7 @@ describe('the stored bytes are the quantisation, not an empty object', () => {
    * `{ units: 49, rounded: true }`. Domain goes **577 pass / 4 fail**: this
    * describe block's two, plus TASK-302's own two in `solver-quantum.test.ts`.
    *
-   * **`the Fast golden corpus … reproduces every stored schedule byte for byte`
+   * **`the Fast golden corpus … reproduces every stored schedule value for value`
    * is NOT among them**, and that absence is the measurement this file exists
    * for. Green baseline at the same head with the fixture in place: 581 pass /
    * 0 fail.
