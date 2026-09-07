@@ -10245,134 +10245,158 @@ export function WbsTable({
             const close = (): void => {
               live.current.closeDeadline(row.original.id);
             };
-            return editing ? (
-              <DateField
-                aria-label={`Work item deadline for ${row.original.number}`}
-                data-deadline={row.original.id}
-                data-cell={cellKey(row.original.id, 'deadline')}
-                data-hint={DEADLINE_EFFECT_HINT}
-                onKeyDown={(e) => {
-                  // Enter closes the editor, after `DateField`'s own handler has
-                  // already sent the day — its handler is first, deliberately,
-                  // so a `Ctrl/⌘ + Enter` that moves to the next row has saved
-                  // this one on the way out.
-                  if (e.key === 'Enter') close();
-                  // Alt+arrow is taken before the native date input's segment
-                  // stepper sees it, exactly as in every other date cell; the
-                  // arrows themselves stay with the segment under the caret,
-                  // which is why {@link onArrowKey} is absent here.
-                  live.current.onAltMove(e, row.original, 'deadline');
-                  live.current.onCommandKey(e, row.original, 'deadline');
-                  live.current.onTabKey(e, row.original.id, 'deadline');
-                }}
-                // Every way out, and not only Escape — which is where this cell
-                // is simpler than the floor beside it. That one asks its wrapper
-                // about `focusout` because a blur there may be somebody reaching
-                // for the reason box under the date; there is no second box
-                // here, so a blur is an exit and `onExit` can be believed.
-                onExit={() => {
-                  close();
-                }}
-                // Wider than its column, on purpose — see {@link DATE_EDITOR_WIDTH}.
-                style={{
-                  position: 'relative',
-                  zIndex: 10,
-                  width: DATE_EDITOR_WIDTH,
-                  boxSizing: 'border-box',
-                  font: 'inherit',
-                }}
-                value={day ?? ''}
-                commit={(typed) => {
-                  // A date input reports '' when cleared, which is the caller
-                  // saying "no deadline" rather than "an empty date".
-                  live.current.setDeadline(row.original.id, typed === '' ? null : typed);
-                }}
-              />
-            ) : (
+            return (
               /*
-              The day at rest, and still a cell of the keyboard grid: Tab lands
-              here, the arrows land here, and `editableGrid` finds it because it
-              is an `<input>` carrying `data-cell` — which is also why it is not
-              `readOnly`, an attribute that selector deliberately excludes.
-              Nothing is ever typed into it: a keystroke opens the editor
-              instead, which is what `onChange` is doing here.
-            */
+              The wrapper is outside the ternary, and that is the whole of
+              this cell’s accessibility fix rather than a tidy-up. The mark is
+              positioned against it, so it used to live in the at-rest branch
+              alone — which meant opening the cell unmounted the node the
+              description points at, and an `aria-describedby` resolving to
+              nothing is announced as nothing. Rendering it beside *both*
+              branches is what lets the editor keep the description.
+              */
               <span
                 // A positioned ancestor so the mark below can sit out of flow.
                 // `display: block` and no padding: the wrapper is not allowed to
                 // change what the 84px column measures, and the mark never
-                // changes the row's height — the same bargain the Links cell's
-                // dots make one file over.
+                // changes the row’s height — the same bargain the Links cell’s
+                // dots make one file over. It wraps the editor too now, and the
+                // measurement is unchanged: `DATE_EDITOR_WIDTH` is wider than
+                // the column on purpose and overflows this block-level span
+                // exactly as it overflowed the cell it used to sit in.
                 style={{ position: 'relative', display: 'block' }}
               >
-                <input
-                  aria-label={`Work item deadline for ${row.original.number}`}
-                  // Both are absent unless the date really is unmeetable: a cell
-                  // that always claimed `aria-invalid` would be a lie on every
-                  // other row, which is the half of TASK-308 its third case
-                  // guards rather than the half its first one asks for.
-                  aria-describedby={impossibleMarkId}
-                  aria-invalid={impossible ? true : undefined}
-                  disabled={noCalendar}
-                  data-deadline={row.original.id}
-                  data-cell={cellKey(row.original.id, 'deadline')}
-                  data-fact={
-                    noCalendar
-                      ? 'Set the project start date first — without one there are no dates to hold a work item deadline against.'
-                      : [
-                          day === null ? null : `${day}.`,
-                          impossible ? DEADLINE_BEFORE_START : DEADLINE_EFFECT_HINT,
-                        ]
-                          .filter((part) => part !== null)
-                          .join(' ')
-                  }
-                  style={{
-                    width: '100%',
-                    boxSizing: 'border-box',
-                    font: 'inherit',
-                    background: 'transparent',
-                    border: 'none',
-                    cursor: noCalendar ? 'not-allowed' : 'text',
-                    // The mark is out of flow, so it would otherwise paint over
-                    // the date rather than sit beside it — and the date that
-                    // needs the mark is the long one: `shortIsoDate` prints the
-                    // year on an off-year day, so `20 May 2027` fills the 84px
-                    // column and the `!` at its right edge would cover the last
-                    // characters. Reserved here rather than by shortening the
-                    // date, because the date is what §2.3 says must stay
-                    // readable. Round 1's OpenAI seat, Important 2.
-                    paddingRight: impossible ? DEADLINE_MARK_PX : undefined,
-                  }}
-                  // An em-dash for a row with no deadline, which reads as "none"
-                  // rather than as a cell that failed to load. **The impossible
-                  // date is printed unchanged**, which is §2.3's "not silently
-                  // dropped": it is what the reader typed, it is still what
-                  // be-01 stores, and a cell that blanked it would be deleting
-                  // their input on somebody else's edit.
-                  value={day === null ? '—' : shortIsoDate(day, new Date())}
-                  onChange={open}
-                  // `click`, not `mousedown`: React flushes a discrete update
-                  // inside the `mousedown` dispatch, so the editor mounts and the
-                  // at-rest input is gone before Chromium performs that event's
-                  // default action — focusing the node it hit-tested. Focusing a
-                  // detached node moves focus to `<body>`, which blurs the editor,
-                  // which is an exit, which closes it: the click does nothing at
-                  // all. The floor's cell carries the same note and the same
-                  // measurement.
-                  onClick={open}
-                  onKeyDown={(e) => {
-                    // A bare Enter opens the editor; a chord is the table's and is
-                    // left to it, which is why the modifiers are asked about first.
-                    if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
-                      e.preventDefault();
-                      open();
-                      return;
+                {editing ? (
+                  <DateField
+                    aria-label={`Work item deadline for ${row.original.number}`}
+                    // The same two the at-rest input carries, and they are on the
+                    // editor for the reason the mark is hoisted above: the reader who
+                    // has opened this cell is the one about to act on the date, and
+                    // this is the moment the invalid state and its reason are most
+                    // worth hearing. `DateField` passes both straight through — its
+                    // `PassedThrough` omits `type`, `value`, `defaultValue`,
+                    // `onChange` and `onBlur`, and neither of these — so nothing in
+                    // that component had to change.
+                    aria-describedby={impossibleMarkId}
+                    aria-invalid={impossible ? true : undefined}
+                    data-deadline={row.original.id}
+                    data-cell={cellKey(row.original.id, 'deadline')}
+                    data-hint={DEADLINE_EFFECT_HINT}
+                    onKeyDown={(e) => {
+                      // Enter closes the editor, after `DateField`'s own handler has
+                      // already sent the day — its handler is first, deliberately,
+                      // so a `Ctrl/⌘ + Enter` that moves to the next row has saved
+                      // this one on the way out.
+                      if (e.key === 'Enter') close();
+                      // Alt+arrow is taken before the native date input's segment
+                      // stepper sees it, exactly as in every other date cell; the
+                      // arrows themselves stay with the segment under the caret,
+                      // which is why {@link onArrowKey} is absent here.
+                      live.current.onAltMove(e, row.original, 'deadline');
+                      live.current.onCommandKey(e, row.original, 'deadline');
+                      live.current.onTabKey(e, row.original.id, 'deadline');
+                    }}
+                    // Every way out, and not only Escape — which is where this cell
+                    // is simpler than the floor beside it. That one asks its wrapper
+                    // about `focusout` because a blur there may be somebody reaching
+                    // for the reason box under the date; there is no second box
+                    // here, so a blur is an exit and `onExit` can be believed.
+                    onExit={() => {
+                      close();
+                    }}
+                    // Wider than its column, on purpose — see {@link DATE_EDITOR_WIDTH}.
+                    style={{
+                      position: 'relative',
+                      zIndex: 10,
+                      width: DATE_EDITOR_WIDTH,
+                      boxSizing: 'border-box',
+                      font: 'inherit',
+                    }}
+                    value={day ?? ''}
+                    commit={(typed) => {
+                      // A date input reports '' when cleared, which is the caller
+                      // saying "no deadline" rather than "an empty date".
+                      live.current.setDeadline(row.original.id, typed === '' ? null : typed);
+                    }}
+                  />
+                ) : (
+                /*
+                The day at rest, and still a cell of the keyboard grid: Tab lands
+                here, the arrows land here, and `editableGrid` finds it because it
+                is an `<input>` carrying `data-cell` — which is also why it is not
+                `readOnly`, an attribute that selector deliberately excludes.
+                Nothing is ever typed into it: a keystroke opens the editor
+                instead, which is what `onChange` is doing here.
+              */
+                  <input
+                    aria-label={`Work item deadline for ${row.original.number}`}
+                    // Both are absent unless the date really is unmeetable: a cell
+                    // that always claimed `aria-invalid` would be a lie on every
+                    // other row, which is the half of TASK-308 its third case
+                    // guards rather than the half its first one asks for.
+                    aria-describedby={impossibleMarkId}
+                    aria-invalid={impossible ? true : undefined}
+                    disabled={noCalendar}
+                    data-deadline={row.original.id}
+                    data-cell={cellKey(row.original.id, 'deadline')}
+                    data-fact={
+                      noCalendar
+                        ? 'Set the project start date first — without one there are no dates to hold a work item deadline against.'
+                        : [
+                            day === null ? null : `${day}.`,
+                            impossible ? DEADLINE_BEFORE_START : DEADLINE_EFFECT_HINT,
+                          ]
+                            .filter((part) => part !== null)
+                            .join(' ')
                     }
-                    live.current.onAltMove(e, row.original, 'deadline');
-                    live.current.onCommandKey(e, row.original, 'deadline');
-                    live.current.onTabKey(e, row.original.id, 'deadline');
-                  }}
-                />
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      font: 'inherit',
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: noCalendar ? 'not-allowed' : 'text',
+                      // The mark is out of flow, so it would otherwise paint over
+                      // the date rather than sit beside it — and the date that
+                      // needs the mark is the long one: `shortIsoDate` prints the
+                      // year on an off-year day, so `20 May 2027` fills the 84px
+                      // column and the `!` at its right edge would cover the last
+                      // characters. Reserved here rather than by shortening the
+                      // date, because the date is what §2.3 says must stay
+                      // readable. Round 1's OpenAI seat, Important 2.
+                      paddingRight: impossible ? DEADLINE_MARK_PX : undefined,
+                    }}
+                    // An em-dash for a row with no deadline, which reads as "none"
+                    // rather than as a cell that failed to load. **The impossible
+                    // date is printed unchanged**, which is §2.3's "not silently
+                    // dropped": it is what the reader typed, it is still what
+                    // be-01 stores, and a cell that blanked it would be deleting
+                    // their input on somebody else's edit.
+                    value={day === null ? '—' : shortIsoDate(day, new Date())}
+                    onChange={open}
+                    // `click`, not `mousedown`: React flushes a discrete update
+                    // inside the `mousedown` dispatch, so the editor mounts and the
+                    // at-rest input is gone before Chromium performs that event's
+                    // default action — focusing the node it hit-tested. Focusing a
+                    // detached node moves focus to `<body>`, which blurs the editor,
+                    // which is an exit, which closes it: the click does nothing at
+                    // all. The floor's cell carries the same note and the same
+                    // measurement.
+                    onClick={open}
+                    onKeyDown={(e) => {
+                      // A bare Enter opens the editor; a chord is the table's and is
+                      // left to it, which is why the modifiers are asked about first.
+                      if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+                        e.preventDefault();
+                        open();
+                        return;
+                      }
+                      live.current.onAltMove(e, row.original, 'deadline');
+                      live.current.onCommandKey(e, row.original, 'deadline');
+                      live.current.onTabKey(e, row.original.id, 'deadline');
+                    }}
+                  />
+                )}
                 {impossible && (
                   <span
                     // The affordance §2.3 calls "the existing 'impossible' one".
@@ -10411,6 +10435,14 @@ export function WbsTable({
                     // editor to the input underneath — the mark is a reading,
                     // not a target, and the sentence behind it is on the cell's
                     // own `data-fact`.
+                    //
+                    // **While the editor is open this node is painted over
+                    // rather than seen**, and that is the bargain and not an
+                    // oversight: the editor is wider than the column and
+                    // carries `zIndex: 10`, so it covers the mark's corner.
+                    // What the reader needs at that moment travels by the
+                    // description instead — the node stays mounted and
+                    // un-hidden, which is the whole reason it is out here.
                     style={{
                       position: 'absolute',
                       top: 0,
