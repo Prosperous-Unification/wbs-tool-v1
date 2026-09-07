@@ -102,7 +102,9 @@ export function OptimizationIndicator({
       </p>
       {affectedItems !== null && (
         <details className="mt-2 min-w-0" aria-label="Affected work items">
-          <summary className="text-muted-foreground cursor-pointer">Show affected work items</summary>
+          <summary className="text-muted-foreground cursor-pointer">
+            Show affected work items
+          </summary>
           <ul className="mt-2 min-w-0 list-disc pl-5">
             {affectedItems.map((affectedDeadline) => (
               <li key={`${affectedDeadline.ownerWorkItemId}:${affectedDeadline.boundWorkItemId}`}>

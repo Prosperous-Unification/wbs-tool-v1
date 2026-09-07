@@ -245,7 +245,7 @@ whose backend does not yet exist; lane-q TASK-222 already owns post-deploy QA.
 
 - The final correction was exact head
   `8a9f0ae111f568ae8abede155ae0f4556d2d98e7`, `test: include optimization tab
-  in browser assertion`; its only changed path was
+in browser assertion`; its only changed path was
   `apps/fe-01/e2e/project-settings.spec.ts`.
 - Replacement CI run `34050973411` completed green at that exact head. Gate
   job `101534415848` completed `SUCCESS` at `2026-09-06T18:24:49Z`; pixels job
