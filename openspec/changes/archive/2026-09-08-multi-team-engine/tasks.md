@@ -27,6 +27,6 @@ than PR #67.
       engine location, UI readership, and PR #67's authority.
 - [x] Restore the proposal, design, delta specification, tasks, and verification
       record directly under the archive.
-- [ ] Run the focused remote green gate and a matching remote negative control.
-- [ ] Validate the recovered OpenSpec record on h2puni.
+- [x] Run the focused remote green gate and a matching remote negative control.
+- [x] Validate the recovered OpenSpec record on h2puni.
 - [ ] Land TASK-364 through a new PR, then close historical PR #67.
