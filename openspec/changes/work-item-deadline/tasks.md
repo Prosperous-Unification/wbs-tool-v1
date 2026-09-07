@@ -556,7 +556,7 @@ contractVersion, inputHash)`. That draft had quoted the requirement's
       in both files, in the same commit.
 - [ ] 8.6 **WATCHED RED W5** — map `infeasible` onto `unknown`. An infeasible
       plan must offer Retry.
-- [ ] 8.7 `plan-infeasible` stored beside `ok` and `failed`: cached under an
+- [x] 8.7 `plan-infeasible` stored beside `ok` and `failed`: cached under an
       identical key, never auto-respawned, payload naming every offending work
       item with its **effective** deadline plus both the item that **owns** the
       binding date and the item the constraint **fell on**. The
@@ -731,4 +731,67 @@ payload rule cannot drift from `OPTIMIZED_SCHEDULE_STATUSES` again.
 **Left for 8.7, found here:** the same bullet says "a row satisfies a read iff
 `status='ok'`", which a `plan-infeasible` row also has to satisfy or it would
 auto-respawn. It is qualified to "a read for a schedule" here rather than
-rewritten, because the read rule is 8.7's to state.
+rewritten, because the read rule is 8.7's to state. **Now stated and proved
+below** — the bullet's "never auto-respawn" clause had no case reading it.
+
+## 8.7, measured
+
+**Every part of 8.7 but two had already landed across runs 1–3, and what was
+missing was not code.** The row status, the payload column and both CHECKs
+(8.5c), the codec, `evaluateSolverOutcome`'s refusal of an empty certificate,
+`storeOptimizedOutcomeAndRecord` writing the row and deliberately emitting no
+event, the reader's seventh variant and `objectivesToAutoSpawn` filtering on
+`kind === 'miss'` alone are all shipped. The two holes were both **assertions
+for sentences 8.7 states in its own words**, and each is the kind that ships
+silently because the surrounding code is already right.
+
+**Hole 1 — the ancestor-bound leaf, which is the case 8.7 names as _the_
+test.** `planInfeasibleResultOf`'s existing case gave the parent day 8 and leaf
+`b` day 5, so the tighter date was always the leaf's own: the fold could have
+been "prefer the leaf" and passed. The new fixture puts the two owners in
+conflict in both directions at once — leaf `late` carries day 12 under a parent
+saying 5, leaf `own` carries day 3 under the same parent — so an implementation
+that always names the ancestor fails the second row and one that always names
+the leaf fails the first. The second new case asserts the offsets are
+`leafDeadlinesOf`'s own answer rather than a second opinion: that function is
+what `buildSolverRequest` hands CP-SAT and what `schedule()` measures `lateBy`
+against, and `planInfeasibleResultOf` re-folds the tree to carry the owner
+along, which is exactly the shape `schedule.ts` warns produces two answers.
+
+**Hole 2 — "never auto-respawned" had no case.** 4.5's ten-reads guard covers
+`failed` and `corrupt`; `plan-infeasible` is a different argument for the same
+rule and the stronger one. `failed` and `corrupt` are engine faults a later
+release might legitimately retry; `plan-infeasible` is a **correct answer about
+the user's own dates**, so re-solving cannot change it until a deadline is
+edited — and editing one moves the input hash and therefore the key. The new
+case reads the row ten times, asserts the certificate on every read so it
+cannot pass by degrading to `corrupt`, and counts zero spawns.
+
+Measured at `b4da37cf` on h2puni: `libs/contracts` **263/0** (261 before),
+`apps/be-01` **1844/0**, and `nx typecheck` green for both projects — it caught
+`toBe(folded.get(id))` narrowing `number | undefined` against `number`, the
+same TS2769 class as PR 262's, fixed by putting the fold on the left, which is
+also the right direction because the fold is the source and the certificate is
+the copy.
+
+Three controls, each reverted after measuring:
+
+| control | mutation                                               | result   |
+| ------- | ------------------------------------------------------ | -------- |
+| A       | the fold's `<` flipped to `>`                          | 260 / 3  |
+| B       | the fold's `<` weakened to `!==`, i.e. last write wins | 261 / 2  |
+| C       | `plan-infeasible` rejoins `objectivesToAutoSpawn`      | 1843 / 1 |
+
+**B and C are the exclusive ones.** A reddens the pre-existing fold case too,
+so it proves the direction matters but not that the new fixture adds anything.
+B leaves the old case green — with `deadlines` iterated in insertion order its
+expected rows survive last-write-wins — and reddens exactly the two new
+contracts cases. C reddens exactly the one new be-01 case and leaves 4.5's
+`failed` and `corrupt` guards untouched, because it widens the predicate by the
+single member 8.7 adds rather than back to `kind !== 'ok'`.
+
+**Stale prose corrected in the same commit.** `decodePayload` and its test's
+`describe` both still said `decodePlanInfeasible` "does not exist yet" and that
+the row was decoded to its envelope only, while the code called the codec and a
+third case already asserted a malformed item list reading `corrupt`. The
+comments recorded the falsification the split predicted; the code had met it.
