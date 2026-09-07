@@ -502,6 +502,15 @@ failed tasks `be-01:test` and `be-01:lint` at two sites:
 | `solver-exit-outcome.test.ts:116`    | `{ kind: 'failed', reason: 'invalid-output' }` | `reason: 'no-solution'`                                                          |
 | `optimization-events.db.test.ts:278` | two `schedule_optimization_infeasible` events  | two `schedule_optimization_failed`, each carrying `failureReason: 'no-solution'` |
 
+**W5 is the one red in this ledger with no pass/fail count, and the reason is
+the host it had to run on.** A CI gate reports failed task names and failing
+assertions; it does not print a suite total the way an ssh gate does, and the
+only totals available for this fault — `1840 pass / 1 fail` — belong to the
+**withdrawn** earlier measurement at `4538b811` recorded below, not to run
+34079393999, so borrowing them here would attach a count to the wrong
+measurement. What W5 carries instead is the two exact assertion sites, which is
+what the item is actually about.
+
 The second site is 8.6's own sentence. Those two events are the disposition of a
 **real** `status: 'infeasible'` wire response over a deadlined input, and under
 the fault both variants become `failed` rows — and `failed` is exactly what

@@ -699,8 +699,12 @@ order`, with their tests. A repository assertion that no unqualified
       implementation lands, per AGENTS.md R5, each with the exact fault injected
       and the exact assertion that caught it.
       **The ledger is complete. `verify.md` § "10.1 — the watched-red ledger"
-      now carries all six**, each with its fault, its exact failing assertion
-      and its pass/fail counts, plus the eight slice-level reds that are not
+      now carries all six**, each with its fault and its exact failing
+      assertion. **Five of the six also carry pass/fail counts; W5 does not,
+      and that is stated in its own section rather than papered over** — its
+      red is a CI run, and what CI reports for a failed gate is the failed
+      task names and the failing assertions, not a suite total. Plus the eight
+      slice-level reds that are not
       among the six in their own table below it. W1, W3 and W4 were recorded
       first, from this change's slices 2–4; **W2 (8.4), W5 (8.6) and W6 (7.6)
       are slices 7–8 and belong to `dual-optimized-scheduler` (TASK-219/241)**,
@@ -725,37 +729,77 @@ order`, with their tests. A repository assertion that no unqualified
       `TASK-315`, whose reclaim still needs a human decision) since before 8.9b,
       which is why every item from 8.9b onward gated on CI instead. **Creating a
       file there fails**, so this is not slowness to wait out.
-      **What CI runs is a strict superset of what this item asks for.** The
-      `gate` job's step is `bunx nx run-many -t test lint typecheck build` with
-      **no project filter** (`.github/workflows/ci.yml`) — the same four
-      targets, across every project rather than three. That is checkable and was
-      checked rather than assumed: at the shipped head 24 `project.json` files
-      carry a `test` target, and nx reported success for **24 projects** across
-      those same four targets, so nothing was filtered out.
+      **CI covers the four targets this item names, and it is NOT a strict
+      superset of the h2puni gate — an earlier draft of this note said it was
+      and that was wrong.** The `gate` job's step is
+      `bunx nx run-many -t test lint typecheck build` with **no project
+      filter** (`.github/workflows/ci.yml`) — the same four targets, across
+      every project rather than three. That much is checkable and was checked
+      rather than assumed: at the shipped head 24 `project.json` files carry a
+      `test` target, and nx reported success for **24 projects** across those
+      same four targets, so nothing was filtered out.
       **`libs/solver-py` is one of those 24**, and its target is
       `python3 -m unittest discover -s tests -t tests`, so the Python half of
       slice 8 is gated at this head too and not only at W2's `eff07d9f`.
-      **The one real difference, stated rather than implied:** on h2puni the
-      Python suite runs against the real solver image, whereas CI installs
-      `ortools` from `libs/solver-py/requirements.lock` under
-      `--require-hashes` and covers the image separately in its own
-      `Solver image smoke` step. So the image and the Python suite are proved by
-      two CI steps here where h2puni proved them with one. Both steps are green
-      at the shipped head.
-- [x] 10.3 `openspec validate --all --json` green at the exact head, parsed from
+      **What CI does NOT run, named rather than implied, because peer review
+      r8 found the first version of this paragraph had it backwards.**
+      `bin/h2puni-gate.sh` invokes the image smoke as
+      `WBS_RUN_SOLVER_ORPHAN_PROC=1 bunx nx run be-01:solver-image-smoke`;
+      `.github/workflows/ci.yml` invokes the same target **without** that
+      variable. The orphan-process proof in
+      `optimization-orphan.proc.db.test.ts` is `describe.skip` unless an image
+      is supplied, so **CI does not exercise the supervisor-restart /
+      orphan-process boundary at all** — it is a host-only check, and it is
+      lost for as long as h2puni cannot run. The same script also adds
+      `nx format:check --all` and `--skip-nx-cache`, neither of which CI's gate
+      step does in that form.
+      **The earlier "one real difference" was also simply false:** the Python
+      unittest target runs host `python3` on **both** paths
+      (`libs/solver-py/project.json`) and never inside the solver image; the
+      image is exercised only by the separate smoke target. That correction is
+      recorded rather than quietly deleted, because the wrong version of it was
+      the argument for calling the substitution safe.
+      **So the honest claim is narrower than the one this item started with:**
+      the four targets this item names are green at the exact head on CI, and
+      one host-only proof outside those four targets is not being run at all
+      until `TASK-315` frees h2puni.
+      **The exact head, spelled out, because r8 found the first version of this
+      item citing a run from a different one.** Every merged head of this change
+      has its own green `gate`; the latest is **34083621444** at `82a23a6b`.
+      A head that only ever reddened proves nothing, and `a8462cad` — this
+      branch's first head — is exactly that: it failed `Format`, so the gate
+      step never ran there and no claim in this item may cite it. This item's
+      own shipping head is re-gated on push and that run id goes in the merge
+      log, which is the only place a self-referential head can honestly be
+      recorded.
+- [ ] 10.3 `openspec validate --all --json` green at the exact head, parsed from
       JSON rather than from a summary line.
-      **This is a distinct CI step, not a line read out of the gate's output.**
+      **Half of this is true and the half that is missing is the half the item
+      is about, so it stays unticked.** It was briefly ticked and peer review
+      r8 was right to call that a Critical.
+      **True:** the validation is its own named CI step —
       `.github/workflows/ci.yml` runs
-      `bunx @fission-ai/openspec@1.3.0 validate --all --json` as its own named
-      `OpenSpec` step, so its non-zero exit fails the job on its own —
-      there is no summary line to misread and nothing to grep. **The step
-      carries its own negative control, written above it in `ci.yml`:** with a
-      change's scenarios written `###` instead of `####` it exits 1 with
-      `failed: 1`, and restored it exits 0 with `passed: 2`. So the step is
-      known to be able to fail, which is the part a green tick usually cannot
-      show. Green on every head this change shipped, most recently run
-      **34081807482** at `d6bca8fc` (squashed to `00af0196`); this item's own
-      PR re-runs it at the shipping head and that run id goes in the merge log.
+      `bunx @fission-ai/openspec@1.3.0 validate --all --json` as the `OpenSpec`
+      step, so its non-zero exit fails the job on its own, there is no summary
+      line to misread, and it carries a negative control written above it in
+      `ci.yml`: with a change's scenarios written `###` instead of `####` it
+      exits 1 with `failed: 1`, and restored it exits 0 with `passed: 2`. It is
+      green at every head this change shipped, latest **34083621444** at
+      `82a23a6b`.
+      **Missing:** nothing consumes the JSON. `--json` makes the command
+      _emit_ JSON; the step pipes it nowhere, and no `jq` or field assertion
+      reads `failed` or `passed`. What gates is the process exit status, which
+      is exactly what the item's "rather than from a summary line" clause was
+      written to rule out — the point of the clause is that the verdict be read
+      from a named field rather than inferred from the command's own summary
+      behaviour, and an exit code is that inference.
+      **What closes it is one line and it is deliberately not being added
+      unattended at the end of a run box:** the step needs to keep the JSON and
+      assert a field on it (`jq -e '.failed == 0 and .passed > 0'`), with
+      `pipefail` set so the validator's own exit survives the pipe. That is an
+      edit to a workflow every lane depends on, it cannot be rehearsed on this
+      box, and it gets exactly one CI attempt per push — so it is owed a chunk
+      of its own, not a tail-of-the-box guess.
 - [x] 10.4 Cross-provider review of the shipped diff on the exact head, per
       AGENTS.md, **with the Gemini seat best-effort**. Slice 1's prod-mode PR
       gets its own review before merge.
@@ -782,9 +826,26 @@ order`, with their tests. A repository assertion that no unqualified
       upgrade the subscription — most recently measured at 04:22:58Z as
       resetting in 87h17m13s, i.e. ≈**2026-09-10T19:40Z**. Two
       independent measurements taken an hour apart agree on that reset instant.
-      One earlier attempt also died on a caller error worth not repeating: the
-      script's fourth argument is a Go duration string (`15m`), and `900` is
-      rejected as `timeout must be a Go duration string`.
+      One earlier attempt also died on a caller error worth not repeating, and
+      the note about it was itself wrong until peer review r8 corrected it. The
+      wrapper's signature is
+      `gemini-review.sh <prompt-file> <out-file> <timeout> <review-tree>`, so
+      the Go duration string (`15m`, never `900`) is the **third** argument;
+      the fourth is the required review tree. Passing `900` third is what
+      raises `timeout must be a Go duration string` — passing it fourth would
+      instead be read as a review-tree path.
+      **One r8 Critical was checked and closed rather than folded, and the
+      citation is the reason.** r8 held that the reduction cannot reach slices
+      2–5 and 7 because `libs/domain/**` is one of "the four prod-mode paths",
+      citing `notes/delivery-modes.md`. That file says the opposite one
+      sentence on: _"The 2026-08-14 rule (`drizzle/**`, `service/schedule.ts`,
+      `libs/domain/**`, auth ⇒ full prod mode per-PR) is **retired as a per-PR
+      trigger**"_ — its force now lives in the axis-1 data-safety obligations
+      and in the release-time prod-mode review across the whole delta, not in a
+      per-PR gate. This task's `working_mode` is `dev`; slice 1, the migration,
+      was the prod-mode PR and took the full gate before the reduction. So the
+      reduction applies to slices 2–10, and the boundary the 2026-09-06 entry
+      protects is not crossed.
 
 ## W6, measured
 
