@@ -1,0 +1,48 @@
+{
+  "status": "complete",
+  "stage": "precise-coverage",
+  "metadata": {
+    "sourceHead": "35576d79efaf34f2a76db10cf09769e186535bcc",
+    "sourceStatus": "?? apps/fe-01/e2e/rendering-baseline.spec.ts\n?? apps/fe-01/e2e/rendering-evidence.spec.ts\n?? apps/fe-01/e2e/rendering-evidence.ts\n?? apps/fe-01/e2e/rendering-fixture.spec.ts\n?? apps/fe-01/e2e/rendering-fixture.ts\n?? openspec/changes/measured-rendering/\n",
+    "fixtureSha256": "63dafab3a79232f852fa24a1ad2d6bc4571a1e5f5a0640e81ef47de2f06aa638",
+    "fixtureFiles": [
+      "apps/fe-01/e2e/rendering-baseline.spec.ts",
+      "apps/fe-01/e2e/rendering-fixture.ts",
+      "apps/fe-01/e2e/rendering-evidence.ts"
+    ],
+    "phase": "coverage",
+    "measurementUse": "correctness-only",
+    "startedAt": "2026-09-06T14:34:02.570Z",
+    "trace": "off",
+    "seeded": {
+      "rows": 100,
+      "steps": 2,
+      "density": "sparse",
+      "projectId": "21508085-defb-4f7c-920b-b5ada934b0c2",
+      "edges": 9,
+      "setupMs": 2174
+    },
+    "browser": "151.0.7922.34",
+    "runtime": {
+      "platform": "darwin",
+      "release": "25.5.0",
+      "arch": "arm64",
+      "cpu": "Apple M1 Pro"
+    },
+    "viewport": {
+      "width": 1400,
+      "height": 900
+    },
+    "server": "warm Vite development/backend; fresh owned stack",
+    "throttle": "none"
+  },
+  "samples": [
+    {
+      "stage": "precise-coverage",
+      "observation": {
+        "kind": "precise-coverage",
+        "broadFindCellStyleCalls": 3030
+      }
+    }
+  ]
+}

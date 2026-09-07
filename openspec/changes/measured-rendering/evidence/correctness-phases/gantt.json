@@ -1,0 +1,136 @@
+{
+  "status": "complete",
+  "stage": "gantt-open",
+  "metadata": {
+    "sourceHead": "35576d79efaf34f2a76db10cf09769e186535bcc",
+    "sourceStatus": "?? apps/fe-01/e2e/rendering-baseline.spec.ts\n?? apps/fe-01/e2e/rendering-evidence.spec.ts\n?? apps/fe-01/e2e/rendering-evidence.ts\n?? apps/fe-01/e2e/rendering-fixture.spec.ts\n?? apps/fe-01/e2e/rendering-fixture.ts\n?? openspec/changes/measured-rendering/\n",
+    "fixtureSha256": "63dafab3a79232f852fa24a1ad2d6bc4571a1e5f5a0640e81ef47de2f06aa638",
+    "fixtureFiles": [
+      "apps/fe-01/e2e/rendering-baseline.spec.ts",
+      "apps/fe-01/e2e/rendering-fixture.ts",
+      "apps/fe-01/e2e/rendering-evidence.ts"
+    ],
+    "phase": "gantt",
+    "measurementUse": "correctness-only",
+    "startedAt": "2026-09-06T14:34:05.802Z",
+    "trace": "off",
+    "seeded": {
+      "rows": 100,
+      "steps": 2,
+      "density": "sparse",
+      "projectId": "0344e0a9-4c6f-43ee-a269-561ec606f38b",
+      "edges": 9,
+      "setupMs": 1045
+    },
+    "browser": "151.0.7922.34",
+    "runtime": {
+      "platform": "darwin",
+      "release": "25.5.0",
+      "arch": "arm64",
+      "cpu": "Apple M1 Pro"
+    },
+    "viewport": {
+      "width": 1400,
+      "height": 900
+    },
+    "server": "warm Vite development/backend; fresh owned stack",
+    "throttle": "none"
+  },
+  "samples": [
+    {
+      "stage": "gantt-open",
+      "observation": {
+        "kind": "gantt-open",
+        "geometry": {
+          "mountedRows": 100,
+          "mountedCells": 1500,
+          "intersectingRows": 16,
+          "intersectingCells": 240,
+          "headers": 15,
+          "width": 1368,
+          "height": 424,
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "columns": [
+            {
+              "id": "drag",
+              "width": 24
+            },
+            {
+              "id": "number",
+              "width": 105
+            },
+            {
+              "id": "name",
+              "width": 361
+            },
+            {
+              "id": "depends",
+              "width": 86
+            },
+            {
+              "id": "priority",
+              "width": 48
+            },
+            {
+              "id": "tag",
+              "width": 120
+            },
+            {
+              "id": "in-parallel",
+              "width": 32
+            },
+            {
+              "id": "0b66c0e9-052f-4846-90d1-a6d7058e08af-final",
+              "width": 96
+            },
+            {
+              "id": "5d316ef4-147d-404d-a4a7-b8f17d9c0118-final",
+              "width": 96
+            },
+            {
+              "id": "final-total",
+              "width": 52
+            },
+            {
+              "id": "not-before",
+              "width": 56
+            },
+            {
+              "id": "start",
+              "width": 98
+            },
+            {
+              "id": "finish",
+              "width": 98
+            },
+            {
+              "id": "float",
+              "width": 56
+            },
+            {
+              "id": "actions",
+              "width": 40
+            }
+          ],
+          "rowHeights": [26.1875, 26.1875, 26.1875]
+        },
+        "chart": 100,
+        "labelGeometry": [
+          {
+            "top": 540,
+            "height": 28
+          },
+          {
+            "top": 568,
+            "height": 28
+          },
+          {
+            "top": 596,
+            "height": 28
+          }
+        ]
+      }
+    }
+  ]
+}
