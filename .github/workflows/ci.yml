@@ -47,9 +47,23 @@ on:
         required: false
         default: 'origin/main'
 
+# Cancel superseded runs on branches, never on `main`. A push to a PR branch
+# makes the run before it irrelevant, so cancelling is free. A push to `main` is
+# a *different commit* whose verdict nobody else will ever produce, and
+# cancelling it loses that verdict silently: the run shows `cancelled`, no job
+# reports a failure, and a red commit reads as unproven rather than broken.
+#
+# Measured 2026-09-07 over the last 195 completed runs: 90 were `cancelled`,
+# 46% of them, burning 647 minutes for no verdict. TASK-329 lost a real
+# solver-py red to exactly this — its own log says "BOTH CANCELLED CI RUNS HID
+# A REAL RED" — and TASK-360 then found `main` red at 7a026bee for a lint rule
+# whose introducing merge had had its run cancelled by the next merge.
+#
+# The cost of this change is CI minutes on `main` when merges land close
+# together, which is the cheaper side of the trade by a wide margin.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
