@@ -34,7 +34,7 @@ fi
 mkdir -p "$BIN"
 # Commit candidates are recovery snapshots, not an archive. Bound inode use on
 # the durable host while leaving recent targets available for diagnosis.
-find "$BIN" -type f -name 'sync.*.ts' -mtime +7 -exec rm -f -- {} +
+find "$BIN" -type f \( -name 'sync.*.ts' -o -name 'sync.*.ts.*' \) -mtime +7 -exec rm -f -- {} +
 
 SYNC_NEXT=''
 cleanup_candidate() {
