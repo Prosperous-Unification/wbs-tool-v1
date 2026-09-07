@@ -35,7 +35,25 @@ export const deadlineBeforeProjectStart = (
   startDate: string | null,
   deadline: string | null,
 ): boolean => {
+  // **The `null` arm is not a safety check**, and R5 asks for that to be said
+  // with evidence rather than assumed. `isIsoDate` takes `unknown` and refuses
+  // `null` on the next line, so this one cannot be the arm that stops anything:
+  // replaced with `if (false) return false;` on h2puni at 74a5ff44, all three
+  // faces stayed green — `plan-cells.test.tsx` and `plan-cards.test.tsx` 224
+  // passed of 224, `plan-export.test.ts` 64 of 64; watched 2026-09-07. It is
+  // kept because it is the line the docstring's first two modelled absences are
+  // written against, and a reader checking that list against the code should
+  // find them.
   if (startDate === null || deadline === null) return false;
+  // Proof: the guard below removed and `plan-export.test.ts` failed 1 of 64 —
+  // `claims nothing about a work item deadline on a plan with no start date, or
+  // a date be-01 never stored` threw `Error: not a calendar date: "the end of
+  // August"` out of `toUtc` (`workday.ts:24`) through `previousWorkday` →
+  // `deadlineOffsetOf` → here → `plan-export.ts`'s `cell` → `planToCsv`;
+  // watched on h2puni 2026-09-07. That is the whole reason it is a guard and
+  // not an assertion: a download is not the moment to take a surface down over
+  // a byte be-01 stored, and the throw reaches the reader as a failed export
+  // rather than as a missing column.
   if (!isIsoDate(startDate) || !isIsoDate(deadline)) return false;
   return deadlineOffsetOf(startDate, deadline).kind === 'before-project-start';
 };

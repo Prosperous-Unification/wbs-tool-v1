@@ -6698,6 +6698,13 @@ export function WbsTable({
    * this client holds no project start to compare against on this path, and a
    * client-side rule the server also keeps is how the two come to disagree —
    * the doctrine {@link setPriority} writes down.
+   *
+   * Proof that the single field is the check and not a coincidence: the pair
+   * added here — `{ deadline: day, startNoEarlierThanReason: null }`, which is
+   * what copying `setNotBefore`'s null arm across produces — and
+   * `plan-cells.test.tsx` failed 2 of 99, `clears with the single field, never
+   * the floor cell pair` printing `+ "startNoEarlierThanReason": null` beside
+   * the patch it expected. Watched on h2puni 2026-09-07, TASK-309.
    */
   const setDeadline = useCallback(
     (id: string, day: string | null) => {

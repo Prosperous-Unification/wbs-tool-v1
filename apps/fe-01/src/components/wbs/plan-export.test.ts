@@ -611,6 +611,13 @@ describe('the columns', () => {
     // nothing for a date to fall before — be-01 applies no deadline at all
     // there — and `deadlineOffsetOf` *throws* on a value that is not a calendar
     // date, which an export is not the moment to take a download down over.
+    //
+    // Proof: `deadlineBeforeProjectStart`'s `isIsoDate` guard removed and this
+    // case failed, 1 of 64 — `Error: not a calendar date: "the end of August"`
+    // thrown from `toUtc` (`workday.ts:24`) through `previousWorkday` →
+    // `deadlineOffsetOf` → `deadline-impossible.ts:39` → `plan-export.ts`'s
+    // `cell` → `planToCsv`; watched on h2puni 2026-09-07, TASK-309. The other
+    // 63 passed, so the guard is not one that fires on every row.
     const rows = [row({ id: 'a', number: '010', deadline: '2026-08-31' })];
     const offCalendar = planToCsv(plan({ rows, startDate: null }));
     expect(csvDataRow(offCalendar)[columnAt(offCalendar, 'Work item deadline unreachable')]).toBe(

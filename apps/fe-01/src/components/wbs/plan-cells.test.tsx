@@ -1347,6 +1347,16 @@ describe('the work item deadline cell', () => {
     // deadline cell copied from it verbatim would send
     // `startNoEarlierThanReason: null` here — quietly taking the words off the
     // row's not-before every time somebody cleared its deadline.
+    //
+    // Proof, as R5 asks and not only as a reason: that exact fault injected
+    // into `wbs-table.tsx`'s `setDeadline` — `{ deadline: day }` changed to
+    // `{ deadline: day, startNoEarlierThanReason: null }` — and this case
+    // failed, 2 of 99, with the diff naming the extra key verbatim: expected
+    // `[{ "deadline": null }]`, received the same object plus
+    // `+ "startNoEarlierThanReason": null`. Watched on h2puni 2026-09-07,
+    // TASK-309. The 97 that stayed green are why `toEqual` on the whole patch
+    // is the assertion and `toMatchObject` would not have been: the extra key
+    // is exactly what a subset match would have let through.
     const api = await datedPlanWithDeadlineColumn();
     const row = api.rows.at(0);
     if (row === undefined) throw new Error('the plan has no row');
