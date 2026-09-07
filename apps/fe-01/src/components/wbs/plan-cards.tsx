@@ -1339,9 +1339,7 @@ function CardDeadlineField({
       <ModalContent side="bottom">
         <ModalHeader>
           <ModalTitle>Work item deadline for {rowWords(row.number, row.name)}</ModalTitle>
-          <ModalDescription>
-            {DEADLINE_EFFECT_HINT}
-          </ModalDescription>
+          <ModalDescription>{DEADLINE_EFFECT_HINT}</ModalDescription>
         </ModalHeader>
         {/*
           `key` on the fields and not on the sheet, `CardNotBeforeField`'s

@@ -10321,9 +10321,7 @@ export function WbsTable({
                       ? 'Set the project start date first — without one there are no dates to hold a work item deadline against.'
                       : [
                           day === null ? null : `${day}.`,
-                          impossible
-                            ? DEADLINE_BEFORE_START
-                            : DEADLINE_EFFECT_HINT,
+                          impossible ? DEADLINE_BEFORE_START : DEADLINE_EFFECT_HINT,
                         ]
                           .filter((part) => part !== null)
                           .join(' ')
