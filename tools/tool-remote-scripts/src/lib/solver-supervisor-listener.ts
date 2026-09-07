@@ -29,7 +29,9 @@ async function unixSocketIsAcceptingConnections(unix: string): Promise<boolean> 
         open(socket) {
           socket.end();
         },
-        data() {},
+        data() {
+          return undefined;
+        },
       },
     });
     probe.end();

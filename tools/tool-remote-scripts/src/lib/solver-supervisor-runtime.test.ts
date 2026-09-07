@@ -117,10 +117,10 @@ describe('the solver supervisor runtime composition', () => {
     let dependencies: SupervisorConnectionDependencies | undefined;
     const mapped: string[] = [];
     const listener = { stop: () => undefined };
-    const listen = (async (_, value) => {
+    const listen = ((_, value) => {
       driver.events.push('listen');
       dependencies = value;
-      return listener as Awaited<ReturnType<SupervisorListen>>;
+      return Promise.resolve(listener as Awaited<ReturnType<SupervisorListen>>);
     }) satisfies SupervisorListen;
 
     const result = await startSolverSupervisor(

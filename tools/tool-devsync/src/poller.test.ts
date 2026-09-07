@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
