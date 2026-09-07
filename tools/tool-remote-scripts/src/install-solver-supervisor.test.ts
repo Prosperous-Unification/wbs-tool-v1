@@ -8,6 +8,7 @@ import {
 } from './install-solver-supervisor';
 import {
   SOLVER_SUPERVISOR_BUN,
+  SOLVER_SUPERVISOR_BUN_VERSIONS,
   SOLVER_SUPERVISOR_BUNDLE,
   SOLVER_SUPERVISOR_CONFIG,
   SOLVER_SUPERVISOR_UNIT,
@@ -58,7 +59,7 @@ describe('buildSolverSupervisorInstallPlan', () => {
 function dependencies(
   config: string,
   seen: string[],
-  bunVersion = '1.3.14\n',
+  bunVersion = '1.2.20\n',
 ): SolverSupervisorInstallerDependencies {
   return {
     read: () => Promise.resolve(new TextEncoder().encode(config)),
@@ -121,9 +122,25 @@ describe('installSolverSupervisor', () => {
         dependencies(CONFIG, seen, '1.3.13\n'),
       ),
     );
-    expect(error.message).toContain('requires /usr/local/bin/bun 1.3.14');
+    expect(error.message).toContain('requires /usr/local/bin/bun at 1.2.20, 1.4.2');
     expect(seen).toEqual([`ssh h2puni ${SOLVER_SUPERVISOR_BUN} --version`]);
   });
+
+  // Membership alone is vacuous: without this, either entry could be dropped or
+  // mistyped and no test would go red. Each listed version must reach the files
+  // phase, which is the first step that touches the host.
+  it.each([...SOLVER_SUPERVISOR_BUN_VERSIONS])(
+    'installs under measured-compatible Bun %s',
+    async (version) => {
+      const seen: string[] = [];
+      await installSolverSupervisor(
+        { host: 'h2puni', execute: true, config: '/work/config.json' },
+        dependencies(CONFIG, seen, `${version}\n`),
+      );
+      expect(seen[0]).toBe(`ssh h2puni ${SOLVER_SUPERVISOR_BUN} --version`);
+      expect(seen.some((entry) => entry.includes('install -d'))).toBe(true);
+    },
+  );
 
   it('verifies all published bytes before reloading or restarting systemd', async () => {
     const seen: string[] = [];

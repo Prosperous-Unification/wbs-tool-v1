@@ -6,7 +6,7 @@ import { envLayout } from './lib/env';
 import {
   assertSolverSupervisorBunVersion,
   SOLVER_SUPERVISOR_BUN,
-  SOLVER_SUPERVISOR_BUN_VERSION,
+  SOLVER_SUPERVISOR_BUN_VERSIONS,
   SOLVER_SUPERVISOR_BUNDLE,
   SOLVER_SUPERVISOR_CONFIG,
   SOLVER_SUPERVISOR_RUNTIME_DIRECTORY,
@@ -145,17 +145,21 @@ describe('host-wide solver supervisor contract', () => {
     }
   });
 
-  it('refuses any host Bun except the pinned runtime', () => {
+  it('refuses any host Bun outside the measured-compatible set', () => {
+    // Every listed version is one somebody ran the bundle under on h2puni; an
+    // unlisted one is refused precisely because nobody has.
+    for (const version of SOLVER_SUPERVISOR_BUN_VERSIONS) {
+      assertSolverSupervisorBunVersion(`${version}\n`);
+    }
     expect(() => {
-      assertSolverSupervisorBunVersion('1.2.20\n');
-    }).toThrow(`${SOLVER_SUPERVISOR_BUN} ${SOLVER_SUPERVISOR_BUN_VERSION}`);
+      assertSolverSupervisorBunVersion('1.3.14\n');
+    }).toThrow(SOLVER_SUPERVISOR_BUN_VERSIONS.join(', '));
     expect(() => {
       assertSolverSupervisorBunVersion('');
     }).toThrow('(missing)');
     expect(() => {
-      assertSolverSupervisorBunVersion('1.3.14-next');
-    }).toThrow('1.3.14-next');
-    assertSolverSupervisorBunVersion('1.3.14\n');
+      assertSolverSupervisorBunVersion('1.2.20-next');
+    }).toThrow('1.2.20-next');
   });
 
   it('builds the exact host artifact and pins the restart-always user unit', async () => {
