@@ -226,7 +226,10 @@ describe('the constant is read as a number, not as bytes', () => {
       }),
     );
     expect(found).toHaveLength(1);
-    expect(found[0]).toContain('declares no exported SCHEDULER_CONTRACT_VERSION');
+    // Read as 8 — the real declaration, whose block comment is blanked to
+    // spaces — and NOT as the 9 sitting in the commented-out line.
+    expect(found[0]).toContain('went from 8 to 8');
+    expect(found[0]).not.toContain('to 9');
   });
 
   it('ignores a declaration quoted inside a comment while a real one is present', () => {
