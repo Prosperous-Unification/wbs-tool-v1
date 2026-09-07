@@ -745,8 +745,8 @@ export function isPersonKind(value: string): value is PersonKindView {
   return (PERSON_KINDS as readonly string[]).includes(value);
 }
 
-/** Somebody who does work, and the teams they belong to. Empty means a free agent. */
-export interface PersonView {
+/** The identity a create command returns before the directory is read again. */
+export interface PersonIdentityView {
   id: string;
   name: string;
   /**
@@ -761,6 +761,10 @@ export interface PersonView {
    * identical on the day be-01 stopped sending the field at all.
    */
   kind: PersonKindView;
+}
+
+/** Somebody who does work, and the teams they belong to. Empty means a free agent. */
+export interface PersonView extends PersonIdentityView {
   teamIds: string[];
 }
 
@@ -986,7 +990,7 @@ export interface DirectoryApi {
    */
   removeService(serviceId: string, cascade: boolean): Promise<DirectoryRemoval>;
   /** Adds a person; no teams means a **free agent**. Idempotent by name at be-01. */
-  addPerson(name: string, teamIds: readonly string[]): Promise<PersonView>;
+  addPerson(name: string, teamIds: readonly string[]): Promise<PersonIdentityView>;
   addTeam(name: string): Promise<TeamView>;
   /**
    * Renames a person, marks them a person or an agent, sets exactly the teams
@@ -1544,7 +1548,7 @@ export interface ProjectApi {
   addTeam(name: string): Promise<TeamView>;
   listPeople(): Promise<PersonView[]>;
   /** Adds a person; no teams means a free agent. */
-  addPerson(name: string, teamIds: readonly string[]): Promise<PersonView>;
+  addPerson(name: string, teamIds: readonly string[]): Promise<PersonIdentityView>;
   /** Sets or (with `null`) clears who does one work item's work for one step. */
   assignPerson(workItemId: string, stepId: string, personId: string | null): Promise<void>;
   moveWorkItem(id: string, parentId: string | null, afterId: string | null): Promise<void>;
@@ -1990,6 +1994,15 @@ function personEntry(answer: BatchAnswer): PersonView {
   return { id: entity.id, name: entity.name, kind: entity.kind, teamIds: entity.teamIds };
 }
 
+/** A create-person result; memberships are available from the directory read. */
+function personIdentityEntry(answer: BatchAnswer): PersonIdentityView {
+  const entity = entryOf(answer);
+  // Proof: requiring teamIds rejected be-01's successful create response with
+  // `unexpected_response`; the directory-client create test observed it.
+  if (entity.kind === undefined) throw new Error('unexpected_response');
+  return { id: entity.id, name: entity.name, kind: entity.kind };
+}
+
 function teamEntry(answer: BatchAnswer): TeamView {
   const entity = entryOf(answer);
   return { id: entity.id, name: entity.name, serviceIds: entity.serviceIds };
@@ -2103,7 +2116,7 @@ export function httpDirectoryApi(token: string): DirectoryApi {
         client,
         token,
         { kind: 'createPerson', name, teamIds: [...teamIds] },
-        personEntry,
+        personIdentityEntry,
       ),
     addTeam: (name) => directoryCreate(client, token, { kind: 'createTeam', name }, teamEntry),
     patchPerson: (id, patch) => {

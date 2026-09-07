@@ -417,7 +417,7 @@ describe('the directory client', () => {
                   {
                     index: 0,
                     id: 'p1',
-                    entity: { id: 'p1', name: 'Kat', kind: 'person', teamIds: ['t1'] },
+                    entity: { id: 'p1', name: 'Kat', kind: 'person' },
                   },
                 ],
               }
@@ -434,7 +434,6 @@ describe('the directory client', () => {
       id: 'p1',
       name: 'Kat',
       kind: 'person',
-      teamIds: ['t1'],
     });
 
     expect(fetched.mock.calls.map((call) => call[0])).toEqual([

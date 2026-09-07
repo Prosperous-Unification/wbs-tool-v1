@@ -1263,7 +1263,7 @@ test.describe('the table, measured by a browser', () => {
     //
     // It has to be checked **here** rather than after the assignment below:
     // naming somebody on one step makes them that row's *assumed* assignee on
-    // every other step (`assigneeOn` promotes it), so a single `@Kat` staffs
+    // every other step (`assigneeOn` promotes it), so a single `@Nia` staffs
     // both step columns at once and there is no unstaffed column left to look
     // at. Written the other way round first, this failed on `expected 1 to be
     // 0` against QA — which was the code being right and the check being wrong.
@@ -1280,13 +1280,16 @@ test.describe('the table, measured by a browser', () => {
     // bare `@` offers nobody and the list never opens — the fault
     // `opens the assignee list out past the bottom of its own cell` records
     // from h2puni, 2026-08-08. Enter then takes the first entry, which is
-    // `Add “Kat”`.
+    // `Add “Nia”`. Click that row directly: this is a layout check, so making
+    // its setup depend on the picker keyboard path gives an unrelated shortcut
+    // failure ownership of the geometry assertion.
     const assigned = page.getByLabel('Dev estimate for 010');
     await assigned.click();
-    await assigned.fill('1/2/3 @Kat');
-    await expect(page.getByRole('option', { name: 'Add “Kat”' })).toBeVisible();
-    await page.keyboard.press('Enter');
-    // Scoped per row, and that is not fussiness: assigning Kat to 010's Dev
+    await assigned.fill('1/2/3 @Nia');
+    const addNia = page.getByRole('option', { name: 'Add “Nia”' });
+    await expect(addNia).toBeVisible();
+    await addNia.click();
+    // Scoped per row, and that is not fussiness: assigning Nia to 010's Dev
     // also makes her 010's **assumed** QA assignee ("nobody on this step and
     // exactly one person on another"), so a plan-wide count answers 2 while
     // both of them are on the same row. What this test needs is one row that
@@ -2732,9 +2735,12 @@ test.describe('the table, measured by a browser', () => {
     // bare `@` offers nobody to assign and nobody to remove and the list does
     // not open at all. Observed on h2puni, 2026-08-08, `waiting for
     // getByRole('listbox', { name: 'QA assignee for 030' })`.
-    await folded.fill('@Kat');
+    // A different name from the figure-alignment case above. People belong to
+    // the account rather than the throwaway project, so reusing Nia here would
+    // offer the existing person instead of the add row this check measures.
+    await folded.fill('@Uma');
     await expect(page.getByRole('listbox', { name: 'QA assignee for 030' })).toBeVisible();
-    await expect(page.getByRole('option', { name: 'Add “Kat”' })).toBeVisible();
+    await expect(page.getByRole('option', { name: 'Add “Uma”' })).toBeVisible();
 
     const escape = await popoverEscape(
       page,
