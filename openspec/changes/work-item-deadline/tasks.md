@@ -885,7 +885,7 @@ Verified artifact `queue/reviews/t241-r4-c23-sol.md`, seat `openai/gpt-5.6-sol`,
   route, after the stale-hash and state checks and before liveness admission.
   That is now this task's recorded position on 8.7d's layering question.
 - **Critical 2 is real, is in shipped code rather than in this diff, and is
-  filed as `TASK-311` (lane e, p1).** `spec.md`'s realtime requirement says the
+  filed as `TASK-313` (lane e, p1).** `spec.md`'s realtime requirement says the
   guarantee is "one durable replay record **per newly stored outcome**". A
   `plan-infeasible` row is a newly stored outcome, and
   `optimization-coordinator.ts:107` returns before writing any `event_log` row
