@@ -144,8 +144,13 @@ export const SOLVER_EXIT_CODES = {
   ok: 0,
   /** The request was refused before solving: framing, encoding, shape. */
   badRequest: 64,
-  /** The solve ran and could not answer. Nothing on stdout, by contract. */
+  /** A later-stage `INFEASIBLE`. Nothing on stdout, by contract. */
   solveFailed: 70,
+  /**
+   * CP-SAT refused the model, or answered a status the stage matrix has no row
+   * for. Also nothing on stdout, and a different fault (TASK-310).
+   */
+  modelInvalid: 71,
 } as const;
 
 /**
@@ -172,6 +177,21 @@ export const SOLVER_EXIT_CODES = {
  * code is a process that died without reaching either exit, which is also not a
  * solver answer.
  *
+ * `modelInvalid` is `internal-error`, and TASK-310 is the decision that put it
+ * on a code of its own. `70` used to carry the whole of `solve.py`'s
+ * `ROW_STOP_INVALID`, which was a later-stage `INFEASIBLE` **and** a CP-SAT
+ * `MODEL_INVALID` **and** any status the stage matrix does not know. The three
+ * artifacts that require `invalid-output` — spec.md's staged-lexicographic
+ * requirement, design.md's `INFEASIBLE, k > 1` row, and the response
+ * `$comment` — all argue from the staging: a later stage's constraints are
+ * satisfied by the previous incumbent, so the run answered and the answer has
+ * no encoding. Not one of them mentions `MODEL_INVALID`, and `solve.py`'s own
+ * comment calls it "not a matrix row … this package disagreeing with its
+ * solver" — which is this module's definition of `internal-error` verbatim. So
+ * nothing governed that branch; it inherited a disposition by sharing a row
+ * constant. It is `internal-error` now, and the entrypoint emits `71` because
+ * the exit code is the only evidence that reaches the cache row.
+ *
  * ASSUMPTION (run 3). `cli.py` used to state the opposite rule — "the
  * coordinator distinguishes zero from non-zero and nothing finer: every
  * non-zero exit is `internal-error` to it" — and that docstring is amended in
@@ -181,11 +201,43 @@ export const SOLVER_EXIT_CODES = {
  * of them. FALSIFIED BY: a coordinator requirement naming `internal-error` for
  * a solver that ran and answered nothing.
  */
+/**
+ * Keyed over the entrypoint's own codes rather than written as a chain of
+ * comparisons, for the reason this module's header gives about the other three
+ * seams: a conditional defaults a new code silently, and a silent default is
+ * exactly how `MODEL_INVALID` spent its whole life dispositioned as
+ * `invalid-output` with nobody having chosen it. `ok` is absent because it is
+ * not a failure; `dispositionOfExitCode` throws on it.
+ */
+const EXIT_DISPOSITIONS: Readonly<
+  Record<
+    Exclude<(typeof SOLVER_EXIT_CODES)[keyof typeof SOLVER_EXIT_CODES], 0>,
+    SolverFailureReason
+  >
+> = {
+  [SOLVER_EXIT_CODES.badRequest]: 'internal-error',
+  [SOLVER_EXIT_CODES.solveFailed]: 'invalid-output',
+  [SOLVER_EXIT_CODES.modelInvalid]: 'internal-error',
+};
+
+/**
+ * The same table widened to `number`, which is what a process exit actually is.
+ * Indexing `EXIT_DISPOSITIONS` through a `keyof` cast would tell the compiler
+ * every code is a declared one — the lookup could never be `undefined`, the
+ * `??` below would be flagged unnecessary, and `137` would come back typed as a
+ * `SolverFailureReason` it never had. Declaring the literal exhaustively and
+ * reading it permissively keeps both halves honest.
+ */
+const EXIT_DISPOSITION_LOOKUP: Readonly<Partial<Record<number, SolverFailureReason>>> =
+  EXIT_DISPOSITIONS;
+
 export const dispositionOfExitCode = (code: number): SolverFailureReason => {
   if (code === SOLVER_EXIT_CODES.ok) {
     throw new Error('exit code 0 wrote a response; ask parseSolverResponse, not this seam');
   }
-  return code === SOLVER_EXIT_CODES.solveFailed ? 'invalid-output' : 'internal-error';
+  // An unlisted code is a process that died without reaching any of the
+  // entrypoint's exits, which is not a solver answer either.
+  return EXIT_DISPOSITION_LOOKUP[code] ?? 'internal-error';
 };
 
 export const dispositionOfParseFailure = (failure: SolverParseFailure): SolverFailureReason =>

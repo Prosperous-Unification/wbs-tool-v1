@@ -959,12 +959,26 @@ solving) stays `internal-error` — and `cli.py`'s EXIT CODES docstring, which
 stated the old blanket rule twelve lines above a handler stating the new one,
 is amended in the same commit.
 
+**TASK-310 later split `70` itself, and the sentence above is why it had to.**
+"ran, could not answer" described two outcomes, not one: `cli.main` returned
+`70` for every `SolveFailed`, and `solve_request` raised that for a CP-SAT
+`MODEL_INVALID` at any stage as well as for the later-stage `INFEASIBLE` the
+three artifacts actually govern. `MODEL_INVALID` now exits `71` and is
+`internal-error`; `stage_disposition` gives it `ROW_STOP_MODEL_INVALID` and
+`solve.py` raises `ModelInvalid`, a `SolveFailed` subclass so that callers
+which only care that nothing is publishable are unaffected. The decision and
+its falsifier are in `dual-optimized-scheduler/design.md`, beside the matrix
+that does not have a row for it.
+
 Measured at `1bf4f1c2`: targeted 32/0, `libs/contracts` 261/0, `apps/be-01`
 1840/0. Three controls, each reverted after measuring — reverting the
 coordinator call gives 15/1, exactly the terminal-evidence case; returning
 `internal-error` unconditionally gives 30/2, exactly the two new assertions;
 moving `cli.py`'s `EXIT_INTERNAL` from 70 to 71 gives 15/1, exactly the
-non-circularity case that reads the codes out of the entrypoint.
+non-circularity case that reads the codes out of the entrypoint. (That third
+control was measured before `71` existed. Since TASK-310 the same edit collides
+`EXIT_INTERNAL` with `EXIT_MODEL_INVALID`, which `test_cli.py`'s new pair also
+refuses — the injection still reddens, for one more reason than it did here.)
 
 **8.5c was a live divergence in one direction only.** `tasks.md` 3.1 and the
 shipped table both carried `plan-infeasible` in the status CHECK and as a third

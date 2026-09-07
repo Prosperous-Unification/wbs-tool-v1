@@ -28,18 +28,35 @@ convenience.
   64  the request was refused before solving (framing, encoding, shape)
       → `internal-error`: every request is built by `buildSolverRequest`, so a
       request this entrypoint cannot read is a fault on the caller's side
-  70  the solve could not answer
+  70  a **later-stage** `INFEASIBLE`, and nothing else
       → `invalid-output`: the solver ran and returned nothing usable. This is
-      the only way a **later-stage** `INFEASIBLE` can leave the process — it
-      has no encoding on the wire, and spec.md's staged-lexicographic
-      requirement says the entrypoint "SHALL exit non-zero without emitting a
-      response, and the coordinator SHALL record that run as `invalid-output`"
+      the only way that outcome can leave the process — it has no encoding on
+      the wire, and spec.md's staged-lexicographic requirement says the
+      entrypoint "SHALL exit non-zero without emitting a response, and the
+      coordinator SHALL record that run as `invalid-output`"
+  71  CP-SAT refused the model, or answered a status the stage matrix has no
+      row for
+      → `internal-error`: that is this package disagreeing with its own solver,
+      which is `solver-failure-disposition.ts`'s definition of the reason —
+      "everything that is not a solver answer". TASK-310 split this out of 70.
+      The two are one row constant apart in `solve.py` and were one exit code
+      until then, and the exit code is the coordinator's ONLY evidence: the
+      stderr line below dies with the disposable container, while
+      `failureReason` is what the `optimized_schedule_cache` row keeps.
 
 An earlier revision of this block said the coordinator "distinguishes zero from
 non-zero and nothing finer: every non-zero exit is `internal-error` to it". It
 was written before the response schema reserved `infeasible` for a stage-1
 proof, and it contradicted both the `SolveFailed` handler below and the three
 artifacts that name a disposition for the `INFEASIBLE, k > 1` row.
+
+A later revision said `70` was "the only way a later-stage `INFEASIBLE` can
+leave the process", which was true, and let that stand as a description of what
+`70` *means*, which was not: `main` returned it for every `SolveFailed`, and
+`solve_request` raised that for a `MODEL_INVALID` at any stage too. TASK-310
+decided the second reading — no artifact governs a status the stage matrix was
+never written against, and the fault is on this side of the seam — and gave it
+`71`.
 
 **A non-zero exit writes nothing to stdout.** That is not tidiness: the
 response schema admits no "I failed" status, so a partial or invented message
@@ -55,12 +72,13 @@ from typing import BinaryIO, Sequence, TextIO
 
 from . import __version__
 from .lifecycle import set_parent_death_signal
-from .solve import SolveFailed, SolverConfig, solve_request
+from .solve import ModelInvalid, SolveFailed, SolverConfig, solve_request
 from .validate import RequestRejected, validate_request
 
 EXIT_OK = 0
 EXIT_BAD_REQUEST = 64
 EXIT_INTERNAL = 70
+EXIT_MODEL_INVALID = 71
 
 def read_request(stream: BinaryIO) -> bytes:
     """Read the whole request. Named so the ordering test can watch it."""
@@ -131,11 +149,17 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         response = solve_request(request, config)
+    except ModelInvalid as exc:
+        # Ordered before its base class, which is the whole of the split: a
+        # model CP-SAT refuses is this package disagreeing with its own solver,
+        # so the coordinator records `internal-error` and the repair starts in
+        # `build_model` rather than in the staging loop (TASK-310).
+        print(f"wbs-solver: {exc}", file=stderr)
+        return EXIT_MODEL_INVALID
     except SolveFailed as exc:
-        # The two outcomes the wire cannot carry: a later-stage INFEASIBLE,
-        # which is the solver holding a counterexample to its own answer, and a
-        # model CP-SAT refuses. Both are `invalid-output` to the coordinator,
-        # and both leave stdout empty — see this module's exit-code note.
+        # The one outcome the wire cannot carry: a later-stage INFEASIBLE, which
+        # is the solver holding a counterexample to its own answer. Both paths
+        # leave stdout empty — see this module's exit-code note.
         print(f"wbs-solver: {exc}", file=stderr)
         return EXIT_INTERNAL
 

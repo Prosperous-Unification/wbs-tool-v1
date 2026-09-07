@@ -121,7 +121,26 @@ describe('a solver that ran and answered nothing is invalid-output', () => {
   });
 
   it('keeps a refused request on our own side of the seam', () => {
+    expect(dispositionOfExitCode(SOLVER_EXIT_CODES.modelInvalid)).toBe('internal-error');
     expect(dispositionOfExitCode(SOLVER_EXIT_CODES.badRequest)).toBe('internal-error');
+  });
+
+  /**
+   * TASK-310's whole content, as one assertion about two numbers.
+   *
+   * `dispositionOfExitCode` already answered `internal-error` for `71` before
+   * the entrypoint ever emitted it — every unlisted code defaults there — so a
+   * case asserting `71` alone would have been green against the old tree and
+   * proves nothing. What changed is that `70` STOPPED covering a refused model,
+   * and the only place that is observable from Bun is that the two codes now
+   * exist apart and disagree. The half of the control that can actually fail
+   * lives in `test_cli.py`, which is where the exit code is chosen.
+   */
+  it('splits a refused model away from a later-stage INFEASIBLE', () => {
+    expect(SOLVER_EXIT_CODES.modelInvalid).not.toBe(SOLVER_EXIT_CODES.solveFailed);
+    expect(dispositionOfExitCode(SOLVER_EXIT_CODES.modelInvalid)).not.toBe(
+      dispositionOfExitCode(SOLVER_EXIT_CODES.solveFailed),
+    );
   });
 
   it('treats a death that reached neither exit as internal-error', () => {
@@ -151,6 +170,7 @@ describe('a solver that ran and answered nothing is invalid-output', () => {
     expect(codeOf('EXIT_OK')).toBe(SOLVER_EXIT_CODES.ok);
     expect(codeOf('EXIT_BAD_REQUEST')).toBe(SOLVER_EXIT_CODES.badRequest);
     expect(codeOf('EXIT_INTERNAL')).toBe(SOLVER_EXIT_CODES.solveFailed);
+    expect(codeOf('EXIT_MODEL_INVALID')).toBe(SOLVER_EXIT_CODES.modelInvalid);
   });
 });
 

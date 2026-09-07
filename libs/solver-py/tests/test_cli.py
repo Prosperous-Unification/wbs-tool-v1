@@ -25,7 +25,7 @@ FIXTURES = PACKAGE_ROOT.parents[1] / "libs" / "contracts" / "solver" / "fixtures
 sys.path.insert(0, str(SRC))
 
 from wbs_solver import __version__, cli  # noqa: E402
-from wbs_solver.solve import SolveFailed  # noqa: E402
+from wbs_solver.solve import ModelInvalid, SolveFailed  # noqa: E402
 
 
 def run_cli(stdin: bytes, args: list[str] | None = None) -> subprocess.CompletedProcess[bytes]:
@@ -247,6 +247,34 @@ class UnencodableOutcomes(unittest.TestCase):
         self.assertEqual(code, cli.EXIT_INTERNAL)
         self.assertEqual(out.getvalue(), "")
         self.assertIn("stage 2 is infeasible", err.getvalue())
+
+    def test_a_refused_model_exits_71_and_not_70(self) -> None:
+        """TASK-310, and the pair above is half of the same control.
+
+        `ModelInvalid` is a `SolveFailed`, so an entrypoint that caught the base
+        class first would return `70` here and the coordinator would record
+        `invalid-output` for a fault on this side of the seam. Asserting `71`
+        alone would pass under a handler that returned `71` for BOTH, so the
+        two cases are only a control together: this one is `71`, the one above
+        is `70`, and stdout stays empty on both.
+        """
+        request = (FIXTURES / "valid-quantised-baseline.json").read_bytes()
+        out, err = io.StringIO(), io.StringIO()
+        with (
+            mock.patch.object(cli, "read_request", return_value=request),
+            mock.patch.object(
+                cli,
+                "solve_request",
+                side_effect=ModelInvalid("stage 1 (MAKESPAN) returned MODEL_INVALID"),
+            ),
+            contextlib.redirect_stdout(out),
+            contextlib.redirect_stderr(err),
+        ):
+            code = cli.main([])
+        self.assertEqual(code, cli.EXIT_MODEL_INVALID)
+        self.assertNotEqual(cli.EXIT_MODEL_INVALID, cli.EXIT_INTERNAL)
+        self.assertEqual(out.getvalue(), "")
+        self.assertIn("MODEL_INVALID", err.getvalue())
 
     def test_the_same_seam_answers_normally_when_the_solve_succeeds(self) -> None:
         """The slack half: the patched harness is not what empties stdout."""
