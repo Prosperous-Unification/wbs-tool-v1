@@ -89,17 +89,66 @@ export function browserOidcClientFromEnv(env: Environment): BrowserOidcClient {
  * So: share one attempt while it is in flight or has succeeded, and forget it
  * if it fails, which lets the next caller retry. The rejection itself is
  * rethrown untouched, so the classifier upstream still sees the real cause.
+ *
+ * **Forgetting a failure immediately would trade one bug for a smaller one**,
+ * and peer pass 19 was right to say so: `/api/auth/login` reaches `config()`,
+ * so an unauthenticated caller could drive one outbound discovery per request
+ * for as long as the provider was down, multiplied by every replica. The
+ * remembered failure is therefore held for a short cooldown and re-served
+ * without a load — long enough that an outage costs a bounded rate rather than
+ * a request-rate flood, short enough that recovery is not noticeably delayed.
+ * The window is jittered so replicas that failed together do not retry
+ * together.
+ *
+ * `now` and `jitter` are injectable for the same reason `load` is: the cooldown
+ * is asserted with a clock the test owns, not with a real one it has to wait
+ * for.
  */
-export function cacheWhileItSucceeds<T>(load: () => Promise<T>): () => Promise<T> {
+export function cacheWhileItSucceeds<T>(
+  load: () => Promise<T>,
+  options: { cooldownMs?: number; jitter?: () => number; now?: () => number } = {},
+): () => Promise<T> {
+  const cooldownMs = options.cooldownMs ?? 5_000;
+  const jitter = options.jitter ?? Math.random;
+  const now = options.now ?? Date.now;
   let attempt: Promise<T> | undefined;
+  // Set only while `attempt` is a *rejected* promise. It is therefore both the
+  // cooldown deadline and the answer to "did the held attempt fail?".
+  let retryAfter: number | undefined;
   return () => {
-    if (attempt !== undefined) return attempt;
-    // `attempt = undefined` inside the catch cannot race the assignment below:
-    // the callback is a microtask and this function returns synchronously.
-    attempt = load().catch((error: unknown) => {
+    if (attempt !== undefined) {
+      // In flight, or succeeded: `retryAfter` is unset and the held promise is
+      // the shared answer. Failed and still cooling: the *same* rejected
+      // promise is re-served, which is what makes this a cooldown rather than
+      // a delay — the caller gets its answer now, and gets the original cause
+      // rather than a rewrapped one, so the classifier upstream still works.
+      if (retryAfter === undefined || now() < retryAfter) return attempt;
+      // Failed, and the window has closed: this caller reloads.
       attempt = undefined;
-      throw error;
-    });
+    }
+    // **Cleared before the load, not after it.** `retryAfter` means "the held
+    // promise is a rejected one", so leaving it set while the retry is in
+    // flight would make every concurrent caller read the new pending attempt
+    // as an expired failure and start its own load — losing single-flight at
+    // exactly the moment the fleet is recovering, which is the herd this
+    // cooldown exists to prevent. A test caught this: `lets exactly one caller
+    // retry once the cooldown expires` hung, because the second caller
+    // replaced the first's attempt with a fresh one nobody resolved.
+    retryAfter = undefined;
+    // Neither settlement callback can race the assignment below: both are
+    // microtasks and this function returns synchronously.
+    attempt = load().then(
+      (value) => {
+        retryAfter = undefined;
+        return value;
+      },
+      (error: unknown) => {
+        // Half the window plus up to another half, so a fleet that failed on
+        // the same provider does not line up on the same retry instant.
+        retryAfter = now() + cooldownMs * (0.5 + jitter() * 0.5);
+        throw error;
+      },
+    );
     return attempt;
   };
 }

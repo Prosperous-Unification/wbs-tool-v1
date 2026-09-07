@@ -1373,6 +1373,45 @@ describe('OIDC browser routes', () => {
     });
   }
 
+  /**
+   * Peer pass 19, Important: without this branch a caller who has started one
+   * legitimate login holds a valid `state` and binding, and a callback with
+   * that state and no `code` reaches `exchange`, rejects as
+   * `OAUTH_INVALID_RESPONSE`, and is classified `defect` → 500. That would let
+   * a caller choose the status and the alert bucket reserved for "this
+   * deployment is wrong".
+   *
+   * `f.calls.exchange` is the load-bearing assertion: a 400 returned from
+   * anywhere *after* the provider was reached would satisfy the status alone.
+   */
+  for (const [name, query] of [
+    ['no code at all', 'state=state-1'],
+    ['an empty code', 'code=&state=state-1'],
+  ] as const) {
+    it(`refuses a callback with ${name} without reaching the provider`, async () => {
+      const f = fixture();
+      f.transactions.save({
+        browserBinding: 'binding-1',
+        nonce: 'nonce-1',
+        state: 'state-1',
+        verifier: 'verifier-1',
+      });
+
+      const malformed = await f.app.handle(
+        new Request(`https://dev.wbs.test/api/auth/okta/callback?${query}`, {
+          headers: cookieHeader(jarOf('binding-1')),
+        }),
+      );
+
+      expect(malformed.status).toBe(400);
+      expect(f.calls.exchange).toHaveLength(0);
+      expect(retires(malformed, 'binding-1')).toBe(true);
+      expect(await malformed.text()).toBe('');
+      expect(f.logs).toHaveLength(1);
+      expect(f.logs[0]?.level).toBe('warn');
+    });
+  }
+
   // An outage is greppable without reading stack text: the whole point of AC
   // #3, asserted as a reader would actually use it. `JSON.stringify` over the
   // recorded fields stands in for the log stream a `grep` would run against.

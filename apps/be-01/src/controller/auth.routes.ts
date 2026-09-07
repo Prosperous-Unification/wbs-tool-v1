@@ -283,7 +283,24 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
       path: '/api/auth/me',
       handler: async ({ headers }) => {
         const user = await userFromHeaders(auth, headers);
-        if (user === null) return respond(401, { error: 'invalid_token' });
+        if (user === null) {
+          const presentedCredential =
+            cookiesIn(headers['cookie']).has('__Host-wbs_access') ||
+            headers['authorization'] !== undefined ||
+            headers['x-wbs-token'] !== undefined;
+          /*
+           * No browser session is an ordinary signed-out state, not a failed
+           * resource: Chromium reports every 401 fetch in its console. A
+           * credential that was actually presented still fails closed.
+           *
+           * Proof: treating every null user as anonymous makes the forged,
+           * altered, and retired-header cases in auth.integration.test.ts
+           * return 200; restoring the blanket 401 makes its anonymous case
+           * fail and reproduces TASK-299's two StrictMode console errors.
+           */
+          if (!presentedCredential) return ok({ user: null });
+          return respond(401, { error: 'invalid_token' });
+        }
         return ok({ user });
       },
     },
@@ -667,6 +684,22 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
           // that difference is closed by refusing HEAD, not by hiding it.
           method: req.method,
         });
+        // **A callback with a matching state but no `code` is malformed, and it
+        // is refused here rather than spent on the provider.** Without this the
+        // request reaches `exchange`, the library rejects with
+        // `OAUTH_INVALID_RESPONSE` — deliberately absent from the classifier's
+        // table, because only the route knows whether a missing `code` is the
+        // caller's fault or the provider's — and the mapping below reads that as
+        // `defect` and answers 500. A caller who starts one legitimate login
+        // holds a valid state and binding, so that caller could choose the
+        // status and the alert bucket reserved for "this deployment is wrong".
+        // A 400 is what the three other malformed-callback branches above
+        // answer, and it keeps the defect rate something only this deployment
+        // can move. (Peer pass 19, Important.)
+        if ((sent.get('code') ?? '') === '') {
+          options.logger?.warn({}, 'oidc callback carried no code');
+          return empty(400, clearsFor(settled));
+        }
         // **Every way out of `exchange` used to be the same answer**, and until
         // TASK-273 none of them was typed at all: the provider unreachable, a
         // `code` the provider will not honour, a nonce or `iss` the library
