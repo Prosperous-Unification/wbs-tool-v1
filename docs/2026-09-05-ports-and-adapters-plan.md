@@ -3,8 +3,11 @@
 be-01 split into an isomorphic application core, one SQLite source, one in-memory source and
 one Elysia HTTP adapter, with conformance kits that decide whether a new source is a correct
 implementation and an endpoint table that is the one contract fe-01, be-01 and mcp-01 share.
-**Not started.** Four OpenSpec changes, one per wave plus the namespacing change, created when
-each wave starts. The implementation fixes have their own ordered backlog in
+**Status 2026-09-07:** Wave 0 done ([`refactoring/collisions.md`](refactoring/collisions.md));
+Wave 1 merged (`cbad68af`, PR #287, change archived and spec synced); Waves 2, 3 and the
+namespacing change **not started** — the queue is
+[`refactoring/tasks.md`](refactoring/tasks.md). Four OpenSpec changes, one per wave plus the
+namespacing change, created when each wave starts. The implementation fixes have their own ordered backlog in
 [`2026-09-02-refactoring-plan.md` §67](2026-09-02-refactoring-plan.md#67--review-follow-up--2026-09-06);
 Wave 0 checks those overlaps too.
 
@@ -540,7 +543,7 @@ rather than read off the config.
 Each wave: one OpenSpec change (intent ≤ 400 words, design, delta specs, `tasks.md` as TDD
 slices, `verify.md` with the failure-proof table), one PR, workspace gate green, kit green.
 
-### Wave 0 — collision gate (half a day, no code)
+### Wave 0 — collision gate (half a day, no code) — done 2026-09-06
 
 Four open changes touch this plan's files: `dual-optimized-scheduler` (adds
 `EventLogRepo.recordEventIn(tx)` and post-commit pushing — the source seam itself),
@@ -569,7 +572,7 @@ are gateway-local and do not widen D5; R10 is frontend rendering work, separate 
 extraction. A fix already merged stays closed; the collision gate records the commit rather
 than implementing it again.
 
-### Wave 1 — `http-endpoint-port` (~5 days be-01 + ~2 days fe-01)
+### Wave 1 — `http-endpoint-port` (~5 days be-01 + ~2 days fe-01) — merged 2026-09-07 as `cbad68af`
 
 1. `SchemaShape`, `EndpointShape`, `ParamsOf`, `RequestPolicy`, the `Refusal` union and `RefusalDetail` in
    `@wbs/contracts`; `Endpoint`, `bind`, `HttpReply`, `EndpointInput`, `PrincipalOf`,
@@ -615,7 +618,7 @@ conversion return `{}` → conversion refusal test fails; map throttling or `sna
 to 400 → adapter status/body matrix fails; skip refusal validation → client accepts a
 malformed 429/503 body; reintroduce either R1 race → held-response/scoped-refresh test fails.
 
-### Wave 2 — `store-port-and-unit-of-work` (~6 days; Wave 0 gate first)
+### Wave 2 — `store-port-and-unit-of-work` (~6 days; Wave 0 gate first) — not started
 
 1. `Gate` port and `OPEN`; the write coordinator inside `store-sqlite`'s `db.ts`; a `gate`
    argument on every transactional repository constructor and every mutating method wrapped in
@@ -650,7 +653,7 @@ malformed 429/503 body; reintroduce either R1 race → held-response/scoped-refr
    refusal (D23) surfaced as a `Refusal` by every caller and watched as a 4xx through the
    adapter, and `schedulerConformance`. Vocabulary values relocated.
 
-### Wave 3 — `core-lib-extraction` (~2.5 days)
+### Wave 3 — `core-lib-extraction` (~2.5 days) — not started
 
 1. Packages with `project.json`, ring and runtime tags on **every** project — no project
    carries a `ring:` today, and the eleven under `tools/` are `ring:adapter` — the new
@@ -671,7 +674,7 @@ malformed 429/503 body; reintroduce either R1 race → held-response/scoped-refr
    sweep and one `engine_unavailable` refusal without HTTP.
 5. Docs: `LLM_README.md`, ADR 0014 / 0015 → `accepted`, refactoring plan cross-reference.
 
-### After Wave 3 — `repo-namespacing` (~1.5 days, own change)
+### After Wave 3 — `repo-namespacing` (~1.5 days, own change) — not started
 
 D18 and D19 together, because both are `git mv` of the same directories. Every `project.json`,
 `tsconfig.base.json` path, Dockerfile build context, Playwright and Vite config moves with its

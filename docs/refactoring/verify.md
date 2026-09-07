@@ -156,3 +156,29 @@ Merged Gantt SVG suite passed all 228 cases in 5.98s via canonical lock and
 --maxWorkers=1 --minWorkers=1` from apps/fe-01. Log:
 `/private/tmp/wbs-http-feature-merge-gantt.log`. Full browser/workspace gates remain
 pending; this scoped jsdom run does not claim pixel or browser-default behavior.
+
+## Merged state — 2026-09-07
+
+The branch was squash-merged into `main` as `cbad68af` (PR #287). The branch-local hashes
+above no longer resolve; `cbad68af` carries them all. Read from the runs, not the prose:
+
+| `main` head | Run         | gate    | pixels  | Note                                                                                |
+| ----------- | ----------- | ------- | ------- | ----------------------------------------------------------------------------------- |
+| `cbad68af`  | 34146365377 | failure | success | `fe-01:test`, `<MenuControl>` under the refusing-api fake; fixed on `main` by #300  |
+| `a0c7cada`  | 34148109854 | success | success | first green with every slice of this branch on `main`                               |
+| `7aa61b09`  | 34149386984 | success | success | green again one commit later                                                        |
+| `98093d2d`  | 34151063325 | —       | —       | cancelled by the next push (toolchain merge, PR #248)                               |
+| `3e17fb01`  | 34160044188 | failure | success | `gantt-panel.test.tsx` rename sheet read before the read-back landed; PR #309 waits |
+
+The two `layout.spec.ts` failures recorded in `docs/state/TASK-347-http-endpoint-port.md`
+(`:1233`, `:2721`) are in the `pixels` job, which is green at `a0c7cada` and `7aa61b09`; the
+branch's own last runs before merge were not, and no fix commit names them. Their disposition is
+therefore "pass on `main` at the merged tree", observed, not explained.
+
+Spec-project typecheck, measured 2026-09-07 at `3e17fb01`: `tsc -p <project>/tsconfig.spec.json
+--noEmit` over all 23 `tsconfig.spec.json` files reports **0** errors. Non-vacuous: a deliberate
+`const deliberatelyWrong: number = 'not a number'` appended to `apps/be-01/src/http/endpoint.test.ts`
+and `apps/fe-01/src/components/wbs/plan-cards.test.tsx` produced 1 error each under that command
+**and** under the gate's own `tsc --build --force apps/be-01/tsconfig.json`, whose references include
+`tsconfig.spec.json`. The handoff's "218 type errors, outside every gate" (2026-09-02) and
+AGENTS.md's "10" are both superseded by that measurement.

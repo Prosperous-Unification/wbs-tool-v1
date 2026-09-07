@@ -146,14 +146,16 @@ One more on 2026-08-06, and the first one found in the gate itself: `nx typechec
 `"include": []`, two `references` — so it compiled **nothing**. A deliberate
 `const x: number = 'not a number'` passed it. A missing required field on `buildApp` reached
 dev and 500'd every `/api/teams` request. Both targets now run `tsc --build --force` against
-the source project, watched catching that exact bug. The test projects are not in the gate
-yet: 10 pre-existing errors, named in `teams-and-assignees/verify.md`, are their own change.
+the solution config, whose references include the spec project, watched catching that exact
+bug. The test projects are in the gate: measured 2026-09-07 at `3e17fb01`, all 23 spec projects
+compile with **0** errors and a deliberate `const deliberatelyWrong: number = 'not a number'` in a
+test file fails the target (`docs/refactoring/verify.md` § "Merged state").
 The seventeenth is gw-01's copy of the same fault sat unnoticed until the 2026-08-09 review sweep: its
 typecheck ran the solution config and compiled nothing, hiding a dead scaffold `index.ts`
 re-exporting a module that does not exist. Its target now runs `tsc --build --force` on the
 lib project too, watched failing on a deliberate `const deliberatelyWrong: number = 'not a
-number'` and green with it removed; the dead file is deleted. Its spec project holds two
-pre-existing errors (`forward-client.test.ts`), out of the gate like the others'.
+number'` and green with it removed; the dead file is deleted. Its spec project's two
+errors (`forward-client.test.ts`) are gone with the rest: 0 on 2026-09-07.
 
 The fourteenth, on 2026-08-09, found by driving real Chrome by hand and in the shape of the one
 above. `actions-menu.tsx`'s item guard refused a modified Enter by returning — **without**
