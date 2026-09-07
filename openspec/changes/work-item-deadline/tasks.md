@@ -983,12 +983,29 @@ No test changes and no gate counts: this chunk is five documents plus one
 scenario line, and the strings it aligns to are already asserted by
 `optimization-indicator.test.tsx`, green on `main`.
 
-**8.9 stays open on its second half only.** The repository assertion that no
-unqualified "deadline" remains in shipped UI copy is not written, and the naive
-form of it does not work: a source-text scan for `/deadline/i` cannot tell a
-rendered sentence from `data-testid="deadline-cell"`, an identifier or a
-comment, so it either fails on its own fixtures or is narrowed until it proves
-nothing. The sound form asserts on **rendered** output — the components that
-render the word, mounted across their states, with every occurrence of
-"deadline" in `textContent` required to be preceded by `project` or `work item`.
-That is a code chunk with a gate, and it is what remains of 8.9.
+**8.9 stays open on its second half only, and the shape of that half was
+measured here rather than guessed.** Every literal containing "deadline" in
+shipped (non-test) `apps/fe-01/src` was extracted. There are thirteen, and they
+fall into three groups that a single regex cannot separate:
+
+- **Identifiers, not copy** — `'deadline'` (the column id, `wbs-table.tsx:541`
+  and `:10238`), `deadline_before_project_start`, `work-item-deadline`,
+  `{ deadline: null }`. Every one is a single token with no space.
+- **Comments** — `"no deadline"` at `wbs-table.tsx:10308` and `:10363`, and
+  "no deadlines" at `gantt-panel.tsx:1688`, all inside `//` lines explaining the
+  em-dash an empty cell renders. A source scan that does not strip comments
+  fails on prose about the copy rather than on the copy.
+- **Copy** — `Work item deadline` (the column label, `wbs-table.tsx:2562`), the
+  indicator's four, and **two sentences that are legitimately unqualified**: the
+  cell's "…no dates to hold a deadline against." and its impossible-date message
+  "This deadline falls before the project's first working day…". Both sit inside
+  the **Work item deadline** cell, where the referent is the label above them.
+
+So the blanket predicate — every "deadline" preceded by `project` or
+`work item` — is wrong: it reddens on two sentences whose only fix is worse
+English. **The assertion 8.9 wants is a pinned list**: extract the multi-word
+deadline-bearing literals from shipped source with comments stripped, and assert
+the set equals an explicit reviewed list, so a new one has to be added
+deliberately and read at review time, with the indicator's four spelled out in
+it. That is a code chunk with a remote gate and it is the whole of what 8.9 has
+left.
