@@ -3,6 +3,7 @@ import { addWorkdays, withinDrift } from '@wbs/domain/workday';
 
 import type { PlanOptimizationView } from '@/lib/wbs-api';
 
+import { DEADLINE_UNREACHABLE_CELL } from './deadline-impossible';
 import { shortIsoDate } from './short-date';
 
 export interface OptimizationIndicatorProps {
@@ -41,7 +42,13 @@ function comparisonWords(comparison: NonNullable<PlanOptimizationView['compariso
 function deadlineWords(projectStart: string | null, offset: number, today: Date): string {
   // Proof: the unmeetable-deadline indicator case throws in render when this
   // branch is removed and -1 reaches addWorkdays.
-  if (offset === UNMEETABLE_DEADLINE_OFFSET) return 'before project start';
+  // The words are `DEADLINE_UNREACHABLE_CELL`'s and not this file's, for the
+  // reason that constant's own docstring gives: "before project start" is
+  // false about the case that reaches here. A project starting Saturday with a
+  // deadline on the Sunday after it is unmeetable — day zero rolls forward to
+  // Monday, the deadline rolls back to Friday — and the sentence would be
+  // telling the reader a *later* date came first.
+  if (offset === UNMEETABLE_DEADLINE_OFFSET) return DEADLINE_UNREACHABLE_CELL;
   if (projectStart === null || offset < UNMEETABLE_DEADLINE_OFFSET) return 'date unavailable';
   return shortIsoDate(addWorkdays(projectStart, offset), today);
 }

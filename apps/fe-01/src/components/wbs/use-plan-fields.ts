@@ -151,7 +151,29 @@ export function usePlanFields({
     [api, run],
   );
 
-  /** Sets or clears the last day on which one work item may finish. */
+  /**
+   * Sets or clears one work item's deadline — the last day it may finish on.
+   *
+   * **The single field, and deliberately not the floor's pair one function
+   * up.** `setNotBefore` clears in two fields because be-01 refuses a reason
+   * with no date to be about; a deadline has no reason column beside it, which
+   * was slice 1.1's choice, so `{ deadline: null }` is the whole of the clear
+   * and a request naming `startNoEarlierThanReason` here would be sending a key
+   * about a different constraint. Copying the pair across is the mistake this
+   * comment exists to stop.
+   *
+   * Nothing is guarded here. A day before the project's first working day is
+   * refused by be-01 with `deadline_before_project_start`, and it is left
+   * refused there: this client holds no project start to compare against on
+   * this path, and a client-side rule the server also keeps is how the two come
+   * to disagree — the doctrine {@link setPriority} writes down.
+   *
+   * Proof: adding `{ startNoEarlierThanReason: null }` beside `deadline` here
+   * made `plan-cells.test.tsx`'s `clears with the single field, never the floor
+   * cell pair` fail 1 of 1: received the expected `{ deadline: null }` plus
+   * `+ "startNoEarlierThanReason": null`. Watched 2026-09-07 after this writer
+   * moved out of `wbs-table.tsx`.
+   */
   const setDeadline = useCallback(
     (id: string, day: string | null) => {
       void run(() => api.patchWorkItem(id, { deadline: day }));

@@ -295,8 +295,8 @@ export interface PlanCardsProps {
    * about a different constraint — the mistake `setDeadline`'s own docstring
    * exists to stop.
    *
-   * Nothing is guarded on this side. A date before the project's start is
-   * refused by be-01 with `deadline_before_project_start`, and it is left
+   * Nothing is guarded on this side. A date before the project's first working
+   * day is refused by be-01 with `deadline_before_project_start`, and it is left
    * refused there for the reason `setPriority` writes down: a client-side rule
    * the server also keeps is how the two come to disagree.
    */

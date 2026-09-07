@@ -25,6 +25,31 @@ import { schedule, ScheduleInvalidOptimizedStartError } from './schedule';
  * The two assertions below close that in both directions. The bytes moving
  * without a bump fails the second; a bump whose bytes were not regenerated
  * fails the first.
+ *
+ * **What this guard is, and it is narrower than the paragraph above sounds.**
+ * It is a byte guard over the eight named plans in `FAST_GOLDEN_CASES` **as
+ * `schedule()` renders them**. It reddens a semantic change if and only if that
+ * change moves one of those eight schedules. It is not a net under Fast's
+ * semantics, and two consequences follow that a reader must not have to derive:
+ *
+ * - A change that moves an input class the eight plans do not contain is
+ *   invisible here. Eight fixed points cannot cover an input space, and adding
+ *   a ninth does not change the kind of thing this file is.
+ * - **A constant on `contract-version.ts`'s bump list can sit on a code path
+ *   this file does not execute at all**, and `SOLVER_QUANTUM` does.
+ *   `schedule.ts` does not import `solver-quantum` (its only mentions are prose
+ *   at `:583` and `:1271`), so `quantise`/`durationUnits` are unreachable from
+ *   every case here. Measured on PR 281 (`c1d9a40d`, TASK-302), which changed
+ *   `quantise` so a duration inside `(W, W + DRIFT)` yields one fewer
+ *   `durationUnits`: this corpus stayed **green** through it, and would have
+ *   stayed green with an in-window fixture too. The bump that change owed was
+ *   demanded by a human reading the constant's doc, not by this file.
+ *   That guard belongs beside `quantise` itself, keyed on the version the same
+ *   way; it does not belong here, because this file cannot see the function.
+ *
+ * So cache-key honesty for changes this corpus cannot see stays a **human**
+ * obligation, documented at `contract-version.ts`. This file is evidence for
+ * eight plans, not enforcement for Fast.
  */
 
 interface StoredCorpus {

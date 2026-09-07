@@ -769,7 +769,7 @@ describe('work item routes', () => {
     });
   });
 
-  it('refuses a deadline before the project starts, naming the row and day zero', async () => {
+  it("refuses a deadline before the project's first working day, naming the row and day zero", async () => {
     // 6.1's only deadline-specific rejection, through the route, because the
     // status is half the answer: **422 and not 400**, over the batch route's own
     // 400 default. The body parses, the row exists and the date is a real
@@ -812,6 +812,39 @@ describe('work item routes', () => {
     });
 
     expect(onDayZero.status).toBe(200);
+    expect(await firstRow(send, token, projectId)).toMatchObject({ deadline: '2026-03-02' });
+
+    // **The date that separates the real rule from the one fe-01's JSDoc used to
+    // describe, and the reason it is here rather than in a case of its own:**
+    // neither assertion above can fail under the wrong rule. 2026-02-27 is
+    // earlier than the stored start date, so "before the project's start"
+    // refuses it too; 2026-03-02 is later, so that reading accepts it too. The
+    // whole case was green under a sentence that named the *stored start date*
+    // as the boundary.
+    //
+    // The project's own start date is the one day the two readings answer
+    // differently. 2026-03-01 is not *earlier than* 2026-03-01, so the stored
+    // start reading accepts it — while `previousWorkday('2026-03-01')` is Friday
+    // 2026-02-27, before day zero Monday 2026-03-02, so the server refuses it.
+    // Both ends roll, which is what `deadlineOffsetOf` says and what
+    // `projectDayZero` puts on the wire.
+    const onProjectStart = await command(send, token, projectId, {
+      kind: 'patchWorkItem',
+      workItemId: id,
+      patch: { deadline: '2026-03-01' },
+    });
+
+    expect(onProjectStart.status).toBe(422);
+    expect(await onProjectStart.json()).toEqual({
+      error: 'deadline_before_project_start',
+      workItemId: id,
+      projectDayZero: '2026-03-02',
+      at: 0,
+      kind: 'patchWorkItem',
+    });
+    // The refusal left the day zero deadline set two assertions ago alone: a
+    // refused write changes nothing, which is the other half of "the value is
+    // wrong for this project" and not merely a status code.
     expect(await firstRow(send, token, projectId)).toMatchObject({ deadline: '2026-03-02' });
   });
 

@@ -201,7 +201,9 @@ describe('schedule comparison indicator', () => {
     });
 
     fireEvent.click(screen.getByText('Show affected work items'));
-    expect(screen.getByText('Migration · Work item deadline before project start')).toBeVisible();
+    expect(
+      screen.getByText("Migration · Work item deadline before the project's first working day"),
+    ).toBeVisible();
   });
 
   itDom('keeps a missing project start as a safe degraded deadline', () => {
