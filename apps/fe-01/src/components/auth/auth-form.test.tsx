@@ -256,8 +256,19 @@ describe('a refused SSO sign-in', () => {
     expect(
       screen.getByText('SSO sign-in did not complete. Try again, or sign in with a password.'),
     ).toBeDefined();
-    expect(container.textContent).not.toContain(providerText);
-    expect(container.textContent).not.toContain('AADSTS50105');
+    /*
+     * `innerHTML`, not `textContent`: text nodes are only one of the surfaces a
+     * leak could use. A regression that hung the provider's words on a `title`
+     * or an `aria-label` while leaving the visible child alone would reach a
+     * reader — a tooltip for one, a screen reader for the other — and a
+     * `textContent` negative would stay green through it.
+     *
+     * Proof: with the lookup changed to return `error_description` from the
+     * address, this case failed. Watched on h2puni 2026-09-07, negative
+     * control 5, 1 fail / 18 pass.
+     */
+    expect(container.innerHTML).not.toContain(providerText);
+    expect(container.innerHTML).not.toContain('AADSTS50105');
   });
 
   itDom('renders no SSO message for a code it does not publish', () => {
@@ -286,6 +297,15 @@ describe('a refused SSO sign-in', () => {
    * These three are the keys a link could actually hand the card, and each
    * fails differently once the guard goes: `toString` and `constructor` resolve
    * to functions, `__proto__` to `Object.prototype` itself.
+   *
+   * Proof, with `!Object.hasOwn(SSO_ERROR_MESSAGES, code)` weakened to
+   * `!(code in SSO_ERROR_MESSAGES)` and nothing else changed: 3 fail / 16 pass.
+   * `toString` and `constructor` both failed on `expected [ <p …(3)></p>,
+   * <p …(3)></p> ] to have a length of 1 but got 2` — React 18 does not
+   * stringify a function child, so what the leak produces is a second, EMPTY
+   * status paragraph, not visible source text. `__proto__` failed on `Objects
+   * are not valid as a React child (found: object with keys {})`. Watched on
+   * h2puni 2026-09-07.
    */
   for (const code of ['toString', 'constructor', '__proto__']) {
     itDom(`renders no SSO message for the prototype property ${code}`, () => {
@@ -299,10 +319,17 @@ describe('a refused SSO sign-in', () => {
       expect(slots).toHaveLength(1);
       expect(slots[0].className).toContain('min-h-5');
       expect(slots[0].textContent).toBe('');
-      // The shapes a leaked prototype value takes once it reaches the DOM.
+      /*
+       * The two shapes a leaked prototype value can take as text. Neither is
+       * what the measured red above actually produces under React 18 — the
+       * status count catches it first — so these are kept as the criterion's
+       * literal wording and as cover for a renderer that stringifies rather
+       * than drops. A card-wide ban on the word `function` was here and is
+       * deliberately gone: it was redundant against the count assertion and
+       * would have false-redded the day a legitimate sentence used the word.
+       */
       expect(container.textContent).not.toContain('[native code]');
       expect(container.textContent).not.toContain('[object Object]');
-      expect(container.textContent).not.toMatch(/\bfunction\b/);
       consoleWatch.expectSilent();
     });
   }
@@ -329,6 +356,15 @@ describe('a refused SSO sign-in', () => {
      * `StrictMode` because the effect that clears runs twice under it and the
      * initializer that reads runs before either: the message must survive the
      * second pass, and the second `clearAuthError` must find nothing to do.
+     *
+     * Proof, one weakening at a time, each watched on h2puni 2026-09-07 against
+     * a 19-pass baseline. A failing assertion aborts the case, so one control
+     * per preservation — otherwise only the first is really contradicted:
+     *   - the whole clear reduced to `replaceState(null, '', '/')`:
+     *     `expected '' to be '?tab=plan'` (1 fail / 18 pass)
+     *   - state dropped, rebuilt URL kept: `expected null to deeply equal
+     *     { from: '/plan/7', key: 'wjq3' }` (1 fail / 18 pass)
+     *   - `${url.hash}` dropped: `expected '' to be '#risks'` (1 fail / 18 pass)
      */
     const routerState = { from: '/plan/7', key: 'wjq3' };
     window.history.replaceState(routerState, '', '/?tab=plan&auth_error=access_denied#risks');
