@@ -130,9 +130,21 @@ describe('the hints say what changing the column does to the plan', () => {
    * with this file as the extra, and `expected 96 to be 95` on the partition,
    * on a draft whose only DOM word was that one, twice, in a comment and a
    * case name. The synonym is the cheaper half of the trade.
+   *
+   * **The whole qualifier is pinned, not the word `competes`, and that is Sol's
+   * Important 2 on `9c08d94e`** (`queue/reviews/t309-r2-sol.md`). Pinning one
+   * word made this case pass any sentence containing it — including the draft
+   * saying *"competes for one person"*, which Important 1 of the same review
+   * rejected for naming only one of the two resources `placeSlices` reserves.
+   * A case that blesses the defect the review beside it filed is worse than no
+   * case: it reads as coverage. The literal below fails an unqualified
+   * ordering promise **and** a person-only one, which is the pair this exists
+   * for.
    */
   it('does not promise a deadline is taken first outside the contention it holds under', () => {
-    expect(hintFor('deadline', ON_CALENDAR)).toContain('competes');
+    expect(hintFor('deadline', ON_CALENDAR)).toContain(
+      'competes for the same person or team slot',
+    );
   });
 
   /**
