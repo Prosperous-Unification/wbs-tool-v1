@@ -39,6 +39,7 @@ import sys
 import unittest
 from pathlib import Path
 from typing import Any, Mapping
+from unittest import mock
 
 from ortools.sat.python import cp_model
 
@@ -48,6 +49,7 @@ sys.path.insert(0, str(PACKAGE_ROOT / "src"))
 
 from test_model import a_request, a_slice, an_edge  # noqa: E402
 
+from wbs_solver import solve as solve_module  # noqa: E402
 from wbs_solver.model import MAKESPAN, MOVEMENT, PRIORITY  # noqa: E402
 from wbs_solver.solve import (  # noqa: E402
     ROW_BOUND,
@@ -422,6 +424,34 @@ class UnencodableOutcomes(unittest.TestCase):
         # And the containment is strict in the other direction, which is what
         # makes `cli.main`'s handler order meaningful rather than decorative.
         self.assertNotIsInstance(SolveFailed("stage 2 is infeasible"), ModelInvalid)
+
+    def test_solve_request_raises_the_exception_the_row_names(self) -> None:
+        """The production dispatch, and the one thing the other new cases miss.
+
+        Sol's Important on this change: the row case above only exercises
+        `stage_disposition`, and `test_cli.py`'s pair injects the exception
+        after `solve_request` has been mocked away — so `raise ModelInvalid`
+        in the dispatch could be changed back to `raise SolveFailed` and every
+        other new assertion would stay green while a real `MODEL_INVALID`
+        exited `70` and was recorded `invalid-output` again.
+
+        `stage_disposition` is patched rather than CP-SAT, because the point
+        under test is the row-to-exception mapping and both rows are
+        unreachable through a real solve on a fixture small enough to be an
+        oracle — which is why that function is pure and exported at all.
+        """
+        for row, expected, unexpected in (
+            (ROW_STOP_MODEL_INVALID, ModelInvalid, None),
+            (ROW_STOP_INVALID, SolveFailed, ModelInvalid),
+        ):
+            with self.subTest(row=row):
+                with mock.patch.object(
+                    solve_module, "stage_disposition", return_value=row
+                ):
+                    with self.assertRaises(expected) as caught:
+                        solve_request(disagreement("pri"), PINNED)
+                if unexpected is not None:
+                    self.assertNotIsInstance(caught.exception, unexpected)
 
 
 if __name__ == "__main__":  # pragma: no cover
