@@ -1,76 +1,109 @@
-# Verification Report — implementation in progress
+# Verification Report — verified
 
-Change: http-endpoint-port. Promoted with the OpenSpec CLI after frozen checkpoint gates. Initial source inventories are historical preflight records; the implementation sections below record fresh checks and observed faults. No full migration, full gate, or archive is claimed.
+Change: `http-endpoint-port`. The implementation is complete and has passed its
+focused, workspace, Linux solver, and isolated browser gates. The delta spec has
+been synced to the canonical specification. Archival remains a separate action.
 
 ## Structural validation and task completion
 
-CLI promotion completed (sdd-lean); apply instructions captured in `/private/tmp/wbs-http-apply.json`. Task completion is updated only after its named evidence and review. No specs synced or change archived. Capability overlap remains under reconciliation. Local template's historical no-CI statement is stale; use current config/LLM_README gate requirements.
+All **33 of 33** tasks are complete. Strict validation reports one valid change
+and zero issues. The final mounted inventory is **40 operations in local mode**
+and **44 in OIDC mode**; the generated OIDC document contains **44 operations**.
+The exact-binding and real `app.handle` inventories prove that each mounted shape
+has one implementation and each route is reachable.
+
+The final owned-file inventory contains **235 paths** in `owned-files.txt`. It
+consolidates the per-wave ownership inventories after all upstream merges and
+adds this closeout record plus the synced canonical spec. It includes deleted
+paths so reviewers can audit removals as well as the final tree.
 
 ## Before/after typecheck timing
 
-| Target            | Before generic edits             | After foundation | After full migration | Commands/host/cache/samples                                                           |
-| ----------------- | -------------------------------- | ---------------- | -------------------- | ------------------------------------------------------------------------------------- |
-| be-01 source+spec | 8.409s / 8.365s; mean 8.387s     | pending          | pending              | `bunx tsc --build --force apps/be-01/tsconfig.json`; quiet local host, forced rebuild |
-| fe-01 source+spec | 10.525s / 10.314s; mean 10.4195s | pending          | pending              | `bunx tsc --build --force apps/fe-01/tsconfig.json`; same window                      |
+| Target            | Before generic edits             | After foundation           | After full migration     | Doubled threshold |
+| ----------------- | -------------------------------- | -------------------------- | ------------------------ | ----------------- |
+| be-01 source+spec | 8.409s / 8.365s; mean 8.387s     | 10.628s / 9.638s; 10.133s  | 15.31s / 15.04s; 15.175s | 16.774s           |
+| fe-01 source+spec | 10.525s / 10.314s; mean 10.4195s | 12.016s / 11.258s; 11.637s | 17.40s / 17.35s; 17.375s | 20.839s           |
 
-Do not substitute tiny preflight type probes or a concurrent gate's duration. Record comparable wall times; a doubled time triggers the normative PrincipalOf nullable/runtime fallback while ParamsOf remains.
+All samples used sequential `bunx tsc --build --force
+apps/<app>/tsconfig.json` runs on the same macOS arm64 host with the existing
+dependency installation and forced rebuilds. Both final means remain below the
+approved fallback threshold. Deliberately wrong assignments were separately
+observed failing in source and test projects, proving that these targets compile
+the files they claim to check.
 
 ## Failure-proof table
 
-This initial matrix is a migration checklist; observed foundation faults are recorded in the implementation sections below. Rows still marked pending do not claim observation. Add exact production file/line, test name, diagnostic/assertion, restoration command and output during implementation; write Proof comments only then.
+Every row below was observed failing with its named production fault and passed
+again after restoration. The checkpoint sections retain exact diagnostics,
+commands, counts, and Proof-comment provenance.
 
-| Check                 | Named injected fault                                        | Production-path test                                     | Result                                       |
-| --------------------- | ----------------------------------------------------------- | -------------------------------------------------------- | -------------------------------------------- |
-| literal typed handler | widen path/policy/reply or mismatched params schema         | actual bind type fixtures and source/spec target         | pending                                      |
-| preparse identity     | delete policy / move after parser                           | app.handle malformed read-token write requires403        | pending; preflight late-parser output was400 |
-| cookie origin         | delete project POST origin policy                           | foreign cookie write stays absent                        | pending                                      |
-| strict nested input   | use shallow reject or delete extras                         | adapter derived-number/nested-command case               | pending                                      |
-| faithful descriptor   | drop nested arm/property; fallback unconstrained conversion | declaration/emitter/MCP tests                            | pending                                      |
-| reply status/body     | map429/503/501 to400; bypass validator                      | adapter and client status matrix                         | pending                                      |
-| representation        | null treated EMPTY; cookie append replaced                  | real response null/204/302/text/getSetCookie             | pending                                      |
-| binding completeness  | add shape without endpoint                                  | binding inventory                                        | pending                                      |
-| mounted completeness  | skip mount while retaining shape                            | app.handle reachability                                  | pending                                      |
-| MCP identity          | remove operationId                                          | tool derivation                                          | pending                                      |
-| frontend typing       | rename shape response field                                 | actual screen's fe typecheck                             | pending                                      |
-| additive tolerance    | response deep reject                                        | previous client renders added nested fields              | pending                                      |
-| R1 generations/scopes | URL-only old GET sharing; lose pending scope                | held response and overlapping refresh production callers | pending migration rerun                      |
-| R3 store failure      | move account resolution inside broad catch                  | auth/oidc valid token with store throw                   | pending migration rerun                      |
-| R5 admission          | reserve after verification; omit release/global cap         | held verification production login requests              | pending migration rerun                      |
+| Check                 | Named injected fault                                | Production-path proof                               | Result           |
+| --------------------- | --------------------------------------------------- | --------------------------------------------------- | ---------------- |
+| literal typed handler | widen path/policy/reply or mismatch params schema   | actual bind fixtures plus source/spec typecheck     | failed, restored |
+| preparse policy       | delete or delay identity/origin policy              | malformed read-token and foreign-cookie writes      | failed, restored |
+| strict input          | strip or admit nested unknown fields                | mounted command/project/fake mutation cases         | failed, restored |
+| descriptor identity   | drop an arm/property/operationId or emit a fallback | emitter and real MCP consumer                       | failed, restored |
+| reply boundary        | bypass status/schema/media validation               | mounted adapter and shape-derived client matrices   | failed, restored |
+| representation        | collapse null/EMPTY/text/redirect/cookie variants   | real response and `getSetCookie` checks             | failed, restored |
+| binding/mount         | omit a binding separately from its mount            | exact inventory and `app.handle` reachability       | failed, restored |
+| frontend boundary     | widen a known field or share old reads by URL       | consuming screen typecheck and held-refresh callers | failed, restored |
+| auth safety           | broaden store catch or lose admission reservation   | valid-token store failure and held login requests   | failed, restored |
 
 ## Intentional wire assertion rewrites
 
-Every actual changed assertion must be recorded with filename/test name, old response, new response, reason and passing run. Initial expected changes, not a claim of completed inventory:
+The migrated wire changes were asserted on their production call paths:
 
-| Existing behavior                                                 | Intended assertion                           | Status                  |
-| ----------------------------------------------------------------- | -------------------------------------------- | ----------------------- |
-| Smoke freeform validator-message error                            | named Refusal validation envelope            | pending exact test      |
-| Extra body keys ignored/stripped, including name/settings objects | explicit refusal, no mutation                | pending exact tests     |
-| Nested command extra keys tolerated                               | deep refusal retaining derived-field codes   | pending exact tests     |
-| Framework compare-query validation report                         | shared Refusal envelope with declared status | pending exact test      |
-| Unchecked/handwritten FE error payload                            | status-specific parsed Refusal/code detail   | pending exact consumers |
+| Previous behavior                   | Verified behavior                            | Result  |
+| ----------------------------------- | -------------------------------------------- | ------- |
+| Smoke freeform validator message    | named `Refusal` validation envelope          | passing |
+| Extra body keys ignored or stripped | explicit refusal with no mutation            | passing |
+| Nested command extras tolerated     | deep refusal retaining derived-field codes   | passing |
+| Framework compare-query report      | shared declared-status `Refusal` envelope    | passing |
+| Unchecked frontend error payload    | status-specific validated refusal and detail | passing |
 
-Preservation assertions must not be rewritten merely to get green: 501 future saved-plan version, 503 contention, 429 admission, R1 held-response windows, R3 unexpected failures and R5 active reservation/global limits. The saved-plan test at controller/saved-plan.controller.db.test.ts:434–471 explains and asserts 501 versus422; no new execution is claimed.
+The final gates preserve 501 future saved-plan version, 503 contention, 429
+admission, R1 held-response windows, R3 unexpected failures, and R5 active
+reservation/global limits.
 
 ## Fetched feature/fix evidence update
 
-Read git show4051512c,39e53dda,a91f831b only; no merged-tree inventory or tests. ../http-operations.md is explicitly pre-integration. Regenerate after parent integrates, including calendar-marker family and all conditional OIDC operations. Preserve landed405 method_not_allowed + Allow as well as501; update normative sketch after freeze. Add observed-fault rows during migration for arrived-method substitution, duplicate-key flattening/state-only guard, canceled-login exchange, log/description leakage, markerId MCP collision and marker semantic/isolation checks. Add exact wire rewrite rows for marker PATCH ignored-extra fields becoming refusals and OIDC bodiless400/401 becoming declared envelopes. New feature source ports are queued for Wave2, not extracted here.
-
-## Evidence questions resolvable from the repository
-
-1. Which exact command/parser codes and detail fields reach HTTP today? plan-commands.ts reason:string loses the union; trace constructors and every service outcome, including capacity/priority/undo, before closing RefusalCode. Which existing OpenSpec requirements need MODIFIED deltas rather than only the new capability?
-2. What is the complete mounted shape set in password-only and OIDC-enabled configurations? Actual auth.routes additionally declares GET /api/auth/login, GET /api/auth/okta/callback, POST /api/auth/refresh and POST /api/auth/logout. Inventory their headers/query/body requirements and feature-mode behavior from app.ts composition and oidc.integration.test.ts; committed OpenAPI omits them.
-3. What operationIds should new OIDC operations use, and which current tool names are asserted by MCP callers/tests? Keep the existing documented names where applicable; assign explicit new literals and pin them, never infer silently at runtime.
-4. Which explicit direct dependency should provide StandardSchema types, and which MCP OpenAPI3.1 typing changes are needed? Resolve installed package exports/package.json and lockfile, using preflight conversion results; no dependency install during freeze.
-5. Which build/emitter/tool consumers reference committed openapi.json or removed plugins? Enumerate actual imports/project targets/scripts before deletion. Which legacy body parser helpers still have domain-validation callers after schemas move?
-6. Which R1 tests/commit become the mandatory FE migration baseline, and what exact clean host/command window provides comparable be/fe typecheck timing? Parent ownership ledger and completed R1 artifacts answer these; no user permission question is needed.
-
-Resolved completeness correction: parent approved preserving existing501 unsupported_body_version and extending the normative status sketch after freeze. It is no longer an open question.
+Available feature branches were merged before each port. Later upstream auth and
+solver advances were merged, reconciled, and gated before closeout. The final
+inventory includes calendar-marker endpoints, conditional OIDC operations,
+callback 405 with `Allow`, and saved-plan 501. Historical operation counts below
+describe the checkpoint at which they were observed; the final 40/44 inventory
+above supersedes them.
 
 ## Gate output
 
-Pending all scoped tests, type negatives, fault restorations, contracts/backend/frontend/MCP source+spec typechecks and lint, workspace format/test/lint/typecheck/build, structural OpenSpec validation and full isolated browser gate. Parent owns freeze and gate orchestration; follow bin/h2puni-gate.sh host lock on h2puni. Record actual output and counts on implementation, not a generic success claim.
+The frozen exact-code gate at `40c555b1` ran `bunx nx format:check --all` and
+`bunx nx run-many -t test lint typecheck build --parallel=2 --skip-nx-cache
+--exclude=solver-py`: Nx successfully ran all targets for **24 projects**. Key
+totals were frontend **2,461 tests** plus **3 zoned tests**, backend **1,954
+tests / 19,737 assertions**, contracts **370 tests**, auth **76 tests**, and
+bootstrap **60 tests / 286 assertions**. One `tool-remote-scripts:test` task was
+reported flaky by Nx but passed in the final target result. Frontend lint retained
+its existing exhaustive-deps warning and had zero errors.
 
-Decision: DRAFT ONLY; not verified, not implementation-complete, not ready to archive.
+The isolated browser gate used `CI=1 E2E_PORT_SHIFT=1900 bunx nx run fe-01:e2e`
+with dedicated backend, gateway, and frontend ports. Chromium reported **293
+passed, 1 intentional skip, 0 failed** in 16.5 minutes. The Linux Docker solver
+gate reported **195 passed**. The macOS host does not carry the supported solver
+dependencies. The Linux-only peer-credential file was therefore run in the
+installed `oven/bun:1.3.14-alpine` image with `docker run --rm ... bun test
+./tools/tool-remote-scripts/src/lib/solver-supervisor-peer-credentials.test.ts`:
+**3 passed, 0 failed, 6 assertions**, including the real Bun Unix-listener
+`SO_PEERCRED` case.
+
+Independent final review of the merged tree found no Critical or Important
+issues. Decision: **VERIFIED; implementation complete; ready to archive.**
+
+## Historical implementation checkpoints
+
+The sections below are frozen records written as each slice completed. Their
+present-tense pending statements and 38/42 operation counts describe those
+earlier checkpoints; the final status, 40/44 inventory, and gate output above
+supersede them.
 
 ## Pre-generic compiler baseline
 
@@ -823,9 +856,9 @@ the absent-binding and missing/expired-transaction branches separately.
 ### Generated document and exact binding checkpoint
 
 Tasks 3.1–3.3 are complete. The production app derives its published OpenAPI
-document from the exact endpoint table it mounts: local mode publishes 38
-operations and excludes the four unavailable OIDC operations; OIDC mode
-publishes all 42. The exact-binding test and real `app.handle` reachability
+document from the exact endpoint table it mounts: local mode published 38 at
+this historical checkpoint and excluded the four unavailable OIDC operations;
+OIDC mode published 42. The exact-binding test and real `app.handle` reachability
 fixtures distinguish each route from a generic 404. Their restored run passed
 **3 tests / 326 assertions** after separately observing an omitted binding and
 an omitted mount.
@@ -847,7 +880,8 @@ assertions** and found no Important or Critical issue. Detailed records are in
 The committed generated document, legacy binders, route-owned body/query/schema
 documentation and duplicated plan command declaration are deleted. Direct
 `@elysiajs/openapi` and `@sinclair/typebox` dependencies are removed. The backend
-build passed and emitted `main.js` plus a 42-operation generated document; MCP
+build passed and emitted `main.js` plus a 42-operation generated document at
+this historical checkpoint; MCP
 and frontend builds also passed. Fresh contracts tests passed **342 tests / 942
 assertions** and the MCP suite passed **113 tests / 444 assertions**.
 
@@ -857,8 +891,7 @@ warning unchanged. The full frontend unit gate passed **2372 tests** in UTC and
 **3 tests** in Auckland. Integration of the newer WBS API feature exposed a
 stale tier manifest (**expected 93 DOM-free suites, received 92**); adding the
 now DOM-free suite restored its focused **47-test** run. The frontend session
-client slice itself passed **99 tests** after five restored production faults;
-remaining task 4.2 client families are intentionally still open.
+client slice itself passed **99 tests** after five restored production faults.
 
 The unrestricted backend gate passed **1860 tests / 19016 assertions** across
 154 files in 127.91 seconds. Its first unrestricted run passed 1859 and timed out
@@ -866,5 +899,5 @@ one service-wiring case at five seconds while the suite was contended; that file
 then passed **4/4** in 7.76 seconds, including the timed-out case in 140 ms, and
 the unchanged full rerun passed. The initial sandboxed run's 13 listener errors
 were environment refusals, resolved by the unrestricted run. Health/metrics,
-callerGuard removal, final browser isolation and the final frozen workspace gate
-remain tasks 5.1–5.3 and are not claimed here.
+callerGuard removal, browser isolation and the frozen workspace gate were
+completed in later checkpoints and are recorded in the final gate section above.

@@ -1,8 +1,8 @@
 ## 0. Promotion and evidence window
 
-- [ ] 0.1 Promoted via OpenSpec after the freeze and source-backed collision/timing records. R1/R3/R5 integrated; no canonical specs found by CLI. Complete structural validation and record final owned-file inventory before closing.
-- [ ] 0.2 Record fresh be-01 and fe-01 source+spec typecheck wall-time baselines with commands, host, cache policy and samples; run again after foundation and full migration. Test: actual included type-negative fixture is rejected by the chosen target, not an empty solution compile. If time doubles, simplify PrincipalOf to the approved nullable principal/runtime check while retaining ParamsOf.
-- [ ] 0.3 Complete the source-backed request/refusal/status/operation inventory, including all command arms, detail payloads, OIDC mode routes and 501 unsupported_body_version. Pin existing MCP operation names. Test: inventory coverage against actual route composition and parser/service outcome fixtures, never committed OpenAPI alone. Update the normative status sketch under parent ownership after freeze.
+- [x] 0.1 Promoted via OpenSpec after the freeze and source-backed collision/timing records. R1/R3/R5 integrated; no canonical specs found by CLI. Complete structural validation and record final owned-file inventory before closing.
+- [x] 0.2 Record fresh be-01 and fe-01 source+spec typecheck wall-time baselines with commands, host, cache policy and samples; run again after foundation and full migration. Test: actual included type-negative fixture is rejected by the chosen target, not an empty solution compile. If time doubles, simplify PrincipalOf to the approved nullable principal/runtime check while retaining ParamsOf.
+- [x] 0.3 Complete the source-backed request/refusal/status/operation inventory, including all command arms, detail payloads, OIDC mode routes and 501 unsupported_body_version. Pin existing MCP operation names. Test: inventory coverage against actual route composition and parser/service outcome fixtures, never committed OpenAPI alone. Update the normative status sketch under parent ownership after freeze.
 
 ## 1. Typed shape and adapter foundations
 
@@ -39,15 +39,15 @@ Each checkbox includes RED → minimal implementation → focused GREEN → name
 ## 4. Frontend shared client — waits for R1
 
 - [x] 4.1 TDD clientFromShapes with fetch/in-process transport, status-specific success and refusal validation, typed client boundary failures. Negatives: backend-only changed known field type, malformed429/503/501 refusal accepted, success/refusal validation bypassed. Positive additive nested response field still renders with previous client validator; strictness belongs to request declarations.
-- [ ] 4.2 Replace api.ts/wbs-api.ts/saved-plan-api.ts and two hand-written fakes with shape-derived transport/fake; convert screen error branches to Refusal switches. Type negative: rename a response field in contracts and observe fe-01 error at the actual consuming screen. No backend/core handler import enters frontend contracts.
-- [ ] 4.3 Carry R1 generation/pending-scope tests unchanged in behavior: hold old response across an edit and require trailing read; overlap full/step/tree and require every pending resource install. Negative reintroduce URL-only sharing and lost pending scope separately. New generic transport does not own invalidation policy.
-- [ ] 4.4 Run complete frontend unit/browser wire regression suites with isolated real servers. Record intentional strict-body/envelope assertion changes individually; preserve unrelated UI/focus and refresh assertions.
+- [x] 4.2 Replace api.ts/wbs-api.ts/saved-plan-api.ts and two hand-written fakes with shape-derived transport/fake; convert screen error branches to Refusal switches. Type negative: rename a response field in contracts and observe fe-01 error at the actual consuming screen. No backend/core handler import enters frontend contracts.
+- [x] 4.3 Carry R1 generation/pending-scope tests unchanged in behavior: hold old response across an edit and require trailing read; overlap full/step/tree and require every pending resource install. Negative reintroduce URL-only sharing and lost pending scope separately. New generic transport does not own invalidation policy.
+- [x] 4.4 Run complete frontend unit/browser wire regression suites with isolated real servers. Record intentional strict-body/envelope assertion changes individually; preserve unrelated UI/focus and refresh assertions.
 
 ## 5. Infrastructure endpoints and completion
 
-- [ ] 5.1 Move health and metrics into shapes, text metrics with explicit content type and dependency503; test real reachability/body type/status. Negative skip either mount or collapse dependency failure into200. Delete observability otel-plugin and retag library ring:adapter with exact callers updated.
-- [ ] 5.2 Delete callerGuard and inline app onRequest only after complete policy coverage; test no route loses auth/origin on production app.handle and endpoint literal tests work without importing Elysia. No exported second-adapter kit is added.
-- [ ] 5.3 Recheck typecheck timing against pre-generic baseline and apply approved fallback if doubled. Run parent-coordinated frozen workspace format/test/lint/typecheck/build, OpenSpec validation and isolated full browser gate. Verify reports actual output/counts, all fault/restoration results, intentional wire changes and any named omissions before review/commit/archive.
+- [x] 5.1 Move health and metrics into shapes, text metrics with explicit content type and dependency503; test real reachability/body type/status. Negative skip either mount or collapse dependency failure into200. Delete observability otel-plugin and retag library ring:adapter with exact callers updated.
+- [x] 5.2 Delete callerGuard and inline app onRequest only after complete policy coverage; test no route loses auth/origin on production app.handle and endpoint literal tests work without importing Elysia. No exported second-adapter kit is added.
+- [x] 5.3 Recheck typecheck timing against pre-generic baseline and apply approved fallback if doubled. Run parent-coordinated frozen workspace format/test/lint/typecheck/build, OpenSpec validation and isolated full browser gate. Verify reports actual output/counts, all fault/restoration results, intentional wire changes and any named omissions before review/commit/archive.
 
 ## Adapter preservation hooks — approved refinement
 
