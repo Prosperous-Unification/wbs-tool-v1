@@ -93,7 +93,7 @@ export function buildSolverSupervisorInstallPlan(
   return [
     {
       phase: 'preflight',
-      description: `require ${host}:${SOLVER_SUPERVISOR_BUN} at the pinned version`,
+      description: `require ${host}:${SOLVER_SUPERVISOR_BUN} at a measured-compatible version`,
       argv: ['ssh', host, `${SOLVER_SUPERVISOR_BUN} --version`],
     },
     {
