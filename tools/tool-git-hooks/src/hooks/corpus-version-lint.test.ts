@@ -56,10 +56,9 @@ function tree(overrides: Partial<Tree>): Tree {
 }
 
 function reasons(base: Tree, head: Tree): string[] {
-  return lintCorpusVersion(
-    { base: BASE, head: HEAD },
-    portOf({ [BASE]: base, [HEAD]: head }),
-  ).map((issue) => issue.reason);
+  return lintCorpusVersion({ base: BASE, head: HEAD }, portOf({ [BASE]: base, [HEAD]: head })).map(
+    (issue) => issue.reason,
+  );
 }
 
 describe('the case the check exists for', () => {
