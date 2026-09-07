@@ -1,4 +1,4 @@
-"""Request validation: the schema, then the five things the schema cannot say.
+"""Request validation: the schema, then the six things this receiver says itself.
 
 THE SCHEMA IS NOT A COPY OF THE RULES, IT IS THE RULES
 ------------------------------------------------------
@@ -48,6 +48,20 @@ rather than against: a request arriving by any other route would otherwise be
 solved, and the OPTIMAL response would carry an `objectiveValues[*].value` that
 the *response* branch of this same schema refuses. An exit 64 naming the
 request beats a well-formed answer nobody can accept.
+
+And a sixth, TASK-329, which is the one the schema CAN say and this module says
+anyway: **`deadlineUnits` is a multiple of the request's own `quantum`.** The
+list above is titled by what the schema cannot express, and this entry does not
+belong to it — since TASK-329 pinned `quantum` to `const: 48` and gave
+`deadlineUnits` a literal `multipleOf: 48`, the schema refuses a non-multiple
+one call before `check_cross_field` ever sees it. It is here because a receiver
+that knows an invariant only through the sender's schema is not an independent
+guard, and the review that filed TASK-329 asked for the independent one by name.
+`check_cross_field` divides by the request's own `quantum` field rather than by
+the literal, so the check and the model's arithmetic are the same statement, and
+they stay the same statement under a wire version that stops pinning the value.
+What that means for the reader is written where the check is, including the fact
+that it cannot fire through `validate_request` today.
 
 Every failure raises `RequestRejected`, which `cli.main` turns into exit 64 with
 the message on stderr and nothing on stdout.
@@ -141,7 +155,7 @@ def validate_against_schema(message: dict[str, Any], branch: str = "request") ->
 
 
 def check_cross_field(request: dict[str, Any]) -> None:
-    """The five invariants the schema cannot express. See the module docstring."""
+    """The six invariants this receiver states for itself. See the module docstring."""
     slice_keys = [s["key"] for s in request["slices"]]
     key_set = set(slice_keys)
     if len(key_set) != len(slice_keys):
@@ -172,9 +186,44 @@ def check_cross_field(request: dict[str, Any]) -> None:
                     f"edges[{index}].{endpoint} {edge[endpoint]!r} is not a slice key"
                 )
 
-    # Invariant 8, last because the four above are about the request's SHAPE
-    # and this one is about its arithmetic — a plan with a missing offset key
-    # should hear about the missing key, not about a product computed from it.
+    # TASK-329 AC #1. `deadlineUnits` is `(D + 1) x quantum`, so a value that is
+    # not a multiple names no day at all — the due day `deadlineUnits / quantum
+    # - 1` is a fraction, and the model's `start + max(duration, 1) <=
+    # deadlineUnits` would then admit a placement Bun's `isOnTime` refuses.
+    # Stated against THIS REQUEST'S OWN `quantum`, not against a literal, which
+    # is what makes it a cross-field check and what makes it survive a wire
+    # version that stops pinning the quantum.
+    #
+    # Reachability, stated exactly rather than flatteringly: as of TASK-329
+    # AC #2 the schema pins `quantum` to 48 and gives `deadlineUnits` a literal
+    # `multipleOf: 48`, so nothing arriving through `validate_request` can reach
+    # this line — `validate_against_schema` two calls up refuses it first. That
+    # is a weaker kind of unreachable than invariant 8's, which is unreachable
+    # because a REMOTE sender declines to emit it. What this check buys is that
+    # the receiver states the invariant it actually depends on, in its own
+    # terms, instead of inheriting it from the schema the sender chose; AC #1
+    # asks for exactly that independence, and the guard is the thing that
+    # remains true if the schema's literal and the model's arithmetic ever
+    # part company.
+    #
+    # `0` stays legal: it is the unmeetable-deadline sentinel, and zero is a
+    # multiple of every quantum, so no exemption is written here.
+    quantum = request["quantum"]
+    for index, slice_ in enumerate(request["slices"]):
+        deadline_units = slice_.get("deadlineUnits")
+        if deadline_units is None:
+            continue
+        if deadline_units % quantum != 0:
+            raise RequestRejected(
+                f"slices[{index}].deadlineUnits {deadline_units} is not a multiple of "
+                f"quantum {quantum}"
+            )
+
+    # Invariant 8, last because everything above is about ONE STATED FIELD —
+    # its shape, or the number it names — and this one is about a product
+    # computed across all of them. A plan with a missing offset key should hear
+    # about the missing key, not about a sum derived from it, and the same is
+    # true of a deadline that names no day.
     #
     # PRIORITY'S WORST CASE IS OVER FINISHES, NOT OVER THE HORIZON.
     # `horizonUnits` bounds a slice's start; PRIORITY is `Σ w(s) · finish(s)`

@@ -234,6 +234,62 @@ class HorizonBound(unittest.TestCase):
         check_cross_field(request)
 
 
+class DeadlineIsAWholeDay(unittest.TestCase):
+    """TASK-329 AC #1: the receiver states the deadline invariant for itself.
+
+    Unlike every other case in this file, this one does NOT call
+    `validate_against_schema` before `check_cross_field` — because since
+    TASK-329 AC #2 the schema pins `quantum` to 48 and gives `deadlineUnits`
+    `multipleOf: 48`, so the schema refuses a non-multiple and the cross-field
+    check could never be reached through `validate_request`. Both halves are
+    asserted below and each is a different statement: the schema really does
+    refuse it, AND the receiver refuses it on its own terms, dividing by the
+    request's own `quantum` rather than by a literal. The second is what
+    survives a wire version that stops pinning the value, and it is the
+    independence AC #1 asks for — a receiver that knows an invariant only
+    through the sender's schema is not an independent guard.
+    """
+
+    def test_the_schema_refuses_it_first(self) -> None:
+        """Stated so the reachability claim in `validate.py` stays measured."""
+        request = valid_request()
+        request["slices"][0]["deadlineUnits"] = 1
+        with self.assertRaises(RequestRejected) as caught:
+            validate_against_schema(request, "request")
+        self.assertIn("deadlineUnits", str(caught.exception))
+
+    def test_a_deadline_that_is_not_a_whole_day_is_refused_here_too(self) -> None:
+        """The reviewer's own input: due at unit 1, which is day 1/48 - 1."""
+        request = valid_request()
+        request["slices"][0]["deadlineUnits"] = 1
+        with self.assertRaises(RequestRejected) as caught:
+            check_cross_field(request)
+        self.assertIn("not a multiple of", str(caught.exception))
+
+    def test_it_divides_by_the_request_quantum_and_not_by_a_literal(self) -> None:
+        """The whole reason this is a CROSS-FIELD check.
+
+        24 is not a multiple of 48 and is a multiple of 24, so a check written
+        against the constant would refuse this and a check written against the
+        request would accept it. The schema refuses the request outright, which
+        is why `check_cross_field` is called directly here.
+        """
+        request = valid_request()
+        request["quantum"] = 24
+        request["slices"][0]["deadlineUnits"] = 24
+        check_cross_field(request)
+
+    def test_the_multiples_beside_it_are_accepted(self) -> None:
+        """`0` is TASK-267's unmeetable sentinel and is a multiple; `None` is no
+        deadline at all. A check that refuses these has not been aimed."""
+        for deadline_units in (None, 0, 48, 96):
+            with self.subTest(deadlineUnits=deadline_units):
+                request = valid_request()
+                request["slices"][0]["deadlineUnits"] = deadline_units
+                validate_against_schema(request, "request")
+                check_cross_field(request)
+
+
 class ObjectiveOverflow(unittest.TestCase):
     """Invariant 8, whose Python arm did not exist until now.
 
