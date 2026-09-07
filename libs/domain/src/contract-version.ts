@@ -54,7 +54,7 @@
  * gave `durationUnits` `49` before this change and `48` after.
  *
  * The number is also not free at this point: both request fixtures in the
- * golden corpus are checked in carrying `"8+0.1.0"`, and
+ * golden corpus are checked in carrying `"9+0.1.0"`, and
  * `wire-contract-version.test.ts` in `libs/contracts` pins the constant to that
  * prefix — so a change here without a change there is a red test rather than a
  * cache that quietly keeps its old rows.
