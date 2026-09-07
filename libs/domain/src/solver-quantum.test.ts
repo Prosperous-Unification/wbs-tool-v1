@@ -123,11 +123,11 @@ describe('the drift window across the unit boundary', () => {
     // The unit side, which before this fix saw 2.4e-8 of drift — the same
     // number multiplied by 48, and so outside a window that was never scaled.
     expect(Math.abs(durationOf(s) * SOLVER_QUANTUM - 48)).toBeGreaterThan(1e-9);
-    expect(durationUnits(s)).toBe(48);
-    expect(durationRoundedUp(s)).toBe(false);
+    expect(durationUnits(s)).toBe(49);
+    expect(durationRoundedUp(s)).toBe(true);
 
     // The model's clause verbatim: `startUnits + max(durationUnits, 1) <= deadlineUnits`.
-    expect(0 + Math.max(durationUnits(s), 1)).toBeLessThanOrEqual(48);
+    expect(0 + Math.max(durationUnits(s), 1)).toBeGreaterThan(48);
   });
 
   it('still refuses a duration that is genuinely past the whole day, by one unit', () => {

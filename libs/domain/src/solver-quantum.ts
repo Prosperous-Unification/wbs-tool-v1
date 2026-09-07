@@ -121,7 +121,7 @@ function quantise(slice: Slice): { units: number; rounded: boolean } {
   // nowhere near a whole workday can still land a bit off a whole unit
   // (`days / width` for a width that does not divide 48), and that step onto
   // the integer axis is the one `workday.ts` lists this site for.
-  const exact = snapWorkdays(snapWorkdays(durationOf(slice)) * SOLVER_QUANTUM);
+  const exact = snapWorkdays(durationOf(slice) * SOLVER_QUANTUM);
   if (!Number.isFinite(exact) || exact < 0) {
     throw new Error(
       `slice ${slice.workItemId} has no finite duration in solver units: width ${String(slice.width)}, days ${String(slice.days)}`,

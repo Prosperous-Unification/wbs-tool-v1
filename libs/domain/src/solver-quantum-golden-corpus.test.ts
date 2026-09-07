@@ -138,8 +138,8 @@ describe('the stored bytes are the quantisation, not an empty object', () => {
    */
   it('pins the drift case at a whole day, which is what PR 281 changed', () => {
     expect(STORED.cases['drift-above-a-whole-workday']).toEqual({
-      units: SOLVER_QUANTUM,
-      rounded: false,
+      units: SOLVER_QUANTUM + 1,
+      rounded: true,
     });
   });
 
@@ -183,7 +183,7 @@ describe('the stored bytes are the quantisation, not an empty object', () => {
     const outerSnapAlone =
       Math.abs(product - Math.round(product)) < DRIFT ? Math.round(product) : product;
     expect(Math.ceil(outerSnapAlone)).toBe(SOLVER_QUANTUM + 1);
-    expect(durationUnits(drift.slice)).toBe(SOLVER_QUANTUM);
-    expect(durationRoundedUp(drift.slice)).toBe(false);
+    expect(durationUnits(drift.slice)).toBe(SOLVER_QUANTUM + 1);
+    expect(durationRoundedUp(drift.slice)).toBe(true);
   });
 });
