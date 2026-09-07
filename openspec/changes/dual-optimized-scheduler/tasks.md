@@ -3925,7 +3925,9 @@ workdays` per missed item — Fast's lateness is a report, never a verdict
       pending variant renders `Optimizing…` over Fast offsets;
       stale pending and plan-infeasible variants visibly qualify their status;
       an infeasible item prints its real Work item deadline date from the
-      project start and workday calendar, never the internal offset; a removed
+      project start and workday calendar, never the internal offset, while the
+      legal unmeetable sentinel says `Work item deadline before project start`;
+      a removed
       row is named without exposing its raw id;
       no toast or modal role appears in the tree in any of those states; a
       toggle change issues the PATCH and **survives a remount** (proving it is

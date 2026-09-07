@@ -353,6 +353,7 @@ above, this closes 7.3 and 7.11.
   that case red, as recorded in the durable failure-announcement section.
 
 This closes 7.5 and 7.6. No build or autotest ran on the queue-worker box.
+
 ## 2026-09-07T02:01:44Z — optimization indicator accessibility follow-up
 
 - Implementation head `a333cf64` passed the three focused component suites on
@@ -375,3 +376,21 @@ This closes 7.5 and 7.6. No build or autotest ran on the queue-worker box.
 
 This closes the TASK-294 follow-up clauses without claiming retry UI or backend
 work. Lane-q TASK-222 remains the independent post-deploy QA owner.
+
+## 2026-09-07T02:22:09Z — unmeetable-deadline render safety
+
+- The first exact-head Anthropic review at `e138a8da` found one Critical: the
+  legal `UNMEETABLE_DEADLINE_OFFSET` value `-1` reached `addWorkdays` and threw
+  from React render. The corrected renderer names that state `Work item
+  deadline before project start`, and the stored-result decoder now rejects
+  offsets below the domain sentinel.
+- At exact source head `762b33c9` on h2puni, the three focused FE suites passed
+  33/33 and the plan-infeasible DTO suite passed 4/4. Both FE typechecks,
+  changed-file ESLint, scoped Prettier, and strict OpenSpec validation passed.
+- Two independent watched controls went red: bypassing the renderer's sentinel
+  branch threw through the focused unmeetable-deadline case (1/1 failed), and
+  weakening the DTO floor admitted `-2` and failed exactly the malformed-item
+  suite (3 passed, 1 failed). Both files were restored byte-for-byte.
+
+The branch was then merged with current `origin/main`; CI and the terminal
+re-review are the exact merged-head gates.
