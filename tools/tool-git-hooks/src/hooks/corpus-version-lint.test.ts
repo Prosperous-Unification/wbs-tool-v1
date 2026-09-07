@@ -51,8 +51,16 @@ const EIGHT: Tree = {
   [QUANTUM]: corpus(8, { drift: { units: 48, rounded: false } }),
 };
 
-function tree(overrides: Partial<Tree>): Tree {
+function tree(overrides: Tree): Tree {
   return { ...EIGHT, ...overrides };
+}
+
+/**
+ * The same tree with one path absent, which is what a fixture that has not been
+ * added yet — or one deleted on the branch — looks like to the port.
+ */
+function without(base: Tree, path: string): Tree {
+  return Object.fromEntries(Object.entries(base).filter(([key]) => key !== path));
 }
 
 function reasons(base: Tree, head: Tree): string[] {
@@ -172,9 +180,7 @@ describe('the constant is read as a number, not as bytes', () => {
   });
 
   it('fails closed when the file itself is gone at a revision', () => {
-    const gone = tree({});
-    delete gone[CONTRACT_VERSION_PATH];
-    const found = reasons(EIGHT, gone);
+    const found = reasons(EIGHT, without(EIGHT, CONTRACT_VERSION_PATH));
     expect(found).toHaveLength(1);
     expect(found[0]).toContain(CONTRACT_VERSION_PATH);
   });
@@ -199,19 +205,15 @@ describe('the constant is read as a number, not as bytes', () => {
 
 describe('a fixture appearing or disappearing is answered, not tripped over', () => {
   it('treats a fixture added on the branch as a change needing a bump', () => {
-    const before = tree({});
-    delete before[QUANTUM];
-    const found = reasons(before, EIGHT);
+    const found = reasons(without(EIGHT, QUANTUM), EIGHT);
     expect(found).toHaveLength(1);
     expect(found[0]).toContain(QUANTUM);
   });
 
   it('accepts that same addition once the constant moves with it', () => {
-    const before = tree({});
-    delete before[QUANTUM];
     expect(
       reasons(
-        before,
+        without(EIGHT, QUANTUM),
         tree({
           [CONTRACT_VERSION_PATH]: constantSource('9'),
           [QUANTUM]: corpus(9, { drift: { units: 48, rounded: false } }),
@@ -221,8 +223,7 @@ describe('a fixture appearing or disappearing is answered, not tripped over', ()
   });
 
   it('refuses a fixture deleted at head outright, bump or no bump', () => {
-    const after = tree({ [CONTRACT_VERSION_PATH]: constantSource('9') });
-    delete after[FAST];
+    const after = without(tree({ [CONTRACT_VERSION_PATH]: constantSource('9') }), FAST);
     const found = reasons(EIGHT, after);
     expect(found).toHaveLength(1);
     expect(found[0]).toContain(FAST);

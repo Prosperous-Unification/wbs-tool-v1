@@ -164,7 +164,7 @@ function casesAt(rev: string, path: string, port: RevisionPort): string | null {
   }
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
     throw new Error(`${path} at ${rev} is not a JSON object, so it has no cases to compare.`);
-  const cases = (parsed as Record<string, unknown>).cases;
+  const cases = (parsed as Record<string, unknown>)['cases'];
   if (cases === undefined || cases === null || typeof cases !== 'object' || Array.isArray(cases))
     throw new Error(
       `${path} at ${rev} has no \`cases\` object, so there is nothing for this check to compare.`,
