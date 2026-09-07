@@ -53,7 +53,11 @@ export function evaluateSolverOutcome(
   }
   const response = parsed.response;
   if (response.status !== 'feasible') {
-    if (response.status === 'unknown') return { kind: 'failed', reason: 'no-solution' };
+    // WATCHED RED W5 (8.6) — deliberate fault, never merged: map `infeasible`
+    // onto `unknown`, so an infeasible plan is stored `failed` and Retry admits
+    // it. Restored in the same task.
+    const status = response.status === 'infeasible' ? ('unknown' as const) : response.status;
+    if (status === 'unknown') return { kind: 'failed', reason: 'no-solution' };
     const certificate = planInfeasibleResultOf(input);
     return certificate.items.length === 0
       ? { kind: 'failed', reason: 'invalid-output' }
