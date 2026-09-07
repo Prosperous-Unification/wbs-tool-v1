@@ -4,7 +4,7 @@
     "wi-2\u0000": 10
   },
   "budgetMs": 30000,
-  "contractVersion": "7+0.1.0",
+  "contractVersion": "8+0.1.0",
   "edges": [["wi-1\u0000step-a", "wi-2\u0000"]],
   "fastHint": {
     "wi-1\u0000step-a": 0,

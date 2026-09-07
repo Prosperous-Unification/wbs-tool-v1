@@ -9,8 +9,9 @@ import type { SolverRequest } from './wire-types';
  * The pin between `SCHEDULER_CONTRACT_VERSION` and the corpus that already
  * spends it.
  *
- * Both request fixtures were checked in carrying `"7+0.1.0"` before the constant
- * existed, so the constant is `7` or every one of them is wrong. Written as a
+ * Both request fixtures carry `"8+0.1.0"`, so the constant is `8` or every one
+ * of them is wrong. They were checked in at `"7+0.1.0"` before the constant
+ * existed, and this test is what has moved them with it since. Written as a
  * test rather than as a comment in either file because the two are edited by
  * different chunks for different reasons: a bump that forgets the corpus, or a
  * corpus rewritten against a remembered number, are the same defect and neither

@@ -5,7 +5,7 @@
     "A\u0000three": 20
   },
   "budgetMs": 30000,
-  "contractVersion": "7+0.1.0",
+  "contractVersion": "8+0.1.0",
   "edges": [
     {
       "predecessorKey": "A\u0000one",

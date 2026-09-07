@@ -18,13 +18,13 @@ describe('the composite the wire carries and the cache key stores', () => {
     // Both golden requests are checked in carrying this prefix, and
     // `wire-contract-version.test.ts` pins the constant to it from the other
     // side — so the literal here is a second net rather than a duplicate.
-    expect(contractVersionOf('0.1.0').startsWith('7+')).toBe(true);
+    expect(contractVersionOf('0.1.0').startsWith('8+')).toBe(true);
   });
 
   it('never invents a solver version, however empty the one it is handed', () => {
     // Watched red: default `solverVersion` to a placeholder and this comes back
-    // `'7+0.0.0'` — a cache key naming a solver that did not run, which is
+    // `'8+0.0.0'` — a cache key naming a solver that did not run, which is
     // exactly the row a release must not read.
-    expect(contractVersionOf('')).toBe('7+');
+    expect(contractVersionOf('')).toBe('8+');
   });
 });
