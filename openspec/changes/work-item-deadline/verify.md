@@ -497,9 +497,9 @@ the fault went up as **draft PR 274**, `red/t241-w5`, head `754eff8d`, **closed
 and its branch deleted the moment the red was read**. Gate run **34079393999**
 failed tasks `be-01:test` and `be-01:lint` at two sites:
 
-| where                                | expected                                       | received                                                                          |
-| ------------------------------------ | ---------------------------------------------- | --------------------------------------------------------------------------------- |
-| `solver-exit-outcome.test.ts:116`    | `{ kind: 'failed', reason: 'invalid-output' }` | `reason: 'no-solution'`                                                           |
+| where                                | expected                                       | received                                                                         |
+| ------------------------------------ | ---------------------------------------------- | -------------------------------------------------------------------------------- |
+| `solver-exit-outcome.test.ts:116`    | `{ kind: 'failed', reason: 'invalid-output' }` | `reason: 'no-solution'`                                                          |
 | `optimization-events.db.test.ts:278` | two `schedule_optimization_infeasible` events  | two `schedule_optimization_failed`, each carrying `failureReason: 'no-solution'` |
 
 The second site is 8.6's own sentence. Those two events are the disposition of a

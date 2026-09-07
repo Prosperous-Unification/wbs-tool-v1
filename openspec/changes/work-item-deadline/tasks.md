@@ -730,8 +730,8 @@ order`, with their tests. A repository assertion that no unqualified
       **no project filter** (`.github/workflows/ci.yml`) — the same four
       targets, across every project rather than three. That is checkable and was
       checked rather than assumed: at the shipped head 24 `project.json` files
-      carry a `test` target and nx reported `Successfully ran targets test,
-      lint, typecheck, build for 24 projects`, so nothing was filtered out.
+      carry a `test` target, and nx reported success for **24 projects** across
+      those same four targets, so nothing was filtered out.
       **`libs/solver-py` is one of those 24**, and its target is
       `python3 -m unittest discover -s tests -t tests`, so the Python half of
       slice 8 is gated at this head too and not only at W2's `eff07d9f`.
@@ -762,9 +762,9 @@ order`, with their tests. A repository assertion that no unqualified
       **The Gemini clause was re-worded, under authority, and the re-wording is
       the point of this note.** As written the item required the Gemini seat;
       `notes/decisions.md` § "Review gates reduced — 2026-09-06" changed that
-      for dev-mode paths — *"Gemini is best-effort exactly as the peer already
+      for dev-mode paths — _"Gemini is best-effort exactly as the peer already
       was. Attempt once, record the exact failure, continue. Green CI is now the
-      only hard gate."* That entry deliberately did **not** cut the gate on
+      only hard gate."_ That entry deliberately did **not** cut the gate on
       prod-mode or publicly-reachable paths, so **slice 1's clause below is
       untouched and was satisfied before the reduction**: its prod-mode PR
       carries its own Round 1 and Round 2 reviews, recorded in `verify.md`.
@@ -777,9 +777,10 @@ order`, with their tests. A repository assertion that no unqualified
       real and were folded.
       **The Gemini half is recorded as skipped, with the exact reason rather
       than a shrug.** `bin/gemini-review.sh` has returned exit 1 on every
-      attempt since 2026-09-07T03:22Z — `Individual quota reached. Please
-      upgrade your subscription to increase your limits`, most recently measured
-      at 04:22:58Z as resetting in 87h17m13s, i.e. ≈**2026-09-10T19:40Z**. Two
+      attempt since 2026-09-07T03:22Z, each time with the same message — the
+      seat's own `Individual quota reached` refusal, telling the caller to
+      upgrade the subscription — most recently measured at 04:22:58Z as
+      resetting in 87h17m13s, i.e. ≈**2026-09-10T19:40Z**. Two
       independent measurements taken an hour apart agree on that reset instant.
       One earlier attempt also died on a caller error worth not repeating: the
       script's fourth argument is a Go duration string (`15m`), and `900` is
