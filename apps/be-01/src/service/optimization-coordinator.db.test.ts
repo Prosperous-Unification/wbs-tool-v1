@@ -1342,16 +1342,16 @@ describe('OptimizationCoordinator Retry admission', () => {
       },
       inputOf: () => Promise.resolve(INPUT),
       enabledOf: () => Promise.resolve(true),
-      spawn: async (request) => {
+      spawn: (request) => {
         calls.push(request);
-        return {
+        return Promise.resolve({
           pid: 100,
           stdout: stream(''),
           stderr: stream(''),
           exited: never,
           verdict: () => undefined,
           kill: () => undefined,
-        };
+        });
       },
       eventLog: new DrizzleEventLogRepo(db),
       pushRecorded: () => Promise.resolve(),

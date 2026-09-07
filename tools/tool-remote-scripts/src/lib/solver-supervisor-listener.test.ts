@@ -92,7 +92,9 @@ describe('the solver supervisor Unix listener', () => {
         open(socket) {
           socket.end();
         },
-        data() {},
+        data() {
+          return undefined;
+        },
       },
     });
     let replacement: Awaited<ReturnType<typeof listenForSupervisorConnections>> | undefined;
