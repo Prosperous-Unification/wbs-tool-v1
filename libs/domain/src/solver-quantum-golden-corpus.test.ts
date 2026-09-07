@@ -28,12 +28,27 @@ import {
  * one of the six. Cache-key honesty for anything else stays a human obligation
  * at `contract-version.ts`, exactly as it does next door.
  *
+ * **It is not a second copy of `solver-quantum.test.ts`.** That file asserts
+ * what `quantise` does, including TASK-302's watched reds on this same
+ * `1.0000000005` input, and under the replay below two of its cases go red
+ * alongside the corpus. The difference is what a *deliberate* change costs. A
+ * commit that means to change `quantise` edits those assertions to the new
+ * numbers and the suite is green — correctly, because that is how a behaviour
+ * test is changed, and no bump was ever demanded. The stored bytes cannot be
+ * edited into agreement without also moving `contractVersion`, because the
+ * other assertion in this describe block pins that to the constant. One file
+ * says what the function does; this one says the cache may not keep answers
+ * from a function that did something else.
+ *
  * **What separates this from hashing the source**, which was the rejected
- * alternative: the last case below is a negative control. A comment-only edit
- * to `solver-quantum.ts` moves no byte here, because these bytes are what the
- * function *did*, not what it looks like. A source hash cannot tell those
- * apart, and a guard that reddens for comments is repaired by regenerating it
- * — which is how a golden corpus stops being evidence.
+ * alternative, and it is measured rather than asserted because no test inside a
+ * suite can edit its own file's comments. NEGATIVE CONTROL, h2puni at
+ * `e38a775a`: two comment lines added to `solver-quantum.ts` above
+ * `SOLVER_QUANTUM` — `git diff --stat` 1 file, 2 insertions, no other line —
+ * and domain came back **581 pass / 0 fail**, identical to the untouched
+ * baseline. A source hash reddens there, and the only repair for that red is
+ * regeneration, which is how a golden corpus stops being evidence. These bytes
+ * are what the function *did*, not what it looks like.
  */
 
 interface StoredCorpus {
@@ -78,13 +93,23 @@ describe('the stored bytes are the quantisation, not an empty object', () => {
   });
 
   /**
-   * WATCHED RED, and it is the one this whole file was filed for. Replay PR
+   * **WATCHED RED, MEASURED on h2puni at `e38a775a`, not argued.** Replay PR
    * 281 by dropping the inner snap — `snapWorkdays(durationOf(slice) *
    * SOLVER_QUANTUM)`, the arrangement that shipped before `c1d9a40d` — and
    * `drift-above-a-whole-workday` moves from `{ units: 48, rounded: false }` to
-   * `{ units: 49, rounded: true }`, so `reproduces every stored quantisation
-   * byte for byte` fails. Under the same edit the Fast corpus stays green, and
-   * that is the measured contrast the two files exist to draw.
+   * `{ units: 49, rounded: true }`. Domain goes **577 pass / 4 fail**: this
+   * describe block's two, plus TASK-302's own two in `solver-quantum.test.ts`.
+   *
+   * **`the Fast golden corpus … reproduces every stored schedule byte for byte`
+   * is NOT among them**, and that absence is the measurement this file exists
+   * for. Green baseline at the same head with the fixture in place: 581 pass /
+   * 0 fail.
+   *
+   * The other direction is proved too: with `SCHEDULER_CONTRACT_VERSION` moved
+   * to 9 and the fixture left alone, `was produced under the version this tree
+   * declares` fails here and in the Fast corpus (577/4 again, the other two
+   * being `contractVersionOf`'s). So bytes cannot move without a bump, and a
+   * bump cannot land without regenerating.
    *
    * The numbers are asserted here as well as stored, so the red names the
    * behaviour rather than only reporting that two objects differ.

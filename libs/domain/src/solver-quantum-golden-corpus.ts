@@ -20,6 +20,19 @@
  * direction: bytes that moved without a version bump, or a version bump whose
  * bytes were not regenerated.
  *
+ * **`solver-quantum.test.ts` already asserts this behaviour, and that is not
+ * the same job.** TASK-302 shipped watched reds for PR 281 on the very input
+ * this file's first case uses — `the drift window across the unit boundary`,
+ * `1.0000000005` over width 1 — and they are good tests. They are also
+ * *assertions*, so the commit that changes `quantise` deliberately edits them
+ * to the new numbers, which is the correct way to change a behaviour test, and
+ * the suite goes green with no bump demanded. Nothing there is keyed on
+ * `SCHEDULER_CONTRACT_VERSION`. That is the same gap `fast-golden-corpus.ts`'s
+ * header describes for `schedule-identity.test.ts`: a check with no stored
+ * artefact has nothing for a cache key to protect. This file is that upgrade
+ * for `quantise` — the numbers leave the source, and the only way to move them
+ * is to bump the constant and regenerate, in that order.
+ *
  * **What this is not.** It is not a hash of `solver-quantum.ts`. A source hash
  * would have reddened for PR 281, and it would have reddened just as loudly for
  * a comment, a rename or a reformat — trading silent misses for routine false
