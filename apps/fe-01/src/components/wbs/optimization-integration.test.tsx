@@ -246,7 +246,9 @@ describe('project optimization in the plan', () => {
    * that an event arriving for a variant on `Optimizing…` is enough to move
    * that indicator to the certificate's words. "Without a refetch" in the
    * acceptance criterion means without something *else* forcing one — the read
-   * this event triggers is the mechanism, not a violation of it.
+   * this event triggers is the mechanism, not a violation of it. That is now
+   * the spec's own words rather than this comment's, under **What an outcome
+   * event promises a client** (TASK-324); the case below pins it.
    */
   itDom('leaves Optimizing… on the infeasible event alone', async () => {
     const api = fakeProjectApi();
@@ -299,6 +301,145 @@ describe('project optimization in the plan', () => {
     // event that flipped the variant to `failed` would offer the Retry this
     // state exists to withhold.
     expect(screen.queryByRole('button', { name: /retry/i })).toBeNull();
+  });
+
+  /**
+   * Every method the component calls, by name, including one it does not have.
+   *
+   * A per-method spy and the fixed eight-name list in
+   * `plan-read-and-write.test.tsx` can only count reads somebody already
+   * thought of. The whole point of the case below is the **negative** — that no
+   * variant-scoped read exists on the socket path — and a negative about a
+   * method nobody has written yet cannot be spied on by name. A `get` trap
+   * records whatever is reached for, so a dedicated variant read added later
+   * arrives here as an unexpected name rather than as silence.
+   *
+   * `apply` binds `target`, not the proxy, so the fake's own state (`rows`,
+   * `markers`) keeps working and every other test still sees `fakeProjectApi`
+   * exactly as it was.
+   */
+  function recordingApi<T extends object>(api: T): { api: T; calls: string[] } {
+    const calls: string[] = [];
+    const recorded = new Proxy(api, {
+      get(target, property) {
+        const value = Reflect.get(target, property) as unknown;
+        if (typeof property !== 'string' || typeof value !== 'function') return value;
+        return (...args: unknown[]) => {
+          calls.push(property);
+          return (value as (...called: unknown[]) => unknown).apply(target, args);
+        };
+      },
+    });
+    return { api: recorded, calls };
+  }
+
+  /** Every read `refresh('all')` issues, plus the marker read the same scope starts. */
+  const READS_THE_FULL_SCOPE_MAKES = [
+    'tree',
+    'steps',
+    'listTeams',
+    'listTags',
+    'listServices',
+    'listWorkItemTypes',
+    'listExternalSystems',
+    'listPeople',
+    'listCalendarMarkers',
+  ];
+
+  /**
+   * TASK-324 AC #2: the pin for **What an outcome event promises a client**.
+   *
+   * The requirement used to say a client reached `Optimization unavailable ·
+   * Retry` "without refetching the variant", and the shipped client does start
+   * a plan read on that event. The reading that settles it — identity only on
+   * the wire, the indicator moves on the event alone, the new state arrives
+   * through the ordinary plan read, and no variant-scoped read exists — is a
+   * choice, so it needs a test rather than a sentence, or the next reader files
+   * this again.
+   *
+   * Three assertions, and each one falsifies a different way of getting it
+   * wrong:
+   *
+   * 1. **The indicator does not move while the plan read is in flight.** The
+   *    read is held open, so the event has arrived and nothing else has. A
+   *    client that rendered `Retry` from `failureReason` on the wire — the
+   *    third reading the spec now refuses — turns this red. Asserting only
+   *    that `Retry` eventually appears would pass under that reading too,
+   *    which is why the deferral is the case and not a detail of it.
+   * 2. **`tree` is called exactly once.** Not "one request": one
+   *    `refresh('all')` is nine of them. A second plan read would mean the
+   *    event and the indicator were racing.
+   * 3. **No tenth name.** The distinct methods reached after the event are
+   *    exactly the full-scope reads. Add `api.optimizationVariant(...)` beside
+   *    the plan read and this is red, which is the whole negative — a
+   *    `readScopeFor` assertion or a `tree` count would both stay green.
+   */
+  itDom('moves to Retry only when the plan read lands, and asks for no variant read', async () => {
+    const fake = fakeProjectApi();
+    await fake.createWorkItem('p1', { parentId: null, afterId: null, name: 'Launch' });
+    const readTree = fake.tree.bind(fake);
+    let failed = false;
+    let holdNextTree = false;
+    let releaseTree = (): void => {
+      throw new Error('the table never read the plan');
+    };
+    fake.tree = async (projectId) => {
+      if (holdNextTree) {
+        holdNextTree = false;
+        await new Promise<void>((resolve) => {
+          releaseTree = resolve;
+        });
+      }
+      return {
+        ...(await readTree(projectId)),
+        optimization: {
+          ...READY,
+          displayed: 'fast',
+          comparison: undefined,
+          variants: {
+            ...READY.variants,
+            pri: failed ? { state: 'failed', reason: 'timeout' } : { state: 'pending' },
+          },
+        } satisfies PlanOptimizationView,
+      };
+    };
+    const { api, calls } = recordingApi(fake);
+    let notify: SubscriptionHandlers['onChange'] = () => {
+      throw new Error('the table never subscribed');
+    };
+    const subscribe = (_projectId: string, handlers: SubscriptionHandlers) => {
+      notify = handlers.onChange;
+      return { seen: () => undefined, unsubscribe: () => undefined };
+    };
+    render(<WbsTable projectId="p1" api={api} subscribe={subscribe} />);
+    expect(await screen.findByRole('status')).toHaveTextContent('Optimizing…');
+
+    // The mount's own reads are not what this case is about.
+    calls.length = 0;
+    // The solve failed and stored its marker. The event is the only notice this
+    // client gets, and the read it starts is held open underneath it.
+    failed = true;
+    holdNextTree = true;
+    act(() => {
+      notify('schedule_optimization_failed');
+    });
+
+    // The event has been delivered and the read it started has not answered.
+    await waitFor(() => {
+      expect(calls).toContain('tree');
+    });
+    expect(screen.getByRole('status')).toHaveTextContent('Optimizing…');
+    expect(screen.queryByText(/Optimization unavailable/)).toBeNull();
+
+    await act(async () => {
+      releaseTree();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent('Optimization unavailable · Retry');
+    });
+    expect(calls.filter((method) => method === 'tree')).toHaveLength(1);
+    expect([...new Set(calls)].sort()).toEqual([...READS_THE_FULL_SCOPE_MAKES].sort());
   });
 
   /**
