@@ -50,6 +50,7 @@ class FakeDriver implements ManagedContainerDriver {
   firstInspectPid = 4242;
   attachFailure: Error | undefined;
   killFailure: Error | undefined;
+  inspectFailure: Error | undefined;
   naturalExit = true;
   stdout = output();
   stderr = output();
@@ -113,6 +114,7 @@ class FakeDriver implements ManagedContainerDriver {
   inspect(argv: readonly string[], deadlineKilled: boolean): Promise<ManagedContainerEvidence> {
     this.inspectCount += 1;
     this.events.push(`inspect${String(this.inspectCount)}:${argv.slice(1).join(' ')}`);
+    if (this.inspectFailure !== undefined) return Promise.reject(this.inspectFailure);
     return Promise.resolve(
       this.inspectCount === 1
         ? { pid: this.firstInspectPid, exitCode: 0, oomKilled: false, deadlineKilled }
@@ -351,6 +353,20 @@ describe('the managed solver lifecycle', () => {
       rejection = error;
     }
     expect(rejection).toEqual(new Error('daemon refused kill'));
+    expect(driver.events.map((event) => event.split(':')[0])).toEqual(['list', 'kill', 'inspect1']);
+  });
+
+  it('does not hide a failed kill when the diagnostic inspect also fails', async () => {
+    const driver = new FakeDriver();
+    driver.killFailure = new Error('daemon refused kill');
+    driver.inspectFailure = new Error('daemon refused inspect');
+    let rejection: unknown;
+    try {
+      await sweepManagedSolverOrphans(driver);
+    } catch (error) {
+      rejection = error;
+    }
+    expect(rejection).toBe(driver.killFailure);
     expect(driver.events.map((event) => event.split(':')[0])).toEqual(['list', 'kill', 'inspect1']);
   });
 
