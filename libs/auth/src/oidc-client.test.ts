@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'bun:test';
+import type { Configuration } from 'openid-client';
 
 import {
+  browserOidcClientFromEnv,
   cacheWhileItSucceeds,
   isOidcCallbackRefused,
   refuseCallbackFromAnotherIssuer,
@@ -336,5 +338,79 @@ describe('refuseCallbackFromAnotherIssuer', () => {
     expect(isOidcCallbackRefused(new Error('connect ECONNREFUSED'))).toBe(false);
     expect(isOidcCallbackRefused({ reason: 'issuer_mismatch' })).toBe(false);
     expect(isOidcCallbackRefused(undefined)).toBe(false);
+  });
+});
+
+/**
+ * The wiring, which the cases above deliberately do not cover and a negative
+ * control caught: replacing `resolved.serverMetadata()` with the configured
+ * discovery URL left every one of them green, because they call the check
+ * directly and never ask `exchange` which metadata it hands over.
+ *
+ * These two cases ask exactly that, and they are written as a pair on purpose —
+ * each alone passes under the wrong source, since the two strings differ only in
+ * which callbacks they accept.
+ *
+ * `discover` is injected rather than reaching a provider, and the resolved value
+ * is a stand-in carrying nothing but `serverMetadata()`. That is all the refusal
+ * needs: it is decided before `authorizationCodeGrant` is called. A callback
+ * that is *not* refused therefore fails further in, on the stand-in — which is
+ * the assertion, and why these read "not a callback refusal" rather than
+ * "succeeds".
+ */
+describe('browserOidcClientFromEnv issuer wiring', () => {
+  const DISCOVERY_URL = 'https://puni.okta.com/oauth2/default/.well-known/openid-configuration';
+  const ISSUER = 'https://puni.okta.com/oauth2/default';
+  const ENV = {
+    AUTH_CLIENT_ID: 'client-1',
+    AUTH_CLIENT_SECRET: 'secret-1',
+    AUTH_ISSUER_DISCOVERY_URL: DISCOVERY_URL,
+  };
+
+  const exchangeWithIss = async (iss: string): Promise<unknown> => {
+    const client = browserOidcClientFromEnv(ENV, {
+      discover: () =>
+        Promise.resolve({ serverMetadata: () => ({ issuer: ISSUER }) } as unknown as Configuration),
+    });
+    return rejectionOf(
+      client.exchange(
+        new Request(
+          `https://dev.wbs.test/api/auth/okta/callback?code=c&state=s&iss=${encodeURIComponent(iss)}`,
+        ),
+        { nonce: 'nonce-1', state: 's', verifier: 'verifier-1' },
+      ),
+    );
+  };
+
+  it('refuses a callback carrying the discovery URL as its iss', async () => {
+    expect(isOidcCallbackRefused(await exchangeWithIss(DISCOVERY_URL))).toBe(true);
+  });
+
+  it('does not refuse a callback carrying the resolved Issuer Identifier', async () => {
+    expect(isOidcCallbackRefused(await exchangeWithIss(ISSUER))).toBe(false);
+  });
+
+  /**
+   * And the reason `config()` is awaited before anything is compared: discovery
+   * failing is an outage, and it must still reach the classifier as the original
+   * rejection rather than as a callback refusal.
+   */
+  it('lets a discovery failure through untouched instead of refusing the callback', async () => {
+    const down = Object.assign(new TypeError('fetch failed'), {
+      cause: Object.assign(new Error('getaddrinfo EAI_AGAIN puni.okta.com'), { code: 'EAI_AGAIN' }),
+    });
+    const client = browserOidcClientFromEnv(ENV, { discover: () => Promise.reject(down) });
+
+    const thrown = await rejectionOf(
+      client.exchange(
+        new Request(
+          'https://dev.wbs.test/api/auth/okta/callback?code=c&state=s&iss=https%3A%2F%2Fevil.test',
+        ),
+        { nonce: 'nonce-1', state: 's', verifier: 'verifier-1' },
+      ),
+    );
+
+    expect(thrown).toBe(down);
+    expect(isOidcCallbackRefused(thrown)).toBe(false);
   });
 });

@@ -1,3 +1,4 @@
+import type { Configuration } from 'openid-client';
 import {
   authorizationCodeGrant,
   buildAuthorizationUrl,
@@ -112,13 +113,29 @@ export function refuseCallbackFromAnotherIssuer(
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
-export function browserOidcClientFromEnv(env: Environment): BrowserOidcClient {
+/**
+ * `discover` is injectable for the same reason `cacheWhileItSucceeds`'s `load`
+ * is, and a negative control is why it had to become so. `discovery()` performs
+ * a real request, so nothing below it could be asserted without a live
+ * authorization server — and a control that changed `exchange` to compare a
+ * callback against `AUTH_ISSUER_DISCOVERY_URL` instead of the resolved Issuer
+ * Identifier, the one mistake the comment on
+ * {@link refuseCallbackFromAnotherIssuer} exists to warn about, left the whole
+ * suite green (486 pass / 0 fail). The check was proven and the wiring to it was
+ * not. Production never passes this.
+ */
+export function browserOidcClientFromEnv(
+  env: Environment,
+  options: { discover?: () => Promise<Configuration> } = {},
+): BrowserOidcClient {
   const issuer = new URL(required(env, 'AUTH_ISSUER_DISCOVERY_URL'));
   const clientId = required(env, 'AUTH_CLIENT_ID');
   const clientSecret = required(env, 'AUTH_CLIENT_SECRET');
   const scope = env['AUTH_SCOPE'] ?? 'openid profile email offline_access';
   const audience = env['AUTH_AUDIENCE'];
-  const config = cacheWhileItSucceeds(() => discovery(issuer, clientId, clientSecret));
+  const config = cacheWhileItSucceeds(
+    options.discover ?? (() => discovery(issuer, clientId, clientSecret)),
+  );
 
   return {
     async authorizationUrl(input) {
