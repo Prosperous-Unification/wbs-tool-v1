@@ -121,6 +121,7 @@ describe('the solver supervisor Unix listener', () => {
         rejection = error;
       }
 
+      // Proof: without the liveness probe, rejection is undefined and a replacement binds.
       expect(rejection).toEqual(
         new Error('solver supervisor listener: configured socket is already accepting connections'),
       );

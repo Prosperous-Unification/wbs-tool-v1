@@ -117,10 +117,10 @@ describe('the solver supervisor runtime composition', () => {
     let dependencies: SupervisorConnectionDependencies | undefined;
     const mapped: string[] = [];
     const listener = { stop: () => undefined };
-    const listen = ((_, value) => {
+    const listen = (async (_, value) => {
       driver.events.push('listen');
       dependencies = value;
-      return listener as ReturnType<SupervisorListen>;
+      return listener as Awaited<ReturnType<SupervisorListen>>;
     }) satisfies SupervisorListen;
 
     const result = await startSolverSupervisor(
@@ -156,7 +156,7 @@ describe('the solver supervisor runtime composition', () => {
       listen,
     );
 
-    expect(result).toBe(listener as ReturnType<SupervisorListen>);
+    expect(result).toBe(listener as Awaited<ReturnType<SupervisorListen>>);
     // Proof: opening the socket before the awaited sweep moves listen ahead of remove.
     expect(driver.events).toEqual(['list:1', 'kill', 'wait', 'inspect:1', 'remove', 'listen']);
     if (dependencies === undefined) throw new Error('listener dependencies were not composed');

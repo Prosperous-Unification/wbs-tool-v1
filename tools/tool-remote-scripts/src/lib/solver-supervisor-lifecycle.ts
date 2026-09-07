@@ -244,10 +244,12 @@ export async function sweepManagedSolverOrphans(driver: ManagedContainerDriver):
       // A persistent deadline timer can stop the container while the
       // restart-always supervisor itself is down. Distinguish that expected
       // state from a failed kill of a still-live orphan before continuing.
-      const stopped = await driver.inspect(
-        exactManagedContainerArgs('inspect', containerId),
-        false,
-      );
+      let stopped: ManagedContainerEvidence;
+      try {
+        stopped = await driver.inspect(exactManagedContainerArgs('inspect', containerId), false);
+      } catch {
+        throw killFailure;
+      }
       if (stopped.pid !== 0) throw killFailure;
       await driver.wait(exactManagedContainerArgs('wait', containerId));
       await driver.remove(exactManagedContainerArgs('rm', containerId));
