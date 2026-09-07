@@ -697,7 +697,27 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         // answer, and it keeps the defect rate something only this deployment
         // can move. (Peer pass 19, Important.)
         if ((sent.get('code') ?? '') === '') {
-          options.logger?.warn({}, 'oidc callback carried no code');
+          options.logger?.info({}, 'oidc callback carried no code');
+          return empty(400, clearsFor(settled));
+        }
+        // **The same boundary, widened: a parameter that belongs to a response
+        // mode this app never asks for.** `authorizationUrl` sends
+        // `response_type=code` and nothing else, so `response`, `id_token` and
+        // `token` cannot arrive from a login this app started. They *can*
+        // arrive from a caller who holds their own state and binding, and
+        // `oauth4webapi`'s `validateAuthResponse` refuses them before any
+        // provider request — as `OAUTH_INVALID_RESPONSE` or an unsupported
+        // operation, neither of which the classifier tables, so both land in
+        // `defect` and answer 500. Closing only the missing `code` left that
+        // open; the answer is the same 400 the codeless case gets, because it
+        // is the same fact: this callback is not one this app can complete.
+        // (Peer pass 20, Important.)
+        const impossible = OTHER_RESPONSE_MODE_PARAMS.filter((name) => sent.has(name));
+        if (impossible.length > 0) {
+          options.logger?.info(
+            { oidc_callback_params: impossible },
+            'oidc callback carried a parameter from a response mode this app does not use',
+          );
           return empty(400, clearsFor(settled));
         }
         // **Every way out of `exchange` used to be the same answer**, and until
@@ -1002,6 +1022,18 @@ function clearSession(): string[] {
  * all: these were `new Response(null, …)` before the move and a `{}` would put
  * two bytes on the wire the browser did not have.
  */
+/**
+ * Authorization-response parameters that belong to a response mode this app
+ * never requests. `authorizationUrl` sends `response_type=code`; anything
+ * carrying `response`, `id_token` or `token` is a callback this app could not
+ * have started, and is refused at the route rather than inside `exchange`.
+ *
+ * Kept here rather than in the classifier on purpose: only the route knows
+ * which response mode it asked for, which is the same reason
+ * `OAUTH_INVALID_RESPONSE` is deliberately absent from the classifier's table.
+ */
+const OTHER_RESPONSE_MODE_PARAMS = ['response', 'id_token', 'token'] as const;
+
 /**
  * The route's entire share of the judgment TASK-277 moved into `libs/auth`: a
  * total map from an owned kind to a status. `Record<OidcFailureKind, …>` is the

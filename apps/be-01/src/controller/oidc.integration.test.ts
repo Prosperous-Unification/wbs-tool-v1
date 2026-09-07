@@ -1387,6 +1387,13 @@ describe('OIDC browser routes', () => {
   for (const [name, query] of [
     ['no code at all', 'state=state-1'],
     ['an empty code', 'code=&state=state-1'],
+    // Peer pass 20, Important: a parameter from a response mode this app never
+    // asks for. `oauth4webapi` refuses each of these before any provider
+    // request, as a code the classifier does not table, so each was a
+    // caller-chosen `defect` 500 until this branch existed.
+    ['a hybrid-flow response parameter', 'code=c&state=state-1&response=x'],
+    ['an implicit-flow id_token', 'code=c&state=state-1&id_token=x'],
+    ['an implicit-flow token', 'code=c&state=state-1&token=x'],
   ] as const) {
     it(`refuses a callback with ${name} without reaching the provider`, async () => {
       const f = fixture();
@@ -1408,7 +1415,10 @@ describe('OIDC browser routes', () => {
       expect(retires(malformed, 'binding-1')).toBe(true);
       expect(await malformed.text()).toBe('');
       expect(f.logs).toHaveLength(1);
-      expect(f.logs[0]?.level).toBe('warn');
+      // `info`, matching the invalid-grant refusal: every one of these is
+      // wholly caller-authored, so a caller could otherwise choose how loud the
+      // log gets. (Peer pass 20, Minor.)
+      expect(f.logs[0]?.level).toBe('info');
     });
   }
 
