@@ -1515,7 +1515,7 @@ describe('the work item deadline cell', () => {
     // other row, and a dangling `aria-describedby` is worse than none.
     const api = await datedPlanWithDeadlineColumn();
 
-    const empty = screen.getByLabelText('Work item deadline for 010');
+    const empty = screen.getByLabelText<HTMLInputElement>('Work item deadline for 010');
     expect(empty.value).toBe('—');
     expect(empty.hasAttribute('aria-invalid')).toBe(false);
     expect(empty.hasAttribute('aria-describedby')).toBe(false);
