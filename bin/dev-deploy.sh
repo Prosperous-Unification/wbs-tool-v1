@@ -56,25 +56,26 @@ MCP_EXPOSURE_EXPECTED=$(ssh h2puni \
   < "$(dirname "${BASH_SOURCE[0]}")/dev-mcp-preflight.sh")
 export MCP_EXPOSURE_EXPECTED
 
-# Run sync from a snapshot outside the checkout it is about to reset.
+# Run the fetched target's sync from a snapshot outside the checkout it resets.
 #
-# Running it in place means the process rewrites its own source mid-run, and a
-# commit that breaks sync.ts lands on disk successfully -- wedging every later
-# deploy with no way to deploy the fix. The snapshot is taken before the reset,
-# so a broken commit fails the run it arrived in and the previous good copy is
-# still on disk at /home/puni1/wbs-dev/bin/sync.ts to deploy over it.
+# Running the checkout's pre-reset copy wedges a later fix when that old copy
+# fails before reset. The durable helper extracts this exact target SHA, so a
+# repaired target supplies the deployer that can land it without skipping any
+# sync.ts preflight or post-reset check.
+#
+# The candidate loader is streamed from this exact checkout, like the MCP
+# preflight above. The first deployment of this recovery path therefore cannot
+# depend on the helper already being installed on the host. Its managed Bun is
+# installed with the durable poller pair and checked by the loader before the
+# target tree is read.
 #
 # SC2029 is disabled for this command, not silenced globally: $SHA is meant to
 # expand here, on this machine. The remote has no such variable, and sending
 # this machine's HEAD is the entire purpose of the call.
 # shellcheck disable=SC2029
-ssh h2puni "bash -lc '
-  set -e
-  mkdir -p /home/puni1/wbs-dev/bin
-  cp /home/puni1/wbs-dev/src/tools/tool-devsync/src/sync.ts /home/puni1/wbs-dev/bin/sync.next.ts
-  mv /home/puni1/wbs-dev/bin/sync.next.ts /home/puni1/wbs-dev/bin/sync.ts
-  cd /home/puni1/wbs-dev/src && bun /home/puni1/wbs-dev/bin/sync.ts $SHA
-'"
+ssh h2puni \
+  "git -C /home/puni1/wbs-dev/src fetch --quiet origin && bash -s -- /home/puni1/wbs-dev/src /home/puni1/wbs-dev/bin /home/puni1/wbs-dev/bin/bun $SHA" \
+  < "$(dirname "${BASH_SOURCE[0]}")/dev-poll-sync.sh"
 
 # No credential is fetched or sent. Dev's edge password was removed 2026-08-06;
 # these checks now reach the same thing a browser does, which is the point of

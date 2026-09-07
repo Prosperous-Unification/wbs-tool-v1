@@ -43,6 +43,10 @@ const INPUT: ScheduleInput = {
   deadlines: new Map(),
 };
 const HASH = scheduleInputHash(INPUT);
+const DEADLINED_INPUT: ScheduleInput = {
+  ...INPUT,
+  deadlines: new Map([['w-1', 0]]),
+};
 const RESPONSE = `${JSON.stringify({
   wireVersion: 1,
   status: 'feasible',
@@ -52,6 +56,10 @@ const RESPONSE = `${JSON.stringify({
     priority: { value: 0, stageValue: 0, bound: 0, status: 'optimal' },
     movement: { value: 0, stageValue: 0, bound: 0, status: 'optimal' },
   },
+})}\n`;
+const INFEASIBLE_RESPONSE = `${JSON.stringify({
+  wireVersion: 1,
+  status: 'infeasible',
 })}\n`;
 const RESULT: OptimizedResult = {
   publication: 'solver',
@@ -225,6 +233,81 @@ describe('optimized outcome events', () => {
     // leaves `committed.event` undefined on the first reason and fails here.
   });
 
+  it('records and pushes each plan-infeasible certificate with its full release identity', async () => {
+    const { path, db } = database();
+    const pushed: OptimizationOutcomeEvent[] = [];
+    let token = 0;
+    const instance = new OptimizationCoordinator({
+      db,
+      contractVersion: CONTRACT,
+      solverVersion: '0.1.0',
+      budgetMs: BUDGET,
+      ownerId: 'blue',
+      now: () => 10,
+      attemptToken: () => `attempt-${String(token++)}`,
+      inputOf: () => Promise.resolve(DEADLINED_INPUT),
+      enabledOf: () => Promise.resolve(true),
+      spawn: () =>
+        Promise.resolve({
+          pid: 100 + token,
+          stdout: new ReadableStream(),
+          stderr: new ReadableStream(),
+          exited: Promise.resolve(0),
+          verdict: () => undefined,
+          kill: () => undefined,
+        }),
+      runChild: async (options) => {
+        await options.onExit({ code: 0, stdout: INFEASIBLE_RESPONSE, stderr: '' });
+        return { kind: 'exited', code: 0 };
+      },
+      eventLog: new DrizzleEventLogRepo(db),
+      pushRecorded: (_subscription, _recorded, event) => {
+        pushed.push(event);
+        return Promise.resolve();
+      },
+      onChildError: (error) => {
+        throw error;
+      },
+    });
+
+    expect(
+      instance.read({ projectId: 'p-1', objective: 'pri', input: DEADLINED_INPUT }),
+    ).toBeNull();
+    await instance.drain();
+
+    expect(pushed).toEqual([
+      {
+        type: 'schedule_optimization_infeasible',
+        projectId: 'p-1',
+        generation: 1,
+        inputHash: scheduleInputHash(DEADLINED_INPUT),
+        objective: 'pri',
+        contractVersion: CONTRACT,
+        budgetMs: BUDGET,
+      },
+      {
+        type: 'schedule_optimization_infeasible',
+        projectId: 'p-1',
+        generation: 1,
+        inputHash: scheduleInputHash(DEADLINED_INPUT),
+        objective: 'time',
+        contractVersion: CONTRACT,
+        budgetMs: BUDGET,
+      },
+    ]);
+    expect(await new DrizzleEventLogRepo(db).rangeSince('project:p-1', -1)).toHaveLength(2);
+    const raw = openDatabase(path);
+    try {
+      expect(
+        raw.query('SELECT status FROM optimized_schedule_cache ORDER BY objective').all(),
+      ).toEqual([{ status: 'plan-infeasible' }, { status: 'plan-infeasible' }]);
+    } finally {
+      raw.close();
+    }
+    // Proof: restoring the plan-infeasible early return in
+    // `storeOptimizedOutcomeAndRecord` leaves both durable events and pushes absent.
+  });
+
   it('records each new result once and pushes only after both durable rows commit', async () => {
     const { path, db } = database();
     const pushed: {
@@ -302,11 +385,27 @@ describe('optimized outcome events', () => {
     } finally {
       raw.close();
     }
+    // Proof: publishing `schedule_optimized` from `readPlan` when this cache
+    // hit is observed makes `pushed` contain 3 above instead of 2.
   });
 
-  it('rolls the cache row back when recording the event crashes', () => {
+  it('rolls a plan-infeasible certificate back when recording its event crashes', () => {
     const { path, db } = database();
-    const write = admittedWrite(db);
+    const write: OutcomeWrite = {
+      ...admittedWrite(db),
+      outcome: {
+        kind: 'plan-infeasible',
+        certificate: {
+          items: [
+            {
+              ownerWorkItemId: 'w-1',
+              boundWorkItemId: 'w-1',
+              effectiveDeadlineOffset: 0,
+            },
+          ],
+        },
+      },
+    };
 
     expect(() =>
       storeOptimizedOutcomeAndRecord(

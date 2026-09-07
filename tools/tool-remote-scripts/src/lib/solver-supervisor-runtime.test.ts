@@ -67,6 +67,7 @@ class FakeDriver implements SolverSupervisorDriver {
       stdout: output(),
       stderr: output(),
       write: () => Promise.resolve(),
+      closeInput: () => Promise.resolve(),
     });
   }
 
@@ -180,10 +181,10 @@ describe('the solver supervisor runtime composition', () => {
       'peer-inspect:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       'list:2',
       'create',
-      'attach',
       'timer',
       'start',
       'inspect:2',
+      'attach',
       'kill',
       'wait',
       'inspect:3',

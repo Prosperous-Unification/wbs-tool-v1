@@ -606,7 +606,7 @@ effectiveDeadlineOffset`, evaluated on the materialised schedule in the
 reordered` and `Same deadline + same order` → `Same project deadline + same
 order`, with their tests. A repository assertion that no unqualified
       "deadline" string remains in shipped UI copy.
-- [ ] 8.9b **The normative text mandating the old strings is amended in the same
+- [x] 8.9b **The normative text mandating the old strings is amended in the same
       commit**: `dual-optimized-scheduler/specs/scheduler-optimization/spec.md`,
       the comparison-indicator requirement ("SHALL report one of: … Same
       deadline + reordered, or Same deadline + same order"), and
@@ -615,6 +615,7 @@ order`, with their tests. A repository assertion that no unqualified
       7.2's sweep greps for the argument tuple — neither reaches these two
       lines, so without this item the merge leaves two SHALLs mandating
       different literal strings for one indicator.
+      **Done, and the divergence it predicted was already live on `main`.**
 
 ## 9. UI
 
@@ -938,3 +939,91 @@ judgement call.
 it owns choosing the event, amending the realtime contract, the FE subscriber
 and `readScopeFor`, and proving it against 7.9's crash case. Nothing here
 discharges any of that.
+
+## 8.9 / 8.9b, measured
+
+**The copy half of 8.9 shipped in a different change, and no normative artifact
+followed it.** `optimization-indicator.tsx` renders `Same project deadline +
+same order`, `Same project deadline + reordered`, `Earlier project deadline by N
+days` and `Later project deadline by N days`; it has since PR **246**
+(`9a1f79e7`, "add shared optimizer schedule selector"), which is neither this
+task nor TASK-221. So the state of `main` before this commit was a `SHALL`
+reading "the indicator SHALL report one of: Earlier by N days, …" against a
+component that renders none of those four literals. 8.9b was written to stop
+exactly that and arrived after the fact.
+
+**The two sites 8.9b names are eight, across seven artifacts, and three of them
+are this task's own.** The search was for the string family rather than the
+count, the discipline 8.7b's sixth site established. An earlier revision of this
+table said six and bundled two artifacts into one row (Sol r5 Important 1);
+corrected, with each artifact given its own line:
+
+| site | artifact                                                                | state found                                                               |
+| ---- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| 1    | `dual-optimized-scheduler/.../spec.md` comparison-indicator requirement | all four old strings — the `SHALL` 8.9b names                             |
+| 2    | `dual-optimized-scheduler/.../spec.md` its "finishes earlier" scenario  | `"Earlier by N days"` in the **THEN**, which 8.9b does not name           |
+| 3    | `dual-optimized-scheduler/design.md` §2.2 restatement                   | the two `Same …` strings quoted, the earlier/later pair only by reference |
+| 4    | `dual-optimized-scheduler/proposal.md`                                  | the indicator's To-state list                                             |
+| 5    | `dual-optimized-scheduler/tasks.md` 8.3                                 | an **unticked** item still specifying the old four                        |
+| 6    | `work-item-deadline/specs/.../spec.md` §rename                          | **renamed only two of the four**                                          |
+| 7    | `work-item-deadline/design.md` §TASK-221                                | **renamed only two of the four**                                          |
+| 8    | `work-item-deadline/proposal.md`                                        | the change summary, `Same deadline …` only                                |
+
+Sites 6 and 7 are the ones worth keeping. This task's own `SHALL` renamed only the two
+"Same …" strings and said nothing about the earlier/later pair, so a component
+that qualified all four was **exceeding** its requirement, and a future reader
+reconciling the two could have narrowed the code back to the half-rename. Half a
+rename is the same ambiguity in a different sentence: "Earlier by 2 days" beside
+a **Work item deadline** column does not say which deadline moved. Both were
+widened to all four, with the reason recorded, rather than the code narrowed to
+them.
+
+Sites 2, 5 and 8 are the enumeration lesson again — a scenario's **THEN** and
+another change's open task item are both places a literal string lives, and
+neither is a requirement sentence. `design.md`'s review-ledger row I1 is left
+untouched, per 7.2b.
+
+No test changes and no gate counts, and the size of the chunk is the table
+above rather than a smaller number beside it: the rename lands in **all seven
+artifacts**, across the **eight sites** the table lists, and this file is the
+**eighth changed document**, carrying the record. `git diff --numstat` against
+the merge base names those eight and nothing else. An earlier revision of this
+paragraph said "five documents plus one scenario line" (Sol r6 Critical 1) —
+the same undercount the paragraph above it withdraws, one paragraph later, and
+a reader reconstructing the normative blast radius from it would have missed
+two artifacts. The strings the rename aligns to are already asserted by
+`optimization-indicator.test.tsx`, green on `main`.
+
+**8.9 stays open on its second half, and an earlier revision of this paragraph
+put a count on it that was wrong. The count is withdrawn (Sol r5 Critical 1).**
+It said "thirteen literals" in shipped `apps/fe-01/src`, then enumerated
+fourteen; it was built by extracting **distinct literal values** with one regex
+over `.tsx` alone, and then described as an inventory of occurrences. Comments
+were counted in the same list as runtime strings, template literals outside the
+indicator were missed, and JSX text and accessibility attributes were never
+scanned at all. Nothing downstream may rest on it.
+
+Sol's own inventory at `ec15361e`, offered here as the starting point for the
+re-measurement rather than as a settled number: **16** `'deadline'` identifier
+literals across `column-hints.ts`, `table-frame.ts` and `wbs-table.tsx`, and
+**12** shipped copy occurrences — the indicator's four project-comparison forms,
+three already-qualified Work-item forms at `optimization-indicator.tsx:69,79`
+and `wbs-table.tsx:2562`, and **five unqualified** cell and accessibility forms
+at `wbs-table.tsx:2021,10271,10330,10336,10415`. Three strings the withdrawn
+list called identifiers occur only inside JSDoc. Whoever writes 8.9 re-measures
+in **one declared unit** and includes JSX text and `aria-label`.
+
+**Two corrections that survive the withdrawn count, and they change the item.**
+
+- The claim that the two cell sentences are unqualified-but-unambiguous "because
+  the **Work item deadline** label is above them" is **false**. The visible
+  column heading is `Due` (`wbs-table.tsx:10238-10242`); `Work item deadline` is
+  the separate Columns-control label (`:2560-2562`). The referent those
+  sentences were said to inherit is not on screen beside them.
+- **A pinned exception list cannot satisfy 8.9, because a standing SHALL forbids
+  one.** This change's own scenario "no unqualified deadline copy remains"
+  (`specs/scheduler-optimization/spec.md:390-394`) requires that **every**
+  occurrence be qualified as Project deadline or Work item deadline. So 8.9 has
+  exactly two honest closures: qualify all five unqualified occurrences, or
+  amend that scenario to define a contextual exception precisely — and the
+  second is a normative change, not an assertion.

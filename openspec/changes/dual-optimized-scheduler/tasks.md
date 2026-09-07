@@ -3427,7 +3427,7 @@ status: 'optimal' | 'feasible' | 'unknown' }` and
       is what makes the guard load-bearing rather than decorative. Nothing in
       `model.py` was widened or clamped.
 
-- [ ] 5.11 Packaging into the deployed artifact: the Dagger/image path installs
+- [x] 5.11 Packaging into the deployed artifact: the Dagger/image path installs
       the pinned Python runtime and the locked OR-Tools environment, copies
       the package and **both** its console scripts — the solve entrypoint
       `wbs-solver` and the lifecycle launcher `wbs-solver-launcher` (6.2b) —
@@ -3449,6 +3449,13 @@ status: 'optimal' | 'feasible' | 'unknown' }` and
       smoke test still passes and the launcher-path proof must fail. A missing
       supervisor, stale prod mapping, incompatible dev mapping, or socket-file
       mount instead of directory mount must fail deployment before swap.
+      **Proved on TASK-268 / PR 253:** the built image completed the direct
+      entrypoint and the authenticated host-supervisor launcher path through a
+      real Docker child. Removing only the launcher made that path fail while
+      direct solve stayed green; removing the package made both executables
+      absent and the supervisor path fail closed. The proof also caught stale
+      local-registry digest selection, pre-start Docker attach, reply ordering,
+      and missing request EOF. The host install remains deliberately unperformed.
 
 ## 6. OptimizationCoordinator — admission, spawn, cancel, restart
 
@@ -3628,7 +3635,7 @@ attempt_token=:token AND lifecycle='starting'` (with `:pid` the
       coordinator killed without cleanup has its slots reclaimed once
       `now > admittedDeadlineAt` — never by a missed heartbeat — rather than
       leaking capacity forever.
-- [ ] 6.8 **Proven by** `optimization-orphan.proc.test.ts`, a **real
+- [x] 6.8 **Proven by** `optimization-orphan.proc.test.ts`, a **real
       process-boundary test**, not a mocked restart: start an inert managed
       container, kill the coordinator, and observe (a) socket EOF makes the
       supervisor kill/wait/inspect/remove that exact container and (b) the slot
@@ -3658,7 +3665,7 @@ attempt_token=:token AND lifecycle='starting'` (with `:pid` the
       must spawn a duplicate beside a still-live child, breaking the sampled
       per-project ceiling; separately, make the restart allocate a fresh
       generation and (d) must fail against 6.10.
-- [ ] 6.9c **Four eviction authorities, four separate reds** (Sol r10
+- [x] 6.9c **Four eviction authorities, four separate reds** (Sol r10
       Important 9). The four-part `(generation, cancelEpoch, enabled,
 attemptToken)` predicate governs **worker-owned outcome writes only**;
       three other paths evict under their own authority and have no child
@@ -3779,7 +3786,7 @@ inputHash, objective, contractVersion, budgetMs)` (7.7). **The cache row
       cache hit.
       Toggle/Engine/Objective changes emit `project_settings_changed` (3b.3)
       instead.
-- [ ] 7.3 Retry is a route, not an unnamed "action": its contract, statuses
+- [x] 7.3 Retry is a route, not an unnamed "action": its contract, statuses
       and authorization are 7.11. It re-reads the current `inputHash`, refuses
       a moved plan with the current hash in the body, then launches only the
       `failed` or `corrupt` variant for the unchanged key — an **absent** variant is `idle`, admitted by the cold read (6.1) rather than by Retry, which answers `409 not-retryable` naming it (Sol r9 Critical 3). Its `failed` row is
@@ -3798,13 +3805,13 @@ inputHash, objective, contractVersion, budgetMs)` (7.7). **The cache row
       starts a fresh generation rather than the stale variant” case is deferred
       with 7.11 by TASK-220's explicit scope boundary above; keeping it as a
       prerequisite here would make that boundary impossible to satisfy.
-- [ ] 7.5 **Negative checks, watched red** — emit `schedule_optimized` on a
+- [x] 7.5 **Negative checks, watched red** — emit `schedule_optimized` on a
       cache hit and watch the "cache hit emits nothing" case fail; then split
       the cache write and the event write into two transactions and watch the
       crash-injection case fail. Two `Proof:` comments. A broadcast per read
       would make every collaborator refetch unchanged data; a split write is a
       result nobody is told about.
-- [ ] 7.6 A newly written failure marker emits `schedule_optimization_failed`
+- [x] 7.6 A newly written failure marker emits `schedule_optimization_failed`
       in the same transaction as the row, carrying `(projectId, generation,
 inputHash, objective, contractVersion, budgetMs, failureReason)` and no
       schedule. Without it the read returns Fast, success emits
@@ -3854,7 +3861,7 @@ recorded, event)` buffers and pushes an already-recorded sequence
       **Proven through the real controller payload** in the cold, queued,
       retrying, failed, **corrupt**, **plan-infeasible**, partial-success and
       full-hit states.
-- [ ] 7.11 `POST /api/projects/:projectId/optimization/retry`, body
+- [x] 7.11 `POST /api/projects/:projectId/optimization/retry`, body
       `{ objective, inputHash }`, under the same project-write authorization as
       the settings PATCH, running the ordinary admission transaction so two
       concurrent retries produce one child. `202` with the new state,
@@ -3885,8 +3892,9 @@ recorded, event)` buffers and pushes an already-recorded sequence
       `schedule_objective`, project-scoped and persisted. Switching to an
       already-cached output starts no solve. Both react to an incoming
       `project_settings_changed` event so collaborators converge.
-- [ ] 8.3 The one compact indicator: Earlier by N days / Later by N days / Same
-      deadline + reordered / Same deadline + same order, plus
+- [ ] 8.3 The one compact indicator: Earlier project deadline by N days / Later
+      project deadline by N days / Same project deadline + reordered / Same
+      project deadline + same order, plus
       `Optimization unavailable · Retry` on **both** the `failed` and the
       `corrupt` variant states (Sol r8 Critical 6 — the round-7 disposition
       added `corrupt` to spec.md and left this list at five states),

@@ -288,8 +288,9 @@ export default defineConfig({
       DB_PATH: runDatabase,
       // CI shells are not required to export HOSTNAME. Production receives
       // its authenticated Docker hostname; this fixed identity belongs only
-      // to the isolated source-run browser stack.
-      HOSTNAME: 'wbs-e2e',
+      // to the isolated source-run browser stack. It still has the 12-hex
+      // Docker-hostname shape the supervisor protocol accepts.
+      HOSTNAME: 'e2e000000000',
       // Stated rather than inherited from `.env.example`: this file is brand
       // new, so it holds no schema at all, and a developer who turned startup
       // migration off locally would otherwise get a stack that boots and 500s

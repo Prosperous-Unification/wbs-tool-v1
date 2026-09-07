@@ -47,6 +47,9 @@ class FakeDriver implements ManagedContainerDriver {
   readonly writes: string[] = [];
   managed = [CONTAINER_ID];
   inspectCount = 0;
+  firstInspectPid = 4242;
+  attachFailure: Error | undefined;
+  killFailure: Error | undefined;
   naturalExit = true;
   stdout = output();
   stderr = output();
@@ -63,6 +66,7 @@ class FakeDriver implements ManagedContainerDriver {
 
   attach(argv: readonly string[]): Promise<ManagedContainerAttachment> {
     this.events.push(`attach:${argv.slice(1).join(' ')}`);
+    if (this.attachFailure !== undefined) return Promise.reject(this.attachFailure);
     return Promise.resolve({
       closed: this.naturalExit ? Promise.resolve() : new Promise<void>(() => undefined),
       stdout: this.stdout,
@@ -70,6 +74,10 @@ class FakeDriver implements ManagedContainerDriver {
       write: (text): Promise<void> => {
         this.writes.push(text);
         this.events.push(`write:${text.trim()}`);
+        return Promise.resolve();
+      },
+      closeInput: (): Promise<void> => {
+        this.events.push('input-close');
         return Promise.resolve();
       },
     });
@@ -98,6 +106,7 @@ class FakeDriver implements ManagedContainerDriver {
 
   kill(argv: readonly string[]): Promise<void> {
     this.events.push(`kill:${argv.slice(1).join(' ')}`);
+    if (this.killFailure !== undefined) return Promise.reject(this.killFailure);
     return Promise.resolve();
   }
 
@@ -106,7 +115,7 @@ class FakeDriver implements ManagedContainerDriver {
     this.events.push(`inspect${String(this.inspectCount)}:${argv.slice(1).join(' ')}`);
     return Promise.resolve(
       this.inspectCount === 1
-        ? { pid: 4242, exitCode: 0, oomKilled: false, deadlineKilled }
+        ? { pid: this.firstInspectPid, exitCode: 0, oomKilled: false, deadlineKilled }
         : { pid: 0, exitCode: 137, oomKilled: true, deadlineKilled },
     );
   }
@@ -158,18 +167,32 @@ describe('the managed solver lifecycle', () => {
     expect(driver.events.map((event) => event.split(':')[0])).toEqual([
       'list',
       'create',
-      'attach',
       'timer',
       'start',
       'inspect1',
+      'attach',
       'send',
       'write',
       'write',
+      'input-close',
       'wait',
       'inspect2',
       'send',
       'timer-cancel',
       'rm',
+    ]);
+  });
+
+  it('sends started before consuming immediately available child output', async () => {
+    const driver = new FakeDriver();
+    driver.stdout = output('x');
+
+    await runManagedSolverAttempt(START, OPTIONS, driver, channel(['bound'], driver.events));
+
+    expect(driver.events.filter((event) => event.startsWith('send:'))).toEqual([
+      'send:started',
+      'send:stdout',
+      'send:terminal',
     ]);
   });
 
@@ -204,6 +227,57 @@ describe('the managed solver lifecycle', () => {
       'inspect2',
       'send',
       'timer-cancel',
+      'rm',
+    ]);
+  });
+
+  it('still cancels the timer and removes after terminal delivery loses the socket', async () => {
+    const driver = new FakeDriver();
+    const sent: SupervisorReplyFrame[] = [];
+    let rejection: unknown;
+    try {
+      await runManagedSolverAttempt(START, OPTIONS, driver, {
+        nextControl: () => Promise.resolve('eof'),
+        send: (frame) => {
+          sent.push(frame);
+          return frame.type === 'terminal'
+            ? Promise.reject(new Error('coordinator socket closed'))
+            : Promise.resolve();
+        },
+      });
+    } catch (error) {
+      rejection = error;
+    }
+
+    expect(rejection).toEqual(new Error('coordinator socket closed'));
+    expect(sent.map((frame) => frame.type)).toEqual(['started', 'terminal']);
+    // Proof: awaiting the failed terminal send before cleanup omits both of
+    // these events and strands the exact container after coordinator death.
+    expect(driver.events.map((event) => event.split(':')[0]).slice(-2)).toEqual([
+      'timer-cancel',
+      'rm',
+    ]);
+  });
+
+  it('cancels, stops, waits, and removes when post-start attach fails', async () => {
+    const driver = new FakeDriver();
+    driver.attachFailure = new Error('container stopped before attach');
+
+    let rejection: unknown;
+    try {
+      await runManagedSolverAttempt(START, OPTIONS, driver, channel([], driver.events));
+    } catch (error) {
+      rejection = error;
+    }
+
+    expect(rejection).toEqual(new Error('container stopped before attach'));
+    // Proof: leaving the post-create body outside the cleanup boundary omits
+    // this entire suffix and strands the labelled container at the host cap.
+    expect(driver.events.map((event) => event.split(':')[0]).slice(-5)).toEqual([
+      'attach',
+      'timer-cancel',
+      'kill',
+      'wait',
       'rm',
     ]);
   });
@@ -248,6 +322,36 @@ describe('the managed solver lifecycle', () => {
       'inspect2',
       'rm',
     ]);
+  });
+
+  it('inspects and removes a timer-stopped orphan before startup continues', async () => {
+    const driver = new FakeDriver();
+    driver.killFailure = new Error('container is not running');
+    driver.firstInspectPid = 0;
+    await sweepManagedSolverOrphans(driver);
+
+    expect(driver.events.map((event) => event.split(':')[0])).toEqual([
+      'list',
+      'kill',
+      'inspect1',
+      'wait',
+      'rm',
+    ]);
+    // Proof: treating every docker-kill nonzero as fatal prevents the
+    // restart-always supervisor from reaching listen after its timer fires.
+  });
+
+  it('does not hide a failed kill while the orphan still has a live PID', async () => {
+    const driver = new FakeDriver();
+    driver.killFailure = new Error('daemon refused kill');
+    let rejection: unknown;
+    try {
+      await sweepManagedSolverOrphans(driver);
+    } catch (error) {
+      rejection = error;
+    }
+    expect(rejection).toEqual(new Error('daemon refused kill'));
+    expect(driver.events.map((event) => event.split(':')[0])).toEqual(['list', 'kill', 'inspect1']);
   });
 
   it('refuses the host cap before creating another container', async () => {

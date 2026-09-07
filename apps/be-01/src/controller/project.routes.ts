@@ -17,7 +17,8 @@ import type { Project, ProjectPatch } from '../repository';
 // `directory.service.ts` takes for `PERSON_KINDS`.
 import { SCHEDULE_ENGINES, SOLVER_OBJECTIVES } from '../repository/schema';
 import type { AuthService } from '../service/auth.service';
-import type { ProjectService } from '../service/project.service';
+import type { OptimizationCoordinator } from '../service/optimization-coordinator';
+import { canEdit, type ProjectService } from '../service/project.service';
 import type { WorkItemService } from '../service/work-item.service';
 import { statusForRefusal } from './refusal-status';
 
@@ -195,6 +196,18 @@ function nameFrom(body: unknown): { name: string } | RouteResponse {
   return typeof name === 'string' ? { name } : respond(422, { error: 'invalid_body' });
 }
 
+function retryFrom(
+  body: unknown,
+): { objective: (typeof SOLVER_OBJECTIVES)[number]; inputHash: string } | RouteResponse {
+  if (!isFieldBag(body)) return respond(422, { error: 'invalid_body' });
+  const objective = body['objective'];
+  const inputHash = body['inputHash'];
+  if (!isOneOf(SOLVER_OBJECTIVES, objective) || typeof inputHash !== 'string') {
+    return respond(422, { error: 'invalid_body' });
+  }
+  return { objective, inputHash };
+}
+
 const isRefusal = (parsed: object): parsed is RouteResponse => 'status' in parsed;
 
 /**
@@ -252,6 +265,15 @@ const PATCH_BODY = checkedBody(
   },
 );
 
+const RETRY_BODY = checkedBody('The failed or corrupt optimization variant to retry.', {
+  type: 'object',
+  required: ['objective', 'inputHash'],
+  properties: {
+    objective: { type: 'string', enum: [...SOLVER_OBJECTIVES] },
+    inputHash: { type: 'string' },
+  },
+});
+
 interface ExportedWorkItem {
   number: string;
   name: string;
@@ -299,6 +321,7 @@ export function projectRoutes(
   auth: AuthService,
   projects: ProjectService,
   workItems: WorkItemService,
+  optimizer?: Pick<OptimizationCoordinator, 'retry'>,
 ): Route[] {
   const guard = callerGuard(auth);
   return [
@@ -360,6 +383,45 @@ export function projectRoutes(
           headers: { 'content-type': 'application/json; charset=utf-8' },
         };
       }),
+    },
+    {
+      method: 'POST',
+      // `:id`, matching every sibling project route: Elysia's radix tree
+      // refuses two parameter names in the same segment even though the wire
+      // path is the same `/api/projects/{projectId}/...` contract.
+      path: '/api/projects/:id/optimization/retry',
+      handler: guard('signed-in', async ({ params, body }, user) => {
+        const request = retryFrom(body);
+        if (isRefusal(request)) return request;
+        const projectId = params['id'];
+        const found = await projects.read(projectId);
+        if (found === null) return respond(404, { error: 'not_found' });
+        if (!canEdit(found.project, user.id)) return respond(403, { error: 'forbidden' });
+        const input = await workItems.scheduleInput(projectId);
+        if (input === null) return respond(404, { error: 'not_found' });
+        if (optimizer === undefined) {
+          return respond(409, { code: 'not-retryable', state: 'idle' });
+        }
+        const outcome = optimizer.retry({ projectId, ...request, input });
+        switch (outcome.kind) {
+          case 'stale-input-hash':
+            return respond(409, {
+              code: 'stale-input-hash',
+              currentInputHash: outcome.currentInputHash,
+            });
+          case 'not-retryable':
+            return respond(409, { code: 'not-retryable', state: outcome.state });
+          case 'already-running':
+            return respond(409, { code: 'already-running' });
+          case 'accepted':
+            return respond(202, {
+              state: outcome.state,
+              generation: outcome.generation,
+              inputHash: outcome.inputHash,
+            });
+        }
+      }),
+      documentation: { detail: { requestBody: RETRY_BODY } },
     },
     {
       // After `/:id/export` and `/:id/opened`, which is registration order made

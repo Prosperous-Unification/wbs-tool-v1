@@ -1,5 +1,29 @@
 # Dual optimized scheduler verification
 
+## 2026-09-06T21:18:13Z — real supervisor orphan process boundary
+
+- Host: `h2puni`; exact tested branch bytes match head `dd86b47628dca2e690084c9c176531389beaad22`.
+- `be-01:solver-image-smoke` built and ran the real packaged solver image, then a digest-pinned
+  inert solver fixture through the production Unix listener, Docker driver and persistent
+  systemd timer. The process proof passed 1/0 with 11 assertions in 9.65 seconds.
+- Killing the bound coordinator container made socket EOF kill, wait, inspect and remove the
+  exact managed child while its SQLite `running` slot remained counted. Killing the supervisor
+  itself left the bound child running; the user-systemd timer stopped it at `childDeadlineAt`,
+  and a restarted supervisor removed that already-stopped orphan before listening.
+- The proof exposed three real boundary defects and now covers each: `docker ps` needed
+  `--no-trunc` before strict full-id parsing; terminal delivery to a dead socket could skip
+  timer/container cleanup; and SIGKILL leaves a stale Unix socket inode which restart must
+  validate and unlink. The stopped-container sweep also distinguishes `Pid=0` from a failed
+  kill of a still-live orphan.
+- Watched negative: suppressing only the post-bind EOF kill failed the real process case at the
+  child deadline (`received 1788729256111`, expected `< 1788729255690`). The systemd timer
+  eventually stopped the child, proving the assertion detects prompt disconnect cleanup rather
+  than accepting the deadline backstop as equivalent. The fault was reversed before the final
+  positive run.
+- Focused non-Docker gate: 19 passed / 1 environment-gated skip / 0 failed across command,
+  listener, lifecycle and orphan suites (40 assertions); Prettier, ShellCheck, ESLint and both
+  `tool-remote-scripts`/`be-01` typechecks passed. No build or autotest ran on h1claw.
+
 ## 2026-09-06T10:23:22Z — coordinator checkpoint
 
 - Head: `910bfad057ebc4e59dfde279f4ed44810e34dc22`
@@ -216,3 +240,98 @@ proof.
 Slices 8.1, 8.2, and 8.5 are closed. Retry remains a route owned by TASK-268,
 so the broader 8.3–8.4 checkboxes stay open rather than claiming an affordance
 whose backend does not yet exist; lane-q TASK-222 already owns post-deploy QA.
+
+## 2026-09-06T21:31:00Z — four independent eviction authorities
+
+- Head under test: `4a86476afb89dbcc6537fdea0e6c0bae1264d3b2`; host: `h2puni`,
+  worktree `/home/puni1/t268-r2-unit.kRzKqI`. No build or autotest ran on the
+  queue-worker box.
+- The four focused repository files passed 144/0 with 428 assertions before
+  mutation. Each mutation below was applied, measured, and restored alone.
+- Worker outcome: removing the attempt-token comparison made both the direct
+  ownership case and reclaimed owner's late-store case red (2 failures).
+- Allocation: suppressing its token-free older-generation eviction made the
+  cold hash-change case red, together with two cross-release cases (3
+  failures). The case separately asserts generation 2 and its new hash, so the
+  successful generation CAS—not a child token—is its authority.
+- OFF cleanup: suppressing the project-scoped queue delete made only the
+  idempotent ON→OFF cancellation case red (1 failure). That case proves the
+  epoch advances once while the queue is evicted, with no attempt token.
+- Retirement: suppressing the token-free cache delete made the direct phase-2
+  retirement and last-slot finisher red (2 failures). The direct case first
+  observes the phase-1 `draining` marker that authorizes the deletion.
+
+This closes 6.9c: weakening any one authority is observed independently, while
+the allocation, OFF transition, and drain paths remain intentionally incapable
+of presenting a worker attempt token.
+
+## 2026-09-06T22:13:33Z — Retry marker replacement boundary
+
+- Red head `e5d0e039` on h2puni: both the failed-marker and corrupt-row cases
+  reached insert-only conflict and failed on `Expected: "stored" / Received:
+"already-recorded"`; the focused file reported 63 pass / 2 fail.
+- Exact green head `6e3beaee` on h2puni, worktree
+  `/home/puni1/t268-r3-regate.4llPBj`: 65/65 tests and 242 assertions passed;
+  scoped Prettier, be-01 fast lint, and be-01 typecheck were green. No build or
+  autotest ran on the queue-worker box.
+- A live slot may replace only a `failed`/`corrupt` row whose `createdAt`
+  predates that slot. The replacement is stamped at or after the slot start, so
+  a second outcome callback from the same attempt remains `already-recorded`.
+  Ready and plan-infeasible answers remain insert-only.
+
+This is the durable overwrite half of 7.3/7.11. The strict-order admission
+transaction and HTTP route remain before either slice can be ticked.
+
+## 2026-09-06T22:28:32Z — atomic Retry admission
+
+- Red head `fe57f5da` on h2puni specified stale-input, retryability, live-key,
+  and budget-key ordering; all seven new cases failed at the absent `retry`
+  seam while the existing 16 coordinator cases passed.
+- Exact green head `9810c133` on h2puni, worktree
+  `/home/puni1/t268-r3-admission-pass.z69Olx`: the coordinator, cache, and
+  queue files passed 93/93 tests with 429 assertions; scoped Prettier, be-01
+  lint, and be-01 typecheck were green. No build or autotest ran on the
+  queue-worker box.
+- One SQLite transaction now applies stale hash → terminal retryability →
+  exact full-key liveness → capacity admission. Failed/corrupt markers remain
+  authoritative while a reserved or durable-FIFO Retry runs, and concurrent
+  identical asks coalesce without launching twice.
+
+This closes the coordinator half of 7.3/7.11. The authenticated HTTP route and
+its response mapping remain.
+
+## 2026-09-06T22:39:45Z — authorized Retry route
+
+- Test-only head `d2df3834` left the existing 33 project-controller cases
+  green while both new route cases failed at 404: the response/body matrix and
+  restricted-project authorization had no endpoint to reach.
+- Exact green head `89e7169b` on h2puni, worktree
+  `/home/puni1/t268-r3-route-proof.l3eSnM`: the project controller, coordinator,
+  and mounted-route suites passed 60/60 with 262 assertions; scoped Prettier,
+  full be-01 lint, and be-01 typecheck were green. No build or autotest ran on
+  the queue-worker box.
+- `POST /api/projects/:id/optimization/retry` now rebuilds the current canonical
+  input after the same `canEdit` check as settings PATCH, delegates to the
+  atomic coordinator seam, and maps the specified stale/not-retryable/running
+  409 bodies and accepted 202 body without rewriting state in the controller.
+  The composition root passes the installed coordinator into the serving app.
+
+Together with the retained-marker replacement and atomic-admission proofs
+above, this closes 7.3 and 7.11.
+
+## 2026-09-06T22:49:00Z — outcome-event negative controls
+
+- Exact head `52e97e09` on h2puni, worktree
+  `/home/puni1/t268-r3-event-negatives.mBUA6j`: the focused event suite passed
+  5/5 with 48 assertions before and after two isolated mutations.
+- Emitting `schedule_optimized` from `readPlan` for an `ok` cache hit made the
+  exact no-hit-push assertion red at 3 received events versus 2 expected.
+- Moving the cache write outside the event transaction made the injected
+  event-write crash leave one cache row; the rollback assertion failed at 1
+  received versus 0 expected. Each mutation was restored and the worktree was
+  clean before the next.
+- The same suite's two preflight failures remain the no-other-event proof for
+  `schedule_optimization_failed`; the earlier success-only event mutation made
+  that case red, as recorded in the durable failure-announcement section.
+
+This closes 7.5 and 7.6. No build or autotest ran on the queue-worker box.

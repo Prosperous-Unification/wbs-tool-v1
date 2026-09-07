@@ -570,6 +570,74 @@ describe('OptimizationCoordinator read', () => {
     // post-release pump leaves p-1 and p-2 queued after the p-0 children exit.
   });
 
+  it('does not allocate a replacement generation when a stale queued project was switched off', async () => {
+    const { path, db } = database();
+    seedProject(path);
+    const oldHash = scheduleInputHash(INPUT);
+    const replacementInput: ScheduleInput = {
+      ...INPUT,
+      notBefore: new Map([['w-1', 1]]),
+    };
+    const generation = allocateGeneration(db, 'p-1', CONTRACT, oldHash, 2);
+    expect(
+      enqueueSolverRequest(db, {
+        projectId: 'p-1',
+        contractVersion: CONTRACT,
+        generation,
+        objective: 'pri',
+        budgetMs: BUDGET,
+        enqueuedAt: 3,
+      }),
+    ).toEqual({ kind: 'queued' });
+    const calls: ReservedSpawnRequest[] = [];
+    let enabledReads = 0;
+    let inputReads = 0;
+    const instance = new OptimizationCoordinator({
+      db,
+      contractVersion: CONTRACT,
+      solverVersion: '0.1.0',
+      budgetMs: BUDGET,
+      ownerId: 'blue',
+      now: () => 10,
+      attemptToken: () => 'blue-token',
+      inputOf: () => {
+        inputReads += 1;
+        return Promise.resolve(replacementInput);
+      },
+      enabledOf: () => {
+        enabledReads += 1;
+        return Promise.resolve(false);
+      },
+      spawn: (request) => {
+        calls.push(request);
+        throw new Error('an OFF project reached the launcher');
+      },
+      eventLog: new DrizzleEventLogRepo(db),
+      pushRecorded: () => Promise.resolve(),
+      onChildError: (error) => {
+        throw error;
+      },
+      setInterval: () => 'drain-timer',
+      clearInterval: () => undefined,
+    });
+
+    instance.start();
+    await instance.drain();
+    await instance.stop();
+
+    expect(inputReads).toBe(1);
+    expect(enabledReads).toBe(1);
+    expect(calls).toEqual([]);
+    expect(readGeneration(db, 'p-1', CONTRACT)).toMatchObject({
+      generation,
+      inputHash: oldHash,
+    });
+    expect(db.select().from(solverQueue).all()).toEqual([]);
+    expect(db.select().from(solverSlot).all()).toEqual([]);
+    // Proof: removing the enabled recheck advances this row to generation 2
+    // with `replacementInput`'s hash and launches both replacement objectives.
+  });
+
   it('stores both preflight refusals without creating a launcher', () => {
     const { path, db } = database();
     seedProject(path);
@@ -1003,5 +1071,139 @@ describe('OptimizationCoordinator read', () => {
       { lifecycle: 'running' },
     ]);
     expect(errors).toHaveLength(2);
+  });
+});
+
+describe('OptimizationCoordinator Retry admission', () => {
+  const inputHash = scheduleInputHash(INPUT);
+
+  function generationWith(
+    path: string,
+    db: ReturnType<typeof openDrizzle>,
+    marker: 'failed' | 'corrupt' | 'plan-infeasible' | 'none',
+  ): number {
+    seedProject(path);
+    const generation = allocateGeneration(db, 'p-1', CONTRACT, inputHash, 2);
+    if (marker !== 'none') {
+      db.insert(optimizedScheduleCache)
+        .values({
+          projectId: 'p-1',
+          inputHash,
+          objective: 'pri',
+          contractVersion: CONTRACT,
+          budgetMs: BUDGET,
+          generation,
+          status: marker === 'corrupt' ? 'ok' : marker,
+          resultJson:
+            marker === 'corrupt'
+              ? '{"dtoVersion":'
+              : marker === 'plan-infeasible'
+                ? '{"dtoVersion":1,"items":[]}'
+                : null,
+          failureReason: marker === 'failed' ? 'timeout' : null,
+          createdAt: 3,
+        })
+        .run();
+    }
+    return generation;
+  }
+
+  const ask = (bodyHash = inputHash) => ({
+    projectId: 'p-1',
+    objective: 'pri' as const,
+    inputHash: bodyHash,
+    input: INPUT,
+  });
+
+  it('refuses a stale body before retryability and carries the current hash', () => {
+    const { path, db } = database();
+    generationWith(path, db, 'failed');
+    const calls: ReservedSpawnRequest[] = [];
+
+    expect(coordinator(db, calls).retry(ask('stale-hash'))).toEqual({
+      kind: 'stale-input-hash',
+      currentInputHash: inputHash,
+    });
+    expect(calls).toEqual([]);
+    expect(db.select().from(solverSlot).all()).toEqual([]);
+  });
+
+  it('names a live miss pending instead of reporting it already-running', () => {
+    const { path, db } = database();
+    const generation = generationWith(path, db, 'none');
+    expect(
+      enqueueSolverRequest(db, {
+        projectId: 'p-1',
+        contractVersion: CONTRACT,
+        generation,
+        objective: 'pri',
+        budgetMs: BUDGET,
+        enqueuedAt: 4,
+      }),
+    ).toEqual({ kind: 'queued' });
+
+    expect(coordinator(db, []).retry(ask())).toEqual({
+      kind: 'not-retryable',
+      state: 'pending',
+    });
+    // Proof: checking liveness before retryability returns `already-running`
+    // for this absent row; watched red on h2puni in TASK-268.
+  });
+
+  it.each([
+    { marker: 'none', state: 'idle' },
+    { marker: 'plan-infeasible', state: 'plan-infeasible' },
+  ] as const)('names an unlaunchable $state variant not-retryable', ({ marker, state }) => {
+    const { path, db } = database();
+    generationWith(path, db, marker);
+
+    expect(coordinator(db, []).retry(ask())).toEqual({ kind: 'not-retryable', state });
+    expect(db.select().from(solverSlot).all()).toEqual([]);
+  });
+
+  it.each(['failed', 'corrupt'] as const)(
+    'admits one %s Retry, coalesces the second, and retains the marker',
+    async (marker) => {
+      const { path, db } = database();
+      const generation = generationWith(path, db, marker);
+      const calls: ReservedSpawnRequest[] = [];
+      const instance = coordinator(db, calls);
+
+      expect(instance.retry(ask())).toEqual({
+        kind: 'accepted',
+        state: 'retrying',
+        generation,
+        inputHash,
+      });
+      expect(instance.retry(ask())).toEqual({ kind: 'already-running' });
+      await untilCalls(calls, 1);
+
+      expect(calls.map((call) => call.objective)).toEqual(['pri']);
+      expect(db.select().from(solverSlot).all()).toHaveLength(1);
+      expect(readOptimizedPair(db, calls[0].key).pri.kind).toBe(marker);
+    },
+  );
+
+  it('matches already-running on budget and admits beside a different-budget slot', () => {
+    const { path, db } = database();
+    const generation = generationWith(path, db, 'failed');
+    expect(
+      reserveSolverSlot(db, {
+        projectId: 'p-1',
+        contractVersion: CONTRACT,
+        generation,
+        objective: 'pri',
+        budgetMs: BUDGET + 1,
+        ownerId: 'other-budget',
+        attemptToken: 'other-budget-token',
+        now: 4,
+      }),
+    ).toMatchObject({ kind: 'reserved' });
+
+    expect(coordinator(db, []).retry(ask())).toMatchObject({
+      kind: 'accepted',
+      state: 'retrying',
+    });
+    expect(db.select().from(solverSlot).all()).toHaveLength(2);
   });
 });

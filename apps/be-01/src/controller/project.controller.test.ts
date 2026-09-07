@@ -3,6 +3,10 @@ import { describe, expect, it } from 'bun:test';
 import { buildApp } from '../app';
 import { AuthService } from '../service/auth.service';
 import { clockOf } from '../service/clock';
+import type {
+  OptimizationCoordinator,
+  OptimizationRetryResult,
+} from '../service/optimization-coordinator';
 import { ProjectService } from '../service/project.service';
 import { inMemoryUsers, TEST_JWT_KEY, testAuthService } from '../testing/auth-fixture';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
@@ -25,7 +29,13 @@ function buildWorkItemService(projectStore: ReturnType<typeof inMemoryProjects>)
   return inMemoryServices({ projects: projectStore }).service;
 }
 
-function buildHarness(options: { writeOnly?: boolean; optimizerAvailable?: boolean } = {}) {
+function buildHarness(
+  options: {
+    writeOnly?: boolean;
+    optimizerAvailable?: boolean;
+    retry?: OptimizationCoordinator['retry'];
+  } = {},
+) {
   // One user store behind both: the list resolves each project's owner name
   // through it, exactly as the query joins `users`. Two stores would leave
   // every registered account unknown to the listing and throw on the first
@@ -64,7 +74,7 @@ function buildHarness(options: { writeOnly?: boolean; optimizerAvailable?: boole
       },
     }),
   });
-  const app = buildApp({
+  const appOptions: Parameters<typeof buildApp>[0] = {
     directory: testDirectoryService(),
     capacity: testCapacityService(),
     priorityBands: testPriorityBandService(),
@@ -80,7 +90,9 @@ function buildHarness(options: { writeOnly?: boolean; optimizerAvailable?: boole
     internalAuthSecret: 'x'.repeat(32),
     writes: testWrites(),
     migrationsApplied: true,
-  });
+    ...(options.retry === undefined ? {} : { optimizer: { retry: options.retry } }),
+  };
+  const app = buildApp(appOptions);
 
   async function register(username: string): Promise<string> {
     const res = await app.handle(
@@ -913,5 +925,105 @@ describe('projects', () => {
     const after = await send(`/api/projects/${project.id}`, stranger);
     const body = (await after.json()) as { project: { optimizationEnabled: boolean } };
     expect(body.project.optimizationEnabled).toBe(false);
+  });
+
+  it('maps every Retry decision after rebuilding the current canonical input', async () => {
+    let outcome: OptimizationRetryResult = {
+      kind: 'stale-input-hash',
+      currentInputHash: 'current-hash',
+    };
+    const asks: Parameters<OptimizationCoordinator['retry']>[0][] = [];
+    const { register, send } = buildHarness({
+      retry: (ask) => {
+        asks.push(ask);
+        return outcome;
+      },
+    });
+    const token = await register('owner');
+    const create = await send('/api/projects', token, created('Retryable'));
+    const { project } = (await create.json()) as { project: { id: string } };
+    const path = `/api/projects/${project.id}/optimization/retry`;
+
+    const invalid = await send(path, token, {
+      method: 'POST',
+      body: JSON.stringify({ objective: 'quickest', inputHash: 'held-hash' }),
+    });
+    expect(invalid.status).toBe(422);
+    expect(asks).toEqual([]);
+
+    const cases: readonly {
+      decision: OptimizationRetryResult;
+      status: number;
+      body: object;
+    }[] = [
+      {
+        decision: { kind: 'stale-input-hash', currentInputHash: 'current-hash' },
+        status: 409,
+        body: { code: 'stale-input-hash', currentInputHash: 'current-hash' },
+      },
+      {
+        decision: { kind: 'not-retryable', state: 'ready' },
+        status: 409,
+        body: { code: 'not-retryable', state: 'ready' },
+      },
+      {
+        decision: { kind: 'already-running' },
+        status: 409,
+        body: { code: 'already-running' },
+      },
+      {
+        decision: {
+          kind: 'accepted',
+          state: 'retrying',
+          generation: 7,
+          inputHash: 'held-hash',
+        },
+        status: 202,
+        body: { state: 'retrying', generation: 7, inputHash: 'held-hash' },
+      },
+    ];
+    for (const testCase of cases) {
+      outcome = testCase.decision;
+      const response = await send(path, token, {
+        method: 'POST',
+        body: JSON.stringify({ objective: 'pri', inputHash: 'held-hash' }),
+      });
+      expect(response.status).toBe(testCase.status);
+      expect(await response.json()).toEqual(testCase.body);
+    }
+    expect(asks).toHaveLength(4);
+    expect(asks[0]).toMatchObject({
+      projectId: project.id,
+      objective: 'pri',
+      inputHash: 'held-hash',
+      input: { reach: 'whole-item' },
+    });
+  });
+
+  it('puts Retry under the settings PATCH project-write authorization', async () => {
+    const asks: unknown[] = [];
+    const { register, send } = buildHarness({
+      retry: (ask) => {
+        asks.push(ask);
+        return { kind: 'already-running' };
+      },
+    });
+    const owner = await register('owner');
+    const reader = await register('reader');
+    const create = await send('/api/projects', owner, created('Restricted Retry'));
+    const { project } = (await create.json()) as { project: { id: string } };
+    await send(`/api/projects/${project.id}`, owner, {
+      method: 'PATCH',
+      body: JSON.stringify({ restricted: true }),
+    });
+
+    const response = await send(`/api/projects/${project.id}/optimization/retry`, reader, {
+      method: 'POST',
+      body: JSON.stringify({ objective: 'time', inputHash: 'held-hash' }),
+    });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: 'forbidden' });
+    expect(asks).toEqual([]);
   });
 });

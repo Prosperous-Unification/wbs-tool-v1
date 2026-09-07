@@ -38,6 +38,14 @@ export type SolverSlotAdmission =
       readonly kind: 'already-present' | 'closed' | 'project-full' | 'global-full';
     };
 
+/** Recover the one start instant encoded into both admission deadlines. */
+export function solverAdmissionStartedAt(
+  admission: Extract<SolverSlotAdmission, { readonly kind: 'reserved' }>,
+  budgetMs: number,
+): number {
+  return admission.childDeadlineAt - budgetMs - CHILD_EXIT_GRACE_MS;
+}
+
 export interface SolverSlotBind {
   readonly projectId: string;
   readonly contractVersion: string;

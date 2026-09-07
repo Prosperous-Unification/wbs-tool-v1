@@ -21,6 +21,7 @@ const MAX_COMMAND_OUTPUT_BYTES = 64 * 1024;
 export interface ManagedCommandInput {
   write(text: string): Promise<void>;
   flush(): Promise<void>;
+  end(): Promise<void>;
 }
 
 export interface ManagedCommandProcess {
@@ -64,6 +65,9 @@ function spawnManagedCommand(
         },
         flush: async (): Promise<void> => {
           await child.stdin.flush();
+        },
+        end: async (): Promise<void> => {
+          await child.stdin.end();
         },
       },
     };
@@ -166,6 +170,9 @@ export class BunManagedContainerDriver implements ManagedContainerDriver {
       write: async (text): Promise<void> => {
         await input.write(text);
         await input.flush();
+      },
+      closeInput: async (): Promise<void> => {
+        await input.end();
       },
     });
   }

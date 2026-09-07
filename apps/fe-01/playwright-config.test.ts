@@ -140,7 +140,9 @@ describe('the browser gate’s port shift', () => {
     // their authenticated Docker hostname; this value belongs only to the
     // isolated browser stack, which must boot before it can run any case.
     const [backend] = serversOf(await loadConfig());
+    const callerId = backend.env?.['HOSTNAME'];
 
-    expect(backend.env?.['HOSTNAME']).toBe('wbs-e2e');
+    expect(callerId).toBe('e2e000000000');
+    expect(callerId).toMatch(/^[0-9a-f]{12}$/);
   });
 });

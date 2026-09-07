@@ -23,6 +23,7 @@ export interface ManagedContainerAttachment {
   readonly stdout: AsyncIterable<Uint8Array>;
   readonly stderr: AsyncIterable<Uint8Array>;
   write(text: string): Promise<void>;
+  closeInput(): Promise<void>;
 }
 
 /** Evidence captured from Docker after a container has stopped. */
@@ -103,62 +104,155 @@ export async function runManagedSolverAttempt(
   }
 
   const containerId = await driver.create(buildManagedContainerArgs(frame, options));
-  const attachment = await driver.attach(exactManagedContainerArgs('attach', containerId));
-  const relay = relayManagedContainerOutput(attachment, options.outputLimits, channel).then(
-    () => ({ ok: true as const }),
-    (error: unknown) => ({ ok: false as const, error }),
-  );
-  const relayFailure = relay.then((state) =>
-    state.ok ? new Promise<never>(() => undefined) : ('output-error' as const),
-  );
-  const deadlineTimer = await driver.armDeadline(
-    buildPersistentDeadlineTimerCommands(frame, containerId),
-  );
-  await driver.start(exactManagedContainerArgs('start', containerId));
+  let deadlineTimer: ManagedDeadlineTimer | undefined;
+  let containerWaited = false;
+  let containerRemoved = false;
+  try {
+    deadlineTimer = await driver.armDeadline(
+      buildPersistentDeadlineTimerCommands(frame, containerId),
+    );
+    await driver.start(exactManagedContainerArgs('start', containerId));
 
-  const started = await driver.inspect(exactManagedContainerArgs('inspect', containerId), false);
-  if (!Number.isSafeInteger(started.pid) || started.pid < 1) {
-    throw new Error('managed solver lifecycle: started container has no positive init PID');
-  }
-  await channel.send({ type: 'started', pid: started.pid });
+    const started = await driver.inspect(exactManagedContainerArgs('inspect', containerId), false);
+    if (!Number.isSafeInteger(started.pid) || started.pid < 1) {
+      throw new Error('managed solver lifecycle: started container has no positive init PID');
+    }
+    // Docker CLI refuses to attach to a merely created container. The launcher
+    // waits for the bound verdict, so starting before attach cannot expose work.
+    const attachment = await driver.attach(exactManagedContainerArgs('attach', containerId));
+    await channel.send({ type: 'started', pid: started.pid });
+    // Docker can expose child output as soon as start returns. Do not consume
+    // the attached streams until the protocol's mandatory first reply is sent.
+    const relay = relayManagedContainerOutput(attachment, options.outputLimits, channel).then(
+      () => ({ ok: true as const }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
+    const relayFailure = relay.then((state) =>
+      state.ok ? new Promise<never>(() => undefined) : ('output-error' as const),
+    );
 
-  const control = await channel.nextControl();
-  if (control === 'bound') {
-    await attachment.write('bound\n');
-    await attachment.write(`${JSON.stringify(frame.request)}\n`);
-    const completion = await Promise.race([
-      attachment.closed.then(() => 'closed' as const),
-      channel.nextControl(),
-      relayFailure,
-    ]);
-    if (completion !== 'closed') {
+    const control = await channel.nextControl();
+    if (control === 'bound') {
+      await attachment.write('bound\n');
+      await attachment.write(`${JSON.stringify(frame.request)}\n`);
+      await attachment.closeInput();
+      const completion = await Promise.race([
+        attachment.closed.then(() => 'closed' as const),
+        channel.nextControl(),
+        relayFailure,
+      ]);
+      if (completion !== 'closed') {
+        await driver.kill(exactManagedContainerArgs('kill', containerId));
+      }
+    } else {
       await driver.kill(exactManagedContainerArgs('kill', containerId));
     }
-  } else {
-    await driver.kill(exactManagedContainerArgs('kill', containerId));
-  }
 
-  await driver.wait(exactManagedContainerArgs('wait', containerId));
-  const relayState = await relay;
-  const deadlineKilled = await deadlineTimer.hasFired();
-  const terminal = terminalFrame(
-    await driver.inspect(exactManagedContainerArgs('inspect', containerId), deadlineKilled),
-  );
-  await channel.send(terminal);
-  await deadlineTimer.cancel();
-  await driver.remove(exactManagedContainerArgs('rm', containerId));
-  if (!relayState.ok) {
-    const reason = relayState.error instanceof Error ? relayState.error.message : 'unknown failure';
-    throw new Error(`managed solver lifecycle: output limit failure: ${reason}`);
+    await driver.wait(exactManagedContainerArgs('wait', containerId));
+    containerWaited = true;
+    const relayState = await relay;
+    const deadlineKilled = await deadlineTimer.hasFired();
+    const terminal = terminalFrame(
+      await driver.inspect(exactManagedContainerArgs('inspect', containerId), deadlineKilled),
+    );
+    let cleanupFailure: unknown;
+    try {
+      await channel.send(terminal);
+    } catch (error) {
+      // EOF is itself a termination trigger, so terminal delivery can fail on
+      // the exact path that most needs host cleanup. Preserve the first failure
+      // for the connection log, but never strand the timer or container behind
+      // the already-closed coordinator socket.
+      cleanupFailure = error;
+    }
+    try {
+      await deadlineTimer.cancel();
+    } catch (error) {
+      cleanupFailure ??= error;
+    }
+    try {
+      await driver.remove(exactManagedContainerArgs('rm', containerId));
+      containerRemoved = true;
+    } catch (error) {
+      cleanupFailure ??= error;
+    }
+    if (!relayState.ok) {
+      const reason =
+        relayState.error instanceof Error ? relayState.error.message : 'unknown failure';
+      throw new Error(`managed solver lifecycle: output limit failure: ${reason}`);
+    }
+    if (cleanupFailure !== undefined) {
+      throw cleanupFailure instanceof Error
+        ? cleanupFailure
+        : new Error('managed solver lifecycle: non-Error cleanup failure');
+    }
+    return terminal;
+  } catch (attemptFailure) {
+    if (containerRemoved) throw attemptFailure;
+
+    let timerFailure: unknown;
+    if (deadlineTimer !== undefined) {
+      try {
+        await deadlineTimer.cancel();
+      } catch (error) {
+        timerFailure = error;
+      }
+    }
+    let stopFailure: unknown;
+    let waitFailure: unknown;
+    if (!containerWaited) {
+      try {
+        await driver.kill(exactManagedContainerArgs('kill', containerId));
+      } catch (error) {
+        stopFailure = error;
+      }
+      try {
+        await driver.wait(exactManagedContainerArgs('wait', containerId));
+      } catch (error) {
+        waitFailure = error;
+      }
+    }
+    let removeFailure: unknown;
+    try {
+      await driver.remove(exactManagedContainerArgs('rm', containerId));
+    } catch (error) {
+      removeFailure = error;
+    }
+
+    const cleanupFailure = timerFailure ?? removeFailure;
+    if (cleanupFailure !== undefined) {
+      const detail = cleanupFailure instanceof Error ? cleanupFailure.message : 'unknown failure';
+      throw new Error(`managed solver lifecycle: attempt and cleanup failed: ${detail}`, {
+        cause: attemptFailure,
+      });
+    }
+    // A kill or wait can report an already-stopped container. Successful
+    // removal is the modeled proof that those intermediate failures are safe.
+    void stopFailure;
+    void waitFailure;
+    throw attemptFailure;
   }
-  return terminal;
 }
 
 /** Clears labelled containers before the supervisor begins accepting sockets. */
 export async function sweepManagedSolverOrphans(driver: ManagedContainerDriver): Promise<void> {
   const containerIds = await driver.list(listManagedContainersArgs());
   for (const containerId of containerIds) {
-    await driver.kill(exactManagedContainerArgs('kill', containerId));
+    try {
+      await driver.kill(exactManagedContainerArgs('kill', containerId));
+    } catch (killFailure) {
+      // A persistent deadline timer can stop the container while the
+      // restart-always supervisor itself is down. Distinguish that expected
+      // state from a failed kill of a still-live orphan before continuing.
+      const stopped = await driver.inspect(
+        exactManagedContainerArgs('inspect', containerId),
+        false,
+      );
+      if (stopped.pid !== 0) throw killFailure;
+      await driver.wait(exactManagedContainerArgs('wait', containerId));
+      await driver.remove(exactManagedContainerArgs('rm', containerId));
+      continue;
+    }
     await driver.wait(exactManagedContainerArgs('wait', containerId));
     await driver.inspect(exactManagedContainerArgs('inspect', containerId), false);
     await driver.remove(exactManagedContainerArgs('rm', containerId));

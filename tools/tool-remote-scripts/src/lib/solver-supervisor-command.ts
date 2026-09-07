@@ -130,6 +130,7 @@ export function listManagedContainersArgs(): string[] {
     'docker',
     'ps',
     '--all',
+    '--no-trunc',
     '--filter',
     'label=wbs-managed-solver=true',
     '--format',

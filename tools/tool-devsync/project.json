@@ -13,6 +13,10 @@
         "{workspaceRoot}/bin/dev-be-probe.sh",
         "{workspaceRoot}/bin/dev-mcp-preflight.sh",
         "{workspaceRoot}/bin/dev-mcp-probe.sh",
+        "{workspaceRoot}/bin/dev-poll.sh",
+        "{workspaceRoot}/bin/dev-poll-sync.sh",
+        "{workspaceRoot}/bin/dev-deploy.sh",
+        "{workspaceRoot}/bin/h2puni-gate.sh",
         "{workspaceRoot}/deploy/dev-src/compose.yml",
         "{workspaceRoot}/apps/*/project.json",
         "{workspaceRoot}/libs/*/project.json",
@@ -61,7 +65,7 @@
       "options": {
         "commands": [
           "command -v shellcheck >/dev/null 2>&1 || { echo '[tool-devsync] shellcheck is required but not installed. macOS: brew install shellcheck. Debian/Ubuntu: apt-get install shellcheck.' >&2; exit 1; }",
-          "shellcheck -s bash bin/dev-deploy.sh bin/dev-be-probe.sh bin/dev-mcp-preflight.sh bin/dev-mcp-probe.sh"
+          "shellcheck -s bash bin/dev-deploy.sh bin/dev-be-probe.sh bin/dev-mcp-preflight.sh bin/dev-mcp-probe.sh bin/dev-poll.sh bin/dev-poll-sync.sh"
         ],
         "parallel": false
       }

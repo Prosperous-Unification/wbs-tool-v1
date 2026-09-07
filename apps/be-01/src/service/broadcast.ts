@@ -128,6 +128,21 @@ export type ProjectEvent =
       failureReason: SolverFailureReason;
     }
   /**
+   * A deterministic certificate has become the terminal answer for one exact
+   * optimizer variant. The certificate stays in the keyed cache DTO; this
+   * announcement carries the full release identity so every collaborator can
+   * re-read that variant instead of remaining `pending` until another edit.
+   */
+  | {
+      type: 'schedule_optimization_infeasible';
+      projectId: string;
+      generation: number;
+      inputHash: string;
+      objective: SolverObjectiveName;
+      contractVersion: string;
+      budgetMs: number;
+    }
+  /**
    * This project's list of saved plans has changed — one saved, renamed or
    * deleted.
    *

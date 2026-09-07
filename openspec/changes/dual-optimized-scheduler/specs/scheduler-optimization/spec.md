@@ -50,13 +50,13 @@ The coordinator SHALL emit one `schedule_optimized` event when a newly validated
 
 ### Requirement: The comparison indicator names the change against Fast
 
-The compact indicator SHALL compare the selected optimized variant with the Fast schedule for the same exact input and SHALL report one of: Earlier by N days, Later by N days, Same deadline + reordered, or Same deadline + same order.
+The compact indicator SHALL compare the selected optimized variant with the Fast schedule for the same exact input and SHALL report one of: Earlier project deadline by N days, Later project deadline by N days, Same project deadline + reordered, or Same project deadline + same order. Every one of the four SHALL name the deadline it means, because the schedule's project finish date and `work_item.deadline` are both live and an unqualified "deadline" cannot say which it is (`work-item-deadline` 8.9/8.9b).
 
 #### Scenario: the selected variant finishes earlier
 
 - **GIVEN** an optimized variant that finishes earlier than Fast for the same input
 - **WHEN** that variant is displayed
-- **THEN** the indicator reads "Earlier by N days" with the exact day count
+- **THEN** the indicator reads "Earlier project deadline by N days" with the exact day count
 
 ### Requirement: Failure keeps Fast usable and requires manual retry
 
