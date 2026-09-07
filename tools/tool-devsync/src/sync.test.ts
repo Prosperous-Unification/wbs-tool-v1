@@ -300,7 +300,7 @@ describe('dev-sync lock diagnostics', () => {
     expect(devSyncFailureMessage(1)).toBe('[dev-sync] failed (exit 1); see the error above');
   });
 
-  it('passes the reserved contention code to the real flock invocation', async () => {
+  it('guards the sync source shape that passes the reserved contention code to flock', async () => {
     const source = await readFile(new URL('./sync.ts', import.meta.url), 'utf8');
     expect(source).toContain('flock -E ${LOCK_BUSY_EXIT_CODE} -n ${LOCK}');
   });

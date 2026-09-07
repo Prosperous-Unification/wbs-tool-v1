@@ -31,20 +31,23 @@ async function requireCommand(argv: string[]): Promise<string> {
 }
 
 describe('durable dev poller', () => {
-  it('pins the managed interpreter and target ref while retaining the proof gates', async () => {
-    const poller = await readFile(new URL('../../../bin/dev-poll.sh', import.meta.url), 'utf8');
-    expect(poller).toContain('flock -n 9');
-    expect(poller).toContain('dev-poll-sync.sh');
-    expect(poller).not.toContain('"$SRC/tools/tool-devsync/src/sync.ts"');
-    expect(poller).toContain('BUN=/home/puni1/wbs-dev/bin/bun');
-    expect(poller).not.toContain('/wbs-dark/');
-    expect(poller).toContain('git rev-parse refs/remotes/origin/main');
-    expect(poller).not.toContain('git rev-parse FETCH_HEAD');
-    expect(poller).toContain('read_served_commit');
-    expect(poller).toContain('if [ "${served:-}" != "$remote_sha" ]');
-  });
+  it(
+    'guards the installed poller source shape for its interpreter, target ref, and proof hooks',
+    async () => {
+      const poller = await readFile(new URL('../../../bin/dev-poll.sh', import.meta.url), 'utf8');
+      expect(poller).toContain('flock -n 9');
+      expect(poller).toContain('dev-poll-sync.sh');
+      expect(poller).not.toContain('"$SRC/tools/tool-devsync/src/sync.ts"');
+      expect(poller).toContain('BUN=/home/puni1/wbs-dev/bin/bun');
+      expect(poller).not.toContain('/wbs-dark/');
+      expect(poller).toContain('git rev-parse refs/remotes/origin/main');
+      expect(poller).not.toContain('git rev-parse FETCH_HEAD');
+      expect(poller).toContain('read_served_commit');
+      expect(poller).toContain('if [ "${served:-}" != "$remote_sha" ]');
+    },
+  );
 
-  it('streams the candidate loader instead of requiring its prior host installation', async () => {
+  it('guards the manual deploy source shape that streams the candidate loader', async () => {
     const deploy = await readFile(new URL('../../../bin/dev-deploy.sh', import.meta.url), 'utf8');
     expect(deploy).toContain('< "$(dirname "${BASH_SOURCE[0]}")/dev-poll-sync.sh"');
     expect(deploy).not.toContain('/home/puni1/wbs-dev/bin/dev-poll-sync.sh');
@@ -184,7 +187,7 @@ esac
     );
   });
 
-  it('keeps the real orphan process proof in the canonical h2puni gate', async () => {
+  it('guards the canonical h2puni gate wiring for the real orphan process proof', async () => {
     const gate = await readFile(new URL('../../../bin/h2puni-gate.sh', import.meta.url), 'utf8');
     expect(gate).toContain('WBS_RUN_SOLVER_ORPHAN_PROC=1');
     expect(gate).toContain('bunx nx run be-01:solver-image-smoke');
