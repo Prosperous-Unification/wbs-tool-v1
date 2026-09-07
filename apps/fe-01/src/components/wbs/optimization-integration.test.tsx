@@ -138,6 +138,11 @@ describe('project optimization in the plan', () => {
     async () => {
       const api = fakeProjectApi();
       const row = await api.createWorkItem('p1', { parentId: null, afterId: null, name: 'Launch' });
+      // A day zero, so the chart has something to draw: a project with no start
+      // date has no dates to place, and "Fast is still on screen" would be
+      // asserted against an empty state rather than against Fast.
+      await api.setStartDate('p1', '2026-09-07');
+      const patch = vi.spyOn(api, 'patchWorkItem');
       const readTree = api.tree.bind(api);
       api.tree = async (projectId) => ({
         ...(await readTree(projectId)),
@@ -160,22 +165,40 @@ describe('project optimization in the plan', () => {
 
       expect(await screen.findByText('Plan infeasible · 1 Work item deadline')).toBeInTheDocument();
 
-      // On screen, and usable: the row's own editor, not merely its text. An
-      // infeasible optimized plan is a statement about the optimized variant —
-      // the Fast schedule it is measured against is still the one being shown,
-      // so nothing about the table may go read-only or disappear.
+      // **On screen** is the Fast schedule itself, not merely the row list: an
+      // infeasible optimized plan is a statement about the optimized variant,
+      // and the Fast plan it is measured against is still the one being drawn.
+      // The chart is behind its own control, so opening it is part of the
+      // claim — an affordance that stopped working would fail here too.
+      fireEvent.click(await screen.findByRole('button', { name: 'Gantt' }));
+      expect(await screen.findByLabelText('Gantt chart')).toBeInTheDocument();
+
+      // **Usable** has to cross the edit boundary. `CellInput` is uncontrolled
+      // (`defaultValue`), so reading the node's own value back after a `change`
+      // asserts jsdom, not the table — the write starts on blur and lands in
+      // `api.patchWorkItem`. Spy on it and wait for the reread.
       const name = await screen.findByLabelText('Name of 010');
       expect(name).toHaveValue('Launch');
       expect(name).toBeEnabled();
       name.focus();
       fireEvent.change(name, { target: { value: 'Launch v2' } });
-      expect(screen.getByLabelText('Name of 010')).toHaveValue('Launch v2');
+      fireEvent.blur(name);
+      await waitFor(() => {
+        expect(patch).toHaveBeenCalledWith(row.id, { name: 'Launch v2' });
+      });
+      expect(await screen.findByLabelText('Name of 010')).toHaveValue('Launch v2');
 
       // No toast and no modal, and no Retry — the whole document, because the
       // point of the item is that the affordance is absent from the screen, not
-      // merely from one component's own markup. `alert` is doing double duty:
-      // it is also the stale-tree banner, so its absence says these rows are the
-      // current ones rather than a copy the reader was warned about.
+      // merely from one component's own markup.
+      //
+      // `[data-toast]` and not `queryByRole('alert')`: `ToastStack` gives the
+      // alert role to error toasts **only**, deliberately, so an info toast is
+      // a toast that an alert query cannot see. The alert query stays as well,
+      // because it is doing separate double duty — it is also the stale-tree
+      // banner, so its absence says these rows are the current ones rather than
+      // a copy the reader was warned about.
+      expect(document.querySelectorAll('[data-toast]')).toHaveLength(0);
       expect(screen.queryByRole('dialog')).toBeNull();
       expect(screen.queryByRole('alert')).toBeNull();
       expect(screen.queryByRole('button', { name: /retry/i })).toBeNull();

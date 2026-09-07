@@ -1156,8 +1156,15 @@ describe('OptimizationCoordinator Retry admission', () => {
   ] as const)('names an unlaunchable $state variant not-retryable', ({ marker, state }) => {
     const { path, db } = database();
     generationWith(path, db, marker);
+    const calls: ReservedSpawnRequest[] = [];
 
-    expect(coordinator(db, []).retry(ask())).toEqual({ kind: 'not-retryable', state });
+    expect(coordinator(db, calls).retry(ask())).toEqual({ kind: 'not-retryable', state });
+    // Both, because neither alone is "no solver process starts": `spawn` runs
+    // **before** `bindSolverSlot`, so a regression that starts a child and then
+    // fails to bind leaves this table empty and the process real. The spawn
+    // recorder is the assertion about the process; the empty table is the
+    // assertion about the reservation.
+    expect(calls).toEqual([]);
     expect(db.select().from(solverSlot).all()).toEqual([]);
   });
 
