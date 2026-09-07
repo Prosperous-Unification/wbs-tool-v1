@@ -433,6 +433,10 @@ describe('project optimization in the plan', () => {
 
     await act(async () => {
       releaseTree();
+      // Inside the `act`, not after it: the held read resolves onto a `.then`
+      // chain, and the state write at the end of that chain is the one React
+      // has to flush here.
+      await Promise.resolve();
     });
 
     await waitFor(() => {
