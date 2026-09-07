@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PlanOptimizationView } from '@/lib/wbs-api';
 import { DEV, fakeProjectApi } from '@/testing/fake-project-api';
 
-import { type SubscriptionHandlers, WbsTable } from './wbs-table';
+import { readScopeFor, type SubscriptionHandlers, WbsTable } from './wbs-table';
 
 const hasDom = typeof document !== 'undefined';
 const itDom = hasDom ? it : it.skip;
@@ -220,4 +220,113 @@ describe('project optimization in the plan', () => {
       expect(screen.queryByText(/Optimization unavailable/)).toBeNull();
     },
   );
+
+  /**
+   * TASK-313 AC #1's live half, and the reason it is asserted through the
+   * socket rather than through a second render.
+   *
+   * A cold page load renders `plan-infeasible` correctly and always did — that
+   * is what the case above proves. The half that was missing is a client
+   * **already on screen**: the indicator is event-driven, so before
+   * `schedule_optimization_infeasible` existed a stored certificate announced
+   * nothing and that client sat on `Optimizing…` until something unrelated
+   * forced a refetch. Nothing on its own side could ever move it, because this
+   * state never auto-respawns and offers no Retry.
+   *
+   * `notify` is the only thing that happens between the two assertions. No
+   * remount, no user action, no timer.
+   */
+  itDom('leaves Optimizing… on the infeasible event alone', async () => {
+    const api = fakeProjectApi();
+    const row = await api.createWorkItem('p1', { parentId: null, afterId: null, name: 'Launch' });
+    let infeasible = false;
+    const readTree = api.tree.bind(api);
+    api.tree = async (projectId) => ({
+      ...(await readTree(projectId)),
+      optimization: {
+        ...READY,
+        displayed: 'fast',
+        comparison: undefined,
+        variants: {
+          ...READY.variants,
+          pri: infeasible
+            ? {
+                state: 'plan-infeasible',
+                items: [
+                  { ownerWorkItemId: row.id, boundWorkItemId: row.id, effectiveDeadlineOffset: 2 },
+                ],
+              }
+            : { state: 'pending' },
+        },
+      } satisfies PlanOptimizationView,
+    });
+    let notify: SubscriptionHandlers['onChange'] = () => {
+      throw new Error('the table never subscribed');
+    };
+    const subscribe = (_projectId: string, handlers: SubscriptionHandlers) => {
+      notify = handlers.onChange;
+      return { seen: () => undefined, unsubscribe: () => undefined };
+    };
+    render(<WbsTable projectId="p1" api={api} subscribe={subscribe} />);
+    expect(await screen.findByRole('status')).toHaveTextContent('Optimizing…');
+
+    // The solve finished and stored its certificate; the event is the only
+    // notice this client gets of it.
+    infeasible = true;
+    act(() => {
+      notify('schedule_optimization_infeasible');
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent(
+        'Plan infeasible · 1 Work item deadline',
+      );
+    });
+    expect(screen.queryByText('Optimizing…')).toBeNull();
+    // Still not a failure, on the path that used to be the only way here: an
+    // event that flipped the variant to `failed` would offer the Retry this
+    // state exists to withhold.
+    expect(screen.queryByRole('button', { name: /retry/i })).toBeNull();
+  });
+
+  /**
+   * The three optimizer events named on this side, and what each of them reads.
+   *
+   * `readScopeFor` answers `'all'` for anything it does not recognise, so every
+   * one of these already passes and none of them is testing a branch. What they
+   * pin is the **name**: `schedule_optimization_infeasible` is the third event
+   * (TASK-313), and a stored `plan-infeasible` certificate has no other way to
+   * take a client off `Optimizing…` — that state never auto-respawns and offers
+   * no Retry, so nothing the client does on its own can move it. Naming all
+   * three here gives a be-01 rename somewhere to fail rather than silently
+   * dropping one to the default that happens to be right today.
+   *
+   * `'all'` and not a narrower scope: the two narrow scopes are claims about
+   * be-01's tree and step events, and an optimizer outcome is neither — it
+   * moves a variant's stored state, which the plan read carries.
+   */
+  describe('the read scope each optimizer event asks for', () => {
+    for (const event of [
+      'schedule_optimized',
+      'schedule_optimization_failed',
+      'schedule_optimization_infeasible',
+    ]) {
+      it(`reads everything for ${event}`, () => {
+        expect(readScopeFor(event)).toBe('all');
+      });
+    }
+
+    it('keeps the narrow scopes the tree and step events earned', () => {
+      expect(readScopeFor('tree_replaced')).toBe('tree');
+      expect(readScopeFor('step_added')).toBe('tree-and-steps');
+      expect(readScopeFor('step_renamed')).toBe('tree-and-steps');
+      expect(readScopeFor('step_removed')).toBe('tree-and-steps');
+    });
+
+    it('reads everything for a frame that said nothing and for an event this build has never heard of', () => {
+      expect(readScopeFor(null)).toBe('all');
+      expect(readScopeFor(undefined)).toBe('all');
+      expect(readScopeFor('schedule_optimization_invented_next_year')).toBe('all');
+    });
+  });
 });

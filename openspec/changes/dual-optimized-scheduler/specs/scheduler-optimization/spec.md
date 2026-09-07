@@ -324,6 +324,12 @@ The cache row and a durable `event_log` record SHALL be written in one SQLite tr
 - **WHEN** the process dies after the cache write but before the transaction commits
 - **THEN** no cache row and no event record exist, and the next read starts a fresh solve
 
+#### Scenario: a crash between an infeasible certificate and its event leaves neither
+
+- **GIVEN** a first-stage `INFEASIBLE` whose `plan-infeasible` certificate has been written and whose event write then throws
+- **WHEN** the outcome transaction unwinds
+- **THEN** neither the cache row nor the `event_log` record exists, because "newly stored outcome" is every stored outcome and not only the `ok` one — a certificate that outlived its own announcement would be a terminal, never-auto-respawned row that no live client is ever told about
+
 ### Requirement: The solver is a versioned package behind one entrypoint
 
 The solver SHALL ship as its own version-pinned Python package exposing exactly one **solve** entrypoint over stdin/stdout, invoked as a short-lived child process. There SHALL be no import from Bun, no daemon, no listening port, and no sidecar. The same distribution SHALL also ship the **lifecycle launcher** as a second, non-solving console script `wbs-solver-launcher`, which SHALL NOT import CP-SAT and SHALL NOT read the request before its bind verdict; "exactly one entrypoint" scopes the _solve contract_, and does not forbid the launcher the process ceiling depends on (Fable r14 Important 3, which found the launcher specified everywhere and homed nowhere). Production SHALL reach `wbs-solver` only through that launcher, and the built image SHALL be proved to carry both scripts.
@@ -489,9 +495,27 @@ A newly written failure marker SHALL emit a `schedule_optimization_failed` proje
 - **WHEN** both fail and no other event occurs
 - **THEN** the client shows `Optimization unavailable · Retry` for the selected variant without any refresh or poll
 
+### Requirement: An infeasible variant reaches a client already on screen
+
+A newly written `plan-infeasible` row SHALL emit a `schedule_optimization_infeasible` project event in the same transaction that writes the row, carrying `(projectId, generation, inputHash, objective, contractVersion, budgetMs)` and neither a schedule nor a `failureReason`. A client displaying that variant SHALL move to the `Plan infeasible · N work item deadlines` indicator on receiving it, without a manual refresh. A cache hit SHALL still emit nothing.
+
+**It SHALL be a third event type and SHALL NOT be a widening of either existing one**, because both widenings are lossy in the same direction. `schedule_optimization_failed` carries a `failureReason` drawn from a closed enum with no member for a deterministic certificate, and a receiver that reads the variant as failed offers the `Retry` this state must never offer — the one affordance the whole `plan-infeasible` state exists to withhold. `schedule_optimized` promises a schedule that a certificate does not have. Widening either makes one event name two facts and forces every receiver to re-derive which by re-reading the variant, which is the refetch this event exists to avoid.
+
+#### Scenario: both variants come back infeasible and neither client stays Optimizing…
+
+- **GIVEN** a client viewing Engine Optimized while both the PRI and Time solves are in flight
+- **WHEN** both first-stage solves return `INFEASIBLE` and no other event occurs
+- **THEN** each stored certificate emits exactly one `schedule_optimization_infeasible`, and the client shows `Plan infeasible · N work item deadlines` for the selected variant without any refresh or poll
+
+#### Scenario: an infeasible certificate is not announced as a failure
+
+- **GIVEN** a stored `plan-infeasible` row and its committed record
+- **WHEN** that record is replayed from `event_log`
+- **THEN** its type is `schedule_optimization_infeasible` and it carries no `failureReason`, so no receiver can render it as `Optimization unavailable · Retry`
+
 ### Requirement: Result events name every cache-key dimension
 
-Both `schedule_optimized` and `schedule_optimization_failed` SHALL carry `budgetMs` in their identity, so a receiver can tell which cached row an event names. The system SHALL guarantee one durable `event_log` record per newly stored outcome plus one best-effort post-commit push, and SHALL NOT claim delivery over a live socket. The record SHALL be written inside the same transaction as its cache row through a transaction-taking repository call, and pushed afterwards without being recorded twice.
+`schedule_optimized`, `schedule_optimization_failed` and `schedule_optimization_infeasible` SHALL each carry `budgetMs` in their identity, so a receiver can tell which cached row an event names. The system SHALL guarantee one durable `event_log` record per newly stored outcome plus one best-effort post-commit push, and SHALL NOT claim delivery over a live socket. The record SHALL be written inside the same transaction as its cache row through a transaction-taking repository call, and pushed afterwards without being recorded twice.
 
 #### Scenario: raising the budget notifies a client holding the old result
 

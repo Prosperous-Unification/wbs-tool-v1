@@ -227,6 +227,7 @@ The existing "at any stage" clause and the stage-status matrix SHALL therefore b
 - carry a payload naming every offending work item and its **effective** deadline — the effective one, so a leaf bound by an ancestor's date shows the date that actually bound it rather than sending the user to edit a field that changes nothing — with each entry carrying both the work item that **owns** the binding date and the work item the constraint **fell on**, which are the same id when it is a leaf's own;
 - be cached exactly like `ok` and under an identical key, because it is a deterministic function of the input, while not suppressing a new hash's generation;
 - never auto-respawn, the same rule a `failed` row carries;
+- announce itself with its own project event, `schedule_optimization_infeasible`, written in the same transaction as its row and pushed best-effort after that transaction commits — the third event beside `schedule_optimized` and `schedule_optimization_failed`, named identically here and in the `dual-optimized-scheduler` spec's event requirements, because "one durable replay record per newly stored outcome" counts this row and a client already on screen has no other way off `Optimizing…`: this state never auto-respawns and offers no Retry, so nothing on the client's own side can move it;
 - render as `Plan infeasible · N work item deadlines` with the offending items listed on demand, Fast still on screen and usable, and no toast and no modal.
 
 Malformed or invalid solver output SHALL remain `invalid-output` and an **engine failure**: an unparseable line, an unknown status, a missing or unknown offset key, any offset failing Bun revalidation, and — specifically — a _feasible_ schedule that violates an effective deadline. A deadline-violating solver result is a broken engine, never an infeasible plan.
@@ -242,6 +243,12 @@ Malformed or invalid solver output SHALL remain `invalid-output` and an **engine
 - **GIVEN** a variant stored as `plan-infeasible`
 - **WHEN** the indicator renders
 - **THEN** it reads `Plan infeasible · N work item deadlines` and exposes no Retry affordance
+
+#### Scenario: a stored certificate reaches a client already on screen
+
+- **GIVEN** a client showing `Optimizing…` for the selected variant
+- **WHEN** that variant's first-stage solve returns `INFEASIBLE` and its certificate is stored
+- **THEN** exactly one `schedule_optimization_infeasible` record commits in the row's own transaction, and the client leaves `Optimizing…` for `Plan infeasible · N work item deadlines` without a manual refresh
 
 #### Scenario: the payload names the binding ancestor's date
 
