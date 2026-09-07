@@ -248,9 +248,15 @@ function casesAt(rev: string, path: string, port: RevisionPort): string | null {
   try {
     parsed = JSON.parse(raw);
   } catch (e: unknown) {
+    // The message keeps the parser's own words because that is what the gate
+    // prints; `cause` keeps the error itself, so a caller that ever stops
+    // flattening these to `.message` still has the parse failure to read. Only
+    // the message is interpolated — never `raw` — so the fixture's contents
+    // stay out of the gate output either way.
     throw new Error(
       `${path} at ${rev} is not valid JSON (${e instanceof Error ? e.message : String(e)}), ` +
         'so its cases could not be compared.',
+      { cause: e },
     );
   }
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))

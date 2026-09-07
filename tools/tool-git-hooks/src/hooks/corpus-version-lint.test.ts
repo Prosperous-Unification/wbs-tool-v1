@@ -381,6 +381,11 @@ describe('unreadable inputs fail closed, because a check that skips itself is th
     const found = reasons(EIGHT, tree({ [FAST]: '{ "contractVersion": 8, "cases": ' }));
     expect(found).toHaveLength(1);
     expect(found[0]).toContain(FAST);
+    // The issue this check hands back is a string, so the parser's own words
+    // have to survive in the message. Attaching them as the thrown error's
+    // `cause` instead would read as preserved and print as nothing.
+    expect(found[0]).toContain('is not valid JSON');
+    expect(found[0]).toContain('so its cases could not be compared');
   });
 
   it('refuses a fixture whose cases key is missing', () => {
