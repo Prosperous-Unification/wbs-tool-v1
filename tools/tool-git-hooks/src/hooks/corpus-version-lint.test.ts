@@ -279,10 +279,25 @@ describe('the constant is read as a number, not as bytes', () => {
     expect(found[0]).toContain('LATEST');
   });
 
-  it('refuses a digit string too long to be a safe integer, rather than storing Infinity', () => {
-    // `Number('9'.repeat(400))` is `Infinity`, which compares greater than
-    // every version and can never be exceeded afterwards — a version no bump
-    // could follow. Refused rather than accepted as an increase.
+  it('refuses an integer past the safe range, which no later version could exceed', () => {
+    // `9007199254740993` is a legal integer literal that the parser normalises
+    // to `9007199254740992` — still all digits, so the integer test passes it —
+    // and `Number.isSafeInteger` is false for it. Accepting it would store a
+    // version no bump can compare greater than. Measured, not assumed: a much
+    // longer digit string normalises to `Infinity` instead and is refused one
+    // branch earlier, as `not an integer literal`.
+    const found = reasons(
+      EIGHT,
+      tree({
+        [CONTRACT_VERSION_PATH]: constantSource('9007199254740993'),
+        [QUANTUM]: corpus(8, { drift: { units: 49 } }),
+      }),
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0]).toContain('safe integer');
+  });
+
+  it('refuses a digit string long enough to normalise to Infinity', () => {
     const found = reasons(
       EIGHT,
       tree({
@@ -291,7 +306,8 @@ describe('the constant is read as a number, not as bytes', () => {
       }),
     );
     expect(found).toHaveLength(1);
-    expect(found[0]).toContain('safe integer');
+    expect(found[0]).toContain('Infinity');
+    expect(found[0]).toContain('not an integer literal');
   });
 
   it('accepts a legal numeric separator, which the text reader refused', () => {
