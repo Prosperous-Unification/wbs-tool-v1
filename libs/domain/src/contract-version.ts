@@ -72,11 +72,13 @@
  * what it does not, stated exactly, because the last version of this paragraph
  * was overstated and TASK-323 had to narrow it in place:
  *
- * - It cannot be routed around by how a change lands. The workflow triggers on
- *   `pull_request`, on `push` to `main` and on `workflow_dispatch`, and the
- *   boundary is chosen per event rather than inferred, so a multi-commit push
- *   is compared against what `main` held before it and not against its own
- *   penultimate commit.
+ * - It covers the events the workflow subscribes to, and only those:
+ *   `pull_request`, `push` to `main` and `workflow_dispatch`. The boundary is
+ *   chosen per event rather than inferred, so a multi-commit push is compared
+ *   against what `main` held before it and not against its own penultimate
+ *   commit. **`merge_group` is NOT subscribed**, so a merge queue would not run
+ *   it — peer review found that claim overstated here and it is narrowed rather
+ *   than deleted, because the gap is real and unfixed.
  * - It does NOT prove the bump was made *because* of the semantic change. A
  *   version increase in the same change for an unrelated reason satisfies it.
  *   That is not a cache-safety hole — the corpus lands under a new version and
@@ -106,8 +108,10 @@
  * moves neither eight plans nor six slices is still a human obligation, which
  * is what this paragraph exists to say out loud. What the two of them now buy
  * together with the lint above: a change that moves eight plans or six slices
- * cannot reach `main` under an unchanged version number — the suite reddens
- * until the writer is run, and the lint reddens until the number moves.
+ * cannot reach `main` **through a reviewed pull request** under an unchanged
+ * version number — the suite reddens until the writer is run, and the lint
+ * reddens until the number moves. On a direct push the lint reports after the
+ * commit has landed, which is detection and not prevention.
  */
 export const SCHEDULER_CONTRACT_VERSION = 8;
 

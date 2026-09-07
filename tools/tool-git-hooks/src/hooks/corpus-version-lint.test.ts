@@ -127,6 +127,19 @@ describe('what counts as a change is exactly what the corpus tests compare', () 
     expect(reasons(EIGHT, tree({ [QUANTUM]: reordered }))).toEqual([]);
   });
 
+  it('does not call negative zero equal to zero, which JSON.stringify would', () => {
+    // `JSON.stringify(-0)` is `"0"` while `toEqual` tells the two apart, so a
+    // canonicaliser resting on stringify alone would let a stored value move
+    // from 0 to -0 under an unchanged version and report it unchanged. The
+    // fixtures are read as TEXT here because a writer would never emit `-0`;
+    // a hand edit is the way it gets into a file.
+    const zero = '{ "contractVersion": 8, "cases": { "drift": { "units": 0 } } }';
+    const negated = '{ "contractVersion": 8, "cases": { "drift": { "units": -0 } } }';
+    const found = reasons(tree({ [QUANTUM]: zero }), tree({ [QUANTUM]: negated }));
+    expect(found).toHaveLength(1);
+    expect(found[0]).toContain(QUANTUM);
+  });
+
   it('ignores whitespace, which the repository format check owns instead', () => {
     const reflowed = JSON.stringify(JSON.parse(EIGHT[QUANTUM]));
     expect(reasons(EIGHT, tree({ [QUANTUM]: reflowed }))).toEqual([]);
@@ -194,6 +207,38 @@ describe('the constant is read as a number, not as bytes', () => {
     );
     expect(found).toHaveLength(1);
     expect(found[0]).toContain('twice');
+  });
+
+  it('reads no version out of a commented-out declaration, which is the review bypass', () => {
+    // Legal TypeScript, and it defeated the first pattern: a block comment
+    // between the name and the `=` hides the real declaration, and a
+    // commented-out one names a higher number. Without the strip the check
+    // reads 9 here and lets moved cases through as an increase.
+    const bypass = [
+      '// export const SCHEDULER_CONTRACT_VERSION = 9;',
+      'export const SCHEDULER_CONTRACT_VERSION /* still eight */ = 8;',
+    ].join('\n');
+    const found = reasons(
+      EIGHT,
+      tree({
+        [CONTRACT_VERSION_PATH]: bypass,
+        [QUANTUM]: corpus(8, { drift: { units: 49 } }),
+      }),
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0]).toContain('declares no exported SCHEDULER_CONTRACT_VERSION');
+  });
+
+  it('ignores a declaration quoted inside a comment while a real one is present', () => {
+    expect(
+      reasons(
+        EIGHT,
+        tree({
+          [CONTRACT_VERSION_PATH]: `// once: export const SCHEDULER_CONTRACT_VERSION = 7;\n${constantSource('9')}`,
+          [QUANTUM]: corpus(9, { drift: { units: 49 } }),
+        }),
+      ),
+    ).toEqual([]);
   });
 
   it('fails closed on a value that is not an integer literal', () => {

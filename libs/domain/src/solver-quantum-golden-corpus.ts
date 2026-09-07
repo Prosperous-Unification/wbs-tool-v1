@@ -55,9 +55,10 @@
  * not a case here because the question is about two commits and a test's
  * subject is one tree. **Read the boundary above unchanged:** this file still
  * forces a reading and not a bump, and what the pair now gives is that a
- * regeneration cannot reach `main` under an unchanged number — not that the
- * number was moved *for* this change, which a co-incidental bump also
- * satisfies.
+ * regeneration cannot reach `main` **through a reviewed pull request** under an
+ * unchanged number — not that the number was moved *for* this change, which a
+ * co-incidental bump also satisfies, and not that a direct push is stopped,
+ * which it is not.
  *
  * **What this is not.** It is not a hash of `solver-quantum.ts`. A source hash
  * would have reddened for PR 281, and it would have reddened just as loudly for

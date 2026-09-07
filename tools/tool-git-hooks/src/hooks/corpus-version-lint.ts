@@ -86,6 +86,27 @@ export interface Boundary {
 const ALL_ZERO = /^0{40}$/;
 
 /**
+ * Comments blanked, keeping every newline so surviving lines stay where they
+ * were.
+ *
+ * Peer review found the bypass this closes, and it is legal TypeScript: put a
+ * block comment between the constant's name and its `=` so the pattern below
+ * misses the real declaration, and leave a commented-out declaration naming a
+ * higher number above it. The comment then supplies the only match and a moved
+ * fixture reads as an increase. Stripping first, and anchoring the pattern to
+ * the start of a line, means a commented declaration contributes nothing and a
+ * reformatted one is a hard failure rather than a silent miss. A string literal
+ * containing a line-comment marker would be over-stripped; the consequence is a
+ * named "declares no exported SCHEDULER_CONTRACT_VERSION" error, which is the
+ * direction this whole file errs in.
+ */
+function stripComments(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, (block) => block.replace(/[^\n]/g, ' '))
+    .replace(/\/\/[^\n]*/g, '');
+}
+
+/**
  * Read as a NUMBER at both revisions, not as bytes.
  *
  * Comparing `contract-version.ts` blobs would count a prose edit as a bump, and
@@ -99,7 +120,9 @@ function versionAt(rev: string, port: RevisionPort): number {
   if (source === null)
     throw new Error(`${CONTRACT_VERSION_PATH} does not exist at ${rev}, so no version can be read`);
   const declarations = [
-    ...source.matchAll(/export\s+const\s+SCHEDULER_CONTRACT_VERSION\s*(?::[^=]+)?=([^;]*);/g),
+    ...stripComments(source).matchAll(
+      /^export\s+const\s+SCHEDULER_CONTRACT_VERSION\s*(?::[^=]+)?=([^;]*);/gm,
+    ),
   ];
   if (declarations.length === 0)
     throw new Error(
@@ -137,6 +160,11 @@ function byKey([a]: [string, unknown], [b]: [string, unknown]): number {
 
 function canonical(value: unknown): string {
   if (value === null) return 'null';
+  // `JSON.stringify(-0)` is `"0"`, and `toEqual` tells the two apart — so
+  // without this line a stored value could move from `0` to `-0` under an
+  // unchanged version while this file called them equal, which is exactly the
+  // silence it exists to prevent. Found by peer review, not by a case.
+  if (Object.is(value, -0)) return '-0';
   if (typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
   const entries = Object.entries(value as Record<string, unknown>).sort(byKey);

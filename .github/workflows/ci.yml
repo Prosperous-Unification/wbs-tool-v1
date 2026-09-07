@@ -241,7 +241,9 @@ jobs:
       # multi-commit push: a push whose last commit is unrelated would compare
       # against the commit that regenerated the fixture and see nothing. Every
       # value is passed through `env` rather than interpolated into the shell,
-      # because `github.base_ref` is a branch name from a fork.
+      # because every one of them is event-derived text a contributor can shape
+      # — `github.base_ref` is the pull request's target branch in this
+      # repository, and `inputs.base_ref` is whatever the dispatcher typed.
       - name: Corpus version lint
         env:
           EVENT_NAME: ${{ github.event_name }}
