@@ -1081,14 +1081,16 @@ describe('OptimizationCoordinator Retry admission', () => {
     path: string,
     db: ReturnType<typeof openDrizzle>,
     marker: 'failed' | 'corrupt' | 'plan-infeasible' | 'none',
+    input: ScheduleInput = INPUT,
+    createdAt = 3,
   ): number {
     seedProject(path);
-    const generation = allocateGeneration(db, 'p-1', CONTRACT, inputHash, 2);
+    const generation = allocateGeneration(db, 'p-1', CONTRACT, scheduleInputHash(input), 2);
     if (marker !== 'none') {
       db.insert(optimizedScheduleCache)
         .values({
           projectId: 'p-1',
-          inputHash,
+          inputHash: scheduleInputHash(input),
           objective: 'pri',
           contractVersion: CONTRACT,
           budgetMs: BUDGET,
@@ -1101,18 +1103,18 @@ describe('OptimizationCoordinator Retry admission', () => {
                 ? '{"dtoVersion":1,"items":[]}'
                 : null,
           failureReason: marker === 'failed' ? 'timeout' : null,
-          createdAt: 3,
+          createdAt,
         })
         .run();
     }
     return generation;
   }
 
-  const ask = (bodyHash = inputHash) => ({
+  const ask = (bodyHash = inputHash, input: ScheduleInput = INPUT) => ({
     projectId: 'p-1',
     objective: 'pri' as const,
     inputHash: bodyHash,
-    input: INPUT,
+    input,
   });
 
   it('refuses a stale body before retryability and carries the current hash', () => {
@@ -1212,5 +1214,166 @@ describe('OptimizationCoordinator Retry admission', () => {
       state: 'retrying',
     });
     expect(db.select().from(solverSlot).all()).toHaveLength(2);
+  });
+
+  it('queues a failed Retry behind project capacity without replacing its marker', () => {
+    const { path, db } = database();
+    const generation = generationWith(path, db, 'failed');
+    for (let index = 0; index < 4; index += 1) {
+      expect(
+        reserveSolverSlot(db, {
+          projectId: 'p-1',
+          contractVersion: CONTRACT,
+          generation,
+          objective: index % 2 === 0 ? 'pri' : 'time',
+          budgetMs: BUDGET + index + 1,
+          ownerId: `held-${String(index)}`,
+          attemptToken: `held-token-${String(index)}`,
+          now: 4,
+        }),
+      ).toMatchObject({ kind: 'reserved' });
+    }
+    const calls: ReservedSpawnRequest[] = [];
+
+    expect(coordinator(db, calls).retry(ask())).toEqual({
+      kind: 'accepted',
+      state: 'retrying',
+      generation,
+      inputHash,
+    });
+    expect(calls).toEqual([]);
+    expect(db.select().from(solverQueue).all()).toHaveLength(1);
+    expect(
+      readOptimizedPair(db, {
+        projectId: 'p-1',
+        inputHash,
+        contractVersion: CONTRACT,
+        budgetMs: BUDGET,
+      }).pri.kind,
+    ).toBe('failed');
+
+    // Proof: returning on project-full leaves the queue empty; replacing the
+    // retained marker at admission changes its final kind away from `failed`.
+  });
+
+  it.each(['OFF', 'draining'] as const)(
+    'refuses a failed Retry while the project is %s',
+    (condition) => {
+      const { path, db } = database();
+      generationWith(path, db, 'failed');
+      const write = openDatabase(path);
+      try {
+        if (condition === 'OFF') {
+          write.run("UPDATE project SET optimization_enabled = 0 WHERE id = 'p-1'");
+        } else {
+          write.run(
+            "UPDATE optimization_generation SET admission_state = 'draining' WHERE project_id = 'p-1'",
+          );
+        }
+      } finally {
+        write.close();
+      }
+
+      expect(coordinator(db, []).retry(ask())).toEqual({
+        kind: 'not-retryable',
+        state: 'failed',
+      });
+      expect(db.select().from(solverSlot).all()).toEqual([]);
+      expect(db.select().from(solverQueue).all()).toEqual([]);
+
+      // Proof: removing either closed-state check changes this refusal to an
+      // accepted Retry with a slot or queue row.
+    },
+  );
+
+  it('records a future-stamped Retry preflight failure and keeps pumping FIFO', async () => {
+    const { path, db } = database();
+    const refusedInput: ScheduleInput = {
+      ...INPUT,
+      notBefore: new Map([['w-1', 50_000_000]]),
+    };
+    const refusedHash = scheduleInputHash(refusedInput);
+    const refusedGeneration = generationWith(path, db, 'failed', refusedInput, 20);
+    for (let index = 0; index < 4; index += 1) {
+      expect(
+        reserveSolverSlot(db, {
+          projectId: 'p-1',
+          contractVersion: CONTRACT,
+          generation: refusedGeneration,
+          objective: index % 2 === 0 ? 'pri' : 'time',
+          budgetMs: BUDGET + index + 1,
+          ownerId: `held-${String(index)}`,
+          attemptToken: `held-token-${String(index)}`,
+          now: 4,
+        }),
+      ).toMatchObject({ kind: 'reserved' });
+    }
+    const calls: ReservedSpawnRequest[] = [];
+    const errors: unknown[] = [];
+    let token = 0;
+    const instance = new OptimizationCoordinator({
+      db,
+      contractVersion: CONTRACT,
+      solverVersion: '0.1.0',
+      budgetMs: BUDGET,
+      ownerId: 'blue',
+      now: () => 10,
+      attemptToken: () => `blue-token-${String(token++)}`,
+      inputOf: (projectId) => Promise.resolve(projectId === 'p-1' ? refusedInput : INPUT),
+      enabledOf: () => Promise.resolve(true),
+      spawn: (request) => {
+        calls.push(request);
+        return Promise.resolve({
+          pid: 100 + calls.length,
+          stdout: stream(FEASIBLE_RESPONSE),
+          stderr: stream(''),
+          exited: Promise.resolve(0),
+          verdict: () => undefined,
+          kill: () => undefined,
+        });
+      },
+      runChild: () => Promise.resolve({ kind: 'exited', code: 0 }),
+      eventLog: new DrizzleEventLogRepo(db),
+      pushRecorded: () => Promise.resolve(),
+      onChildError: (error) => errors.push(error),
+      setInterval: () => 'drain-timer',
+      clearInterval: () => undefined,
+    });
+
+    expect(instance.retry(ask(refusedHash, refusedInput))).toMatchObject({
+      kind: 'accepted',
+      generation: refusedGeneration,
+    });
+    seedProject(path, 'p-2');
+    const nextGeneration = allocateGeneration(db, 'p-2', CONTRACT, inputHash, 22);
+    expect(
+      enqueueSolverRequest(db, {
+        projectId: 'p-2',
+        contractVersion: CONTRACT,
+        generation: nextGeneration,
+        objective: 'pri',
+        budgetMs: BUDGET,
+        enqueuedAt: 22,
+      }),
+    ).toEqual({ kind: 'queued' });
+    db.delete(solverSlot).run();
+
+    instance.start();
+    await instance.stop();
+
+    expect(errors).toEqual([]);
+    expect(calls.map((call) => call.key.projectId)).toEqual(['p-2']);
+    expect(db.select().from(solverQueue).all()).toEqual([]);
+    expect(
+      readOptimizedPair(db, {
+        projectId: 'p-1',
+        inputHash: refusedHash,
+        contractVersion: CONTRACT,
+        budgetMs: BUDGET,
+      }).pri,
+    ).toMatchObject({ kind: 'failed', reason: 'horizon-overflow', createdAt: 21 });
+
+    // Proof: timestamping the preflight failure from the lagging clock throws
+    // before this row is stored and leaves p-2 queued with zero launcher calls.
   });
 });

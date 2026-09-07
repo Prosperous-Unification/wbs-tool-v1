@@ -1014,6 +1014,21 @@ describe('projects', () => {
     });
   });
 
+  it('reports an idle Retry when this deployment has no coordinator', async () => {
+    const { register, send } = buildHarness();
+    const token = await register('owner');
+    const create = await send('/api/projects', token, created('Optimizer absent'));
+    const { project } = (await create.json()) as { project: { id: string } };
+
+    const response = await send(`/api/projects/${project.id}/optimization/retry`, token, {
+      method: 'POST',
+      body: JSON.stringify({ objective: 'pri', inputHash: 'held-hash' }),
+    });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ code: 'not-retryable', state: 'idle' });
+  });
+
   it('puts Retry under the settings PATCH project-write authorization', async () => {
     const asks: unknown[] = [];
     const { register, send } = buildHarness({
