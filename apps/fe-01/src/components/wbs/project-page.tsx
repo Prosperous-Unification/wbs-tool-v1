@@ -12,7 +12,7 @@ import { AppHeader } from '@/components/chrome/app-header';
 import type { Roster } from '@/components/presence/presence-panel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { subscribeToProject } from '@/lib/project-stream';
+import { type ProjectStreamDeps, subscribeToProject } from '@/lib/project-stream';
 import { cn } from '@/lib/utils';
 import { httpProjectApi, type ProjectApi, type ProjectListEntry } from '@/lib/wbs-api';
 
@@ -61,6 +61,17 @@ export interface ProjectPageProps {
   account?: ReactNode;
   /** The two-page navigation, from router context — see `app-router.tsx`. */
   nav?: ReactNode;
+  /**
+   * The stream's own wiring — injected in tests, the real socket by default.
+   *
+   * The seam is here and not on `subscribe`, because the factory below **is**
+   * the thing under test: it is the only place the stream's `onChange` and the
+   * table's `SubscriptionHandlers` are joined, and a test that replaced the
+   * factory would be asserting about its own wiring. Handing the socket in
+   * instead leaves every line of the composition production code, and is the
+   * same bargain `api` makes three props up.
+   */
+  streamDeps?: ProjectStreamDeps;
 }
 
 /**
@@ -432,6 +443,7 @@ export function ProjectPage({
   presence,
   account,
   nav,
+  streamDeps,
 }: ProjectPageProps) {
   const api = useMemo(() => apiOverride ?? httpProjectApi(token), [apiOverride, token]);
   /**
@@ -464,24 +476,27 @@ export function ProjectPage({
   });
   const subscribe = useMemo(
     () => (projectId: string, handlers: SubscriptionHandlers, baseline: number) =>
-      subscribeToProject({
-        projectId,
-        // The owner read this tree anchor before its unsequenced resources.
-        // Replay closes the interval from that anchor to socket registration.
-        // Proof: hardcoding -1 here or at the adapter factory call sends -1
-        // instead of7 in `resumes the table subscription from its covered positive anchor`.
-        sinceSeq: baseline,
-        hasBaseline: true,
-        onChange: handlers.onChange,
-        onConnectionChange: (connected) => {
-          setRoster((current) => ({ ...current, connected }));
-          handlers.onConnectionChange(connected);
+      subscribeToProject(
+        {
+          projectId,
+          // The owner read this tree anchor before its unsequenced resources.
+          // Replay closes the interval from that anchor to socket registration.
+          // Proof: hardcoding -1 here or at the adapter factory call sends -1
+          // instead of 7 in `resumes the table subscription from its covered positive anchor`.
+          sinceSeq: baseline,
+          hasBaseline: true,
+          onChange: handlers.onChange,
+          onConnectionChange: (connected) => {
+            setRoster((current) => ({ ...current, connected }));
+            handlers.onConnectionChange(connected);
+          },
+          onPresence: (users) => {
+            setRoster((current) => ({ ...current, users }));
+          },
         },
-        onPresence: (users) => {
-          setRoster((current) => ({ ...current, users }));
-        },
-      }),
-    [],
+        streamDeps,
+      ),
+    [streamDeps],
   );
 
   /**

@@ -34,7 +34,7 @@ Validated solver results SHALL be stored in a durable SQLite cache keyed by `(pr
 
 ### Requirement: schedule_optimized broadcasts only newly stored results
 
-The coordinator SHALL emit one `schedule_optimized` event when a newly validated result is stored, carrying the full cache-key identity `(projectId, generation, inputHash, objective, contractVersion, budgetMs)`. A cache hit SHALL NOT emit the event. The guarantee SHALL be one durable `event_log` record per newly stored outcome plus one best-effort post-commit push, stated identically here and in every other normative location; the system SHALL NOT claim delivery over a live socket, because `event_log` is a replay buffer rather than a dispatched-and-acknowledged outbox.
+The coordinator SHALL emit one `schedule_optimized` event when a newly validated result is stored, carrying the full cache-key identity `(projectId, generation, inputHash, objective, contractVersion, budgetMs)`. A client displaying that variant reads it under **What an outcome event promises a client** below, the same as its two siblings. A cache hit SHALL NOT emit the event. The guarantee SHALL be one durable `event_log` record per newly stored outcome plus one best-effort post-commit push, stated identically here and in every other normative location; the system SHALL NOT claim delivery over a live socket, because `event_log` is a replay buffer rather than a dispatched-and-acknowledged outbox.
 
 #### Scenario: a newly stored result broadcasts once
 
@@ -487,13 +487,13 @@ Project deletion and contract retirement SHALL use the named `beginOptimizationD
 
 ### Requirement: A failed variant reaches a client already on screen
 
-A newly written failure marker SHALL emit a `schedule_optimization_failed` project event in the same transaction that writes the row, carrying `(projectId, generation, inputHash, objective, contractVersion, budgetMs, failureReason)` and no schedule. A client displaying that variant SHALL move to the `Optimization unavailable · Retry` indicator on receiving it, without a manual refresh and without refetching the variant. A cache hit SHALL still emit nothing.
+A newly written failure marker SHALL emit a `schedule_optimization_failed` project event in the same transaction that writes the row, carrying `(projectId, generation, inputHash, objective, contractVersion, budgetMs, failureReason)` and no schedule. A client displaying that variant SHALL move to the `Optimization unavailable · Retry` indicator on receiving it, on the event alone and with no manual refresh and no poll, under **What an outcome event promises a client** below. A cache hit SHALL still emit nothing.
 
 #### Scenario: both variants fail and Retry still appears
 
 - **GIVEN** a client viewing Engine Optimized while both PRI and Time solves are in flight
 - **WHEN** both fail and no other event occurs
-- **THEN** the client shows `Optimization unavailable · Retry` for the selected variant without any refresh or poll
+- **THEN** the client shows `Optimization unavailable · Retry` for the selected variant on the event alone, with no manual refresh and no poll
 
 ### Requirement: An infeasible variant reaches a client already on screen
 
@@ -501,13 +501,13 @@ A newly written `plan-infeasible` row SHALL emit a `schedule_optimization_infeas
 
 **It SHALL be a third event type and SHALL NOT be a widening of either existing one**, because both widenings are lossy in the same direction. `schedule_optimization_failed` carries a `failureReason` drawn from a closed enum with no member for a deterministic certificate, and a receiver that reads the variant as failed offers the `Retry` this state must never offer — the one affordance the whole `plan-infeasible` state exists to withhold. `schedule_optimized` promises a schedule that a certificate does not have. Widening either makes one event name two facts that no field in the payload distinguishes, so every receiver would have to re-derive which one it holds; a third type puts that distinction in the one field every receiver already switches on.
 
-**What this event SHALL NOT be read as promising:** that the client learns the certificate from the wire. The payload is identity only, exactly as its two siblings are, and the certificate stays in the keyed cache DTO — so the client re-reads that variant, and the event's job is to tell it that re-reading is now worth doing. `budgetMs` is in the identity for the same reason it is in theirs.
+**What this event SHALL NOT be read as promising:** that the client learns the certificate from the wire. The certificate stays in the keyed cache DTO, so this event carries the shared identity and nothing else — as `schedule_optimized` does, and as `schedule_optimization_failed` does apart from its `failureReason` — and all three are read under the one contract below, **What an outcome event promises a client**, which binds the receiver rather than the wire. `budgetMs` is in the identity for the same reason it is in theirs.
 
 #### Scenario: both variants come back infeasible and neither client stays Optimizing…
 
 - **GIVEN** a client viewing Engine Optimized while both the PRI and Time solves are in flight
 - **WHEN** both first-stage solves return `INFEASIBLE` and no other event occurs
-- **THEN** each stored certificate emits exactly one `schedule_optimization_infeasible`, and the client shows `Plan infeasible · N work item deadlines` for the selected variant without any refresh or poll
+- **THEN** each stored certificate emits exactly one `schedule_optimization_infeasible`, and the client shows `Plan infeasible · N work item deadlines` for the selected variant on the event alone, with no manual refresh and no poll
 
 #### Scenario: an infeasible certificate is not announced as a failure
 
@@ -518,6 +518,10 @@ A newly written `plan-infeasible` row SHALL emit a `schedule_optimization_infeas
 ### Requirement: Result events name every cache-key dimension
 
 `schedule_optimized`, `schedule_optimization_failed` and `schedule_optimization_infeasible` SHALL each carry `budgetMs` in their identity, so a receiver can tell which cached row an event names. The system SHALL guarantee one durable `event_log` record per newly stored outcome plus one best-effort post-commit push, and SHALL NOT claim delivery over a live socket. The record SHALL be written inside the same transaction as its cache row through a transaction-taking repository call, and pushed afterwards without being recorded twice.
+
+**What an outcome event promises a client.** This is the one place the receiver's half of all four outcome requirements is stated; the three event-specific requirements point here rather than restating it, and this one hosts it. An outcome event is an **invalidation signal**, and this is a rule about the receiver rather than about the wire. A client displaying the named variant SHALL move to that variant's indicator on the event alone — no manual refresh, no poll, no user action, no timer — and SHALL take the variant's new state from **the ordinary plan read that the event starts**, never from a field of the frame. The system SHALL NOT offer a variant-scoped read for this purpose: the announcement's job is to say which cached row is worth re-reading, and there is exactly one read that does it.
+
+**It has to be a rule about the receiver, because the wire is not identity-only** (Sol review, TASK-324, 2026-09-07). `schedule_optimization_failed` carries `failureReason` beside the identity, and for the named objective `type` plus `failureReason` is exactly the FE's `{ state: 'failed', reason }` — so a client _could_ render the first `Retry` straight from the frame and reconcile on a later read. That third reading is coherent, and refusing it is a **choice** rather than something the older "without refetching the variant" wording deduced. It is refused because it makes the frame a second source for a fact the keyed cache DTO already owns, and it can only ever apply to one of the three siblings: the infeasible event carries no `failureReason` and the success event carries no schedule, so both must re-read whatever the failure event does. One rule for all three is worth more than a special case for one. The FE enforces it at the seam rather than at each screen — the stream layer reads one field of every frame and discards the rest — so an implementation adopting the third reading has to add a second delivery path, which this requirement forbids in as many words.
 
 #### Scenario: raising the budget notifies a client holding the old result
 
