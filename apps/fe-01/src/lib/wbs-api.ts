@@ -1443,9 +1443,16 @@ export interface ProjectApi {
        * reason column, so a request naming `startNoEarlierThanReason` beside
        * this one would be sending a key about a different constraint.
        *
-       * Refused with a 400 (`deadline_before_project_start`) for a day earlier
+       * Refused with a 422 (`deadline_before_project_start`) for a day earlier
        * than the project's own start date — the one deadline-specific refusal,
        * and be-01's, because only it holds the project to compare against.
+       *
+       * **422 and not the batch route's own 400 default**, which is what this
+       * paragraph said until TASK-309: `refusal-status.ts`'s `UNPROCESSABLE`
+       * arm lifts this one code out of that default deliberately, because a 400
+       * tells a client the body was malformed and a caller that "fixed the
+       * syntax" would send the identical request again. The status is asserted
+       * at `work-item.controller.test.ts`'s `expect(early.status).toBe(422)`.
        */
       deadline?: string | null;
       /** An integer of 1 or more, or `null` to leave the work with no priority. */

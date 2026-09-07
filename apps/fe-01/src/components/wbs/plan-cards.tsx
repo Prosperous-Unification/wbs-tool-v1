@@ -19,6 +19,7 @@ import {
   type PickerOption,
   pickerOptionId,
 } from './creatable-picker';
+import { DEADLINE_EFFECT_HINT } from './column-hints';
 import { DEADLINE_BEFORE_START, deadlineBeforeProjectStart } from './deadline-impossible';
 import { type PickerEntry, REFUSAL_SUFFIX } from './dep-picker';
 import { type CellElement, cellKey } from './editable-grid';
@@ -1260,7 +1261,7 @@ function CardDeadlineField({
   const title = hasCalendar
     ? [
         day === null ? null : `${day}.`,
-        'The last day this work item may finish on. It does not move the plan; a plan that misses it says so.',
+        DEADLINE_EFFECT_HINT,
         impossible ? DEADLINE_BEFORE_START : null,
       ]
         .filter((part) => part !== null)
@@ -1339,8 +1340,7 @@ function CardDeadlineField({
         <ModalHeader>
           <ModalTitle>Work item deadline for {rowWords(row.number, row.name)}</ModalTitle>
           <ModalDescription>
-            The last day this work item may finish on. It does not move the plan; a plan that misses
-            it says so.
+            {DEADLINE_EFFECT_HINT}
           </ModalDescription>
         </ModalHeader>
         {/*

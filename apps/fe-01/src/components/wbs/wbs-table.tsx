@@ -63,7 +63,12 @@ import { ActionsMenu, MenuControl } from './actions-menu';
 import { CellInput } from './cell-input';
 import { type Caret, type CellRef, commandMove, type Direction, nextCell } from './cell-navigation';
 import { useClosedByPointerOutside } from './close-on-outside-pointer';
-import { type ColumnHintState, hintFor, STEP_FINAL_HINT } from './column-hints';
+import {
+  type ColumnHintState,
+  DEADLINE_EFFECT_HINT,
+  hintFor,
+  STEP_FINAL_HINT,
+} from './column-hints';
 import {
   CreatablePicker,
   pickableLabel,
@@ -10238,7 +10243,7 @@ export function WbsTable({
                 aria-label={`Work item deadline for ${row.original.number}`}
                 data-deadline={row.original.id}
                 data-cell={cellKey(row.original.id, 'deadline')}
-                data-hint="The last day this work item may finish on. It does not move the plan; a plan that misses it says so."
+                data-hint={DEADLINE_EFFECT_HINT}
                 onKeyDown={(e) => {
                   // Enter closes the editor, after `DateField`'s own handler has
                   // already sent the day — its handler is first, deliberately,
@@ -10311,7 +10316,7 @@ export function WbsTable({
                           day === null ? null : `${day}.`,
                           impossible
                             ? DEADLINE_BEFORE_START
-                            : 'The last day this work item may finish on. It does not move the plan; a plan that misses it says so.',
+                            : DEADLINE_EFFECT_HINT,
                         ]
                           .filter((part) => part !== null)
                           .join(' ')
