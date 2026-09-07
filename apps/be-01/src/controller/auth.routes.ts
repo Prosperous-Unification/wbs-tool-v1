@@ -5,11 +5,13 @@ import {
   browserBindingCookieName,
   browserBindingsIn,
   browserOidcClientFromEnv,
+  classifyOidcFailure,
   consumeBrowserBinding,
   type HeldBrowserBinding,
   InMemoryOidcTransactionStore,
   InMemoryTokenStore,
   MAX_BROWSER_BINDINGS,
+  type OidcFailureKind,
   oidcIdentityFromClaims,
   oidcTokenVerifierFromEnv,
   type OidcTransactionStore,
@@ -281,24 +283,7 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
       path: '/api/auth/me',
       handler: async ({ headers }) => {
         const user = await userFromHeaders(auth, headers);
-        if (user === null) {
-          const presentedCredential =
-            cookiesIn(headers['cookie']).has('__Host-wbs_access') ||
-            headers['authorization'] !== undefined ||
-            headers['x-wbs-token'] !== undefined;
-          /*
-           * No browser session is an ordinary signed-out state, not a failed
-           * resource: Chromium reports every 401 fetch in its console. A
-           * credential that was actually presented still fails closed.
-           *
-           * Proof: treating every null user as anonymous makes the forged,
-           * altered, and retired-header cases in auth.integration.test.ts
-           * return 200; restoring the blanket 401 makes its anonymous case
-           * fail and reproduces TASK-299's two StrictMode console errors.
-           */
-          if (!presentedCredential) return ok({ user: null });
-          return respond(401, { error: 'invalid_token' });
-        }
+        if (user === null) return respond(401, { error: 'invalid_token' });
         return ok({ user });
       },
     },
@@ -682,38 +667,57 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
           // that difference is closed by refusing HEAD, not by hiding it.
           method: req.method,
         });
-        // **Every other way out of `exchange` is a refusal too**, and until
-        // TASK-273 none of them was typed: the provider unreachable, a `code`
-        // the provider will not honour, a nonce or `iss` the library rejects,
-        // clock skew on the ID token — each is a rejected promise that escaped
-        // to the framework as a 500 on a login the caller has already lost.
+        // **Every way out of `exchange` used to be the same answer**, and until
+        // TASK-273 none of them was typed at all: the provider unreachable, a
+        // `code` the provider will not honour, a nonce or `iss` the library
+        // rejects, clock skew on the ID token — each was a rejected promise
+        // that escaped to the framework as a 500 on a login the caller had
+        // already lost. TASK-273 made that one bodiless 401 with the binding
+        // cleared, and deliberately did not split the statuses, because telling
+        // the cases apart meant reading the library's error subclasses inside a
+        // controller — wrong the day the library adds one.
         //
-        // **401 with the binding cleared, the same answer as the line below**,
-        // because from a browser's side both are one fact: this login did not
-        // complete and the next attempt starts over. Splitting a 502 or 503 out
-        // for the unreachable case was the alternative and is **deferred, not
-        // dismissed**: the objection to doing it here is that telling the cases
-        // apart means reading `oauth4webapi`'s error subclasses, which puts a
-        // dependency's internals in a controller and is wrong the day it adds
-        // one — and the answer to that objection (classify in the `libs/auth`
-        // client adapter and hand this route a small owned union) is a new type
-        // on a shared contract with its own tests and its own review, filed as
-        // its own task. What made the silence a defect rather than a preference
-        // is closed here: the error is written down.
+        // **That objection is now answered rather than deferred.**
+        // {@link classifyOidcFailure} reads the thrown value in `libs/auth` and
+        // returns a union this project owns, so the only thing this route knows
+        // about the library is that it throws. The route's whole share of the
+        // judgment is one mapping, below, from a kind to a status.
+        //
+        // **The statuses follow the caller's move, not the evidence.** A
+        // refusal is 401: this login did not complete and the next attempt
+        // starts over. An outage is 503, not 502 — nothing was proxied, a
+        // dependency is unavailable, and 503 is the status a `Retry-After`
+        // could later be attached to. `indeterminate` is 503 as well, because
+        // the person's move is identical to an outage's even though the alert
+        // is not; the split that matters there is in the log line, not in the
+        // status. A `defect` is a deliberate, classified 500 — the *distinct*
+        // path AC #2 asks for, and not a return of what TASK-273 closed: that
+        // defect was every failure arriving as an untyped 500 with nothing
+        // written down, and this one is the single arm that means "this
+        // deployment is wrong", carrying a reason slug to be found by.
         //
         // **The caught value goes to the log and nowhere near the answer.** An
         // expired token-endpoint certificate, a DNS failure and a `TypeError`
-        // in the client all arrive here, and a bodiless 401 that discarded the
-        // stack would turn every one of them into the same unexplained login
-        // failure with no server-side trace at all — the defect this route was
-        // just fixed for, one layer down. `err` is serialised by
-        // `@wbs/observability`'s `errSerializer`, the same shape `app.ts` logs
-        // a failed database probe with. It is still not forwarded: the caller
-        // gets the status and nothing else.
+        // in the client all arrive here, and a bodiless status that discarded
+        // the stack would turn every one of them into the same unexplained
+        // login failure with no server-side trace at all. `err` is serialised
+        // by `@wbs/observability`'s `errSerializer`, the same shape `app.ts`
+        // logs a failed database probe with. It is still not forwarded: the
+        // caller gets the status and nothing else, in every arm.
+        //
+        // **The level splits the same way the error-callback branch above
+        // splits it, and for the same reason.** A refused code is something a
+        // person caused, so it is `info`; a flood of them must not bury the one
+        // line an operator is looking for. An outage and a defect are `error`.
+        // `indeterminate` is `warn`: understood, but it names no party, and
+        // paging an operator about a provider on evidence that does not accuse
+        // the provider is exactly what {@link OidcFailureKind} keeps it apart to
+        // avoid.
         //
         // Proof: `answers a failed exchange with a typed refusal rather than a
         // framework 500` fails with `Expected: 401 Received: 500` when this
-        // `try` is removed.
+        // `try` is removed; the per-arm status cases fail with the 401 this
+        // block answered before the mapping existed.
         let tokenSet;
         try {
           tokenSet = await options.client.exchange(providerCallback, {
@@ -722,8 +726,25 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
             verifier: transaction.verifier,
           });
         } catch (err) {
-          options.logger?.error({ err }, 'oidc token exchange failed');
-          return empty(401, clearsFor(settled));
+          const failure = classifyOidcFailure(err);
+          // Two flat fields, not a nested object: AC #3 asks for an outage to
+          // be greppable without reading stack text, and
+          // `oidc_failure_kind=unavailable` is greppable in a way that
+          // `{"oidc":{"kind":…}}` is not. Both values are closed unions this
+          // project writes, so no provider or library string can reach here.
+          const classified = {
+            err,
+            oidc_failure_kind: failure.kind,
+            oidc_failure_reason: failure.reason,
+          };
+          if (failure.kind === 'refused') {
+            options.logger?.info(classified, 'oidc token exchange was refused');
+          } else if (failure.kind === 'indeterminate') {
+            options.logger?.warn(classified, 'oidc token exchange failed inconclusively');
+          } else {
+            options.logger?.error(classified, 'oidc token exchange failed');
+          }
+          return empty(STATUS_FOR_OIDC_FAILURE[failure.kind], clearsFor(settled));
         }
         if (tokenSet.idTokenClaims === undefined) {
           return empty(401, clearsFor(settled));
@@ -948,6 +969,22 @@ function clearSession(): string[] {
  * all: these were `new Response(null, …)` before the move and a `{}` would put
  * two bytes on the wire the browser did not have.
  */
+/**
+ * The route's entire share of the judgment TASK-277 moved into `libs/auth`: a
+ * total map from an owned kind to a status. `Record<OidcFailureKind, …>` is the
+ * point — adding a fifth kind to the union stops compiling here, so a new arm
+ * cannot silently inherit whichever status happened to be the fallback.
+ *
+ * Why each one, in the caller's terms rather than the evidence's, is argued at
+ * the `catch` that reads this.
+ */
+const STATUS_FOR_OIDC_FAILURE: Record<OidcFailureKind, number> = {
+  defect: 500,
+  indeterminate: 503,
+  refused: 401,
+  unavailable: 503,
+};
+
 function empty(status: number, cookies: string[], location?: string): RouteResponse {
   return {
     status,

@@ -2,7 +2,6 @@ import {
   authorizationCodeGrant,
   buildAuthorizationUrl,
   calculatePKCECodeChallenge,
-  type Configuration,
   discovery,
   refreshTokenGrant,
   tokenRevocation,
@@ -38,8 +37,7 @@ export function browserOidcClientFromEnv(env: Environment): BrowserOidcClient {
   const clientSecret = required(env, 'AUTH_CLIENT_SECRET');
   const scope = env['AUTH_SCOPE'] ?? 'openid profile email offline_access';
   const audience = env['AUTH_AUDIENCE'];
-  let discovered: Promise<Configuration> | undefined;
-  const config = () => (discovered ??= discovery(issuer, clientId, clientSecret));
+  const config = cacheWhileItSucceeds(() => discovery(issuer, clientId, clientSecret));
 
   return {
     async authorizationUrl(input) {
@@ -72,6 +70,37 @@ export function browserOidcClientFromEnv(env: Environment): BrowserOidcClient {
         await tokenRevocation(resolved, refreshToken, { token_type_hint: 'refresh_token' });
       }
     },
+  };
+}
+
+/**
+ * Discovery is expensive and its result is stable, so it is loaded once and
+ * shared. Caching the *promise* is what makes that sharing work — and it is
+ * also how a promise that settles as a rejection gets cached, which is a very
+ * different thing to cache.
+ *
+ * A provider that is down, a DNS blip or a TLS handshake that fails during a
+ * restart all reject the first `discovery()`. If that rejection stays cached,
+ * every later sign-in awaits the same stale error and SSO stays broken until
+ * the process restarts — long after the provider recovered. This task exists
+ * because an outage is currently indistinguishable from a bad code; an outage
+ * that never ends when the outage ends is the sharper half of that.
+ *
+ * So: share one attempt while it is in flight or has succeeded, and forget it
+ * if it fails, which lets the next caller retry. The rejection itself is
+ * rethrown untouched, so the classifier upstream still sees the real cause.
+ */
+export function cacheWhileItSucceeds<T>(load: () => Promise<T>): () => Promise<T> {
+  let attempt: Promise<T> | undefined;
+  return () => {
+    if (attempt !== undefined) return attempt;
+    // `attempt = undefined` inside the catch cannot race the assignment below:
+    // the callback is a microtask and this function returns synchronously.
+    attempt = load().catch((error: unknown) => {
+      attempt = undefined;
+      throw error;
+    });
+    return attempt;
   };
 }
 

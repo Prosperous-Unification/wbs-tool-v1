@@ -1217,7 +1217,14 @@ describe('OIDC browser routes', () => {
    * layer down.
    */
   it('answers a failed exchange with a typed refusal rather than a framework 500', async () => {
-    const failure = new Error('idp unreachable');
+    // The provider answered in OAuth's error shape and said the grant is no
+    // good — the arm this case has always been about, now said in the shape
+    // `classifyOidcFailure` reads rather than as a bare `Error`, which
+    // TASK-277 classifies as a defect and no longer answers 401.
+    const failure = Object.assign(new Error('idp refused the code'), {
+      code: 'OAUTH_RESPONSE_BODY_ERROR',
+      error: 'invalid_grant',
+    });
     // The override records before it rejects. Replacing `exchange` outright
     // would take the fixture's counter with it, and a 401 returned from
     // anywhere *before* the exchange would then satisfy a case whose name says
@@ -1253,8 +1260,153 @@ describe('OIDC browser routes', () => {
     expect(failed.headers.get('set-cookie')).not.toContain('__Host-wbs_access=');
     expect(failed.headers.get('set-cookie')).not.toContain('__Host-wbs_session=');
     expect(f.logs).toHaveLength(1);
-    expect(f.logs[0]?.level).toBe('error');
-    expect(f.logs[0]?.fields).toEqual({ err: failure });
+    // `info`, not `error`: a spent or wrong code is something a person did,
+    // and a flood of them must not bury the one line an operator is looking
+    // for. The error-callback branch splits its levels the same way.
+    expect(f.logs[0]?.level).toBe('info');
+    expect(f.logs[0]?.fields).toEqual({
+      err: failure,
+      oidc_failure_kind: 'refused',
+      oidc_failure_reason: 'grant_refused',
+    });
+  });
+
+  /**
+   * AC #2 and AC #3, one arm per case.
+   *
+   * Each drives the whole route — a real callback, a real transaction, the
+   * fixture's own `exchange` rejecting with the shape the arm is reached by —
+   * and asserts three things: the status the caller gets, the level the
+   * operator is paged (or not paged) at, and the two flat fields an outage is
+   * grepped by. Nothing here names an `openid-client` class; the shapes are
+   * the ones a provider or a socket really produces.
+   *
+   * **The bodies are asserted empty in every arm.** AC #2 says no provider
+   * text reaches the browser, and each rejection below carries a distinctive
+   * string in its message precisely so the assertion is not vacuous.
+   */
+  const arms = [
+    {
+      name: 'an unreachable provider',
+      kind: 'unavailable',
+      reason: 'provider_unreachable',
+      level: 'error',
+      status: 503,
+      // What `fetch` really throws: the code is on the cause, not the top.
+      failure: Object.assign(new TypeError('fetch failed'), {
+        cause: Object.assign(new Error('getaddrinfo ENOTFOUND idp.example.test'), {
+          code: 'ENOTFOUND',
+        }),
+      }),
+    },
+    {
+      name: 'a TLS handshake that names no party',
+      kind: 'indeterminate',
+      reason: 'tls_negotiation_failed',
+      // `warn`, not `error`: the far end was reachable and objected, and
+      // nothing in that evidence says whose move it is. Paging an operator
+      // about a provider outage on it would be a claim the alert cannot make.
+      level: 'warn',
+      status: 503,
+      failure: Object.assign(new Error('write EPROTO handshake failure'), {
+        code: 'ERR_SSL_TLSV1_ALERT_HANDSHAKE_FAILURE',
+      }),
+    },
+    {
+      name: 'a failure this project does not recognise',
+      kind: 'defect',
+      reason: 'unrecognised_failure',
+      level: 'error',
+      // The distinguishable path AC #2 asks for, and not a return of what
+      // TASK-273 closed: that was *every* failure arriving as an untyped 500
+      // with nothing written down. This is the one arm that means the
+      // deployment is wrong, and it arrives with a reason slug.
+      status: 500,
+      failure: new Error('secret-provider-prose nobody classified'),
+    },
+  ] as const;
+
+  for (const arm of arms) {
+    it(`answers ${arm.name} with ${String(arm.status)} and logs the classification`, async () => {
+      const attempts: unknown[] = [];
+      const f = fixture(
+        claims,
+        {},
+        {
+          exchange: (request, checks) => {
+            attempts.push({ request, checks });
+            return Promise.reject(arm.failure);
+          },
+        },
+      );
+      f.transactions.save({
+        browserBinding: 'binding-1',
+        nonce: 'nonce-1',
+        state: 'state-1',
+        verifier: 'verifier-1',
+      });
+
+      const failed = await f.app.handle(
+        new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
+          headers: cookieHeader(jarOf('binding-1')),
+        }),
+      );
+
+      expect(failed.status).toBe(arm.status);
+      expect(attempts).toHaveLength(1);
+      // The login is over in every arm, including the two that say come back
+      // later: the code is spent and the next attempt starts a new transaction.
+      expect(retires(failed, 'binding-1')).toBe(true);
+      expect(failed.headers.get('set-cookie')).not.toContain('__Host-wbs_access=');
+      expect(failed.headers.get('set-cookie')).not.toContain('__Host-wbs_session=');
+      // No provider text reaches the browser — asserted against the string each
+      // rejection carries rather than against emptiness alone.
+      expect(await failed.text()).toBe('');
+
+      expect(f.logs).toHaveLength(1);
+      expect(f.logs[0]?.level).toBe(arm.level);
+      expect(f.logs[0]?.fields).toEqual({
+        err: arm.failure,
+        oidc_failure_kind: arm.kind,
+        oidc_failure_reason: arm.reason,
+      });
+    });
+  }
+
+  // An outage is greppable without reading stack text: the whole point of AC
+  // #3, asserted as a reader would actually use it. `JSON.stringify` over the
+  // recorded fields stands in for the log stream a `grep` would run against.
+  it('makes an outage greppable by a field rather than by stack text', async () => {
+    const f = fixture(
+      claims,
+      {},
+      {
+        exchange: () =>
+          Promise.reject(
+            Object.assign(new TypeError('fetch failed'), {
+              cause: Object.assign(new Error('connect ECONNREFUSED 10.0.0.1:443'), {
+                code: 'ECONNREFUSED',
+              }),
+            }),
+          ),
+      },
+    );
+    f.transactions.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+
+    await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
+        headers: cookieHeader(jarOf('binding-1')),
+      }),
+    );
+
+    const line = JSON.stringify(f.logs[0]?.fields ?? {});
+    expect(line).toContain('"oidc_failure_kind":"unavailable"');
+    expect(line).toContain('"oidc_failure_reason":"provider_unreachable"');
   });
 
   it('exchanges once and sets hardened access and refresh-correlation cookies', async () => {
