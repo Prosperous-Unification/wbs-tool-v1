@@ -15,6 +15,7 @@
         "{workspaceRoot}/bin/dev-mcp-probe.sh",
         "{workspaceRoot}/bin/dev-poll.sh",
         "{workspaceRoot}/bin/dev-poll-sync.sh",
+        "{workspaceRoot}/bin/h2puni-gate.sh",
         "{workspaceRoot}/deploy/dev-src/compose.yml",
         "{workspaceRoot}/apps/*/project.json",
         "{workspaceRoot}/libs/*/project.json",

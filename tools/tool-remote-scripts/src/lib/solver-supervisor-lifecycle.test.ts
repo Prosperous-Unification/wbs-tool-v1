@@ -48,6 +48,7 @@ class FakeDriver implements ManagedContainerDriver {
   managed = [CONTAINER_ID];
   inspectCount = 0;
   firstInspectPid = 4242;
+  attachFailure: Error | undefined;
   killFailure: Error | undefined;
   naturalExit = true;
   stdout = output();
@@ -65,6 +66,7 @@ class FakeDriver implements ManagedContainerDriver {
 
   attach(argv: readonly string[]): Promise<ManagedContainerAttachment> {
     this.events.push(`attach:${argv.slice(1).join(' ')}`);
+    if (this.attachFailure !== undefined) return Promise.reject(this.attachFailure);
     return Promise.resolve({
       closed: this.naturalExit ? Promise.resolve() : new Promise<void>(() => undefined),
       stdout: this.stdout,
@@ -253,6 +255,29 @@ describe('the managed solver lifecycle', () => {
     // these events and strands the exact container after coordinator death.
     expect(driver.events.map((event) => event.split(':')[0]).slice(-2)).toEqual([
       'timer-cancel',
+      'rm',
+    ]);
+  });
+
+  it('cancels, stops, waits, and removes when post-start attach fails', async () => {
+    const driver = new FakeDriver();
+    driver.attachFailure = new Error('container stopped before attach');
+
+    let rejection: unknown;
+    try {
+      await runManagedSolverAttempt(START, OPTIONS, driver, channel([], driver.events));
+    } catch (error) {
+      rejection = error;
+    }
+
+    expect(rejection).toEqual(new Error('container stopped before attach'));
+    // Proof: leaving the post-create body outside the cleanup boundary omits
+    // this entire suffix and strands the labelled container at the host cap.
+    expect(driver.events.map((event) => event.split(':')[0]).slice(-5)).toEqual([
+      'attach',
+      'timer-cancel',
+      'kill',
+      'wait',
       'rm',
     ]);
   });
