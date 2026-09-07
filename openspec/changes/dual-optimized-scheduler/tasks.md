@@ -3885,8 +3885,9 @@ recorded, event)` buffers and pushes an already-recorded sequence
       `schedule_objective`, project-scoped and persisted. Switching to an
       already-cached output starts no solve. Both react to an incoming
       `project_settings_changed` event so collaborators converge.
-- [ ] 8.3 The one compact indicator: Earlier by N days / Later by N days / Same
-      deadline + reordered / Same deadline + same order, plus
+- [ ] 8.3 The one compact indicator: Earlier project deadline by N days / Later
+      project deadline by N days / Same project deadline + reordered / Same
+      project deadline + same order, plus
       `Optimization unavailable · Retry` on **both** the `failed` and the
       `corrupt` variant states (Sol r8 Critical 6 — the round-7 disposition
       added `corrupt` to spec.md and left this list at five states),

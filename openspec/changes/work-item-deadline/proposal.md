@@ -45,4 +45,4 @@ A plan can say when work may **start** (`start_no_earlier_than`) and cannot say 
 
 ## Impact
 
-`work_item.deadline` migration (**prod mode**, reviewed PR, isolated slice). Amends `dual-optimized-scheduler`: canonical input, wire schema, status matrix, revalidator, retention. Renames TASK-221's `Same deadline …` copy to `Same project deadline …`.
+`work_item.deadline` migration (**prod mode**, reviewed PR, isolated slice). Amends `dual-optimized-scheduler`: canonical input, wire schema, status matrix, revalidator, retention. Qualifies all four of TASK-221's comparison-indicator strings as `… project deadline …`.
