@@ -169,7 +169,7 @@ esac
     await chmod(fakeBun, 0o755);
 
     const env = {
-      PATH: `${commands}:${process.env.PATH ?? ''}`,
+      PATH: `${commands}:${process.env['PATH'] ?? ''}`,
       POLL_OBSERVATIONS: observations,
       RACE_STARTED: started,
       RACE_RELEASE: release,
