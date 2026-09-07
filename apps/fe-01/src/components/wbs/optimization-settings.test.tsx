@@ -41,6 +41,9 @@ describe('project optimization settings', () => {
     expect(screen.getByRole('radio', { name: 'PRI' })).toBeDisabled();
     expect(screen.getByRole('radio', { name: 'Time' })).toBeDisabled();
     expect(screen.getByText('Fast is active while optimization is off.')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Active schedule' })).toHaveAccessibleDescription(
+      'Fast is active while optimization is off.',
+    );
   });
 
   itDom('writes the shared project flag, then rereads the plan', async () => {

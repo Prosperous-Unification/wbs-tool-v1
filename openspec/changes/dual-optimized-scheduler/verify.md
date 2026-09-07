@@ -241,6 +241,24 @@ Slices 8.1, 8.2, and 8.5 are closed. Retry remains a route owned by TASK-268,
 so the broader 8.3–8.4 checkboxes stay open rather than claiming an affordance
 whose backend does not yet exist; lane-q TASK-222 already owns post-deploy QA.
 
+## 2026-09-06T18:29:32Z — replacement CI after the browser assertion correction
+
+- The final correction was exact head
+  `8a9f0ae111f568ae8abede155ae0f4556d2d98e7`, `test: include optimization tab
+  in browser assertion`; its only changed path was
+  `apps/fe-01/e2e/project-settings.spec.ts`.
+- Replacement CI run `34050973411` completed green at that exact head. Gate
+  job `101534415848` completed `SUCCESS` at `2026-09-06T18:24:49Z`; pixels job
+  `101534415694` completed `SUCCESS` at `2026-09-06T18:29:11Z`.
+- PR #246 then merged as
+  `9a1f79e7eb9fea3b72cc00acd622c2bb2c9d07ba` at the section timestamp above.
+
+This supersedes the prior section's statement that the exact-head gate was
+still only CI-pending. The corrected assertion expects all five Project
+Settings tabs, including Optimization; it records the browser-found stale
+four-tab expectation rather than leaving the verification record one commit
+behind the shipped tree.
+
 ## 2026-09-06T21:31:00Z — four independent eviction authorities
 
 - Head under test: `4a86476afb89dbcc6537fdea0e6c0bae1264d3b2`; host: `h2puni`,
