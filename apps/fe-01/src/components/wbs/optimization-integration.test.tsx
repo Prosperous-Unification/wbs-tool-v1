@@ -369,8 +369,10 @@ describe('project optimization in the plan', () => {
    * cannot see inside it: an `httpProjectApi.tree` that made a second HTTP
    * request of its own would still record one `tree/1`. That half is pinned
    * where it can be seen, by `FULL_SCOPE_PUTS_ON_THE_WIRE` in
-   * `lib/wbs-api.test.ts`, which drives these same reads through the real
-   * clients over a fake `fetch` and asserts the exact requests they issue. The
+   * `lib/wbs-api.test.ts`, which drives these same reads through a real
+   * `httpProjectApi` over a fake `fetch` and asserts the exact requests it
+   * issues — the same object the refresh below is handed, so the wiring that
+   * puts the six directory reads on it is pinned along with them. The
    * two are one claim in two places: this list says WHICH reads a full-scope
    * invalidation performs, that one says each costs exactly one request.
    */

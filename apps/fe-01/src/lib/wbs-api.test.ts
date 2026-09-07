@@ -1104,8 +1104,8 @@ describe('read ownership across API lifetimes', () => {
  * The two are one claim in two places and neither replaces the other. The
  * method-level multiset says WHICH reads a full-scope invalidation performs;
  * this one says each of those reads costs exactly one request, over the real
- * clients and a fake `fetch`. Break either half and only that half goes red,
- * which is how they stay readable as separate facts.
+ * `httpProjectApi` and a fake `fetch`. Break either half and only that half
+ * goes red, which is how they stay readable as separate facts.
  *
  * Sorted on both sides for the same reason the multiset is: what is being
  * pinned is which requests happen and how many, not the order the nine are
@@ -1129,7 +1129,7 @@ describe('what a full-scope read puts on the wire', () => {
     // a positional `mockResolvedValueOnce` chain would bind an answer to
     // whichever request happened to be third and turn an ordering change into a
     // shape failure somewhere else.
-    const bodies: Record<string, string> = {
+    const bodies: Record<string, string | undefined> = {
       '/api/projects/p1/work-items': TREE('p1', []),
       '/api/projects/p1': JSON.stringify({ project: PROJECT, steps: [] }),
       '/api/projects/p1/calendar-markers': '{"markers":[]}',
@@ -1144,27 +1144,38 @@ describe('what a full-scope read puts on the wire', () => {
     const fetched = stub((path, init) => {
       requests.push(`${init?.method ?? 'GET'} ${path}`);
       const body = bodies[path.split('?')[0] ?? path];
-      // An unlisted path is a request this pin does not know about, and it must
-      // arrive as an extra entry in `requests` rather than as a parse failure
-      // that reads like a broken fixture.
+      // An unlisted path is a request this pin does not know about; 404 so that
+      // it cannot pass as a plausible empty answer.
       return response(body === undefined ? 404 : 200, body ?? '{}');
     });
+    // All nine on the object a socket-driven refresh is actually handed.
+    // `httpProjectApi` builds its own `httpDirectoryApi` and spreads those six
+    // methods into what it returns (`wbs-api.ts:2197`, `:2237-2239`), so calling
+    // them on a separately constructed directory would exercise the shared
+    // implementations while missing the wiring: remap the spread to send
+    // `listTags` to `directory.listServices` — type-compatible — and a pin over
+    // an independent directory stays green while a real refresh asks for
+    // `/api/services` twice and never asks for `/api/tags`.
     const project = httpProjectApi('t');
-    const directory = httpDirectoryApi('t');
 
-    await Promise.all([
+    // Settled rather than awaited: an unlisted path has to surface as an extra
+    // entry in `requests` naming it, and not as the response-validation
+    // rejection its 404 would raise first. The reads are still required to have
+    // succeeded — that assertion just comes after the multiset.
+    const settled = await Promise.allSettled([
       project.tree('p1'),
       project.steps('p1'),
       project.listCalendarMarkers('p1'),
-      directory.listTeams(),
-      directory.listTags(),
-      directory.listServices(),
-      directory.listWorkItemTypes(),
-      directory.listExternalSystems(),
-      directory.listPeople(),
+      project.listTeams(),
+      project.listTags(),
+      project.listServices(),
+      project.listWorkItemTypes(),
+      project.listExternalSystems(),
+      project.listPeople(),
     ]);
 
     expect([...requests].sort()).toEqual([...FULL_SCOPE_PUTS_ON_THE_WIRE].sort());
     expect(fetched).toHaveBeenCalledTimes(FULL_SCOPE_PUTS_ON_THE_WIRE.length);
+    expect(settled.filter((read) => read.status === 'rejected')).toEqual([]);
   });
 });
