@@ -366,6 +366,7 @@ describe('the managed solver lifecycle', () => {
     } catch (error) {
       rejection = error;
     }
+    // Proof: without preserving the kill failure, this is the daemon-refused-inspect error.
     expect(rejection).toBe(driver.killFailure);
     expect(driver.events.map((event) => event.split(':')[0])).toEqual(['list', 'kill', 'inspect1']);
   });
