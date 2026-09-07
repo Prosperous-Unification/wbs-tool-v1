@@ -129,7 +129,7 @@ describe('a captured plan and its deadlines', () => {
   const sliceOf = (plan: Schedule, workItemId: string) => {
     const found = [...plan.slices.values()].filter((each) => each.workItemId === workItemId);
     expect(found).toHaveLength(1);
-    return found[0]!;
+    return found[0];
   };
 
   it('lets a captured deadline decide which of two contending leaves goes first', async () => {
