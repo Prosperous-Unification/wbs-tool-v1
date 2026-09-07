@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'bun:test';
 
 import { SCHEDULER_CONTRACT_VERSION } from './contract-version';
+import { durationOf } from './schedule';
 import { durationRoundedUp, durationUnits, SOLVER_QUANTUM } from './solver-quantum';
 import {
   computeQuantumGoldenCorpus,
@@ -34,11 +35,18 @@ import {
  * alongside the corpus. The difference is what a *deliberate* change costs. A
  * commit that means to change `quantise` edits those assertions to the new
  * numbers and the suite is green — correctly, because that is how a behaviour
- * test is changed, and no bump was ever demanded. The stored bytes cannot be
- * edited into agreement without also moving `contractVersion`, because the
- * other assertion in this describe block pins that to the constant. One file
- * says what the function does; this one says the cache may not keep answers
- * from a function that did something else.
+ * test is changed. Here the only route to green is to run
+ * `write-solver-quantum-golden-corpus.ts` and read a diff of the numbers that
+ * moved, next to a stored `contractVersion` the change is supposed to move too.
+ *
+ * **That is a forced reading, not a forced bump, and the difference matters
+ * enough to say** (peer review `queue/reviews/t323-r2-sol.md`, Critical 1). The
+ * writer emits the *current* constant beside the *current* cases, so
+ * regenerating without bumping is green. `fast-golden-corpus.ts` has the same
+ * limit. What both files buy is that the change cannot be silent; the bump
+ * itself is still the human obligation `contract-version.ts` documents, and a
+ * mechanical version of it needs a check against the merge base, filed
+ * separately.
  *
  * **What separates this from hashing the source**, which was the rejected
  * alternative, and it is measured rather than asserted because no test inside a
@@ -108,8 +116,9 @@ describe('the stored bytes are the quantisation, not an empty object', () => {
    * The other direction is proved too: with `SCHEDULER_CONTRACT_VERSION` moved
    * to 9 and the fixture left alone, `was produced under the version this tree
    * declares` fails here and in the Fast corpus (577/4 again, the other two
-   * being `contractVersionOf`'s). So bytes cannot move without a bump, and a
-   * bump cannot land without regenerating.
+   * being `contractVersionOf`'s). So a bump cannot land without regenerating,
+   * and a behaviour change cannot land without somebody running the writer.
+   * Neither red forces the bump itself — see the header.
    *
    * The numbers are asserted here as well as stored, so the red names the
    * behaviour rather than only reporting that two objects differ.
@@ -123,10 +132,13 @@ describe('the stored bytes are the quantisation, not an empty object', () => {
 
   /**
    * The input has to stay inside the band or the case above proves nothing: an
-   * offset at or below `DRIFT / SOLVER_QUANTUM` is cleaned by the surviving
+   * offset strictly below `DRIFT / SOLVER_QUANTUM` is cleaned by the surviving
    * post-multiplication snap even without the inner one, and an offset at or
-   * above `DRIFT` is not cleaned by either. Only strictly between them do the
-   * two arrangements of `quantise` disagree.
+   * above `DRIFT` is cleaned by neither. The interval is therefore CLOSED at its
+   * lower end — `snapWorkdays` compares with a strict `<`, so an offset of
+   * exactly `DRIFT / SOLVER_QUANTUM` multiplies to a distance of exactly `DRIFT`
+   * and is not cleaned — and open at its upper. The first draft had both ends
+   * the other way round (peer review, Important 2).
    *
    * `DRIFT` is private to `workday.ts`, so its value is restated as a literal
    * rather than imported — which is the right way round here. A band computed
@@ -134,21 +146,30 @@ describe('the stored bytes are the quantisation, not an empty object', () => {
    * widened it, and this assertion would go on passing while the case below it
    * quietly stopped being a red.
    */
-  it('keeps that input strictly between the two snaps, or the red above is not a red', () => {
+  it('keeps that input inside the band between the two snaps, or the red above is not a red', () => {
     const DRIFT = 1e-9;
     const drift = QUANTUM_GOLDEN_CASES[0];
     expect(drift.name).toBe('drift-above-a-whole-workday');
 
-    const days = drift.slice.days ?? 0;
-    const offset = days - Math.round(days);
-    expect(offset).toBeGreaterThan(DRIFT / SOLVER_QUANTUM);
+    // Read the duration `quantise` actually receives, NOT `slice.days`. They
+    // are equal here only because this case's width is 1, and reading `days`
+    // was a real hole: widen the width to `1 + BELOW_DRIFT` and the real
+    // duration becomes exactly 1, so old and new `quantise` agree and the
+    // fixture stops moving — while a `days`-based check would go on passing and
+    // report a red that no longer exists (peer review, Important 1).
+    const workdays = durationOf(drift.slice);
+    const offset = workdays - Math.round(workdays);
+    expect(offset).toBeGreaterThanOrEqual(DRIFT / SOLVER_QUANTUM);
     expect(offset).toBeLessThan(DRIFT);
 
-    // And the arrangement PR 281 removed, computed inline, does land one unit
-    // higher — so the stored 48 is a choice this tree made rather than the only
-    // number the input could produce.
-    const withoutTheInnerSnap = days * SOLVER_QUANTUM;
-    expect(Math.ceil(withoutTheInnerSnap)).toBe(SOLVER_QUANTUM + 1);
+    // And the arrangement PR 281 removed — the surviving outer snap applied to
+    // the product, which is all the old code did — does land one unit higher,
+    // so the stored 48 is a choice this tree made rather than the only number
+    // the input could produce.
+    const product = workdays * SOLVER_QUANTUM;
+    const outerSnapAlone =
+      Math.abs(product - Math.round(product)) < DRIFT ? Math.round(product) : product;
+    expect(Math.ceil(outerSnapAlone)).toBe(SOLVER_QUANTUM + 1);
     expect(durationUnits(drift.slice)).toBe(SOLVER_QUANTUM);
     expect(durationRoundedUp(drift.slice)).toBe(false);
   });

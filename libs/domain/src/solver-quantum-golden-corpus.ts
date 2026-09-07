@@ -17,8 +17,9 @@
  * `../fixtures/solver-quantum-golden-corpus.json`, that file carries the
  * contract version it was produced under, and
  * `solver-quantum-golden-corpus.test.ts` refuses a mismatch in either
- * direction: bytes that moved without a version bump, or a version bump whose
- * bytes were not regenerated.
+ * direction: cases that moved while the fixture was left alone, or a version
+ * bump whose fixture was not regenerated. Read the paragraph two below for what
+ * that does and does not force.
  *
  * **`solver-quantum.test.ts` already asserts this behaviour, and that is not
  * the same job.** TASK-302 shipped watched reds for PR 281 on the very input
@@ -26,12 +27,27 @@
  * `1.0000000005` over width 1 — and they are good tests. They are also plain
  * assertions, so the commit that changes `quantise` deliberately edits them to
  * the new numbers, which is the correct way to change a behaviour test, and
- * the suite goes green with no bump demanded. Nothing there is keyed on
- * `SCHEDULER_CONTRACT_VERSION`. That is the same gap `fast-golden-corpus.ts`'s
- * header describes for `schedule-identity.test.ts`: a check with no stored
- * artefact has nothing for a cache key to protect. This file is that upgrade
- * for `quantise` — the numbers leave the source, and the only way to move them
- * is to bump the constant and regenerate, in that order.
+ * the suite goes green. Nothing there is keyed on
+ * `SCHEDULER_CONTRACT_VERSION` at all. That is the same gap
+ * `fast-golden-corpus.ts`'s header describes for `schedule-identity.test.ts`: a
+ * check with no stored artefact has nothing for a cache key to protect. This
+ * file is that upgrade for `quantise` — the numbers leave the source and become
+ * an artefact that carries the version it was produced under.
+ *
+ * **What that buys, stated exactly, because the first draft of this header
+ * overstated it** (peer review `queue/reviews/t323-r2-sol.md`, Critical 1):
+ * regenerating this fixture does **not** mechanically require a bump.
+ * `computeQuantumGoldenCorpus` returns this tree's current constant beside this
+ * tree's current cases, so a `quantise` change followed by
+ * `write-solver-quantum-golden-corpus.ts` writes `{ contractVersion: 8, cases:
+ * <new bytes> }` and both assertions pass. `fast-golden-corpus.ts` has the same
+ * shape and the same limit. What this buys is that the change **cannot be
+ * silent**: it fails the suite, and the only way to green is to open the writer,
+ * run it deliberately, and read a diff of the numbers that moved. The bump
+ * itself remains the human obligation `contract-version.ts` documents — which is
+ * the boundary this whole file exists to state rather than to hide. Making it
+ * mechanical needs a change-aware check against the merge base, filed
+ * separately.
  *
  * **What this is not.** It is not a hash of `solver-quantum.ts`. A source hash
  * would have reddened for PR 281, and it would have reddened just as loudly for
@@ -42,7 +58,7 @@
  * byte below identical. That negative control is the whole difference, and it
  * is asserted in the test rather than left as a claim.
  *
- * Like Fast's, the inputs are hand-written. Eight fixed slices cannot cover an
+ * Like Fast's, the inputs are hand-written. Six fixed slices cannot cover an
  * input space either; what they can do is make one named constant impossible to
  * move in silence.
  */
@@ -72,10 +88,20 @@ const work = (days: number | null, width: number): Slice => ({
  * pinning moves with that constant and cannot see it change.
  *
  * `DRIFT` is `1e-9` in workday space (`workday.ts:109`). This offset sits
- * strictly inside `(DRIFT / SOLVER_QUANTUM, DRIFT)` — above the lower bound, so
- * the post-multiplication snap alone cannot clean it; below the upper, so the
- * pre-multiplication snap can. That band is the only place the two arrangements
- * of `quantise` disagree, and it is one workday-second wide.
+ * inside `[DRIFT / SOLVER_QUANTUM, DRIFT)` above a whole workday — at or beyond
+ * the lower bound, so the post-multiplication snap alone cannot clean it (its
+ * comparison is a strict `<`, so an offset of exactly `DRIFT / SOLVER_QUANTUM`
+ * multiplies to exactly `DRIFT` and is NOT cleaned); below the upper bound, so
+ * the pre-multiplication snap can. The interval is closed at its lower end and
+ * open at its upper, which the first draft of this comment got wrong in both
+ * directions (peer review, Important 2).
+ *
+ * That is the only band where the **unit count** differs. The `rounded` flag
+ * differs over the mirror band BELOW a whole workday too: there the old
+ * arrangement ceils `48W - epsilon` to `48W` and reports `rounded: true`, while
+ * the new one snaps first and reports `rounded: false`. This file stores the
+ * whole pair, so it is sensitive to both — the case below pins the unit half,
+ * which is the half that reaches the solver.
  */
 const BELOW_DRIFT = 5e-10;
 
