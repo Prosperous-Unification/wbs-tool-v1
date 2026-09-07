@@ -35,7 +35,7 @@ const workflowPath = join(
 const readWorkflow = (): Workflow => Bun.YAML.parse(readFileSync(workflowPath, 'utf8')) as Workflow;
 
 describe('the CI pixels gate', () => {
-  test('runs both browser shards and makes the stable pixels check depend on them', () => {
+  test('runs every browser shard and makes the stable pixels check depend on them', () => {
     const workflow = readWorkflow();
     const shardJob = workflow.jobs?.['pixels_shard'];
     const summaryJob = workflow.jobs?.['pixels'];
@@ -44,8 +44,8 @@ describe('the CI pixels gate', () => {
       uses?.startsWith('actions/upload-artifact@'),
     );
 
-    expect(shardJob?.strategy?.matrix?.shard).toEqual([1, 2]);
-    expect(layoutStep?.run).toBe('bun run e2e -- --shard=${{ matrix.shard }}/2');
+    expect(shardJob?.strategy?.matrix?.shard).toEqual([1, 2, 3, 4]);
+    expect(layoutStep?.run).toBe('bun run e2e -- --shard=${{ matrix.shard }}/4');
     expect(artifactStep?.with?.name).toBe(
       'wbs-table-screenshot-${{ matrix.shard }}-${{ github.run_attempt }}',
     );

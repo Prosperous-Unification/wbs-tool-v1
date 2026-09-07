@@ -342,8 +342,34 @@ jobs:
   # output, including the two faults that turned out NOT to break the test they
   # were predicted to.
   pixels_shard:
-    name: pixels shard ${{ matrix.shard }}/2
+    name: pixels shard ${{ matrix.shard }}/4
     runs-on: ubuntu-latest
+    # FOUR shards since 2026-09-08, because two were measured badly unbalanced.
+    # Playwright shards by file, not by duration, so the split is only as even
+    # as the files happen to be. Over the last 8 runs, per job:
+    #
+    #   gate               13.1m
+    #   pixels shard 1/2   21.4m   <- the critical path
+    #   pixels shard 2/2    7.1m   <- idle for fourteen minutes of it
+    #
+    # The `pixels` aggregate waits for the slowest shard, so the run cost the
+    # 21.4m and shard 2 contributed nothing for most of it. Doubling the shard
+    # count does not make the suite cheaper — it makes the imbalance finer
+    # grained, so the worst shard falls toward the mean and `gate` becomes the
+    # critical path instead. Expected effect is roughly 21.4m to ~14m per run.
+    #
+    # Queue wait was checked before assuming runners were free: measured 0.0m
+    # across all 24 real jobs in that sample, so the shards start immediately
+    # and adding two more does not queue behind the first two. (The `pixels`
+    # aggregate shows a 19-25m "wait" in the same data; that is `needs:`
+    # fan-in, not a runner shortage, and misreading it would have sent this
+    # after a capacity problem that does not exist.)
+    #
+    # This is the answer the note below already called for — "when this is hit
+    # again the answer is sharding or a bigger runner, which is a call about CI
+    # budget" — taken under the standing instruction to optimize for elapsed
+    # development time rather than machine resource.
+    #
     # Two shards since 2026-09-07, when one worker reached this 25-minute cap
     # with 248 of 296 cases green and nothing red. The whole suite was 16.2m on
     # the Mac immediately before the push, so another timeout increase would
@@ -377,7 +403,7 @@ jobs:
         # production workflow by pixels-workflow.test.ts.
         # Proof: deleting shard 2 failed that test with expected [1, 2], got
         # [1], before the workflow was restored.
-        shard: [1, 2]
+        shard: [1, 2, 3, 4]
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
@@ -404,7 +430,7 @@ jobs:
       # first test. `bun run e2e` seeds the three `.env` files first — a fresh
       # checkout has none, and every app refuses to boot without one.
       - name: Layout gate
-        run: bun run e2e -- --shard=${{ matrix.shard }}/2
+        run: bun run e2e -- --shard=${{ matrix.shard }}/4
 
       - uses: actions/upload-artifact@v4
         if: always()
