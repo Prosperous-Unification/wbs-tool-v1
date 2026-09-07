@@ -473,7 +473,10 @@ export class OptimizationCoordinator {
             inputHash: next.inputHash,
             admittedCancelEpoch: next.admission.admittedCancelEpoch,
             outcome: { kind: 'failed', reason: dispositionOfPreflightFailure(built.failure) },
-            now: this.options.now(),
+            now: Math.max(
+              this.options.now(),
+              solverAdmissionStartedAt(next.admission, next.entry.budgetMs),
+            ),
           });
         } finally {
           releaseSolverSlot(this.options.db, slot);
