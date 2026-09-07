@@ -115,6 +115,16 @@ describe('schedule comparison indicator', () => {
     fireEvent.click(screen.getByText('Show affected work items'));
     expect(screen.getByText('Launch → Migration · Work item deadline day 4')).toBeInTheDocument();
     expectNoIntrusiveSurface();
+    // 9.3, and not covered by the `Optimization unavailable` negative above:
+    // that string is the *whole* failed banner, so a Retry offered under any
+    // other wording — a bare button, a link, a second sentence — passes it.
+    // Re-solving an unchanged input returns the same proof, and the route
+    // answers 409 for it (8.7d), so a control here would promise a recovery
+    // the server refuses. Asserted **after** the disclosure is open, because a
+    // closed `<details>` hides its subtree from the accessibility tree and
+    // would make a Retry inside it invisible to both queries.
+    expect(screen.queryByText(/retry/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /retry/i })).toBeNull();
   });
 
   itDom('does not repeat a leaf name when its own Work item deadline binds', () => {

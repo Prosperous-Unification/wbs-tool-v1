@@ -967,6 +967,20 @@ describe('projects', () => {
         body: { code: 'not-retryable', state: 'ready' },
       },
       {
+        // 8.7d. The refusal is the route's, not the UI's: hiding the Retry
+        // control leaves this path reachable by anyone who posts to it, which
+        // is the hole the `corrupt`-promised-a-Retry Critical named. The
+        // coordinator half — a real `plan-infeasible` row deciding
+        // `not-retryable` and reserving no solver slot — is
+        // `optimization-coordinator.db.test.ts`'s "names an unlaunchable
+        // $state variant not-retryable"; this is the half that proves the
+        // state name survives the wire instead of being collapsed onto
+        // `failed`'s code or `idle`'s name.
+        decision: { kind: 'not-retryable', state: 'plan-infeasible' },
+        status: 409,
+        body: { code: 'not-retryable', state: 'plan-infeasible' },
+      },
+      {
         decision: { kind: 'already-running' },
         status: 409,
         body: { code: 'already-running' },
@@ -991,7 +1005,7 @@ describe('projects', () => {
       expect(response.status).toBe(testCase.status);
       expect(await response.json()).toEqual(testCase.body);
     }
-    expect(asks).toHaveLength(4);
+    expect(asks).toHaveLength(5);
     expect(asks[0]).toMatchObject({
       projectId: project.id,
       objective: 'pri',

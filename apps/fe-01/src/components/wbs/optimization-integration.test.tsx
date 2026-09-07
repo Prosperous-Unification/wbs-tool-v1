@@ -126,4 +126,60 @@ describe('project optimization in the plan', () => {
     });
     expect(screen.queryByText(/project deadline by/)).toBeNull();
   });
+
+  /**
+   * 9.3, and the half `optimization-indicator.test.tsx` cannot reach: that
+   * suite renders the banner alone, so "Fast is still on screen and usable"
+   * is trivially true there — there is nothing else on screen to lose. The
+   * claim is about the table, so it is asserted against the table.
+   */
+  itDom(
+    'leaves the Fast plan on screen and usable, and offers no Retry, when infeasible',
+    async () => {
+      const api = fakeProjectApi();
+      const row = await api.createWorkItem('p1', { parentId: null, afterId: null, name: 'Launch' });
+      const readTree = api.tree.bind(api);
+      api.tree = async (projectId) => ({
+        ...(await readTree(projectId)),
+        optimization: {
+          ...READY,
+          displayed: 'fast',
+          comparison: undefined,
+          variants: {
+            ...READY.variants,
+            pri: {
+              state: 'plan-infeasible',
+              items: [
+                { ownerWorkItemId: row.id, boundWorkItemId: row.id, effectiveDeadlineOffset: 2 },
+              ],
+            },
+          },
+        } satisfies PlanOptimizationView,
+      });
+      render(<WbsTable projectId="p1" api={api} />);
+
+      expect(await screen.findByText('Plan infeasible · 1 Work item deadline')).toBeInTheDocument();
+
+      // On screen, and usable: the row's own editor, not merely its text. An
+      // infeasible optimized plan is a statement about the optimized variant —
+      // the Fast schedule it is measured against is still the one being shown,
+      // so nothing about the table may go read-only or disappear.
+      const name = await screen.findByLabelText('Name of 010');
+      expect(name).toHaveValue('Launch');
+      expect(name).toBeEnabled();
+      name.focus();
+      fireEvent.change(name, { target: { value: 'Launch v2' } });
+      expect(screen.getByLabelText('Name of 010')).toHaveValue('Launch v2');
+
+      // No toast and no modal, and no Retry — the whole document, because the
+      // point of the item is that the affordance is absent from the screen, not
+      // merely from one component's own markup. `alert` is doing double duty:
+      // it is also the stale-tree banner, so its absence says these rows are the
+      // current ones rather than a copy the reader was warned about.
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(screen.queryByRole('button', { name: /retry/i })).toBeNull();
+      expect(screen.queryByText(/Optimization unavailable/)).toBeNull();
+    },
+  );
 });
