@@ -821,10 +821,21 @@ workspace note — rather than by the count word:
 | 5    | `notes/wbs-dual-optimized-scheduler-design.md` §3.2              | **five rows missing** — amended here                             |
 
 Site 5's table now carries the first-stage `INFEASIBLE` row (a
-`plan-infeasible` row plus certificate in one transaction, and **no** event),
-the later-stage row that stays `failed` + `invalid-output`, the two settled-read
-rows that spawn nothing, and the explicit Retry refusal. Its review-ledger rows
-are untouched, per 7.2b.
+`plan-infeasible` row plus certificate in one transaction, with **which event it
+emits recorded as OPEN and owned by `TASK-313`**, the shipped coordinator
+emitting none), the later-stage row that stays `failed` + `invalid-output`, the
+two settled-read rows that spawn nothing, and the explicit Retry refusal. Its
+review-ledger rows are untouched, per 7.2b.
+
+**That row first landed asserting no event at all, and this paragraph went on
+describing it that way after the note itself had stopped.** Sol's Critical 2
+below withdrew the claim and the note was amended with it (`3560e9e1` wrote the
+row, `8ef0f2ab` replaced its event cell with the open question), while this
+measured section — which describes what was written rather than re-reading it —
+kept the sentence the amendment had already replaced. It is the divergence trap
+one more time, inside the item whose whole subject is that trap, and the lesson
+is narrower than "check five sites": **a measured section is itself a site**,
+because it restates a claim in prose that no member-name search will find.
 
 **The search found a sixth site 8.7b does not name, and it was wrong in two
 places rather than one.** `design.md`'s Retry evaluation order, step (2),
@@ -897,3 +908,33 @@ Verified artifact `queue/reviews/t241-r4-c23-sol.md`, seat `openai/gpt-5.6-sol`,
   `schedule_optimization_failed` carries a `failureReason` it has none of, and
   `schedule_optimized` promises a schedule. The §3.2 table's "no event" claim is
   withdrawn pending that decision rather than left standing as intent.
+
+### Why this PR merges while `TASK-313` is still open
+
+Critical 2 held PR 266 back for a run, and the hold was right at the time: an
+artifact change that writes a defect down as intent is not separable from the
+defect. It is separable now, and the difference is one sentence, not a
+judgement call.
+
+- **The defect is not in this diff and is already on `main`.** 266 is three
+  files — one `optimized-cache.db.test.ts` case, one line of
+  `dual-optimized-scheduler/design.md` adding this member to the two
+  `not-retryable` enumerations inside that bullet, and this document. Every
+  line Critical 2 names is in `optimization-coordinator.ts`, which 266 does not
+  open. Holding 266 removes nothing: a `plan-infeasible` row leaves a live
+  client on `Optimizing…` at `350ee08c` with 266 merged and without it alike.
+- **The only coupling was ratification, and it is gone.** The one place this
+  task's artifacts asserted the missing event as design was the §3.2 table row
+  in the workspace note and this document's description of that row; the note
+  was amended at `8ef0f2ab` and the description is corrected in this commit. A
+  member-name search across `openspec/` for `plan-infeasible` beside
+  `event` or `emit` now returns nothing that claims the outcome emits none.
+- **Blocking further would invert what the block is for.** 8.7b's own subject is
+  that a stale enumeration ships silently; keeping the corrected enumeration out
+  of `main` while the stale one stays in it is the failure mode this item was
+  written to catch.
+
+`TASK-313` stays `p1` and queued in lane e, unticked and unmerged with this PR:
+it owns choosing the event, amending the realtime contract, the FE subscriber
+and `readScopeFor`, and proving it against 7.9's crash case. Nothing here
+discharges any of that.
