@@ -983,8 +983,15 @@ another change's open task item are both places a literal string lives, and
 neither is a requirement sentence. `design.md`'s review-ledger row I1 is left
 untouched, per 7.2b.
 
-No test changes and no gate counts: this chunk is five documents plus one
-scenario line, and the strings it aligns to are already asserted by
+No test changes and no gate counts, and the size of the chunk is the table
+above rather than a smaller number beside it: the rename lands in **all seven
+artifacts**, across the **eight sites** the table lists, and this file is the
+**eighth changed document**, carrying the record. `git diff --numstat` against
+the merge base names those eight and nothing else. An earlier revision of this
+paragraph said "five documents plus one scenario line" (Sol r6 Critical 1) —
+the same undercount the paragraph above it withdraws, one paragraph later, and
+a reader reconstructing the normative blast radius from it would have missed
+two artifacts. The strings the rename aligns to are already asserted by
 `optimization-indicator.test.tsx`, green on `main`.
 
 **8.9 stays open on its second half, and an earlier revision of this paragraph
