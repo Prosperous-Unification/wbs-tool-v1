@@ -8,7 +8,8 @@ Ordered TDD slices. This public authentication change stops at prod-mode review.
       `/ws?token=` is refused.
 - [x] 1.2 Remove query-token authentication, require exact Origin plus the
       access cookie in OIDC mode, and fail closed when neither OIDC nor explicit
-      local mode is configured.
+      local mode is configured. The dedicated upgrade test observes the exact
+      401 body; deleting the fail-closed branch makes it red.
 - [x] 1.3 Carry fixed local identity and verified token between Elysia hooks on
       private Symbols; prove `/ws?localIdentity=mallory` cannot override the
       cookie-verified user.
@@ -20,7 +21,8 @@ Ordered TDD slices. This public authentication change stops at prod-mode review.
 - [x] 2.1 Add a red proving the reconnecting client opens the configured URL
       without requiring or appending a JWT.
 - [x] 2.2 Remove `ReconnectingWsOptions.jwt`, open `opts.url` verbatim on every
-      attempt, and remove token arguments from both frontend socket callers.
+      attempt, and remove token inputs from both frontend socket surfaces and
+      their fixtures.
 
 ## 3. Deployment boundary
 

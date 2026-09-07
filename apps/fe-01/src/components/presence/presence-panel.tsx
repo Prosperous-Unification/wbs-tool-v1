@@ -44,13 +44,12 @@ type Status = 'connecting' | 'open' | 'closed';
  * stop.
  */
 export interface PresencePanelProps {
-  token: string;
   me: string;
   /** The project whose roster this shows, or null while none is selected. */
   projectId: string | null;
 }
 
-export function PresencePanel({ token, me, projectId }: PresencePanelProps) {
+export function PresencePanel({ me, projectId }: PresencePanelProps) {
   const [users, setUsers] = useState<string[]>([]);
   const [status, setStatus] = useState<Status>('connecting');
   const socketRef = useRef<WebSocket | null>(null);
@@ -90,7 +89,7 @@ export function PresencePanel({ token, me, projectId }: PresencePanelProps) {
     return () => {
       ws.close();
     };
-  }, [token, projectId]);
+  }, [projectId]);
 
   return (
     <section className="flex min-w-0 items-center gap-2 text-xs">

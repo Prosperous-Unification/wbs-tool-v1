@@ -72,7 +72,7 @@ describe('the presence panel', () => {
   });
 
   const mount = (projectId: string | null = 'p-hull') =>
-    render(<PresencePanel token="t" me="kat" projectId={projectId} />);
+    render(<PresencePanel me="kat" projectId={projectId} />);
 
   /** What this socket was told, as parsed frames. */
   const framesSentBy = (s: StillSocket) => s.sent.map((f) => JSON.parse(f) as { type?: string });
@@ -137,11 +137,11 @@ describe('the presence panel', () => {
     // failed on `expect(StillSocket.opened).toHaveLength(2)` receiving 1 — one
     // socket, still subscribed to `project:p-hull`, showing the old project's
     // people under the new project's name.
-    const view = render(<PresencePanel token="t" me="kat" projectId="p-hull" />);
+    const view = render(<PresencePanel me="kat" projectId="p-hull" />);
     arrive(['kat', 'sam']);
     expect(screen.getAllByRole('listitem')).toHaveLength(2);
 
-    view.rerender(<PresencePanel token="t" me="kat" projectId="p-keel" />);
+    view.rerender(<PresencePanel me="kat" projectId="p-keel" />);
 
     expect(StillSocket.opened).toHaveLength(2);
     expect(StillSocket.opened[0]?.closed).toBe(true);

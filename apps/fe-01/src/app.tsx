@@ -143,7 +143,7 @@ function AppContent() {
           // roster by the project the socket subscribes to (F4, and
           // {@link PresencePanel}).
           (projectId) => (
-            <PresencePanel token={session.token} me={session.user.username} projectId={projectId} />
+            <PresencePanel me={session.user.username} projectId={projectId} />
           )
         }
         account={
