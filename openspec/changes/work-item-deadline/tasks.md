@@ -16,9 +16,16 @@ no build or autotest runs on the workspace box.** That gate was h2puni for every
 slice up to 8.9b and has been **CI** since, because h2puni has had zero free
 inodes throughout and cannot create a file, let alone run
 `bin/h2puni-gate.sh`. **CI is not an equal substitute and 10.2 names what is
-lost** — chiefly the `WBS_RUN_SOLVER_ORPHAN_PROC=1` process-boundary proof,
-which is host-only and has not run since. The h2puni requirement is not waived,
-it is **owed**, and it is owed to `TASK-315`.
+lost** — exactly one behavioural check, the `WBS_RUN_SOLVER_ORPHAN_PROC=1`
+process-boundary proof, which is host-only and has not run since. The h2puni
+requirement is not waived, it is **owed**, and it is owed to **`TASK-319`**,
+which exists for no other purpose: run `bin/h2puni-gate.sh` against this
+change's merged head and prove the orphan-process boundary actually executed.
+`TASK-319` is blocked on `TASK-315`, but `TASK-315` is **not** the debt's
+holder — its acceptance criterion is to free inodes and prove _one_ project
+target runs, which restores the capability to gate without gating anything.
+Peer review r8c was right to call that parking a still-binding requirement on a
+task that cannot discharge it, and this is the correction.
 
 **This change must land before TASK-219 (`wbs-optimized-scheduler-coordinator-cache`)
 starts.** It changes the canonical input, the cache identity, the solver wire and
@@ -732,7 +739,7 @@ order`, with their tests. A repository assertion that no unqualified
       and WEAKER — the word "downgrade" is the right one and an earlier draft
       of this note denied it.** As written the item named h2puni, and
       h2puni cannot run a gate: it has been at `IFree 0` (`df -i /`:
-      `9849520 / 9849520`, re-measured live at 2026-09-07T04:27Z, filed as
+      `9849520 / 9849520`, re-measured live at 2026-09-07T05:16Z, filed as
       `TASK-315`, whose reclaim still needs a human decision) since before 8.9b,
       which is why every item from 8.9b onward gated on CI instead. **Creating a
       file there fails**, so this is not slowness to wait out.
@@ -757,9 +764,13 @@ order`, with their tests. A repository assertion that no unqualified
       `optimization-orphan.proc.db.test.ts` is `describe.skip` unless an image
       is supplied, so **CI does not exercise the supervisor-restart /
       orphan-process boundary at all** — it is a host-only check, and it is
-      lost for as long as h2puni cannot run. The same script also adds
-      `nx format:check --all` and `--skip-nx-cache`, neither of which CI's gate
-      step does in that form.
+      lost for as long as h2puni cannot run. **That is the only behavioural
+      check CI loses.** The same script also runs `nx format:check --all` and
+      passes `--skip-nx-cache`; the first is **not** lost — CI runs the
+      identical format command as its own `Format` step rather than inside the
+      script, so saying "CI's gate step does not do it" would mislead — and the
+      second changes only whether a cached result may be reused, not what is
+      checked.
       **The earlier "one real difference" was also simply false:** the Python
       unittest target runs host `python3` on **both** paths
       (`libs/solver-py/project.json`) and never inside the solver image; the
@@ -769,7 +780,18 @@ order`, with their tests. A repository assertion that no unqualified
       **So the honest claim is narrower than the one this item started with:**
       the four targets this item names are green at the exact head on CI, and
       one host-only proof outside those four targets is not being run at all
-      until `TASK-315` frees h2puni.
+      until h2puni can run again.
+      **That outstanding proof has an owner, and naming the wrong one is what
+      peer review r8c called a Critical.** An earlier draft said the debt was
+      owed to `TASK-315`. It is not: `TASK-315` frees inodes and proves _one_
+      project target runs, which restores the ability to gate without gating
+      this change. The debt is owed to **`TASK-319`** — filed for this and
+      nothing else, blocked on `TASK-315`, and required to run
+      `bin/h2puni-gate.sh` against this change's merged head and to prove the
+      orphan-process boundary **executed** rather than skipped, with a negative
+      control. This item stays ticked on what its own sentence asks for — the
+      three named projects' autotest, lint and typecheck green at the exact
+      head — and the one check outside that sentence is tracked, not absorbed.
       **"The exact head" is stated here as a RULE, not as a SHA, and that is
       the fix for a trap this change has already sprung once.** `verify.md`
       records slice 1's version of it: a gate table that named a SHA went stale
@@ -1277,10 +1299,14 @@ being the impossible sentence saying the word twice — and **0 unqualified**.
 All twelve control expectations were checked against the same predicates
 before the suite was pushed.
 
-**No remote gate ran and the reason is a host, not a decision.** h2puni is at
+**No h2puni gate ran, and the reason is a host, not a decision.** h2puni is at
 **100% inodes** — `df -i /` reports `9849520 / 9849520`, `IFree 0` — so `scp`
 of a branch bundle fails and `git fetch` inside the gate checkout dies on
-`unable to create temporary file: No space left on device`. CI is the gate.
+`unable to create temporary file: No space left on device`. CI is the remote
+gate here, as it is for every item from 8.9b onward; 10.2 says what that costs
+and `TASK-319` owns the difference. (This paragraph read "No remote gate ran"
+until peer review r8c pointed out that it then called CI the gate two sentences
+later — CI _is_ a remote gate, and the sentence was describing h2puni.)
 
 **A formatter trap that cost one CI cycle, and it is not `lefthook` this
 time.** A fresh worktree has no `node_modules`, so
