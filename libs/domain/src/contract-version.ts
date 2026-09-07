@@ -21,15 +21,22 @@
  * scheduling argument, the `deadlineUnits` wire field and the materialiser all
  * changed together. `8` is a far narrower change and is for that reason more
  * dangerous to skip: `quantise` now snaps the `DRIFT` window in workday space
- * *before* multiplying by {@link SOLVER_QUANTUM} rather than only after, so a
- * duration inside `(W, W + DRIFT)` reports one unit less than it used to. That
+ * *before* multiplying by {@link SOLVER_QUANTUM} rather than only after. That
  * is the `snapWorkdays` and {@link SOLVER_QUANTUM} entries of the list above
  * and needs no new rule.
+ *
+ * **The class that actually moves is narrower than `DRIFT` and saying otherwise
+ * overstates it.** The old post-multiplication snap already cleaned a unit-space
+ * offset below `DRIFT`, which is a *workday*-space offset below
+ * `DRIFT / SOLVER_QUANTUM`. So the durations that report one unit less than they
+ * used to are the ones in `(W + DRIFT/48, W + DRIFT)` — above a whole workday
+ * only, because below one `ceil` already agreed. `1.0000000005` sits inside that
+ * band, which is why it is the example.
  *
  * The usual reason a stale row stops being served is that its `inputHash`
  * changed. **That does not happen here.** `canonical-schedule-input.ts` hashes
  * `slices[].days` and `slices[].width`; `durationUnits` is derived downstream
- * and is not one of the hashed canonical entries. An input inside the window
+ * and is not one of the hashed canonical entries. An input inside the band
  * therefore keeps its exact hash across this change, a `plan-infeasible` row
  * cached under the old rounding stays addressable, and `Retry` refuses to
  * re-solve a `plan-infeasible` hit. Without this bump that row is a sticky
@@ -37,13 +44,14 @@
  * deadline. The version is the whole of the eviction rather than a second net
  * behind the hash.
  *
- * **The window is reachable, measured rather than argued.** Whole `days` cannot
+ * **The band is reachable, measured rather than argued.** Whole `days` cannot
  * land in it — every whole `days` 0…5000 over every legal `width` 1…1000 is
- * 5,001,000 ratios with zero hits, the nearest non-zero distance to a whole
- * number being `1e-3`, a million times the window — but `roundDays` returns the
- * combined figure untouched under `ESTIMATE_ROUNDINGS`' `'exact'`, so a project
- * on that rounding puts an arbitrary double in: `days: 1.0000000005` over
- * `width: 1` gave `durationUnits` `49` before this change and `48` after.
+ * 5,001,000 ratios with zero hits inside the *wider* `(W, W + DRIFT)`, and so
+ * none inside the band either; the nearest non-zero distance to a whole number
+ * is `1e-3`, a million times `DRIFT`. But `roundDays` returns the combined
+ * figure untouched under `ESTIMATE_ROUNDINGS`' `'exact'`, so a project on that
+ * rounding puts an arbitrary double in: `days: 1.0000000005` over `width: 1`
+ * gave `durationUnits` `49` before this change and `48` after.
  *
  * The number is also not free at this point: both request fixtures in the
  * golden corpus are checked in carrying `"8+0.1.0"`, and

@@ -356,8 +356,13 @@ describe('buildServices', () => {
         request.request.budgetMs,
       ]),
     ).toEqual([
-      ['0.1.0', '7+0.1.0', 60_000],
-      ['0.1.0', '7+0.1.0', 60_000],
+      // Not an opaque cache key like the `CONTRACT` constants elsewhere in this
+      // app's tests: this is the value the real composition emits through
+      // `contractVersionOf` in `services.ts`, so it moves with
+      // `SCHEDULER_CONTRACT_VERSION` and is spelled out rather than imported to
+      // keep the assertion independent of the constant it is checking.
+      ['0.1.0', '8+0.1.0', 60_000],
+      ['0.1.0', '8+0.1.0', 60_000],
     ]);
   });
 });
