@@ -344,8 +344,14 @@ describe('project optimization in the plan', () => {
 
   /**
    * Every read `refresh('all')` issues, plus the marker read the same scope
-   * starts — as an exact multiset, in call order, so a duplicated vocabulary or
-   * marker read is red too and not only an unknown name.
+   * starts — as an exact multiset, so a duplicated vocabulary or marker read is
+   * red too and not only an unknown name.
+   *
+   * **Order is not asserted and is not meant to be.** Both sides are sorted
+   * before the comparison, because these reads are issued concurrently and
+   * pinning the sequence they happen to settle in would be a flake waiting for
+   * a slower machine. What survives sorting is the count of each name, which is
+   * the claim: no extra read, and no read gone missing.
    */
   const READS_THE_FULL_SCOPE_MAKES = [
     'tree/1',
@@ -550,7 +556,7 @@ describe('project optimization in the plan', () => {
         `expected one optimization indicator on screen, found ${String(found.length)}`,
       );
     }
-    return found[0]?.textContent ?? '';
+    return found[0].textContent;
   }
 
   /**

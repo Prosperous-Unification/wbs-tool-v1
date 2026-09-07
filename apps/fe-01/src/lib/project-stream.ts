@@ -124,8 +124,16 @@ const browserDeps: ProjectStreamDeps = {
  * The payload is deliberately ignored. be-01 sends either the changed work items
  * or the whole tree, and applying either one locally would be a second
  * implementation of the numbering and the roll-up — the two things most likely
- * to disagree with the server. Refetching is one request and always right, which
- * is also why a replayed event and a live one need no distinguishing here.
+ * to disagree with the server. Refetching is always right, which is also why a
+ * replayed event and a live one need no distinguishing here.
+ *
+ * **It is not one request, and calling it that is what made the cost invisible.**
+ * The caller decides how much to read, and `readScopeFor` in `wbs-table.tsx`
+ * answers `'all'` for every event this side does not recognise — nine requests,
+ * the plan and the steps and six vocabularies and the markers. That is the
+ * honest price of ignoring the payload, and an optimizer outcome pays it
+ * (TASK-324). The scope narrows per event where be-01 guarantees it can; the
+ * default stays the full read because an unknown event has no such guarantee.
  *
  * Reconnect lives in this function rather than in the component that calls it: a
  * component would restart the backoff on any render that changed the closure,
