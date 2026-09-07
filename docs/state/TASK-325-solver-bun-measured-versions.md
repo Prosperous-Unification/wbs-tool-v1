@@ -21,21 +21,21 @@ nobody had seen.
 ## Acceptance criteria
 
 - [x] **#1** The pin's shape is decided and the reason recorded in the file, not
-  just changed.
+      just changed.
 - [x] **#2** A test covers the chosen contract, watched red before green.
 - [ ] **#3 SUPERSEDED** 2026-09-07T09:11Z. The dry run could never produce the
-  refusal it asked to see: `install-solver-supervisor.ts` returns the plan at
-  `if (!args.execute) return plan` **before** `assertSolverSupervisorBunVersion`
-  is reached, so the check sits behind `--execute`. Restated: the authorized
-  `--execute` run records which listed version the host reported and whether the
-  service came up and held its socket, and that observation is added to the
-  constant beside the two existing entries. **That run is the only thing this
-  task still owes.**
+      refusal it asked to see: `install-solver-supervisor.ts` returns the plan at
+      `if (!args.execute) return plan` **before** `assertSolverSupervisorBunVersion`
+      is reached, so the check sits behind `--execute`. Restated: the authorized
+      `--execute` run records which listed version the host reported and whether the
+      service came up and held its socket, and that observation is added to the
+      constant beside the two existing entries. **That run is the only thing this
+      task still owes.**
 
 ## CI
 
-| Run | Head | Result |
-|---|---|---|
+| Run         | Head       | Result  |
+| ----------- | ---------- | ------- |
 | 34134802447 | `f5c9f484` | success |
 | 34127739638 | `708825d8` | success |
 | 34124316781 | `70a576f2` | success |
