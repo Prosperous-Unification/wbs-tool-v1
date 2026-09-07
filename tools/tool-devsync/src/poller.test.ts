@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, readdir, readFile, utimes, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -28,6 +28,80 @@ async function requireCommand(argv: string[]): Promise<string> {
   const result = await command(argv);
   if (result.code !== 0) throw new Error(`${argv.join(' ')}: ${result.stderr}`);
   return result.stdout.trim();
+}
+
+const HELPER = new URL('../../../bin/dev-poll-sync.sh', import.meta.url).pathname;
+const DEPLOYER = 'tools/tool-devsync/src/sync.ts';
+
+/** Where the loader lays a candidate's deployer, given the installed bin dir. */
+function candidateDeployer(installed: string, sha: string): string {
+  return join(installed, `sync.${sha}`, DEPLOYER);
+}
+
+/**
+ * A fake `git` whose `archive` answers with a tar holding one deployer file,
+ * the shape the loader extracts. `body` runs first with the requested commit
+ * in `$sha` and must set `CONTENT`; it may block, which is what the race
+ * cases use it for.
+ */
+function fakeGitArchiving(body: string): string {
+  return `#!/usr/bin/env bash
+set -eu
+case " $* " in *" fetch "*) exit 0;; esac
+sha=$4
+${body}
+tree=$(mktemp -d)
+mkdir -p "$tree/tools/tool-devsync/src"
+printf '%s\\n' "$CONTENT" > "$tree/${DEPLOYER}"
+tar -c -C "$tree" tools
+rm -rf "$tree"
+`;
+}
+
+/**
+ * The files a candidate is archived from, in the shape the real repository has
+ * them: the deployer's project, the contract it imports through an `@wbs/*`
+ * path, and the root configs Bun resolves that path with.
+ */
+async function seedDeployerTree(source: string, contract: string, deployer: string): Promise<void> {
+  await mkdir(join(source, 'tools/tool-devsync/src'), { recursive: true });
+  await mkdir(join(source, 'tools/tool-remote-scripts/src/lib'), { recursive: true });
+  await mkdir(join(source, 'libs'), { recursive: true });
+  await writeFile(join(source, 'libs/.keep'), '');
+  await writeFile(join(source, 'package.json'), '{ "name": "poller-fixture", "type": "module" }\n');
+  await writeFile(
+    join(source, 'tsconfig.base.json'),
+    JSON.stringify({
+      compilerOptions: {
+        paths: { '@wbs/probe-contract': ['./tools/tool-remote-scripts/src/lib/probe-contract.ts'] },
+      },
+    }),
+  );
+  await writeFile(
+    join(source, 'tools/tool-devsync/tsconfig.json'),
+    JSON.stringify({ extends: '../../tsconfig.base.json' }),
+  );
+  await writeFile(join(source, 'tools/tool-remote-scripts/src/lib/probe-contract.ts'), contract);
+  await writeFile(join(source, DEPLOYER), deployer);
+}
+
+async function initFixtureRepository(source: string): Promise<void> {
+  await requireCommand(['git', 'init', '--quiet', '--initial-branch=main', source]);
+  await requireCommand([
+    'git',
+    '-C',
+    source,
+    'config',
+    'user.email',
+    'poller-test@example.invalid',
+  ]);
+  await requireCommand(['git', '-C', source, 'config', 'user.name', 'poller test']);
+}
+
+async function commitAll(source: string, message: string): Promise<string> {
+  await requireCommand(['git', '-C', source, 'add', '-A']);
+  await requireCommand(['git', '-C', source, 'commit', '--quiet', '-m', message]);
+  return await requireCommand(['git', '-C', source, 'rev-parse', 'HEAD']);
 }
 
 describe('durable dev poller', () => {
@@ -110,20 +184,26 @@ describe('durable dev poller', () => {
     const helper = new URL('../../../bin/dev-poll-sync.sh', import.meta.url).pathname;
     const sha = 'a'.repeat(40);
     const staleSha = 'b'.repeat(40);
-    const staleInstalled = join(installed, `sync.${staleSha}.ts`);
-    const staleInterrupted = join(installed, `sync.${staleSha}.ts.deadbeef`);
+    const staleInstalled = join(installed, `sync.${staleSha}`);
+    const staleInterrupted = join(installed, `sync.${staleSha}.deadbeef`);
+    const staleSingleFile = join(installed, `sync.${staleSha}.ts`);
 
     await requireCommand(['mkdir', '-p', source, installed, commands]);
-    await writeFile(fakeGit, '#!/usr/bin/env bash\nprintf CURRENT\\n\n');
+    await writeFile(fakeGit, fakeGitArchiving('CONTENT=CURRENT'));
     await writeFile(
       fakeBun,
       '#!/usr/bin/env bash\nif [ "$1" = --version ]; then echo 1.3.14; fi\n',
     );
-    await Promise.all([writeFile(staleInstalled, 'old'), writeFile(staleInterrupted, 'partial')]);
+    await Promise.all([
+      mkdir(join(staleInstalled, 'tools'), { recursive: true }),
+      mkdir(staleInterrupted, { recursive: true }),
+      writeFile(staleSingleFile, 'a candidate the loader wrote before 2026-09-07'),
+    ]);
     const staleTime = new Date(Date.now() - 9 * 24 * 60 * 60 * 1_000);
     await Promise.all([
       utimes(staleInstalled, staleTime, staleTime),
       utimes(staleInterrupted, staleTime, staleTime),
+      utimes(staleSingleFile, staleTime, staleTime),
     ]);
     await chmod(fakeGit, 0o755);
     await chmod(fakeBun, 0o755);
@@ -132,9 +212,11 @@ describe('durable dev poller', () => {
       PATH: `${commands}:${process.env['PATH'] ?? ''}`,
     });
 
-    // Proof: narrowing the prune glob back to sync.*.ts leaves staleInterrupted behind.
+    // Proof: the prune glob narrowed back to `sync.*.ts` keeps both stale
+    // directories and fails here on `Received + 2`: `sync.bbbb…` and
+    // `sync.bbbb….deadbeef` beside the fresh candidate.
     expect(result.code).toBe(0);
-    expect(await readdir(installed)).toEqual([`sync.${sha}.ts`]);
+    expect(await readdir(installed)).toEqual([`sync.${sha}`]);
   });
 
   it('a repaired target deployer replaces a broken candidate without bypassing sync', async () => {
@@ -144,30 +226,14 @@ describe('durable dev poller', () => {
     const fakeBun = join(root, 'bun');
     const helper = new URL('../../../bin/dev-poll-sync.sh', import.meta.url).pathname;
 
-    await requireCommand(['git', 'init', '--quiet', '--initial-branch=main', source]);
-    await requireCommand([
-      'git',
-      '-C',
-      source,
-      'config',
-      'user.email',
-      'poller-test@example.invalid',
-    ]);
-    await requireCommand(['git', '-C', source, 'config', 'user.name', 'poller test']);
-
-    const sync = join(source, 'tools/tool-devsync/src/sync.ts');
-    await requireCommand(['mkdir', '-p', join(source, 'tools/tool-devsync/src')]);
-    await writeFile(sync, 'BASE\n');
-    await requireCommand(['git', '-C', source, 'add', sync]);
-    await requireCommand(['git', '-C', source, 'commit', '--quiet', '-m', 'base']);
-    const base = await requireCommand(['git', '-C', source, 'rev-parse', 'HEAD']);
-
+    await initFixtureRepository(source);
+    const sync = join(source, DEPLOYER);
+    await seedDeployerTree(source, '', 'BASE\n');
+    const base = await commitAll(source, 'base');
     await writeFile(sync, 'BROKEN\n');
-    await requireCommand(['git', '-C', source, 'commit', '--quiet', '-am', 'broken']);
-    const broken = await requireCommand(['git', '-C', source, 'rev-parse', 'HEAD']);
+    const broken = await commitAll(source, 'broken');
     await writeFile(sync, 'FIXED\n');
-    await requireCommand(['git', '-C', source, 'commit', '--quiet', '-am', 'fixed']);
-    const fixed = await requireCommand(['git', '-C', source, 'rev-parse', 'HEAD']);
+    const fixed = await commitAll(source, 'fixed');
     await requireCommand(['git', '-C', source, 'reset', '--hard', '--quiet', base]);
 
     await writeFile(
@@ -187,7 +253,92 @@ describe('durable dev poller', () => {
     });
     expect(recovered).toEqual({ code: 0, stdout: '', stderr: '' });
     expect(await requireCommand(['git', '-C', source, 'rev-parse', 'HEAD'])).toBe(fixed);
-    expect(await readFile(join(installed, `sync.${fixed}.ts`), 'utf8')).toBe('FIXED\n');
+    expect(await readFile(candidateDeployer(installed, fixed), 'utf8')).toBe('FIXED\n');
+  });
+
+  it('runs the target deployer against the contract the target commit carries', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'wbs-dev-poller-contract-'));
+    const source = join(root, 'src');
+    const installed = join(root, 'bin');
+
+    await initFixtureRepository(source);
+    await seedDeployerTree(
+      source,
+      "export const PROBE = 'the contract as the checkout still has it';\n",
+      "import { PROBE } from '@wbs/probe-contract';\nconsole.log(PROBE);\n",
+    );
+    const base = await commitAll(source, 'base');
+    await writeFile(
+      join(source, 'tools/tool-remote-scripts/src/lib/probe-contract.ts'),
+      "export const PROBE = 'the contract the target was written against';\n",
+    );
+    const target = await commitAll(source, 'target');
+    await requireCommand(['git', '-C', source, 'reset', '--hard', '--quiet', base]);
+
+    // The managed interpreter is this test's own Bun, so the resolution under
+    // test is the real resolver's and not a fake's.
+    const run = await command([
+      'bash',
+      HELPER,
+      source,
+      installed,
+      process.execPath,
+      target,
+      Bun.version,
+    ]);
+
+    // Proof: the loader extracting `sync.ts` alone into the bin dir, as it did
+    // until 2026-09-07, fails here on stderr
+    // `error: Cannot find module '@wbs/probe-contract' from '…/bin/sync.<sha>.ts'`;
+    // extracting that one file into the checkout's own `tools/tool-devsync/src`
+    // instead resolves the alias through the checkout and fails on
+    // `Received "the contract as the checkout still has it"`.
+    expect(run).toEqual({
+      code: 0,
+      stdout: 'the contract the target was written against\n',
+      stderr: '',
+    });
+  });
+
+  it('extracts everything the committed deployer imports, resolved by the real bundler', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'wbs-dev-poller-repository-'));
+    const installed = join(root, 'bin');
+    const out = join(root, 'out');
+    const repository = new URL('../../../', import.meta.url).pathname;
+    const head = await requireCommand(['git', '-C', repository, 'rev-parse', 'HEAD']);
+    // Resolves the whole import graph of the candidate's deployer without
+    // running it: an alias outside the archived pathspecs fails the build.
+    const bundlingBun = join(root, 'bun');
+    await writeFile(
+      bundlingBun,
+      `#!/usr/bin/env bash
+set -eu
+if [ "$1" = --version ]; then echo ${Bun.version}; exit 0; fi
+exec ${process.execPath} build --target=bun --outdir=${out} "$1"
+`,
+    );
+    await chmod(bundlingBun, 0o755);
+
+    const built = await command([
+      'bash',
+      HELPER,
+      repository,
+      installed,
+      bundlingBun,
+      head,
+      Bun.version,
+    ]);
+
+    // Proof: the single-file loader fails here on
+    // `error: Could not resolve: "@wbs/deploy-contract". Maybe you need to "bun install"?`;
+    // `tools` dropped from the archived pathspecs fails on exit 1 with
+    // `ENOENT opening root directory "…/sync.<sha>/tools/tool-devsync/src"`.
+    // `libs` dropped stays green today because the deployer imports only from
+    // `tools/`; the day it imports `@wbs/contracts`, this is the case that says
+    // the archive no longer covers it.
+    expect(built.stderr).not.toContain('Could not resolve');
+    expect(built.code).toBe(0);
+    expect(await readdir(out)).toEqual(['sync.js']);
   });
 
   it('keeps concurrent target candidates isolated by commit', async () => {
@@ -207,25 +358,19 @@ describe('durable dev poller', () => {
     await requireCommand(['mkdir', '-p', source, commands]);
     await writeFile(
       fakeGit,
-      `#!/usr/bin/env bash
-set -eu
-case " $* " in *" fetch "*) exit 0;; esac
-spec="\${!#}"
-case "$spec" in
-  "${firstSha}:"*)
-    printf BRO
+      fakeGitArchiving(`case "$sha" in
+  ${firstSha})
     : > "$RACE_STARTED"
     while [ ! -e "$RACE_RELEASE" ]; do sleep 0.01; done
-    printf 'KEN\\n'
+    CONTENT=BROKEN
     ;;
-  "${secondSha}:"*)
+  ${secondSha})
     while [ ! -e "$RACE_STARTED" ]; do sleep 0.01; done
-    printf 'FIXED\\n'
+    CONTENT=FIXED
     : > "$RACE_RELEASE"
     ;;
   *) exit 64;;
-esac
-`,
+esac`),
     );
     await writeFile(
       fakeBun,
@@ -266,15 +411,12 @@ esac
     await requireCommand(['mkdir', '-p', source, commands]);
     await writeFile(
       fakeGit,
-      `#!/usr/bin/env bash
-set -eu
-if mkdir "$RACE_FIRST" 2>/dev/null; then
+      fakeGitArchiving(`if mkdir "$RACE_FIRST" 2>/dev/null; then
   while [ ! -e "$RACE_RELEASE" ]; do sleep 0.01; done
 else
   : > "$RACE_RELEASE"
 fi
-printf 'SAME\\n'
-`,
+CONTENT=SAME`),
     );
     await writeFile(
       fakeBun,
@@ -299,7 +441,7 @@ printf 'SAME\\n'
       `${sha}:SAME`,
       `${sha}:SAME`,
     ]);
-    expect(await readFile(join(installed, `sync.${sha}.ts`), 'utf8')).toBe('SAME\n');
+    expect(await readFile(candidateDeployer(installed, sha), 'utf8')).toBe('SAME\n');
   });
 
   it('guards the canonical h2puni gate wiring for the real orphan process proof', async () => {
