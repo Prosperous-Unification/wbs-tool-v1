@@ -50,7 +50,8 @@
         "default",
         "^production",
         "{workspaceRoot}/libs/domain/src/schedule.ts",
-        "{workspaceRoot}/openspec/changes/dual-optimized-scheduler/design.md"
+        "{workspaceRoot}/openspec/changes/dual-optimized-scheduler/design.md",
+        "{workspaceRoot}/tools/tool-remote-scripts/src/fixtures/solver-supervisor-orphan-host.ts"
       ],
       "options": {
         "command": "bun test --coverage --coverage-reporter=lcov",
