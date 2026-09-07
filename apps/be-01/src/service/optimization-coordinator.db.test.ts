@@ -638,6 +638,67 @@ describe('OptimizationCoordinator read', () => {
     // with `replacementInput`'s hash and launches both replacement objectives.
   });
 
+  it('fences allocation when OFF commits as the stale-input enabled read returns', async () => {
+    const { path, db } = database();
+    seedProject(path);
+    const oldHash = scheduleInputHash(INPUT);
+    const replacementInput: ScheduleInput = {
+      ...INPUT,
+      notBefore: new Map([['w-1', 1]]),
+    };
+    const generation = allocateGeneration(db, 'p-1', CONTRACT, oldHash, 2);
+    expect(
+      enqueueSolverRequest(db, {
+        projectId: 'p-1',
+        contractVersion: CONTRACT,
+        generation,
+        objective: 'pri',
+        budgetMs: BUDGET,
+        enqueuedAt: 3,
+      }),
+    ).toEqual({ kind: 'queued' });
+    const switcher = openDatabase(path);
+    const calls: ReservedSpawnRequest[] = [];
+    const instance = new OptimizationCoordinator({
+      db,
+      contractVersion: CONTRACT,
+      solverVersion: '0.1.0',
+      budgetMs: BUDGET,
+      ownerId: 'blue',
+      now: () => 10,
+      attemptToken: () => 'blue-token',
+      inputOf: () => Promise.resolve(replacementInput),
+      enabledOf: () => {
+        switcher.run("UPDATE project SET optimization_enabled = 0 WHERE id = 'p-1'");
+        return Promise.resolve(true);
+      },
+      spawn: (request) => {
+        calls.push(request);
+        throw new Error('an OFF project reached the launcher');
+      },
+      eventLog: new DrizzleEventLogRepo(db),
+      pushRecorded: () => Promise.resolve(),
+      onChildError: (error) => {
+        throw error;
+      },
+      setInterval: () => 'drain-timer',
+      clearInterval: () => undefined,
+    });
+
+    try {
+      instance.start();
+      await instance.drain();
+      await instance.stop();
+    } finally {
+      switcher.close();
+    }
+
+    expect(calls).toEqual([]);
+    expect(readGeneration(db, 'p-1', CONTRACT)).toMatchObject({ generation, inputHash: oldHash });
+    expect(db.select().from(solverQueue).all()).toEqual([]);
+    expect(db.select().from(solverSlot).all()).toEqual([]);
+  });
+
   it('stores both preflight refusals without creating a launcher', () => {
     const { path, db } = database();
     seedProject(path);
@@ -1254,6 +1315,57 @@ describe('OptimizationCoordinator Retry admission', () => {
 
     // Proof: returning on project-full leaves the queue empty; replacing the
     // retained marker at admission changes its final kind away from `failed`.
+  });
+
+  it('takes SQLite writer ownership before reading Retry eligibility', () => {
+    const { path, db } = database();
+    const generation = generationWith(path, db, 'failed');
+    const contender = openDatabase(path);
+    contender.run('PRAGMA busy_timeout = 0');
+    const calls: ReservedSpawnRequest[] = [];
+    let contention: unknown;
+    const instance = new OptimizationCoordinator({
+      db,
+      contractVersion: CONTRACT,
+      solverVersion: '0.1.0',
+      budgetMs: BUDGET,
+      ownerId: 'blue',
+      now: () => 10,
+      attemptToken: () => {
+        try {
+          contender.run("UPDATE project SET name = 'contender' WHERE id = 'p-1'");
+        } catch (error) {
+          contention = error;
+        }
+        return 'blue-token';
+      },
+      inputOf: () => Promise.resolve(INPUT),
+      enabledOf: () => Promise.resolve(true),
+      spawn: async (request) => {
+        calls.push(request);
+        return {
+          pid: 100,
+          stdout: stream(''),
+          stderr: stream(''),
+          exited: never,
+          verdict: () => undefined,
+          kill: () => undefined,
+        };
+      },
+      eventLog: new DrizzleEventLogRepo(db),
+      pushRecorded: () => Promise.resolve(),
+      onChildError: (error) => {
+        throw error;
+      },
+    });
+
+    try {
+      expect(instance.retry(ask())).toMatchObject({ kind: 'accepted', generation });
+    } finally {
+      contender.close();
+    }
+    expect((contention as { code?: string } | undefined)?.code).toBe('SQLITE_BUSY');
+    expect(calls).toHaveLength(1);
   });
 
   it.each(['OFF', 'draining'] as const)(
