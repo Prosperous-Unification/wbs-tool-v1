@@ -100,7 +100,9 @@ describe('plan-infeasible cache DTO', () => {
 
       expect(named.map((item) => item.boundWorkItemId).sort()).toEqual([...folded.keys()].sort());
       for (const item of named) {
-        expect(item.effectiveDeadlineOffset).toBe(folded.get(item.boundWorkItemId));
+        // The fold on the left: it is the source, and the certificate is the copy
+        // under test. It is also the only side whose type admits `undefined`.
+        expect(folded.get(item.boundWorkItemId)).toBe(item.effectiveDeadlineOffset);
       }
     }
   });
