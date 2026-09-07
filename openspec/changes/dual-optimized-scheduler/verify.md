@@ -353,3 +353,25 @@ above, this closes 7.3 and 7.11.
   that case red, as recorded in the durable failure-announcement section.
 
 This closes 7.5 and 7.6. No build or autotest ran on the queue-worker box.
+## 2026-09-07T02:01:44Z — optimization indicator accessibility follow-up
+
+- Implementation head `a333cf64` passed the three focused component suites on
+  `h2puni`: 3 files and 31 tests, all green. FE application and spec
+  typechecks, changed-file ESLint, scoped Prettier, and strict OpenSpec 1.3.0
+  validation also passed there. No build or autotest ran on the queue-worker
+  box.
+- The phone-width Playwright path passed at 390×844 using real Enter input,
+  the card renderer, disclosure accessibility assertions, and viewport-bound
+  checks. The first keyboard run passed 3/4 cases and exposed focus loss after
+  controlled radio rerenders; exact head `686230bc` restores focus before each
+  real ArrowRight/ArrowLeft input. Exact-head browser verification is delegated
+  to CI because the `h2puni` root filesystem exhausted its inodes before the
+  corrected rerun could create Vite's temporary config file.
+- Watched negatives proved the tolerance and shared rendering requirements:
+  replacing `withinDrift` with exact-zero comparison failed the epsilon case,
+  while removing stale qualifiers, real-date formatting, persistent live-region
+  identity, and compact fallback classes failed 7/21 indicator cases. Both
+  mutations were restored byte-for-byte before the green runs.
+
+This closes the TASK-294 follow-up clauses without claiming retry UI or backend
+work. Lane-q TASK-222 remains the independent post-deploy QA owner.
