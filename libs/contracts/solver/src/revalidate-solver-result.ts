@@ -57,6 +57,16 @@ import {
  *   objective overflow        bound raised x1000          69/1  overflow case
  *   wire safe-integer rule    disabled                    69/1  wire-domain case
  *   baseline domain           disabled                    69/1  unbuildable request
+ *   deadline multiple (req.)  request-loop call removed  267/1  EVERY-response-status
+ *
+ * The last row was run on 2026-09-07 against the 268-test suite at `cc43b10e`,
+ * with the copy inside {@link revalidateOptimizedDeadlines} LEFT IN PLACE — so
+ * what went red is the request-loop call specifically, not the rule. Its pair
+ * is in `apps/be-01`: reverting `evaluateSolverOutcome` to the pre-TASK-329
+ * ordering turns that same input from `{ failed, internal-error }` back into a
+ * stored `plan-infeasible` certificate, 3/1 against its 4-test file. Two
+ * mutations because the defect had two ends, and either one alone leaves it
+ * open.
  *
  * The sweep ordering is the row worth reading twice: it fails BOTH exactly-met
  * neighbours and no violation case at all, which is what "the ordering, not the
@@ -166,6 +176,50 @@ const overloadAt = (
 const isNonNegativeSafeInteger = (value: number): boolean =>
   Number.isSafeInteger(value) && value >= 0;
 
+/**
+ * TASK-329 AC #1. The rule TASK-303 stated, moved to where the REQUEST is
+ * proved usable and called from both entry points.
+ *
+ * `deadlineUnits` is `(D + 1) × quantum` everywhere it is documented, so a
+ * value that is not a multiple names no day at all: `deadlineUnits / quantum −
+ * 1` is then a fraction, which `isOnTime` was never written to take. TASK-303
+ * put the check inside {@link revalidateOptimizedDeadlines}, which is stated on
+ * a MATERIALISED schedule and is therefore reachable only after a `feasible`
+ * response. The Sol review of PR 289 named what that leaves open, and it is not
+ * a stylistic point: `evaluateSolverOutcome` disposes of an `infeasible`
+ * response BEFORE any re-validation ran, so a malformed request came back from
+ * CP-SAT as infeasible — which it genuinely is — and was stored as a
+ * `plan-infeasible` certificate. `Retry` refuses to re-solve such a hit, so a
+ * request that does not mean anything became a sticky, deterministic statement
+ * about the user's deadlines. That is precisely the class `plan-infeasible`
+ * must not absorb.
+ *
+ * The check is about the request alone — no offset, no placement, no response
+ * status is read — which is why it can move up here, and why moving it up is
+ * the whole fix rather than a re-ordering of equals.
+ *
+ * `deadlineUnits: 0` stays well formed on purpose. It is TASK-267's
+ * `UNMEETABLE_DEADLINE_OFFSET = -1` through `deadlineUnitsOf`, its due day is
+ * `-1`, and every non-negative placement correctly misses it. Zero is a
+ * multiple of the quantum, so that case needs no exemption written here.
+ */
+const refuseMalformedDeadlineUnits = (slice: SolverSlice): RevalidatedSolverResult | null => {
+  if (slice.deadlineUnits === null) return null;
+  if (!isNonNegativeSafeInteger(slice.deadlineUnits)) {
+    return refuse(
+      'malformed-request',
+      `slice ${JSON.stringify(slice.key)} has deadlineUnits ${JSON.stringify(slice.deadlineUnits)}`,
+    );
+  }
+  if (slice.deadlineUnits % SOLVER_QUANTUM !== 0) {
+    return refuse(
+      'malformed-request',
+      `slice ${JSON.stringify(slice.key)} has deadlineUnits ${String(slice.deadlineUnits)}, which is not a multiple of the ${String(SOLVER_QUANTUM)}-unit quantum`,
+    );
+  }
+  return null;
+};
+
 const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER);
 
 /**
@@ -256,6 +310,11 @@ export const revalidateSolverResult = (
         `slice ${JSON.stringify(slice.key)} has baseline offset ${JSON.stringify(baseline)}`,
       );
     }
+    // TASK-329 AC #1. Here, above the non-feasible early return, so the rule
+    // reaches the `infeasible` and `unknown` paths at all. The reason is
+    // written out on {@link refuseMalformedDeadlineUnits}.
+    const malformedDeadline = refuseMalformedDeadlineUnits(slice);
+    if (malformedDeadline !== null) return malformedDeadline;
     for (const poolId of slice.poolIds) {
       if (!Object.hasOwn(request.pools, poolId)) {
         return refuse(
@@ -467,33 +526,20 @@ export const revalidateOptimizedDeadlines = (
 ): RevalidatedSolverResult => {
   for (const slice of request.slices) {
     if (slice.deadlineUnits === null) continue;
-    if (!isNonNegativeSafeInteger(slice.deadlineUnits)) {
-      return refuse(
-        'malformed-request',
-        `slice ${JSON.stringify(slice.key)} has deadlineUnits ${JSON.stringify(slice.deadlineUnits)}`,
-      );
-    }
-    // TASK-303. `deadlineUnits` is `(D + 1) x quantum` everywhere it is
-    // documented, but nothing enforced it: the wire schema accepts every
-    // non-negative safe integer, and a cross-field `multipleOf` against the
-    // request's own `quantum` is not expressible in JSON Schema, so this is
-    // the boundary that can hold it. Without this line the division below
-    // yields a FRACTIONAL due day — 49 units is day 1/48 — which `isOnTime`
-    // was never written to take, and the CP-SAT model and this side then
-    // disagree about the same placement: `start + max(duration, 1) <=
-    // deadlineUnits` admits it there while `deadline-violated` refuses it
-    // here. That names a plan for a fault in the request, and sends the
-    // reader to the wrong file.
-    //
-    // `deadlineUnits: 0` stays well formed on purpose. It is TASK-267's
-    // `UNMEETABLE_DEADLINE_OFFSET = -1` through `deadlineUnitsOf`, its due day
-    // is `-1`, and every non-negative placement correctly misses it.
-    if (slice.deadlineUnits % SOLVER_QUANTUM !== 0) {
-      return refuse(
-        'malformed-request',
-        `slice ${JSON.stringify(slice.key)} has deadlineUnits ${String(slice.deadlineUnits)}, which is not a multiple of the ${String(SOLVER_QUANTUM)}-unit quantum`,
-      );
-    }
+    // TASK-303 stated the domain and the multiple here; TASK-329 moved both to
+    // {@link refuseMalformedDeadlineUnits} and kept this call. Not delegation
+    // for its own sake: the rule is now asserted in TWO places on purpose,
+    // because this function is a separate entry point the caller composes after
+    // materialising, and a validator that assumes its sibling already ran is
+    // not the independent guard either of them is here to be. Without the
+    // division below on a non-multiple, the due day is a FRACTION — 49 units is
+    // day 1/48 — which `isOnTime` was never written to take, and the CP-SAT
+    // model and this side then disagree about the same placement: `start +
+    // max(duration, 1) <= deadlineUnits` admits it there while
+    // `deadline-violated` refuses it here, naming a plan for a fault in the
+    // request and sending the reader to the wrong file.
+    const malformedDeadline = refuseMalformedDeadlineUnits(slice);
+    if (malformedDeadline !== null) return malformedDeadline;
     const timing = placed.slices.get(slice.key);
     if (timing === undefined) {
       return refuse(

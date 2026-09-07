@@ -132,4 +132,72 @@ describe('evaluateSolverOutcome', () => {
       },
     });
   });
+
+  /**
+   * TASK-329 AC #1, on the reviewer's own input and against the exact outcome
+   * this seam used to produce.
+   *
+   * The request is built by hand because `buildSolverRequest` cannot emit it:
+   * `deadlineUnitsOf` returns `(D + 1) × 48` or `null`, so every deadline
+   * production has ever put on the wire is a multiple by construction. That is
+   * the point rather than an obstacle — the independent guard exists for the
+   * case where the sender is wrong about the contract, and a test that can only
+   * reach the guard through the sender is testing the sender.
+   *
+   * A zero-duration slice floored at unit 1 and due at unit 1 is genuinely
+   * unsolvable, so CP-SAT's `infeasible` is a true answer to a question that
+   * means nothing: the due day is `1 / 48 − 1`. Before this change the answer
+   * was stored as a `plan-infeasible` certificate, which `Retry` refuses to
+   * re-solve and `inputHash` does not key on `deadlineUnits` — a sticky
+   * deterministic claim about the user's deadlines. It is now `internal-error`,
+   * which is where `malformed-request` disposes: the fault is on our side of
+   * the seam because the builder is ours.
+   */
+  it('refuses a deadline that names no day instead of certifying it plan-infeasible', () => {
+    const withDeadline = (deadlineUnits: number) => ({
+      ...deadlined.request,
+      slices: deadlined.request.slices.map((slice) => ({
+        ...slice,
+        durationUnits: 0,
+        notBeforeUnits: 1,
+        deadlineUnits,
+      })),
+    });
+
+    expect(
+      evaluateSolverOutcome(DEADLINED_INPUT, withDeadline(1), {
+        kind: 'response',
+        stdout: '{"wireVersion":1,"status":"infeasible"}\n',
+      }),
+    ).toEqual({ kind: 'failed', reason: 'internal-error' });
+
+    // The neighbour, and it is what proves the ordering change refused the
+    // malformed request rather than the infeasible path: same slice, same
+    // floor, but 48 is a multiple, so the response is still dispositioned and
+    // the certificate is still stored.
+    //
+    // Narrowed on Sol's round-2 Minor. This does NOT prove the certificate is
+    // deserved, and an earlier draft of this comment said it was. With
+    // `durationUnits: 0` and `notBeforeUnits: 1` CP-SAT admits every start in
+    // `[1, 47]`, so the plan is satisfiable and the `infeasible` line below is
+    // fabricated. What the case establishes is exactly one thing — that a
+    // well-formed request still reaches status disposition — and whether the
+    // solver was right to say `infeasible` is a different question this seam
+    // does not ask.
+    expect(
+      evaluateSolverOutcome(DEADLINED_INPUT, withDeadline(48), {
+        kind: 'response',
+        stdout: '{"wireVersion":1,"status":"infeasible"}\n',
+      }).kind,
+    ).toBe('plan-infeasible');
+
+    // `unknown` shares the ordering and not the disposition: the request is
+    // still unjudgeable, so it is reported as one instead of as no-solution.
+    expect(
+      evaluateSolverOutcome(DEADLINED_INPUT, withDeadline(1), {
+        kind: 'response',
+        stdout: '{"wireVersion":1,"status":"unknown"}\n',
+      }),
+    ).toEqual({ kind: 'failed', reason: 'internal-error' });
+  });
 });

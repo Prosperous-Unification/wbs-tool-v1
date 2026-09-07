@@ -167,7 +167,28 @@ TWO_FREE = a_request(
 
 
 class HandBuiltInstancesAreRealRequests(unittest.TestCase):
-    """If this fails, every other case is arithmetic about an unsendable request."""
+    """If this fails, every other case is arithmetic about an unsendable request.
+
+    TASK-329 NARROWED WHAT THIS CASE CAN CLAIM, and the narrowing is recorded
+    rather than absorbed. Pinning `quantum` to `const: 48` and giving
+    `deadlineUnits` `multipleOf: 48` made a deadline that is not a whole day
+    unsendable, so the two instances below that carried unit-granularity
+    deadlines — `40`, and the fenced pair `6`/`10` — stopped being valid
+    requests and are now whole days. **This was an AC #2 consequence, not an
+    AC #1 one:** the schema half alone rejects them, before `check_cross_field`
+    is reached, and it went unseen because both CI runs on that commit were
+    cancelled by a superseding push.
+
+    The deadline cases further down keep their unit-granularity numbers on
+    purpose and this case no longer speaks for them. What they test is the
+    CONSTRAINT FORM — `start + max(duration, 1) <= deadlineUnits`, tasks.md 8.3
+    — which is arithmetic in units and is the same statement at any quantum;
+    watched red W2 is stated against exactly that form. Rescaling them to
+    multiples of 48 would change every number those reds are calibrated on to
+    prove a property none of them is about. So the split is deliberate: this
+    case proves the WIRE accepts an instance shape, and those cases prove the
+    MODEL enforces a clause.
+    """
 
     def test_every_hand_built_instance_is_a_valid_request(self) -> None:
         instances = {
@@ -181,14 +202,15 @@ class HandBuiltInstancesAreRealRequests(unittest.TestCase):
             "a person": a_request(
                 [a_slice("a", person="p"), a_slice("b", person="p")]
             ),
+            # Whole-day deadlines since TASK-329; see this class's docstring.
             "a deadline and a floor": a_request(
-                [a_slice("a", not_before=5, deadline=40)]
+                [a_slice("a", not_before=5, deadline=48)], horizon=48
             ),
             "a zero duration": a_request([a_slice("a", duration=0, pools=["t"])], pools={"t": 1}),
             "a fenced zero duration": a_request(
-                [a_slice("a", duration=0, person="p", not_before=5, deadline=6),
-                 a_slice("b", duration=10, person="p", deadline=10)],
-                horizon=20,
+                [a_slice("a", duration=0, person="p", not_before=5, deadline=48),
+                 a_slice("b", duration=10, person="p", deadline=96)],
+                horizon=96,
             ),
             "a non-zero baseline": a_request(
                 [a_slice("a", duration=10)], horizon=30, baseline={"a": 20}

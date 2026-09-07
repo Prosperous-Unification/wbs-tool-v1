@@ -117,6 +117,48 @@ describe('revalidateSolverResult refuses the request it cannot judge', () => {
     const unfunded = request({ pools: {} });
     rejects(revalidateSolverResult(unfunded, feasible({ a: 0, b: 0 })), 'malformed-request');
   });
+
+  /**
+   * TASK-329 AC #1. The rule TASK-303 wrote is now stated here, above the
+   * non-feasible early return, so it reaches the paths that carry no schedule.
+   * `infeasible` is the case the review filed: CP-SAT is right that a
+   * zero-duration slice due at unit 1 and floored at unit 1 has no solution,
+   * and answering it at all is what turns a meaningless request into a stored
+   * `plan-infeasible` certificate. `unknown` is here for the same reason with
+   * a different disposition downstream.
+   */
+  it('a deadlineUnits that is not a multiple of the quantum, on EVERY response status', () => {
+    const malformed = request({
+      slices: [slice({ key: 'a', durationUnits: 0, notBeforeUnits: 1, deadlineUnits: 1 })],
+      baselineOffsets: { a: 0 },
+      fastHint: { a: 0 },
+    });
+    for (const status of ['infeasible', 'unknown'] as const) {
+      rejects(revalidateSolverResult(malformed, { wireVersion: 1, status }), 'malformed-request');
+    }
+    rejects(revalidateSolverResult(malformed, feasible({ a: 1 })), 'malformed-request');
+  });
+
+  /**
+   * The nearest legal neighbours, because a check that refuses the violation
+   * and its neighbour alike has not been aimed. `0` is TASK-267's unmeetable
+   * sentinel and is a multiple; `null` is no deadline at all. Both still pass
+   * on a non-publishing response, which is what proves the new call did not
+   * turn the early return into a refusal of everything.
+   */
+  it('and accepts the multiples beside it on a non-publishing response', () => {
+    for (const deadlineUnits of [null, 0, 48, 96]) {
+      const legal = request({
+        slices: [slice({ key: 'a', durationUnits: 0, deadlineUnits })],
+        baselineOffsets: { a: 0 },
+        fastHint: { a: 0 },
+      });
+      expect(revalidateSolverResult(legal, { wireVersion: 1, status: 'infeasible' })).toEqual({
+        ok: true,
+        published: false,
+      });
+    }
+  });
 });
 
 describe('revalidateSolverResult checks the offset map', () => {
