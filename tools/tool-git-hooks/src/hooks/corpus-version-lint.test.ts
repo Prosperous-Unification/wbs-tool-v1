@@ -381,6 +381,16 @@ describe('unreadable inputs fail closed, because a check that skips itself is th
     const found = reasons(EIGHT, tree({ [FAST]: '{ "contractVersion": 8, "cases": ' }));
     expect(found).toHaveLength(1);
     expect(found[0]).toContain(FAST);
+    // The issue this check hands back is a string, so the parser's own words
+    // have to survive *in the message*; attaching them as the thrown error's
+    // `cause` instead would read as preserved and print as nothing. Matching
+    // the wrapper alone would say that and still pass with the interpolation
+    // deleted, so the parentheses are required to hold something: this fails
+    // on `(…)` empty, which is exactly the regression worth catching. The
+    // parser's exact wording is the engine's to choose and is not pinned.
+    expect(found[0]).toMatch(
+      /is not valid JSON \(\S[^)]*\), so its cases could not be compared\.$/,
+    );
   });
 
   it('refuses a fixture whose cases key is missing', () => {
