@@ -765,7 +765,23 @@ order`, with their tests. A repository assertion that no unqualified
       is supplied, so **CI does not exercise the supervisor-restart /
       orphan-process boundary at all** — it is a host-only check, and it is
       lost for as long as h2puni cannot run. **That is the only behavioural
-      check CI loses.** The same script also runs `nx format:check --all` and
+      check CI loses.**
+      **The chain, spelled out, because "outside those four targets" is easy to
+      misread as "outside `apps/be-01`" and that would be false.** The file
+      lives at `apps/be-01/src/service/optimization-orphan.proc.db.test.ts`, so
+      `be-01:test` — `bun test --coverage` over `apps/be-01` — **collects it on
+      both paths**, and on both paths its cases report **skipped**, because the
+      gate it reads is `WBS_SOLVER_ORPHAN_IMAGE` and nothing in the four targets
+      sets that. What sets it is a conditional block inside
+      `apps/be-01/scripts/solver-image-smoke.sh`, reached only when
+      `WBS_RUN_SOLVER_ORPHAN_PROC=1`: it builds and pushes an orphan fixture
+      image, resolves its digest, and runs the file directly as
+      `WBS_SOLVER_ORPHAN_IMAGE=<digest> bun test <that file>`. So the executing
+      invocation lives in the `be-01:solver-image-smoke` target, which is **not
+      one of the four** and which `nx run-many -t test lint typecheck build`
+      never runs; h2puni's gate calls it as an explicit fifth step and CI calls
+      it without the flag. The precise loss is therefore that fifth step's
+      conditional block — not a case that `be-01:test` would otherwise have run. The same script also runs `nx format:check --all` and
       passes `--skip-nx-cache`; the first is **not** lost — CI runs the
       identical format command as its own `Format` step rather than inside the
       script, so saying "CI's gate step does not do it" would mislead — and the
@@ -790,8 +806,9 @@ order`, with their tests. A repository assertion that no unqualified
       `bin/h2puni-gate.sh` against this change's merged head and to prove the
       orphan-process boundary **executed** rather than skipped, with a negative
       control. This item stays ticked on what its own sentence asks for — the
-      three named projects' autotest, lint and typecheck green at the exact
-      head — and the one check outside that sentence is tracked, not absorbed.
+      three named projects' `test`, `lint` and `typecheck` targets green at the
+      exact head — and the missing check, which no one of those targets runs on
+      either path, is tracked rather than absorbed.
       **"The exact head" is stated here as a RULE, not as a SHA, and that is
       the fix for a trap this change has already sprung once.** `verify.md`
       records slice 1's version of it: a gate table that named a SHA went stale
@@ -807,34 +824,58 @@ order`, with their tests. A repository assertion that no unqualified
       `82a23a6b`. **A head that only reddened may not be cited by anything
       here**, and `a8462cad` — this branch's first head — is exactly that: it
       failed `Format`, so the gate step never ran on it at all.
-- [ ] 10.3 `openspec validate --all --json` green at the exact head, parsed from
+- [x] 10.3 `openspec validate --all --json` green at the exact head, parsed from
       JSON rather than from a summary line.
-      **Half of this is true and the half that is missing is the half the item
-      is about, so it stays unticked.** It was briefly ticked and peer review
-      r8 was right to call that a Critical.
-      **True:** the validation is its own named CI step —
-      `.github/workflows/ci.yml` runs
-      `bunx @fission-ai/openspec@1.3.0 validate --all --json` as the `OpenSpec`
-      step, so its non-zero exit fails the job on its own, there is no summary
-      line to misread, and it carries a negative control written above it in
+      **This item was unticked through r8 and r8b on purpose, and it is ticked
+      here by a `ci.yml` edit rather than by prose.** Peer review r8 was right
+      that the earlier tick was a Critical: `--json` made the validator _emit_
+      JSON, nothing read it, and what gated was the process exit status — which
+      is the inference the item's "rather than from a summary line" clause
+      exists to rule out.
+      **The `OpenSpec` step now reads a named field.** It keeps the document
+      (`tee "$RUNNER_TEMP/openspec-validate.json"`) and asserts
+      `jq -e '.summary.totals.failed == 0 and .summary.totals.passed > 0'` under
+      `set -euo pipefail`.
+      **The field path is measured, not guessed, and the obvious guess is
+      wrong.** The note this item carried through r8b proposed
+      `jq -e '.failed == 0 and .passed > 0'`. Against the real document — read
+      out of the `OpenSpec` step log of green CI **34083621444** at `82a23a6b`,
+      whose `summary.totals` is `items 39 / passed 39 / failed 0` — that
+      expression evaluates `null == 0` and **exits 1 on a green run**. The
+      counts live at `.summary.totals.*`.
+      **`passed > 0` is load-bearing.** `failed == 0` alone is also true of a
+      run that validated nothing, which is what an empty checkout or an `--all`
+      that stopped matching looks like from inside the step.
+      **`pipefail` is load-bearing.** Without it a validator that crashes after
+      writing a well-formed green document goes green, because `tee` succeeds
+      and `jq` reads the good bytes.
+      **Rehearsed off-CI, because a workflow every lane depends on gets one
+      attempt per push.** The step body was extracted from `ci.yml` by parsing
+      the YAML — not retyped — `shellcheck`ed clean, and run five times with
+      `bunx` stubbed and the real captured document as input:
+      | stub behaviour | required | measured |
+      | --- | --- | --- |
+      | real green document, exit 0 | pass | exit 0 |
+      | `failed` forced to 1, exit 0 | red | exit 1 |
+      | `passed` forced to 0, exit 0 | red | exit 1 |
+      | real green document, **exit 1** | red | exit 1 |
+      | non-JSON on stdout | red | exit 5 |
+      The fourth row is the `pipefail` control and the last covers `bunx`
+      progress output landing on stdout instead of stderr: it reds rather than
+      passing on unparseable bytes. With `pipefail` removed, the fourth row goes
+      **green**, which is what makes it a control rather than a decoration.
+      The validator half keeps its own control, still written above the step in
       `ci.yml`: with a change's scenarios written `###` instead of `####` it
-      exits 1 with `failed: 1`, and restored it exits 0 with `passed: 2`. It is
-      green at every head this change shipped, latest **34083621444** at
-      `82a23a6b`.
-      **Missing:** nothing consumes the JSON. `--json` makes the command
-      _emit_ JSON; the step pipes it nowhere, and no `jq` or field assertion
-      reads `failed` or `passed`. What gates is the process exit status, which
-      is exactly what the item's "rather than from a summary line" clause was
-      written to rule out — the point of the clause is that the verdict be read
-      from a named field rather than inferred from the command's own summary
-      behaviour, and an exit code is that inference.
-      **What closes it is one line and it is deliberately not being added
-      unattended at the end of a run box:** the step needs to keep the JSON and
-      assert a field on it (`jq -e '.failed == 0 and .passed > 0'`), with
-      `pipefail` set so the validator's own exit survives the pipe. That is an
-      edit to a workflow every lane depends on, it cannot be rehearsed on this
-      box, and it gets exactly one CI attempt per push — so it is owed a chunk
-      of its own, not a tail-of-the-box guess.
+      exits 1 with `failed: 1`, and restored it exits 0 with `passed: 2`.
+      **Measured on CI, not only in rehearsal.** The step's first execution was
+      CI **34086090111** at `39718070` — `gate` and `pixels` both green, the
+      `OpenSpec` step `success`, and its log shows the assertion running against
+      a `summary.totals` of `items 39 / passed 39 / failed 0` with nothing but
+      the JSON document reaching the `tee`, which also settles the one thing
+      rehearsal could not: `bunx`'s own progress output goes to stderr and does
+      not pollute the parsed stream. That head predates this branch's rebase
+      onto `fc893d42`, so it proves the step and not this item's shipping head;
+      the shipping head is gated under the rule 10.2 states.
 - [x] 10.4 Cross-provider review of the shipped diff on the exact head, per
       AGENTS.md, **with the Gemini seat best-effort**. Slice 1's prod-mode PR
       gets its own review before merge.
