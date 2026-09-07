@@ -48,7 +48,7 @@ The poller lives outside the checkout because it resets the checkout — a scrip
 tree it hard-resets is a script editing itself mid-run, and bash reads a file by offset as
 it goes. Before 2026-09-07 it nevertheless ran the checkout's pre-reset `sync.ts`; a
 preflight defect could therefore prevent the repaired tool from ever landing. The durable
-poller now extracts `sync.ts` from the fetched target commit into
-`/home/puni1/wbs-dev/bin/sync.ts` and executes that external candidate. A broken candidate
+poller now extracts `sync.ts` from the fetched target commit into a commit-named
+`/home/puni1/wbs-dev/bin/sync.<sha>.ts` candidate and executes it. A broken candidate
 can refuse its own deploy, while its repaired successor is available on the next tick.
 Solver, restart, recreate and post-reset checks still run inside the extracted tool.
