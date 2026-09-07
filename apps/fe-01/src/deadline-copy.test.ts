@@ -305,13 +305,26 @@ describe('shipped deadline copy', () => {
     expect(files.has('src/components/wbs/wbs-table.tsx')).toBe(true);
   });
 
-  it('reaches the five occurrences this item qualified, by their text', () => {
+  it('reaches every occurrence this item qualified, by their text', () => {
     // Sol's r5 inventory, re-measured as text rather than as line numbers:
     // lines move, and a citation that moves is the fault the withdrawn count
-    // had. Four runs carry the five occurrences — the impossible sentence says
-    // the word twice, and the three cell labels are one string each.
+    // had.
+    //
+    // **Seven runs of `Work item deadline for `, not the three r5 counted, and
+    // the four that joined them are TASK-291's mobile card.** Named rather
+    // than absorbed into a number, because the point of counting by text is
+    // that a reader can check the list: the card's trigger, the date box
+    // inside its sheet, the sheet's own title, and the `role="img"` mark that
+    // carries the §2.3 sentence. All four name the row after the fixed text,
+    // exactly as the table's three do, which is why they are one string.
+    //
+    // The impossible sentence is still **one** run and has simply moved: it
+    // lives in `deadline-impossible.ts` now, because the table, the card and
+    // the plan export all say it and a copy per face is a chance for three
+    // faces to say different things. A second literal appearing here would be
+    // that drift, and this assertion is what would catch it.
     const texts = deadlineCopy().map((run) => run.text);
-    expect(texts.filter((text) => text === 'Work item deadline for ')).toHaveLength(3);
+    expect(texts.filter((text) => text === 'Work item deadline for ')).toHaveLength(7);
     expect(texts.filter((text) => text.includes('This work item deadline falls before'))).toEqual([
       "This work item deadline falls before the project's first working day, so nothing can finish by it. The date is kept; move the work item deadline or the project start.",
     ]);

@@ -50,6 +50,11 @@ const row = (over: Partial<ExportRow> & Pick<ExportRow, 'id' | 'number'>): Expor
       finalTotal: 0,
       dependsOn: [],
       startNoEarlierThan: null,
+      // Required on `ExportRow` since TASK-291, and spelled out here for the
+      // reason `plan-export.test.ts` records at length about `priority`: a
+      // `Partial` spread satisfies a field the base object omits, so an
+      // omission compiles and every row in the file carries `undefined`.
+      deadline: null,
       priority: null,
       dates: null,
       schedule: { earliestStart: 0, earliestFinish: 0, float: 0, critical: false },

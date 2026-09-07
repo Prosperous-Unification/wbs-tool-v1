@@ -1293,8 +1293,16 @@ function CardDeadlineField({
           // is drawn beside the date, and on a card the two are one control, so
           // the sentence goes on the control a reader reaches rather than on a
           // sibling that only DOM adjacency relates to it (TASK-308's finding).
+          //
+          // **`aria-invalid` is deliberately not here**, which is where this
+          // control parts from the table's. That cell is an `<input>` and the
+          // attribute is supported on it; this is a `<button>`, whose implicit
+          // role does not support it, and `jsx-a11y/role-supports-aria-props`
+          // fails the gate over exactly that. It would also be the wrong claim:
+          // a button is not a field holding a value a reader got wrong — the
+          // date is legal and the project moved under it — so the description
+          // is the whole of what this control has to say.
           aria-describedby={impossible ? `card-deadline-impossible-${row.id}` : undefined}
-          aria-invalid={impossible ? true : undefined}
           data-fact={title}
           className={`${TAP} text-muted-foreground inline-flex max-w-full min-w-0 items-center text-left underline decoration-dotted underline-offset-2 disabled:no-underline disabled:opacity-60`}
         >
