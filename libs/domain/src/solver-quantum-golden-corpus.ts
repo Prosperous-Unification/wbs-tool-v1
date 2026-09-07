@@ -1,6 +1,6 @@
 /**
  * The quantum golden corpus: fixed slices, and their solver units kept as
- * **bytes**, version-pinned the same way Fast's corpus is.
+ * **stored values**, version-pinned the same way Fast's corpus is.
  *
  * **Why a second corpus rather than a ninth case in the first one.**
  * `SCHEDULER_CONTRACT_VERSION` names `SOLVER_QUANTUM` on its bump list,
@@ -45,9 +45,20 @@
  * silent**: it fails the suite, and the only way to green is to open the writer,
  * run it deliberately, and read a diff of the numbers that moved. The bump
  * itself remains the human obligation `contract-version.ts` documents — which is
- * the boundary this whole file exists to state rather than to hide. Making it
- * mechanical needs a change-aware check against the merge base, filed
- * separately.
+ * the boundary this whole file exists to state rather than to hide.
+ *
+ * **TASK-338 built the other half, and it lives outside the suite.** CI's
+ * `Corpus version lint` step reads this fixture at the change's base revision
+ * and at its head and refuses a change whose `cases` moved while
+ * `SCHEDULER_CONTRACT_VERSION` did not increase
+ * (`tools/tool-git-hooks/src/hooks/corpus-version-lint.ts`). It is a step and
+ * not a case here because the question is about two commits and a test's
+ * subject is one tree. **Read the boundary above unchanged:** this file still
+ * forces a reading and not a bump, and what the pair now gives is that a
+ * regeneration cannot reach `main` **through a reviewed pull request** under an
+ * unchanged number — not that the number was moved *for* this change, which a
+ * co-incidental bump also satisfies, and not that a direct push is stopped,
+ * which it is not.
  *
  * **What this is not.** It is not a hash of `solver-quantum.ts`. A source hash
  * would have reddened for PR 281, and it would have reddened just as loudly for

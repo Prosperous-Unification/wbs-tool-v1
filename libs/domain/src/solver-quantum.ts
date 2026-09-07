@@ -78,9 +78,12 @@ export function durationUnits(slice: Slice): number {
  * Whether {@link durationUnits} had to round this slice up — the per-slice
  * rounding the request records.
  *
- * It exists so the request builder can report the rounding without recomputing
- * it. The alternative is for the builder to multiply and compare against its own
- * drift window, which is this file's arithmetic written a second time in another
+ * No production consumer reads it today. Its readers are the golden corpus,
+ * `solver-quantum.test.ts`, and an export-surface assertion in
+ * `solver-seams.test.ts`. The export is shaped this way so that if a request
+ * builder ever needs to report the rounding without recomputing it, the
+ * alternative for it would be to multiply and compare against its own drift
+ * window, which would be this file's arithmetic written a second time in another
  * package, and the second copy would be the one that disagrees after an edit.
  */
 export function durationRoundedUp(slice: Slice): boolean {

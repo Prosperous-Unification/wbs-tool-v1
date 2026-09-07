@@ -23,11 +23,15 @@ import {
  * (`c1d9a40d`, TASK-302) changed `quantise`'s body and the Fast corpus stayed
  * green through it.
  *
- * This file closes that specific gap and claims nothing wider. It is a byte
+ * This file closes that specific gap and claims nothing wider. It is a value
  * guard over six named slices as `durationUnits` and `durationRoundedUp` render
- * them, and it reddens on a semantic change if and only if that change moves
- * one of the six. Cache-key honesty for anything else stays a human obligation
- * at `contract-version.ts`, exactly as it does next door.
+ * them — the comparison is `toEqual` over parsed JSON, so what is enforced is
+ * every stored value; whitespace and object-key order are deliberately outside
+ * this corpus's invariant. File layout is enforced separately by `bunx nx format:check --all`
+ * in CI, which does not cover key order because Prettier preserves JSON object-key order.
+ * It reddens on a semantic change if and only if that change moves one of the six.
+ * Cache-key honesty for anything else stays a human obligation at `contract-version.ts`,
+ * exactly as it does next door.
  *
  * **It is not a second copy of `solver-quantum.test.ts`.** That file asserts
  * what `quantise` does, including TASK-302's watched reds on this same
@@ -44,9 +48,18 @@ import {
  * writer emits the *current* constant beside the *current* cases, so
  * regenerating without bumping is green. `fast-golden-corpus.ts` has the same
  * limit. What both files buy is that the change cannot be silent; the bump
- * itself is still the human obligation `contract-version.ts` documents, and a
- * mechanical version of it needs a check against the merge base, filed
- * separately.
+ * itself is still the human obligation `contract-version.ts` documents.
+ *
+ * **The check against the merge base exists now, and it is not in this suite.**
+ * TASK-338 added CI's `Corpus version lint`
+ * (`tools/tool-git-hooks/src/hooks/corpus-version-lint.ts`), which reads both
+ * fixtures at the change's base revision and at its head and refuses `cases`
+ * that moved while `SCHEDULER_CONTRACT_VERSION` did not increase. It is a step
+ * rather than a case because the question is about two commits. **The sentence
+ * above still stands as written:** this file forces a reading, the lint forces
+ * co-versioning, and neither proves the bump was made *because* of the change —
+ * an increase in the same commit for an unrelated reason satisfies the lint,
+ * and the corpus lands under a new version either way.
  *
  * **What separates this from hashing the source**, which was the rejected
  * alternative, and it is measured rather than asserted because no test inside a
@@ -73,7 +86,7 @@ describe('the quantum golden corpus keys itself on the contract version', () => 
     expect(STORED.contractVersion).toBe(SCHEDULER_CONTRACT_VERSION);
   });
 
-  it('reproduces every stored quantisation byte for byte', () => {
+  it('reproduces every stored quantisation value for value', () => {
     expect(computeQuantumGoldenCorpus().cases).toEqual(STORED.cases);
   });
 
@@ -108,7 +121,7 @@ describe('the stored bytes are the quantisation, not an empty object', () => {
    * `{ units: 49, rounded: true }`. Domain goes **577 pass / 4 fail**: this
    * describe block's two, plus TASK-302's own two in `solver-quantum.test.ts`.
    *
-   * **`the Fast golden corpus … reproduces every stored schedule byte for byte`
+   * **`the Fast golden corpus … reproduces every stored schedule value for value`
    * is NOT among them**, and that absence is the measurement this file exists
    * for. Green baseline at the same head with the fixture in place: 581 pass /
    * 0 fail.

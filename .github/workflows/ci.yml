@@ -9,7 +9,20 @@
 #                  would flag it, which is itself the proof.)
 #   migration-lint Proof: `migration-lint.ts` on a file containing
 #                  `DROP TABLE users;` exits 1 with "destructive statement".
-# Both were run against the real scripts before this file was committed. See
+#   corpus-version- Proof, against real git history from `0adaf700` on h2puni,
+#   lint           2026-09-07: with `libs/domain/fixtures/solver-quantum-golden-
+#                  corpus.json` regenerated and the constant left at 8
+#                  (`6e86c115`) it exits 1 naming the fixture and "8 to 8"; with
+#                  the constant then moved to 9 (`8d5068c6`) it exits 0; moved to
+#                  7 instead (`ae13f70f`) it exits 1 naming the decrease; with
+#                  only a comment added to `contract-version.ts` beside the moved
+#                  fixture (`566bd302`) it exits 1, so a prose edit is not a
+#                  bump; on `0adaf700^..0adaf700`, which touches neither, it
+#                  exits 0; and on an all-zero base it exits 1 rather than
+#                  skipping. The remaining control — a genuine semantic change
+#                  regenerated and watched red INSIDE a CI run rather than
+#                  through the script — is TASK-338 AC #2 and is still owed.
+# All three were run against the real scripts before this file was committed. See
 # AGENTS.md, "Non-vacuous checks".
 #
 # Deliberately run-many, not affected: at ~10k LOC the whole suite is cheap, and
@@ -24,6 +37,15 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    # `Corpus version lint` compares two commits, and a manual run has neither a
+    # push boundary nor a `base_ref`. Rather than let it guess one — every guess
+    # is either a false red or a silent skip — the boundary is an input, and the
+    # step fails closed when it is empty.
+    inputs:
+      base_ref:
+        description: 'Revision to compare golden corpora against (branch, tag or SHA)'
+        required: false
+        default: 'origin/main'
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -204,6 +226,53 @@ jobs:
           fi
           # shellcheck disable=SC2086
           bun run tools/tool-git-hooks/src/hooks/migration-lint.ts $files
+
+      # The two golden corpora each assert that the fixture's `contractVersion`
+      # equals the tree's constant and that the fixture's cases equal the tree's
+      # computation. Both are assertions about ONE tree, and each writer emits
+      # the current constant beside the current cases — so a semantic change
+      # with the constant left where it is, followed by the documented writer,
+      # regenerates the fixture and both assertions still pass. This step is the
+      # two-commit half those tests cannot be. See the header of
+      # `corpus-version-lint.ts` for why it is a script here rather than a case
+      # in the suite.
+      #
+      # THE BOUNDARY IS CHOSEN HERE, never inferred by the script. `HEAD^` is
+      # the first parent, which is right for one merge commit and wrong for a
+      # multi-commit push: a push whose last commit is unrelated would compare
+      # against the commit that regenerated the fixture and see nothing. Every
+      # value is passed through `env` rather than interpolated into the shell,
+      # because every one of them is event-derived text a contributor can shape
+      # — `github.base_ref` is the pull request's target branch in this
+      # repository, and `inputs.base_ref` is whatever the dispatcher typed.
+      - name: Corpus version lint
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_REF: ${{ github.base_ref }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          DISPATCH_BASE_REF: ${{ inputs.base_ref }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            pull_request)
+              base="$(git merge-base "origin/$PR_BASE_REF" HEAD)"
+              ;;
+            push)
+              base="$PUSH_BEFORE"
+              ;;
+            workflow_dispatch)
+              if [ -z "$DISPATCH_BASE_REF" ]; then
+                echo "workflow_dispatch needs a base_ref input: this check compares two commits" >&2
+                exit 1
+              fi
+              base="$(git merge-base "$DISPATCH_BASE_REF" HEAD)"
+              ;;
+            *)
+              echo "corpus-version-lint has no boundary rule for event $EVENT_NAME" >&2
+              exit 1
+              ;;
+          esac
+          bun run tools/tool-git-hooks/src/hooks/corpus-version-lint.ts "$base" HEAD
 
       # The scope and version are both explicit on purpose. `bunx openspec`
       # resolves an unrelated package on npm that has no bin, so the step died

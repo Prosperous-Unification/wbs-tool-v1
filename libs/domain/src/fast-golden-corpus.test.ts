@@ -26,11 +26,31 @@ import { schedule, ScheduleInvalidOptimizedStartError } from './schedule';
  * without a bump fails the second; a bump whose bytes were not regenerated
  * fails the first.
  *
+ * **What they do not close, and where that is closed instead.** Both compare
+ * this tree's fixture against this tree's computation, and
+ * `write-fast-golden-corpus.ts` writes the current constant beside the current
+ * cases — so regenerating after a semantic change, with the version left where
+ * it is, is green here. TASK-338 added CI's `Corpus version lint`
+ * (`tools/tool-git-hooks/src/hooks/corpus-version-lint.ts`), which reads this
+ * fixture at the change's base revision and at its head and refuses `cases`
+ * that moved while `SCHEDULER_CONTRACT_VERSION` did not increase. It is a CI
+ * step and not a case here because the question is about two commits and this
+ * suite's subject is one tree. It proves the two moved together and not that
+ * the bump was made *because* of the change.
+ *
  * **What this guard is, and it is narrower than the paragraph above sounds.**
- * It is a byte guard over the eight named plans in `FAST_GOLDEN_CASES` **as
- * `schedule()` renders them**. It reddens a semantic change if and only if that
- * change moves one of those eight schedules. It is not a net under Fast's
- * semantics, and two consequences follow that a reader must not have to derive:
+ * It is a value guard over the eight named plans in `FAST_GOLDEN_CASES` **as
+ * `schedule()` renders them** — the comparison is `toEqual` over parsed JSON,
+ * so what is enforced is every stored value; whitespace and object-key order
+ * are deliberately outside this corpus's invariant. File layout is enforced
+ * separately by `bunx nx format:check --all` in CI, which does not cover key order
+ * because Prettier preserves JSON object-key order. The one case below that
+ * genuinely is a string comparison says so in its own name and comment — it
+ * stringifies both sides in `FAST_GOLDEN_CASES` order, which is a different
+ * check from this one and stays what it was. It reddens a semantic change
+ * if and only if that change moves one of those eight schedules. It is not a net
+ * under Fast's semantics, and two consequences follow that a reader must not
+ * have to derive:
  *
  * - A change that moves an input class the eight plans do not contain is
  *   invisible here. Eight fixed points cannot cover an input space, and adding
@@ -66,7 +86,7 @@ describe('the Fast golden corpus keys itself on the contract version', () => {
     expect(STORED.contractVersion).toBe(SCHEDULER_CONTRACT_VERSION);
   });
 
-  it('reproduces every stored schedule byte for byte', () => {
+  it('reproduces every stored schedule value for value', () => {
     expect(computeFastGoldenCorpus().cases).toEqual(STORED.cases);
   });
 

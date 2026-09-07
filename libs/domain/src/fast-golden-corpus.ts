@@ -1,5 +1,6 @@
 /**
- * Fast's golden corpus: fixed plans, and their schedules kept as **bytes**.
+ * Fast's golden corpus: fixed plans, and their schedules kept as **stored
+ * values** — serialized to a fixture, compared parsed.
  *
  * This is task 1.6(a), and it exists because the thing that phrase used to
  * point at could not do the job. `schedule-identity.test.ts` is a
@@ -16,8 +17,15 @@
  * A corpus that can hold the cache key honest needs stored output. So the
  * schedules below are serialized to `../fixtures/fast-golden-corpus.json`, that
  * file carries the contract version it was produced under, and
- * `fast-golden-corpus.test.ts` refuses a mismatch either way: bytes that moved
+ * `fast-golden-corpus.test.ts` refuses a mismatch either way: values that moved
  * without a version bump, or a version bump whose bytes were not regenerated.
+ * Both of those compare one tree against itself, and this file's writer emits
+ * the current constant beside the current cases — so a semantic change followed
+ * by a deliberate regeneration is green in the suite. CI's `Corpus version
+ * lint` step is the two-commit half: it reads the fixture at the change's base
+ * revision and at its head and refuses `cases` that moved while
+ * `SCHEDULER_CONTRACT_VERSION` did not increase
+ * (`tools/tool-git-hooks/src/hooks/corpus-version-lint.ts`, TASK-338).
  *
  * The inputs are hand-written here rather than generated. A generator would put
  * a third copy of the engine's input rules in the repo, and a corpus whose
