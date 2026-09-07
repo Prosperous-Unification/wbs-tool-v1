@@ -235,6 +235,18 @@ describe('project optimization in the plan', () => {
    *
    * `notify` is the only thing that happens between the two assertions. No
    * remount, no user action, no timer.
+   *
+   * **What this case cannot say, so that nobody reads it as saying it** (Sol
+   * peer review, 2026-09-07): it would pass for any event string, because
+   * `readScopeFor` sends every unrecognised one down the same full read. It is
+   * not a check on the *name* — that is `be-01`'s
+   * `optimization-events.db.test.ts:280`, which asserts the literal
+   * `schedule_optimization_infeasible` on the pushed event. What this case is,
+   * and what nothing else covered, is the client's half of the same contract:
+   * that an event arriving for a variant on `Optimizing…` is enough to move
+   * that indicator to the certificate's words. "Without a refetch" in the
+   * acceptance criterion means without something *else* forcing one — the read
+   * this event triggers is the mechanism, not a violation of it.
    */
   itDom('leaves Optimizing… on the infeasible event alone', async () => {
     const api = fakeProjectApi();
@@ -292,18 +304,20 @@ describe('project optimization in the plan', () => {
   /**
    * The three optimizer events named on this side, and what each of them reads.
    *
-   * `readScopeFor` answers `'all'` for anything it does not recognise, so every
-   * one of these already passes and none of them is testing a branch. What they
-   * pin is the **name**: `schedule_optimization_infeasible` is the third event
-   * (TASK-313), and a stored `plan-infeasible` certificate has no other way to
-   * take a client off `Optimizing…` — that state never auto-respawns and offers
-   * no Retry, so nothing the client does on its own can move it. Naming all
-   * three here gives a be-01 rename somewhere to fail rather than silently
-   * dropping one to the default that happens to be right today.
+   * `readScopeFor` answers `'all'` for anything it does not recognise, so all
+   * three already pass through the default and none of them is exercising a
+   * branch. **They are not a check on the name, and the first draft's comment
+   * claiming they were is the thing Sol's review corrected** — a be-01 rename
+   * leaves every one of them green, because the renamed string takes the same
+   * default. The name is pinned in be-01, at
+   * `optimization-events.db.test.ts:280`.
    *
-   * `'all'` and not a narrower scope: the two narrow scopes are claims about
-   * be-01's tree and step events, and an optimizer outcome is neither — it
-   * moves a variant's stored state, which the plan read carries.
+   * What they do catch is the change that would strand the client: a narrowing
+   * branch added here for an optimizer event. `'tree'` and `'tree-and-steps'`
+   * are claims about be-01's tree and step events; an optimizer outcome is
+   * neither, and it moves a variant's stored state, which only the plan read
+   * carries. Narrow one of these and the case above stops passing for a real
+   * reason rather than a fixture one.
    */
   describe('the read scope each optimizer event asks for', () => {
     for (const event of [
