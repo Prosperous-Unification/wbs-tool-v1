@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readdir, readFile, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -98,6 +98,43 @@ describe('durable dev poller', () => {
 
     expect(failed.code).toBe(17);
     expect(await readdir(installed)).toEqual([]);
+  });
+
+  it('prunes stale installed and interrupted candidates before running the target', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'wbs-dev-poller-prune-'));
+    const source = join(root, 'src');
+    const installed = join(root, 'bin');
+    const commands = join(root, 'commands');
+    const fakeGit = join(commands, 'git');
+    const fakeBun = join(root, 'bun');
+    const helper = new URL('../../../bin/dev-poll-sync.sh', import.meta.url).pathname;
+    const sha = 'a'.repeat(40);
+    const staleSha = 'b'.repeat(40);
+    const staleInstalled = join(installed, `sync.${staleSha}.ts`);
+    const staleInterrupted = join(installed, `sync.${staleSha}.ts.deadbeef`);
+
+    await requireCommand(['mkdir', '-p', source, installed, commands]);
+    await writeFile(fakeGit, '#!/usr/bin/env bash\nprintf CURRENT\\n\n');
+    await writeFile(
+      fakeBun,
+      '#!/usr/bin/env bash\nif [ "$1" = --version ]; then echo 1.3.14; fi\n',
+    );
+    await Promise.all([writeFile(staleInstalled, 'old'), writeFile(staleInterrupted, 'partial')]);
+    const staleTime = new Date(Date.now() - 9 * 24 * 60 * 60 * 1_000);
+    await Promise.all([
+      utimes(staleInstalled, staleTime, staleTime),
+      utimes(staleInterrupted, staleTime, staleTime),
+    ]);
+    await chmod(fakeGit, 0o755);
+    await chmod(fakeBun, 0o755);
+
+    const result = await command(['bash', helper, source, installed, fakeBun, sha, '1.3.14'], {
+      PATH: `${commands}:${process.env['PATH'] ?? ''}`,
+    });
+
+    // Proof: narrowing the prune glob back to sync.*.ts leaves staleInterrupted behind.
+    expect(result.code).toBe(0);
+    expect(await readdir(installed)).toEqual([`sync.${sha}.ts`]);
   });
 
   it('a repaired target deployer replaces a broken candidate without bypassing sync', async () => {
