@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 
-import { cacheWhileItSucceeds } from './oidc-client';
+import {
+  cacheWhileItSucceeds,
+  isOidcCallbackRefused,
+  refuseCallbackFromAnotherIssuer,
+} from './oidc-client';
 
 /**
  * Returns whatever a promise rejected with, and fails the case if it resolved.
@@ -218,5 +222,119 @@ describe('cacheWhileItSucceeds', () => {
     clock.advance(1);
     expect(messageOf(await rejectionOf(cached()))).toBe('down');
     expect(loads).toBe(2);
+  });
+});
+
+/**
+ * The fifth callback this app cannot have started, and the one the route cannot
+ * decide on its own: a callback whose `iss` is not the issuer identifier
+ * discovery resolved to, or one carrying no `iss` where the server said it
+ * always sends one.
+ *
+ * These arms are asserted here rather than through `browserOidcClientFromEnv`
+ * because that factory cannot be exercised without a live authorization server
+ * — `discovery()` performs a real request. The wiring from `exchange` to this
+ * function is one line under `tsc`, and the answer the route gives its rejection
+ * is asserted in `oidc.integration.test.ts`.
+ */
+describe('refuseCallbackFromAnotherIssuer', () => {
+  // Okta's shape, and the trap this whole check is built around: the discovery
+  // URL and the issuer identifier are different strings.
+  const ISSUER = 'https://puni.okta.com/oauth2/default';
+  const DISCOVERY_URL = `${ISSUER}/.well-known/openid-configuration`;
+
+  const callback = (query: string): URL =>
+    new URL(`https://dev.wbs.test/api/auth/okta/callback${query}`);
+
+  /**
+   * The reason slug this call refused with, or `undefined` if it accepted.
+   *
+   * It narrows through `isOidcCallbackRefused` and rethrows anything else, so a
+   * case can never pass by catching a `TypeError` from a rewritten check and
+   * reading a `reason` off it.
+   */
+  const reasonOf = (
+    query: string,
+    metadata: { authorization_response_iss_parameter_supported?: boolean; issuer: string },
+  ): string | undefined => {
+    try {
+      refuseCallbackFromAnotherIssuer(callback(query), metadata);
+    } catch (thrown) {
+      if (isOidcCallbackRefused(thrown)) return thrown.reason;
+      throw thrown;
+    }
+    return undefined;
+  };
+
+  it('accepts a callback carrying the issuer identifier discovery resolved to', () => {
+    expect(
+      reasonOf(`?code=c&state=s&iss=${encodeURIComponent(ISSUER)}`, { issuer: ISSUER }),
+    ).toBeUndefined();
+  });
+
+  it('accepts a callback with no iss when the server does not advertise one', () => {
+    expect(reasonOf('?code=c&state=s', { issuer: ISSUER })).toBeUndefined();
+  });
+
+  it('refuses a callback from another issuer', () => {
+    expect(reasonOf('?code=c&state=s&iss=https%3A%2F%2Fevil.test', { issuer: ISSUER })).toBe(
+      'issuer_mismatch',
+    );
+  });
+
+  it('refuses a callback with no iss when the server advertises that it sends one', () => {
+    expect(
+      reasonOf('?code=c&state=s', {
+        authorization_response_iss_parameter_supported: true,
+        issuer: ISSUER,
+      }),
+    ).toBe('issuer_missing');
+  });
+
+  /**
+   * `?iss=` is absent, not a mismatch — the reading `oauth4webapi` itself takes
+   * (`getURLSearchParameter` returns the empty string and every check there is
+   * truthiness). Without this the boundary would answer `issuer_mismatch` for
+   * `?iss=` and `issuer_missing` for a callback with no `iss` at all, splitting
+   * one fact across two slugs in the log.
+   */
+  it('reads an empty iss as absent rather than as a different issuer', () => {
+    expect(reasonOf('?code=c&state=s&iss=', { issuer: ISSUER })).toBeUndefined();
+
+    expect(
+      reasonOf('?code=c&state=s&iss=', {
+        authorization_response_iss_parameter_supported: true,
+        issuer: ISSUER,
+      }),
+    ).toBe('issuer_missing');
+  });
+
+  /**
+   * The mistake this check would have made if it had compared against
+   * `AUTH_ISSUER_DISCOVERY_URL`, which is the configured value nearest to hand.
+   * A provider sending its own identifier would have been refused — every real
+   * login — and a callback echoing the discovery URL would have been accepted.
+   * Both halves are asserted, because either one alone would pass under the
+   * wrong comparison.
+   */
+  it('compares the issuer identifier, not the discovery document URL', () => {
+    expect(
+      reasonOf(`?code=c&state=s&iss=${encodeURIComponent(ISSUER)}`, { issuer: ISSUER }),
+    ).toBeUndefined();
+
+    expect(
+      reasonOf(`?code=c&state=s&iss=${encodeURIComponent(DISCOVERY_URL)}`, { issuer: ISSUER }),
+    ).toBe('issuer_mismatch');
+  });
+
+  /**
+   * The narrowing the route depends on, proven from the other side: an ordinary
+   * failure out of `exchange` must not take the 400 exit reserved for a
+   * callback this app could not have started.
+   */
+  it('does not claim an ordinary exchange failure as a callback refusal', () => {
+    expect(isOidcCallbackRefused(new Error('connect ECONNREFUSED'))).toBe(false);
+    expect(isOidcCallbackRefused({ reason: 'issuer_mismatch' })).toBe(false);
+    expect(isOidcCallbackRefused(undefined)).toBe(false);
   });
 });

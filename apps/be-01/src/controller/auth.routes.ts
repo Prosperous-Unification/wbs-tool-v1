@@ -10,6 +10,7 @@ import {
   type HeldBrowserBinding,
   InMemoryOidcTransactionStore,
   InMemoryTokenStore,
+  isOidcCallbackRefused,
   MAX_BROWSER_BINDINGS,
   type OidcFailureKind,
   oidcIdentityFromClaims,
@@ -779,6 +780,32 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
             verifier: transaction.verifier,
           });
         } catch (err) {
+          // **The fifth callback this app could not have started, and the
+          // only one that cannot be refused before `exchange` runs.** The other
+          // four are decided from the query string alone; this one needs the
+          // issuer identifier, which exists only after discovery resolves
+          // inside the client's closure. So the adapter refuses it there and
+          // rejects with a type this project owns, and the route gives it the
+          // answer it already gives the other four: a bodiless 400 with the
+          // binding cleared, logged at `info` because every input that reaches
+          // it is wholly caller-authored.
+          //
+          // Before this branch the library refused the same callback as
+          // `OAUTH_INVALID_RESPONSE`, which the classifier does not table, so
+          // it landed in `defect` — the 500 and the `error`-level log a caller
+          // holding their own state and binding could choose. (Peer pass 20.)
+          //
+          // It is read before {@link classifyOidcFailure} rather than tabled
+          // inside it because the classifier's question is "whose move is this
+          // failure": the exchange never happened here, so it has no answer to
+          // give.
+          if (isOidcCallbackRefused(err)) {
+            options.logger?.info(
+              { oidc_callback_refusal: err.reason },
+              'oidc callback did not come from the configured issuer',
+            );
+            return empty(400, clearsFor(settled));
+          }
           const failure = classifyOidcFailure(err);
           // Two flat fields, not a nested object: AC #3 asks for an outage to
           // be greppable without reading stack text, and

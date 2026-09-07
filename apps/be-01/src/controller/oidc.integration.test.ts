@@ -3,6 +3,7 @@ import {
   browserBindingCookieName,
   InMemoryOidcTransactionStore,
   InMemoryTokenStore,
+  OidcCallbackRefused,
 } from '@wbs/auth';
 import { describe, expect, it } from 'bun:test';
 
@@ -1456,6 +1457,102 @@ describe('OIDC browser routes', () => {
     const line = JSON.stringify(f.logs[0]?.fields ?? {});
     expect(line).toContain('"oidc_failure_kind":"unavailable"');
     expect(line).toContain('"oidc_failure_reason":"provider_unreachable"');
+  });
+
+  /**
+   * The route's half of the fifth malformed callback. The adapter refuses a
+   * callback whose `iss` is not the issuer discovery resolved to — it is the one
+   * such refusal the route cannot make itself, because the issuer identifier
+   * only exists after discovery — and rejects with a type this project owns.
+   *
+   * **What this asserts is that the owned rejection does not reach the
+   * classifier.** Before it did: the library refused the same callback as
+   * `OAUTH_INVALID_RESPONSE`, which the classifier deliberately does not table,
+   * so it landed in `defect` — a 500 and an `error`-level log that a caller
+   * holding their own state and binding could choose to trigger. The answer now
+   * is the one the other four malformed callbacks already get.
+   *
+   * The client here is a fake, so the *decision* is not what is under test —
+   * `refuseCallbackFromAnotherIssuer`'s own cases own that. What is under test is
+   * that the route recognises the rejection.
+   */
+  for (const reason of ['issuer_mismatch', 'issuer_missing'] as const) {
+    it(`answers a callback the adapter refused (${reason}) with 400 and not a defect 500`, async () => {
+      const f = fixture(
+        claims,
+        {},
+        { exchange: () => Promise.reject(new OidcCallbackRefused(reason)) },
+      );
+      f.transactions.save({
+        browserBinding: 'binding-1',
+        nonce: 'nonce-1',
+        state: 'state-1',
+        verifier: 'verifier-1',
+      });
+
+      const res = await f.app.handle(
+        new Request(
+          'https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1&iss=https%3A%2F%2Fevil.test',
+          {
+            headers: cookieHeader(jarOf('binding-1')),
+          },
+        ),
+      );
+
+      expect(res.status).toBe(400);
+      expect(res.headers.get('location')).toBeNull();
+      // No provider or library text reaches the browser in this arm either.
+      expect(await res.text()).toBe('');
+      expect(retires(res, 'binding-1')).toBe(true);
+      // Caller-authored input, so a caller cannot choose how loud the log gets —
+      // the same principle as the other four malformed-callback branches.
+      expect(f.logs).toHaveLength(1);
+      expect(f.logs[0]?.level).toBe('info');
+      expect(f.logs[0]?.fields).toEqual({ oidc_callback_refusal: reason });
+      // And the classifier never saw it: a `defect` line would carry these.
+      const line = JSON.stringify(f.logs[0]?.fields ?? {});
+      expect(line).not.toContain('oidc_failure_kind');
+      expect(line).not.toContain('evil.test');
+    });
+  }
+
+  /**
+   * The negative control for the branch above, and the reason `exchange` awaits
+   * `config()` before it compares anything: a provider that is down during
+   * discovery must still be an outage. If the refusal branch ever widened to
+   * catch every rejection, this case would go 400 and green would be a lie.
+   */
+  it('still answers a discovery outage 503 rather than the callback refusal 400', async () => {
+    const f = fixture(
+      claims,
+      {},
+      {
+        exchange: () =>
+          Promise.reject(
+            Object.assign(new TypeError('fetch failed'), {
+              cause: Object.assign(new Error('getaddrinfo EAI_AGAIN puni.okta.com'), {
+                code: 'EAI_AGAIN',
+              }),
+            }),
+          ),
+      },
+    );
+    f.transactions.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+
+    const res = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
+        headers: cookieHeader(jarOf('binding-1')),
+      }),
+    );
+
+    expect(res.status).toBe(503);
+    expect(f.logs[0]?.level).toBe('error');
+    expect(JSON.stringify(f.logs[0]?.fields ?? {})).toContain('"oidc_failure_kind":"unavailable"');
   });
 
   it('exchanges once and sets hardened access and refresh-correlation cookies', async () => {

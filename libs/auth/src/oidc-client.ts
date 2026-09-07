@@ -29,6 +29,87 @@ export interface BrowserOidcClient {
   revoke(refreshToken: string): Promise<void>;
 }
 
+/**
+ * Why a callback from another issuer is refused here rather than left to the
+ * library.
+ *
+ * `oauth4webapi`'s `validateAuthResponse` already refuses a callback whose
+ * `iss` is not this authorization server's, and one that omits `iss` when the
+ * server advertises `authorization_response_iss_parameter_supported`. It
+ * refuses both as `OAUTH_INVALID_RESPONSE` — a code {@link classifyOidcFailure}
+ * deliberately does not table, because only the layer that built the request
+ * knows what it asked for. Every such callback therefore reached the route's
+ * `defect` arm: a 500 and an `error`-level log, chosen by a caller who holds
+ * their own state and binding. That bucket means "this deployment is wrong",
+ * and nothing outside the deployment should be able to fill it. (Peer pass 20.)
+ *
+ * The route already refuses four callbacks it could not have started — a
+ * missing `code`, and `response`, `id_token` or `token` from a response mode it
+ * never asks for — with a bodiless 400 and the binding cleared. This is the
+ * fifth and takes the same exit. It cannot be a route guard like those four,
+ * because the issuer identifier exists only once discovery has resolved, and
+ * that resolution lives in this module's closure.
+ */
+export type OidcCallbackRefusalReason = 'issuer_mismatch' | 'issuer_missing';
+
+/**
+ * The context-specific owned failure {@link BrowserOidcClient.exchange} rejects
+ * with when the callback cannot belong to a login this deployment started.
+ *
+ * A distinct type rather than an `OidcFailure`: the classifier answers "whose
+ * move is this failure", and this is not a failure of the exchange at all — the
+ * exchange was never attempted. The reason is a closed union for the same
+ * purpose `OidcFailureReason` is closed, so the log line still carries no
+ * provider or library string.
+ */
+export class OidcCallbackRefused extends Error {
+  readonly reason: OidcCallbackRefusalReason;
+
+  constructor(reason: OidcCallbackRefusalReason) {
+    super(`oidc callback refused: ${reason}`);
+    this.name = 'OidcCallbackRefused';
+    this.reason = reason;
+  }
+}
+
+/**
+ * Narrows a `catch` binding, which is `unknown`, so the route asks a question
+ * instead of reaching for the class.
+ */
+export function isOidcCallbackRefused(value: unknown): value is OidcCallbackRefused {
+  return value instanceof OidcCallbackRefused;
+}
+
+/**
+ * The decidable half of that refusal, separated so it can be asserted without a
+ * live provider: {@link browserOidcClientFromEnv} cannot be exercised in a test
+ * without reaching a real authorization server, so the arms are proven here and
+ * the wiring is proven by the route's integration cases.
+ *
+ * **`metadata.issuer` is the Issuer Identifier, never
+ * `AUTH_ISSUER_DISCOVERY_URL`.** The two are only required to be related, never
+ * equal: Okta's discovery URL ends `/.well-known/openid-configuration` and its
+ * issuer identifier does not, so comparing a callback against the configured
+ * discovery URL would refuse every real login. The value comes from
+ * `Configuration.serverMetadata().issuer`.
+ *
+ * An empty `?iss=` counts as absent, which is how `oauth4webapi` reads it, so
+ * the boundary cannot answer one way for `?iss=` and another for a callback
+ * carrying no `iss` at all.
+ */
+export function refuseCallbackFromAnotherIssuer(
+  callback: URL,
+  metadata: { authorization_response_iss_parameter_supported?: boolean; issuer: string },
+): void {
+  const sent = callback.searchParams.get('iss') ?? '';
+  if (sent === '') {
+    if (metadata.authorization_response_iss_parameter_supported === true)
+      throw new OidcCallbackRefused('issuer_missing');
+    return;
+  }
+  if (sent !== metadata.issuer) throw new OidcCallbackRefused('issuer_mismatch');
+}
+
 type Environment = Readonly<Record<string, string | undefined>>;
 
 export function browserOidcClientFromEnv(env: Environment): BrowserOidcClient {
@@ -54,7 +135,13 @@ export function browserOidcClientFromEnv(env: Environment): BrowserOidcClient {
       return buildAuthorizationUrl(await config(), parameters);
     },
     async exchange(request, checks) {
-      const result = await authorizationCodeGrant(await config(), request, {
+      // `config()` is awaited first and its rejection is left untouched: a
+      // provider that is down during discovery must still reach the classifier
+      // as an outage rather than as the refusal below. Only once the metadata
+      // resolves is there an issuer identifier to compare a callback against.
+      const resolved = await config();
+      refuseCallbackFromAnotherIssuer(new URL(request.url), resolved.serverMetadata());
+      const result = await authorizationCodeGrant(resolved, request, {
         expectedNonce: checks.nonce,
         expectedState: checks.state,
         pkceCodeVerifier: checks.verifier,
