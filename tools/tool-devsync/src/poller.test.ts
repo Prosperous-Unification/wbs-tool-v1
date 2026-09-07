@@ -106,7 +106,7 @@ describe('durable dev poller', () => {
 
     await writeFile(
       fakeBun,
-      '#!/usr/bin/env bash\nset -eu\nif grep -qx BROKEN "$1"; then exit 23; fi\ngit -C "$POLL_TEST_SRC" reset --hard --quiet "$2"\n',
+      '#!/usr/bin/env bash\nset -eu\nif [ "$1" = --version ]; then echo 1.3.14; exit 0; fi\nif grep -qx BROKEN "$1"; then exit 23; fi\ngit -C "$POLL_TEST_SRC" reset --hard --quiet "$2"\n',
     );
     await chmod(fakeBun, 0o755);
 
@@ -163,7 +163,7 @@ esac
     );
     await writeFile(
       fakeBun,
-      '#!/usr/bin/env bash\nset -eu\nprintf "%s:%s" "$2" "$(cat "$1")" >> "$POLL_OBSERVATIONS"\nprintf "\\n" >> "$POLL_OBSERVATIONS"\n',
+      '#!/usr/bin/env bash\nset -eu\nif [ "$1" = --version ]; then echo 1.3.14; exit 0; fi\nprintf "%s:%s" "$2" "$(cat "$1")" >> "$POLL_OBSERVATIONS"\nprintf "\\n" >> "$POLL_OBSERVATIONS"\n',
     );
     await chmod(fakeGit, 0o755);
     await chmod(fakeBun, 0o755);
