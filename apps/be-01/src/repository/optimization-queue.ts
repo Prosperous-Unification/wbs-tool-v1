@@ -75,33 +75,39 @@ function currentInputHash(tx: Transaction, entry: QueueEntry): string | null {
 }
 
 /** Persist one capacity-blocked solve under the generation and cancel epoch observed now. */
+/** Persist one capacity-blocked solve inside the caller's wider admission transaction. */
+export function enqueueSolverRequestIn(
+  tx: Transaction,
+  request: SolverQueueRequest,
+): SolverQueueEnqueue {
+  const generation = readGeneration(tx, request.projectId, request.contractVersion);
+  const state = tx
+    .select({
+      enabled: project.optimizationEnabled,
+      deletePendingAt: project.optimizationDeletePendingAt,
+    })
+    .from(project)
+    .where(eq(project.id, request.projectId))
+    .get();
+  if (
+    generation?.generation !== request.generation ||
+    generation.admissionState !== 'open' ||
+    state?.enabled !== true ||
+    state.deletePendingAt !== null
+  ) {
+    return { kind: 'closed' };
+  }
+  const inserted = tx
+    .insert(solverQueue)
+    .values({ ...request, admittedCancelEpoch: generation.cancelEpoch })
+    .onConflictDoNothing()
+    .returning({ projectId: solverQueue.projectId })
+    .all();
+  return { kind: inserted.length === 1 ? 'queued' : 'already-present' };
+}
+
 export function enqueueSolverRequest(db: Drizzle, request: SolverQueueRequest): SolverQueueEnqueue {
-  return db.transaction((tx) => {
-    const generation = readGeneration(tx, request.projectId, request.contractVersion);
-    const state = tx
-      .select({
-        enabled: project.optimizationEnabled,
-        deletePendingAt: project.optimizationDeletePendingAt,
-      })
-      .from(project)
-      .where(eq(project.id, request.projectId))
-      .get();
-    if (
-      generation?.generation !== request.generation ||
-      generation.admissionState !== 'open' ||
-      state?.enabled !== true ||
-      state.deletePendingAt !== null
-    ) {
-      return { kind: 'closed' };
-    }
-    const inserted = tx
-      .insert(solverQueue)
-      .values({ ...request, admittedCancelEpoch: generation.cancelEpoch })
-      .onConflictDoNothing()
-      .returning({ projectId: solverQueue.projectId })
-      .all();
-    return { kind: inserted.length === 1 ? 'queued' : 'already-present' };
-  });
+  return db.transaction((tx) => enqueueSolverRequestIn(tx, request));
 }
 
 /**
@@ -142,7 +148,10 @@ export function dequeueSolverRequest(
         budgetMs: entry.budgetMs,
         ownerId: request.ownerId,
         attemptToken: request.attemptToken,
-        now: request.now,
+        // A Retry queue entry may have been stamped one tick after its retained
+        // marker even when a deterministic clock stood still. Never move that
+        // ordering backwards when the durable entry becomes a slot.
+        now: Math.max(request.now, entry.enqueuedAt),
       };
       const admission = reserveSolverSlotIn(tx, slot);
       if (

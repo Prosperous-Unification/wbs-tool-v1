@@ -125,6 +125,26 @@ const DRIFT = 1e-9;
  * solver units, so it is still nine orders below the smallest real fraction an
  * estimate can quantise to and still cannot swallow work somebody estimated.
  *
+ * **That paragraph is true and it is not enough, which TASK-302 cost a
+ * `plan-infeasible` to find out.** It answers "can the window swallow real
+ * work in unit space" — no — and it was read as answering "do the two spaces
+ * agree about the same duration", which is a different question with the
+ * opposite answer. This function snaps to within {@link DRIFT} of a whole
+ * **argument**, so the constant means one thing when the argument is workdays
+ * and a window `SOLVER_QUANTUM` times tighter when the argument is units: a
+ * duration `5e-10` above a whole day snaps here and does not snap after being
+ * multiplied by 48. {@link lastWorkdayOf} then called such a slice on time
+ * while the quantised duration `ceil`ed a unit higher and CP-SAT called the
+ * plan infeasible.
+ *
+ * **The window stays a workday-space window and is not scaled.** `quantise`
+ * snaps in workday space *before* it multiplies, so the value that crosses the
+ * boundary has already been cleaned by this same window, and this constant is
+ * still defined once, here, for one unit. Scaling {@link DRIFT} at the second
+ * site would have been the other repair and was rejected: it puts the same
+ * number in two units in two files, and the copy that is a multiple is the one
+ * that goes stale when `SOLVER_QUANTUM` moves.
+ *
  * Proof: with the window widened to 0.5, `keeps a genuine fraction just shy of
  * a boundary as real work` (the production path, `work-item.service.test.ts`)
  * failed — a 14.9-day row's successor started `"2026-08-31"` where

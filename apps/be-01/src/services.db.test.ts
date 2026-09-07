@@ -369,6 +369,7 @@ describe('buildServices', () => {
         request.request.budgetMs,
       ]),
     ).toEqual([
+      // The current solver release composes with the current scheduler contract.
       ['0.1.1', '8+0.1.1', 60_000],
       ['0.1.1', '8+0.1.1', 60_000],
     ]);

@@ -14,7 +14,7 @@ export type ParamsOf<Path extends string> = Path extends `${string}:${infer Name
 
 export interface JsonResponse {
   kind: 'json';
-  status: 200 | 201;
+  status: 200 | 201 | 202;
   schema: SchemaShape<unknown>;
 }
 
@@ -32,6 +32,12 @@ export interface TextResponse {
 export interface RefusalResponse {
   status: RefusalStatus;
   schema: SchemaShape<Refusal>;
+}
+
+/** A modeled refusal whose wire representation is deliberately bodyless. */
+export interface EmptyRefusalResponse {
+  kind: 'empty';
+  status: RefusalStatus;
 }
 
 /**
@@ -59,7 +65,7 @@ export interface EndpointShape {
   // Proof: widening to string[] produced TS2578 for the empty/unknown-media actual declaration fixtures.
   bodyMedia?: readonly [BodyMedia, ...BodyMedia[]];
   responses: readonly (JsonResponse | EmptyResponse | TextResponse)[];
-  refusals: readonly RefusalResponse[];
+  refusals: readonly (RefusalResponse | EmptyRefusalResponse)[];
   document: { summary: string };
 }
 

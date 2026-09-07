@@ -13,12 +13,14 @@ import type { Days, PriorityBandView, StepView } from '@/lib/wbs-api';
 import { ActionsMenu, type MenuAction } from './actions-menu';
 import { CellInput } from './cell-input';
 import type { CellRef } from './cell-navigation';
+import { DEADLINE_EFFECT_HINT } from './column-hints';
 import {
   type PickableEntry,
   PickerList,
   type PickerOption,
   pickerOptionId,
 } from './creatable-picker';
+import { DEADLINE_BEFORE_START, deadlineBeforeProjectStart } from './deadline-impossible';
 import { type PickerEntry, REFUSAL_SUFFIX } from './dep-picker';
 import { type CellElement, cellKey } from './editable-grid';
 import { POINTS, showTrio } from './estimate-draft';
@@ -252,15 +254,21 @@ export interface PlanCardsProps {
     currentTeamIds: readonly string[],
   ) => Promise<CommitOutcome>;
   /**
-   * Whether the plan has a start date at all.
+   * The day the plan starts, or null while it is not on a calendar at all.
    *
-   * The one fact {@link CardNotBeforeField} cannot read off its row, and the
-   * one that decides whether the field opens: without a day zero be-01 ignores
-   * the constraint entirely, so the control refuses rather than taking a date
-   * that would do nothing. The table's cell asks the same question of
-   * `live.current.startDate` and words its refusal the same way.
+   * The one fact {@link CardNotBeforeField} and {@link CardDeadlineField}
+   * cannot read off their row, and it decides two different things. **Whether
+   * the fields open:** without a day zero be-01 ignores the floor entirely and
+   * resolves no deadline, so both controls refuse rather than taking a date
+   * that would do nothing, exactly as the table's two cells do. **And whether
+   * a stored deadline is still reachable:** `deadlineBeforeProjectStart` needs
+   * the date itself, not the boolean.
+   *
+   * The date and not the `hasCalendar` flag it replaced (TASK-291), because a
+   * boolean beside the value it was derived from is two facts about one thing
+   * and the pair can disagree; `projectStart !== null` is derived here, once.
    */
-  hasCalendar: boolean;
+  projectStart: string | null;
   /**
    * Sets, changes or clears the earliest day this work item may start, **and
    * the words about it, in one request**.
@@ -276,6 +284,23 @@ export interface PlanCardsProps {
    * because be-01 will not hold words about a date that has gone.
    */
   setNotBefore: (row: TreeRow, day: string | null, reason: string | null) => void;
+  /**
+   * Sets or clears the last day this work item may finish on.
+   *
+   * The table's own `setDeadline`, handed to the face that had none, and
+   * **one field wide on purpose**. The floor above takes the words as well
+   * because be-01 refuses a reason with no date to be about; a deadline has no
+   * reason column beside it (slice 1.1), so `null` is the whole of the clear
+   * and a card that copied the floor's pair across would be sending a key
+   * about a different constraint — the mistake `setDeadline`'s own docstring
+   * exists to stop.
+   *
+   * Nothing is guarded on this side. A date before the project's start is
+   * refused by be-01 with `deadline_before_project_start`, and it is left
+   * refused there for the reason `setPriority` writes down: a client-side rule
+   * the server also keeps is how the two come to disagree.
+   */
+  setDeadline: (row: TreeRow, day: string | null) => void;
   /**
    * Sets or clears how important this work item is, **from what was typed or
    * from the line that was tapped** — both as a string, both through here.
@@ -1171,6 +1196,214 @@ function CardNotBeforeField({
                 className={`${TAP} inline-flex items-center justify-center rounded-md border px-3`}
                 onClick={() => {
                   setNotBefore(row, null, null);
+                  setOpen(false);
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+      </ModalContent>
+    </Modal>
+  );
+}
+
+/**
+ * The last day a work item may finish on, on a card — printed as the table
+ * prints it, and **settable**.
+ *
+ * `CardNotBeforeField`'s shape one column over, deliberately: TASK-291's
+ * done-criterion is "matching what the table cell already does for the same
+ * field", and a second sheet design over a second date would be a second
+ * contract for a reader to learn. So the same explicit Save (a date is not a
+ * gesture that ends itself), the same draft seeded on every open, the same
+ * separate Clear (a finger cannot empty a native date box), and the same cell
+ * id out of `cellKey` so the two faces edit one cell rather than two boxes over
+ * one field.
+ *
+ * **One field wide, and that is the difference from the floor.**
+ * `setNotBefore` carries the words as well because be-01 refuses a reason with
+ * no date to be about; slice 1.1 gave the deadline no reason column, so
+ * `setDeadline` names `deadline` alone and a card that copied the floor's pair
+ * across would be sending a key about a different constraint.
+ *
+ * **Disabled without a project start date**, the floor's refusal word for word
+ * and the table cell's `noCalendar`: with no day zero be-01 resolves no
+ * deadline at all, and a field that took a date and did nothing with it is
+ * worse than one that will not open.
+ *
+ * **The §2.3 mark travels with the date.** A stored deadline the project has
+ * since moved past is *legal* — it is what somebody typed, and the project
+ * moving under it does not make their input malformed — so the date is printed
+ * unchanged and the mark says why it cannot be met. Without it a phone shows an
+ * impossible date with no sign that it is one, which is the half of TASK-291
+ * that is not simply a missing field. The predicate is
+ * {@link deadlineBeforeProjectStart}, shared with the table cell and be-01's
+ * write boundary; **no lateness is computed here**, which is 9.2's standing
+ * rule.
+ */
+function CardDeadlineField({
+  row,
+  projectStart,
+  setDeadline,
+}: {
+  row: TreeRow;
+  projectStart: string | null;
+  setDeadline: (row: TreeRow, day: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useTriggerAboveSheet(open);
+  const day = row.deadline;
+  const hasCalendar = projectStart !== null;
+  const impossible = deadlineBeforeProjectStart(projectStart, day);
+  const [draftDay, setDraftDay] = useState(day ?? '');
+  const title = hasCalendar
+    ? [
+        day === null ? null : `${day}.`,
+        DEADLINE_EFFECT_HINT,
+        impossible ? DEADLINE_BEFORE_START : null,
+      ]
+        .filter((part) => part !== null)
+        .join(' ')
+    : 'Set the project start date first — without one there are no dates to judge against.';
+  const save = (): void => {
+    // An emptied box is the reader saying "no deadline", the table's date cell's
+    // own reading of `''`.
+    setDeadline(row, draftDay === '' ? null : draftDay);
+    setOpen(false);
+  };
+  return (
+    <Modal
+      open={open}
+      onOpenChange={(next) => {
+        if (next) setDraftDay(day ?? '');
+        setOpen(next);
+      }}
+    >
+      <ModalTrigger asChild>
+        <button
+          ref={triggerRef}
+          type="button"
+          data-card-deadline-field
+          disabled={!hasCalendar}
+          // The table cell's own label, so one plan read on two faces answers to
+          // one name — a screen reader and a test both find this by it.
+          aria-label={`Work item deadline for ${row.number}`}
+          // What the cell's own `aria-describedby` does one face over: the mark
+          // is drawn beside the date, and on a card the two are one control, so
+          // the sentence goes on the control a reader reaches rather than on a
+          // sibling that only DOM adjacency relates to it (TASK-308's finding).
+          //
+          // **`aria-invalid` is deliberately not here**, which is where this
+          // control parts from the table's. That cell is an `<input>` and the
+          // attribute is supported on it; this is a `<button>`, whose implicit
+          // role does not support it, and `jsx-a11y/role-supports-aria-props`
+          // fails the gate over exactly that. It would also be the wrong claim:
+          // a button is not a field holding a value a reader got wrong — the
+          // date is legal and the project moved under it — so the description
+          // is the whole of what this control has to say.
+          aria-describedby={impossible ? `card-deadline-impossible-${row.id}` : undefined}
+          data-fact={title}
+          className={`${TAP} text-muted-foreground inline-flex max-w-full min-w-0 items-center text-left underline decoration-dotted underline-offset-2 disabled:no-underline disabled:opacity-60`}
+        >
+          {day === null ? (
+            // No `data-card-deadline`: this row owes nothing by any day, and the
+            // attribute is the claim. What is drawn is the invitation.
+            <span className="opacity-70">work item deadline…</span>
+          ) : (
+            <>
+              <span data-card-deadline data-fact={title}>
+                due {shortIsoDate(day, new Date())}
+              </span>
+              {impossible && (
+                <span
+                  // `role="img"` with a sentence for a name and not a bare
+                  // glyph, the table's mark word for word: `!` is announced as
+                  // punctuation or as nothing at all, and the whole point of the
+                  // mark is that it can be read. It names the row, so a reader
+                  // hearing it out of context knows which date is meant.
+                  aria-label={`Work item deadline for ${row.number} falls before the project's first working day`}
+                  role="img"
+                  id={`card-deadline-impossible-${row.id}`}
+                  data-card-deadline-impossible={row.id}
+                  className="text-destructive ml-1"
+                >
+                  !
+                </span>
+              )}
+            </>
+          )}
+        </button>
+      </ModalTrigger>
+      <ModalContent side="bottom">
+        <ModalHeader>
+          <ModalTitle>Work item deadline for {rowWords(row.number, row.name)}</ModalTitle>
+          <ModalDescription>{DEADLINE_EFFECT_HINT}</ModalDescription>
+        </ModalHeader>
+        {/*
+          `key` on the fields and not on the sheet, `CardNotBeforeField`'s
+          bargain and its reason: remounting the panel each time it opens is what
+          makes "seeded from the row" true of the second open as well as the
+          first, without an effect that would also fire on every refetch while
+          somebody is typing.
+        */}
+        <div className="flex flex-col gap-3" key={open ? 'open' : 'shut'}>
+          {impossible && (
+            // The sentence itself inside the sheet, not only on the mark: a
+            // reader who has opened the editor is the one about to act on it,
+            // and `aria-describedby` on the trigger is announced on the way in
+            // rather than while the date box has focus.
+            <p data-card-deadline-impossible-reason className="text-destructive text-sm">
+              {DEADLINE_BEFORE_START}
+            </p>
+          )}
+          <label className="flex flex-col gap-1 text-sm">
+            <span>Work item deadline</span>
+            {/*
+              A native `<input type="date">` and not {@link DateField}, the
+              floor's own call: that component's rule is "the box is left, then
+              it is sent", which is right for a cell a Tab walks out of and wrong
+              for a sheet where the exit *is* the Save button.
+
+              The cell id the table's own box carries: `rowId::deadline`, one
+              string out of `cellKey`, so the two faces are the same cell rather
+              than two boxes over one field.
+            */}
+            <input
+              type="date"
+              aria-label={`Work item deadline for ${row.number}`}
+              data-cell={cellKey(row.id, 'deadline')}
+              data-card-deadline-input
+              className={`${TAP} box-border w-full rounded-md border p-2 text-base`}
+              value={draftDay}
+              onChange={(event) => {
+                setDraftDay(event.target.value);
+              }}
+            />
+          </label>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              data-card-deadline-save
+              className={`${TAP} inline-flex flex-1 items-center justify-center rounded-md border px-3 font-semibold`}
+              onClick={save}
+            >
+              Save
+            </button>
+            {/*
+              Its own control, the floor's reason one field over: a finger cannot
+              empty a native date input, and "no work item deadline" is a state a
+              planner has to be able to get back to. One field, because that is
+              the whole of this clear.
+            */}
+            {day !== null && (
+              <button
+                type="button"
+                data-card-deadline-clear
+                className={`${TAP} inline-flex items-center justify-center rounded-md border px-3`}
+                onClick={() => {
+                  setDeadline(row, null);
                   setOpen(false);
                 }}
               >
@@ -2103,8 +2336,9 @@ export function PlanCards({
   teams,
   setTeams,
   createTeam,
-  hasCalendar,
+  projectStart,
   setNotBefore,
+  setDeadline,
   setPriority,
   tagLabel,
   tags,
@@ -2439,7 +2673,20 @@ export function PlanCards({
                 of one plan should find its facts in one order, and a phone is
                 not the surface that gets to re-argue it.
               */}
-              <CardNotBeforeField row={row} hasCalendar={hasCalendar} setNotBefore={setNotBefore} />
+              <CardNotBeforeField
+                row={row}
+                hasCalendar={projectStart !== null}
+                setNotBefore={setNotBefore}
+              />
+              {/*
+                Between the floor and the span, which is the table's own column
+                order read off the table rather than guessed: `not-before`,
+                `deadline`, `start`, `finish`, `float`. The floor's own comment
+                above settles why that matters — a reader moving between the
+                two faces of one plan should find its facts in one order, and a
+                phone is not the surface that gets to re-argue it (TASK-291).
+              */}
+              <CardDeadlineField row={row} projectStart={projectStart} setDeadline={setDeadline} />
               <span data-card-span data-fact={cardSpanTitle(span)}>
                 {span.start.text} → {span.finish.text}
               </span>

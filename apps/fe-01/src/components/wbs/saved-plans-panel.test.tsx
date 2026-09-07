@@ -59,6 +59,7 @@ const renameReply = (): SavedPlanRenameReply => ({
 });
 const goneReply = (savedPlanId?: string): SavedPlanCompareReply => ({
   kind: 'refusal',
+  representation: 'json',
   status: 404,
   headers: headers(),
   body: savedPlanId === undefined ? { error: 'not_found' } : { error: 'not_found', savedPlanId },
@@ -70,12 +71,14 @@ const INTEGRITY = {
 };
 const corruptReply = (): SavedPlanCompareReply => ({
   kind: 'refusal',
+  representation: 'json',
   status: 422,
   headers: headers(),
   body: { error: 'corrupt', savedPlanId: ROW.id, refusal: INTEGRITY },
 });
 const renameGoneReply = (): SavedPlanRenameReply => ({
   kind: 'refusal',
+  representation: 'json',
   status: 404,
   headers: headers(),
   body: { error: 'not_found' },

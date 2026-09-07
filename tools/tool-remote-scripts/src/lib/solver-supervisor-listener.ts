@@ -1,3 +1,5 @@
+import { lstatSync, unlinkSync } from 'node:fs';
+
 import {
   serveSupervisorConnection,
   type SupervisorConnectionDependencies,
@@ -129,6 +131,22 @@ export function listenForSupervisorConnections(
   options: SupervisorUnixListenerOptions,
   dependencies: SupervisorConnectionDependencies,
 ): Bun.UnixSocketListener<SupervisorSocketState | undefined> {
+  try {
+    const stale = lstatSync(options.unix);
+    if (!stale.isSocket()) {
+      throw new Error('solver supervisor listener: configured path exists and is not a socket');
+    }
+    // A SIGKILL cannot run listener.stop(), so Restart=always inherits the
+    // dead socket inode. The runtime directory is host-owned and systemd
+    // serializes service instances; unlink only this validated socket path.
+    unlinkSync(options.unix);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error instanceof Error
+        ? error
+        : new Error('solver supervisor listener: non-Error socket preparation failure');
+    }
+  }
   return Bun.listen<SupervisorSocketState | undefined>({
     unix: options.unix,
     data: undefined,

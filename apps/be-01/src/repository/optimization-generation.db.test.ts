@@ -204,10 +204,16 @@ describe('one allocation', () => {
     allocateGeneration(db, 'p-1', BLUE, 'h1', 10);
     seedCache(BLUE, 1, 'h1');
     allocateGeneration(db, 'p-1', BLUE, 'h2', 11);
+
+    // 6.9c-b: the successful generation CAS authorizes this eviction. There
+    // is no child or attempt token on this cold-start allocation path.
+    expect(readGeneration(db, 'p-1', BLUE)).toMatchObject({ generation: 2, inputHash: 'h2' });
     seedCache(BLUE, 2, 'h2');
 
     // The row this allocation's own solve will write carries generation 2 and
     // must survive; a delete written as "not the current one" would race it.
+    // Watched red: suppress eviction as if a token were required and the seed
+    // above fails on the old generation's token-free primary-key occupant.
     expect(cacheRows()).toEqual([`${BLUE}/2/h2`]);
   });
 

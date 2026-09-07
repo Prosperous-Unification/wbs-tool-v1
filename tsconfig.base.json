@@ -30,6 +30,7 @@
       "@wbs/contracts": ["libs/contracts/src/index.ts"],
       "@wbs/domain": ["libs/domain/src/index.ts"],
       "@wbs/domain/workday": ["libs/domain/src/workday.ts"],
+      "@wbs/domain/deadline-offsets": ["libs/domain/src/deadline-offsets.ts"],
       "@wbs/domain/assumed-duration": ["libs/domain/src/assumed-duration.ts"],
       "@wbs/domain/effective-team": ["libs/domain/src/effective-team.ts"],
       "@wbs/domain/effective-tag": ["libs/domain/src/effective-tag.ts"],

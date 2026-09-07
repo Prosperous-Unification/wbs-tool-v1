@@ -16,11 +16,46 @@
  * schedules, because a stale row is not a row in an old shape — it is an answer
  * to a question nobody asked any more.
  *
- * **`8` because the deadline publication baseline changed after cache writes
- * became reachable.** The pre-fix guard omitted deadlines from its Fast pass,
- * so it could store a differently ordered baseline with missing lateness under
- * the same input hash the corrected guard reads. The number is also not free at
- * this point: both request fixtures in the golden corpus carry `"8+0.1.1"`, and
+ * **`8` because two independently developed fixes land together over version
+ * `7`.** The deadline publication guard now includes deadlines in its Fast
+ * baseline; the old guard could store a differently ordered baseline with
+ * missing lateness under the same input hash the corrected guard reads. The
+ * drift window also moved, and the bump is the only thing that evicts for that
+ * change: `quantise` now snaps the `DRIFT` window in workday space **before**
+ * multiplying by {@link SOLVER_QUANTUM} rather than only after. These are the
+ * deadline, `snapWorkdays` and {@link SOLVER_QUANTUM} entries of the list above
+ * and need no new rule or second version step while they first ship together.
+ *
+ * **The class that actually moves is narrower than `DRIFT` and saying otherwise
+ * overstates it.** The old post-multiplication snap already cleaned a unit-space
+ * offset below `DRIFT`, which is a *workday*-space offset below
+ * `DRIFT / SOLVER_QUANTUM`. So the durations that report one unit less than they
+ * used to are the ones in `(W + DRIFT/48, W + DRIFT)` — above a whole workday
+ * only, because below one `ceil` already agreed. `1.0000000005` sits inside that
+ * band, which is why it is the example.
+ *
+ * The usual reason a stale row stops being served is that its `inputHash`
+ * changed. **That does not happen here.** `canonical-schedule-input.ts` hashes
+ * `slices[].days` and `slices[].width`; `durationUnits` is derived downstream
+ * and is not one of the hashed canonical entries. An input inside the band
+ * therefore keeps its exact hash across this change, a `plan-infeasible` row
+ * cached under the old rounding stays addressable, and `Retry` refuses to
+ * re-solve a `plan-infeasible` hit. Without this bump that row is a sticky
+ * "Plan infeasible" no user action clears, for a plan that now meets its
+ * deadline. The version is the whole of the eviction rather than a second net
+ * behind the hash.
+ *
+ * **The band is reachable, measured rather than argued.** Whole `days` cannot
+ * land in it — every whole `days` 0…5000 over every legal `width` 1…1000 is
+ * 5,001,000 ratios with zero hits inside the *wider* `(W, W + DRIFT)`, and so
+ * none inside the band either; the nearest non-zero distance to a whole number
+ * is `1e-3`, a million times `DRIFT`. But `roundDays` returns the combined
+ * figure untouched under `ESTIMATE_ROUNDINGS`' `'exact'`, so a project on that
+ * rounding puts an arbitrary double in: `days: 1.0000000005` over `width: 1`
+ * gave `durationUnits` `49` before this change and `48` after.
+ *
+ * The number is also not free at this point: both request fixtures in the
+ * golden corpus are checked in carrying `"8+0.1.1"`, and
  * `wire-contract-version.test.ts` in `libs/contracts` pins the constant to that
  * prefix — so a change here without a change there is a red test rather than a
  * cache that quietly keeps its old rows.

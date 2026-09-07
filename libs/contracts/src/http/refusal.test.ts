@@ -15,13 +15,12 @@ function refusalTypeCases() {
   void ('parentId_must_be_id_or_null' satisfies RefusalCode);
   void ('typeRefs_must_be_at_most_10' satisfies RefusalCode);
   void (405 satisfies RefusalStatus);
+  void (500 satisfies RefusalStatus);
   void (501 satisfies RefusalStatus);
   // @ts-expect-error Unknown codes cannot escape through a string fallback.
   void ('anything_else' satisfies RefusalCode);
   // @ts-expect-error Field templates enumerate their actual callers.
   void ('password_must_be_an_id' satisfies RefusalCode);
-  // @ts-expect-error Thrown server failures are not modeled refusals.
-  void (500 satisfies RefusalStatus);
   void ({ error: 'not_found' } satisfies Refusal);
   void ({ error: 'not_found', savedPlanId: 'saved' } satisfies Refusal);
   void ({ error: 'not_found', at: 0, kind: 'patchWorkItem' } satisfies CommandRefusal);
@@ -137,6 +136,11 @@ function refusalTypeCases() {
   void ({ error: 'invalid_oidc_callback' } satisfies Refusal);
   void ({ error: 'invalid_oidc_session' } satisfies Refusal);
   void ({ error: 'oidc_identity_conflict' } satisfies Refusal);
+  void ({ code: 'stale-input-hash', currentInputHash: 'new' } satisfies Refusal);
+  void ({ code: 'not-retryable', state: 'plan-infeasible' } satisfies Refusal);
+  void ({ code: 'already-running' } satisfies Refusal);
+  // @ts-expect-error Retry states are the coordinator's finite public states.
+  void ({ code: 'not-retryable', state: 'future' } satisfies Refusal);
 }
 void refusalTypeCases;
 

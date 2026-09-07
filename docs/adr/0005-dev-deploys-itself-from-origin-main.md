@@ -46,11 +46,9 @@ exists to be looked at rather than to be relied on.
 
 The poller lives outside the checkout because it resets the checkout — a script inside a
 tree it hard-resets is a script editing itself mid-run, and bash reads a file by offset as
-it goes. `sync.ts`, in contrast, does live in the tree, and this has one consequence worth
-knowing before it is met as a bug: bun loads the tool before the reset, so **a change to
-`sync.ts` takes effect on the deploy after the one that introduces it.** Change
-`RESTART_PATHS` and the very next deploy still uses the old list.
-
-A stale copy of `sync.ts` sits at `/home/puni1/wbs-dev/bin/sync.ts` from the manual era.
-It is byte-identical today and nothing runs it; the poller deliberately uses the
-checkout's copy so there is one source of truth to drift from.
+it goes. Before 2026-09-07 it nevertheless ran the checkout's pre-reset `sync.ts`; a
+preflight defect could therefore prevent the repaired tool from ever landing. The durable
+poller now extracts `sync.ts` from the fetched target commit into
+`/home/puni1/wbs-dev/bin/sync.ts` and executes that external candidate. A broken candidate
+can refuse its own deploy, while its repaired successor is available on the next tick.
+Solver, restart, recreate and post-reset checks still run inside the extracted tool.

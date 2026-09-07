@@ -72,7 +72,7 @@ export function assertDevSolverSourceCompatible(changedPaths: readonly string[])
 export interface SolverPreflightDependencies {
   currentSha(): Promise<string>;
   changedPaths(from: string, to: string): Promise<readonly string[]>;
-  readConfig(): Promise<Uint8Array>;
+  readConfig(): Promise<Uint8Array | undefined>;
   requireHost(image: string): Promise<void>;
 }
 
@@ -87,12 +87,11 @@ async function changedSolverPaths(from: string, to: string): Promise<readonly st
 const SOLVER_PREFLIGHT_DEPENDENCIES: SolverPreflightDependencies = {
   currentSha: async () => (await $`git -C ${SRC} rev-parse HEAD`.text()).trim(),
   changedPaths: changedSolverPaths,
-  readConfig: async () =>
-    new Uint8Array(
-      await Bun.file(SOLVER_SUPERVISOR_CONFIG)
-        .slice(0, CONFIG_MAX_BYTES + 1)
-        .arrayBuffer(),
-    ),
+  readConfig: async () => {
+    const file = Bun.file(SOLVER_SUPERVISOR_CONFIG);
+    if (!(await file.exists())) return undefined;
+    return new Uint8Array(await file.slice(0, CONFIG_MAX_BYTES + 1).arrayBuffer());
+  },
   requireHost: async (image) => {
     await $`systemctl --user is-active --quiet ${SOLVER_SUPERVISOR_SERVICE}`;
     await $`test -S ${SOLVER_SUPERVISOR_SOCKET}`;
@@ -107,9 +106,13 @@ export async function preflightSolver(
 ): Promise<void> {
   const deployedSha = await dependencies.currentSha();
   const targetChanges = await dependencies.changedPaths(deployedSha, sha);
-  if (targetChanges.length === 0) return;
-
   const bytes = await dependencies.readConfig();
+  if (bytes === undefined) {
+    if (targetChanges.length === 0) return;
+    throw new Error(
+      `solver compatibility inputs changed (${targetChanges.join(', ')}), but ${SOLVER_SUPERVISOR_CONFIG} is missing; run materialize-solver-supervisor-config and install-solver-supervisor before deploying`,
+    );
+  }
   if (bytes.byteLength === 0 || bytes.byteLength > CONFIG_MAX_BYTES) {
     throw new Error(
       `solver supervisor config must contain 1 through ${String(CONFIG_MAX_BYTES)} bytes`,
@@ -118,8 +121,9 @@ export async function preflightSolver(
   const mapping = devSolverMappingOf(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
   const changed = await dependencies.changedPaths(mapping.sourceSha, sha);
   assertDevSolverSourceCompatible(changed);
-  // Proof: sync.test.ts supplies a stale mapping for a changed solver path and
+  // Proof: sync.test.ts stages a future mapping before an unrelated target and
   // observes refusal before its injected host preflight can run.
+  if (targetChanges.length === 0) return;
   await dependencies.requireHost(mapping.image);
 }
 

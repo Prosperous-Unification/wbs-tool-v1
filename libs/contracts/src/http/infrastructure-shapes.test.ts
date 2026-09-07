@@ -8,6 +8,7 @@ import { httpShapes } from './shapes';
 
 async function declaresInvalidBody(shape: EndpointShape): Promise<boolean> {
   for (const refusal of shape.refusals) {
+    if (!('schema' in refusal)) continue;
     if (
       refusal.status === 400 &&
       (await validateSchema(refusal.schema, { error: 'invalid_body' })).issues === undefined

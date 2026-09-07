@@ -561,6 +561,62 @@ describe('a plan-infeasible row, decoded by its own codec', () => {
       db.cleanup();
     }
   });
+
+  /**
+   * tasks.md 8.7c: the stored row `status` and the DTO union are **different
+   * layers**, and `status` is the only thing that tells these two rows apart.
+   *
+   * Both rows below carry the **same bytes** in `result_json` — a well-formed
+   * certificate — and both satisfy the table's payload `CHECK`, which asks only
+   * that an `ok` row and a `plan-infeasible` row each have a non-NULL payload
+   * and no `failureReason`. So the database cannot distinguish them, and
+   * neither can the JSON. Only the discriminator can, and it does: `pri` is an
+   * `ok` row whose payload is not a schedule, which is precisely the definition
+   * of `corrupt`, while `time` is the same payload under the status that claims
+   * it and reads as a certificate.
+   *
+   * **Why this is the case worth writing.** If `plan-infeasible` had been
+   * modelled as "an `ok` row carrying an infeasible payload" rather than as its
+   * own status, these two rows would be one row, and the read would have to
+   * guess from the payload's shape whether a decode failure meant "the plan
+   * cannot be met" or "this row is damaged" — the one point the two must be
+   * told apart. Read side by side in a single pair so the discrimination is
+   * asserted on one read of one database rather than on two.
+   */
+  it('tells an ok row carrying a certificate from a plan-infeasible row carrying the same bytes', () => {
+    const db = tempDb();
+    try {
+      const generation = prepared(db.path);
+      const payload = JSON.stringify({
+        dtoVersion: 1,
+        items: [{ ownerWorkItemId: 'parent', boundWorkItemId: 'leaf', effectiveDeadlineOffset: 7 }],
+      });
+      for (const [objective, status] of [
+        ['pri', 'ok'],
+        ['time', 'plan-infeasible'],
+      ]) {
+        storeRow(db.path, {
+          objective,
+          generation,
+          status,
+          resultJson: payload,
+          failureReason: null,
+        });
+      }
+
+      const pair = read(db.path);
+
+      expect(pair.pri.kind).toBe('corrupt');
+      expect(pair.time.kind).toBe('plan-infeasible');
+      if (pair.time.kind !== 'plan-infeasible') throw new Error('unreachable');
+      expect(pair.time.certificate.items).toEqual([
+        { ownerWorkItemId: 'parent', boundWorkItemId: 'leaf', effectiveDeadlineOffset: 7 },
+      ]);
+      expect(storedRowCount(db.path)).toBe(2);
+    } finally {
+      db.cleanup();
+    }
+  });
 });
 
 describe('the 3.8 boundary still throws on the read path', () => {
@@ -980,7 +1036,7 @@ describe("4.1's conditional write, with all four conditions composed", () => {
   } as const;
 
   /** The seat the writer holds, exactly as the coordinator reserves it. */
-  function reserve(path: string, over: { attemptToken?: string } = {}): void {
+  function reserve(path: string, over: { attemptToken?: string; startedAt?: number } = {}): void {
     const db = openDatabase(path);
     try {
       db.run(
@@ -990,7 +1046,7 @@ describe("4.1's conditional write, with all four conditions composed", () => {
             cancel_requested_at, admitted_deadline_at)
          VALUES ('p-1', '${CONTRACT}', 1, 'pri', ${String(BUDGET)},
                  '${CLAIM.ownerId}', '${over.attemptToken ?? CLAIM.attemptToken}',
-                 'running', 4242, 1, 1, NULL, 99)`,
+                 'running', 4242, ${String(over.startedAt ?? 1)}, 1, NULL, 99)`,
       );
     } finally {
       db.close();
@@ -1032,7 +1088,12 @@ describe("4.1's conditional write, with all four conditions composed", () => {
   function commit(
     path: string,
     outcome: OutcomeToStore,
-    over: { attemptToken?: string; generation?: number; admittedCancelEpoch?: number } = {},
+    over: {
+      attemptToken?: string;
+      generation?: number;
+      admittedCancelEpoch?: number;
+      now?: number;
+    } = {},
   ): OutcomeWriteResult {
     return storeOptimizedOutcome(openDrizzle(path), {
       claim: {
@@ -1043,7 +1104,7 @@ describe("4.1's conditional write, with all four conditions composed", () => {
       inputHash: HASH,
       admittedCancelEpoch: over.admittedCancelEpoch ?? 0,
       outcome,
-      now: 1_700,
+      now: over.now ?? 1_700,
     });
   }
 
@@ -1109,6 +1170,8 @@ describe("4.1's conditional write, with all four conditions composed", () => {
   /**
    * The condition the token exists for: the seat was reclaimed and re-reserved
    * by a second attempt, so this writer's own token is no longer in it.
+   * Watched red (6.9c-a): drop the attempt-token comparison from
+   * `writerStillHolds` and this late writer stores instead of matching zero.
    */
   it('refuses a writer whose seat carries a newer attempt, and stores nothing', () => {
     const db = tempDb();
@@ -1294,6 +1357,67 @@ describe("4.1's conditional write, with all four conditions composed", () => {
       db.cleanup();
     }
   });
+
+  it.each(['failed', 'corrupt'] as const)(
+    'overwrites one older %s marker from a newer admitted Retry, exactly once',
+    (marker) => {
+      const db = tempDb();
+      try {
+        admitted(db.path);
+        if (marker === 'failed') {
+          expect(commit(db.path, { kind: 'failed', reason: 'timeout' }, { now: 7 })).toBe('stored');
+        } else {
+          storeRow(db.path, {
+            objective: 'pri',
+            generation: 1,
+            status: 'ok',
+            resultJson: '{"dtoVersion":',
+            failureReason: null,
+          });
+        }
+        const beforeRetry = read(db.path).pri;
+        expect(beforeRetry.kind).toBe(marker);
+
+        const raw = openDatabase(db.path);
+        try {
+          raw.run(`DELETE FROM solver_slot WHERE project_id = 'p-1'`);
+        } finally {
+          raw.close();
+        }
+        reserve(db.path, { attemptToken: 'tok-retry', startedAt: 8 });
+        const replacement = solverResult(realPlan());
+
+        expect(
+          commit(
+            db.path,
+            { kind: 'ok', result: replacement },
+            { attemptToken: 'tok-retry', now: 9 },
+          ),
+        ).toBe('stored');
+        expect(
+          commit(
+            db.path,
+            { kind: 'failed', reason: 'internal-error' },
+            {
+              attemptToken: 'tok-retry',
+              now: 10,
+            },
+          ),
+        ).toBe('already-recorded');
+
+        const afterRetry = read(db.path).pri;
+        expect(afterRetry.kind).toBe('ok');
+        if (afterRetry.kind !== 'ok') throw new Error('the Retry replacement was not stored');
+        expect(afterRetry.result).toEqual(replacement);
+        expect(afterRetry.createdAt).toBe(9);
+        expect(storedRowCount(db.path)).toBe(1);
+        // Proof: restoring insert-only `onConflictDoNothing` leaves the first expectation red on
+        // `Expected: "stored" / Received: "already-recorded"`; watched on h2puni in TASK-268.
+      } finally {
+        db.cleanup();
+      }
+    },
+  );
 
   /**
    * tasks.md 4.11b on the **production write path**: the guard's two arms, the
@@ -2216,6 +2340,35 @@ describe("4.2's injected spawner, asserted on the calls and not on the clock", (
       expect(automatic.calls).toEqual([]);
       expect(retry.calls.map((call) => call.objective)).toEqual(['pri']);
       expect(storedRowCount(db.path)).toBe(2);
+    } finally {
+      db.cleanup();
+    }
+  });
+
+  it('does not retry either an absent variant or a plan-infeasible certificate', () => {
+    const db = tempDb();
+    try {
+      const generation = prepared(db.path);
+      storeRow(db.path, {
+        objective: 'pri',
+        generation,
+        status: 'plan-infeasible',
+        resultJson: JSON.stringify({
+          dtoVersion: 1,
+          items: [
+            { ownerWorkItemId: 'parent', boundWorkItemId: 'leaf', effectiveDeadlineOffset: 10 },
+          ],
+        }),
+        failureReason: null,
+      });
+
+      const retry = recorder();
+      const pair = retryOptimizedPair(openDrizzle(db.path), KEY, retry.spawn);
+
+      expect(pair.pri.kind).toBe('plan-infeasible');
+      expect(pair.time.kind).toBe('miss');
+      expect(retry.calls).toEqual([]);
+      // Watched red for 7.11: `kind !== 'ok'` admits both forbidden states.
     } finally {
       db.cleanup();
     }

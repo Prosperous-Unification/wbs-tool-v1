@@ -377,6 +377,9 @@ describe('finishing a contract retirement', () => {
     seedCache(GREEN);
     beginOptimizationDrain(db, 'p-1', stampAt(20), BLUE);
 
+    // 6.9c-d: the phase-1 draining marker authorizes phase-2 eviction. There
+    // is no worker attempt token once the release has no counted slots.
+    expect(generationRows()).toContain(`p-1/${BLUE}/draining/1`);
     expect(finishOptimizationDrain(db, 'p-1', BLUE)).toBe('finished');
 
     expect(generationRows()).toEqual([`p-1/${GREEN}/open/0`]);
@@ -386,6 +389,8 @@ describe('finishing a contract retirement', () => {
     // bound is stated per LIVE contract version, so left alone they accumulate
     // one release at a time for ever.
     expect(cacheRows()).toEqual([`p-1/${GREEN}`]);
+    // Watched red: suppress either token-free phase-2 delete and this retired
+    // release's generation or cache row remains observable above.
   });
 
   it('waits while a slot of that release is still counted, and deletes nothing', () => {

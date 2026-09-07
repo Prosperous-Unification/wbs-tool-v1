@@ -111,6 +111,10 @@ export default defineConfig(({ command, mode }) => ({
       //   gate vacuous, which is the property that matters (AGENTS.md R5, and
       //   the one vacuous check ever found in the gate itself).
       '@wbs/domain/workday': resolve(__dirname, '../../libs/domain/src/workday.ts'),
+      '@wbs/domain/deadline-offsets': resolve(
+        __dirname,
+        '../../libs/domain/src/deadline-offsets.ts',
+      ),
       // The same bargain again, and this one is a single number: the workdays
       // the schedule gives a slice nobody estimated. be-01 places the slice
       // across it and the chart draws the bar across it, so a second copy here

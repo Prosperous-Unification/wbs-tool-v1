@@ -127,7 +127,7 @@ import {
  * Frozen into a module constant rather than built per read so the empty case
  * cannot be handed a map somebody later writes into.
  */
-const NO_DEADLINES: ReadonlyMap<string, number> = new Map<string, number>();
+export const NO_DEADLINES: ReadonlyMap<string, number> = new Map<string, number>();
 
 const UNSCHEDULED: Scheduled = {
   duration: 0,

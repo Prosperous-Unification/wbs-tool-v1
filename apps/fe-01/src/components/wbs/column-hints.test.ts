@@ -83,4 +83,39 @@ describe('the hints say what changing the column does to the plan', () => {
   it('says the earliest start is a floor rather than the day it happens', () => {
     expect(hintFor('not-before', ON_CALENDAR)).toContain('never earlier');
   });
+
+  /**
+   * The one hint that said a column does nothing while the scheduler was
+   * already reading it. `schedule.ts`'s Fast comparator asks `slack` — the
+   * deadline minus the deadline-free placement — and then `deadline` itself,
+   * ahead of `priority`, so a deadline reorders who gets a person first; and
+   * `libs/solver-py/src/wbs_solver/model.py` turns the same date into
+   * `start + max(duration, 1) <= deadline`, a CP-SAT constraint an optimized
+   * plan is refused for breaking. Both are shipped: the optimizer's three
+   * choices are the radios in `optimization-settings.tsx`, and the date reaches
+   * the solver through `buildSolverSlices`' `deadlineUnits`.
+   *
+   * Asserted as a **pair** — the ordering effect and the hard-constraint
+   * effect — because a hint that names only Fast's would be as wrong for a
+   * project on PRI as the old sentence was for every project.
+   */
+  it('says a deadline moves the plan, both ways the two shipped engines move it', () => {
+    const hint = hintFor('deadline', ON_CALENDAR);
+    expect(hint).toContain('scheduled first');
+    expect(hint).toContain('optimized plan');
+    expect(hint).toContain('reported late');
+  });
+
+  /**
+   * The negative control for the case above, and the defect verbatim: the
+   * shipped sentence read *"It constrains nothing on its own — the plan is
+   * built the same way"*, and the emphasised half was false in both engines on
+   * the day it was written. Kept as its own case so a rewrite that reintroduces
+   * the claim fails on a line that quotes it rather than on a missing phrase.
+   */
+  it('never tells a reader the plan is built the same way with a deadline on it', () => {
+    const hint = hintFor('deadline', ON_CALENDAR);
+    expect(hint).not.toContain('constrains nothing');
+    expect(hint).not.toContain('built the same way');
+  });
 });

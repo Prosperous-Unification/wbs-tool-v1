@@ -6,7 +6,9 @@ import { readDocument, toolsFromDocument } from './openapi-tools';
 test('default MCP document is generated directly from the shared declarations', () => {
   expect(readDocument()).toEqual(documentFromShapes(httpShapes));
   const tools = toolsFromDocument(readDocument());
-  expect(tools).toHaveLength(32);
+  // Proof: retaining the pre-Retry inventory failed here on `Expected length:
+  // 32`, `Received length: 33` before the explicit operation inventory ran.
+  expect(tools).toHaveLength(33);
   expect(tools.map((tool) => tool.name)).toContain('postApiProjectsByIdCommands');
   expect(tools.map((tool) => tool.name)).toContain('getApiProjectsByIdSaved-plansCompare');
 });
@@ -19,6 +21,8 @@ test('required exclusion drift remains a failure when operational routes are abs
 });
 
 test('pins every generated MCP operation name independently of the registry', () => {
+  // Proof: omitting Retry failed with `postApiProjectsByIdOptimizationRetry`
+  // as the one received-only operation.
   expect(
     toolsFromDocument(readDocument())
       .map((tool) => tool.name)
@@ -52,6 +56,7 @@ test('pins every generated MCP operation name independently of the registry', ()
     'postApiProjectsByIdCalendar-markers',
     'postApiProjectsByIdCommands',
     'postApiProjectsByIdOpened',
+    'postApiProjectsByIdOptimizationRetry',
     'postApiProjectsByIdRedo',
     'postApiProjectsByIdSaved-plans',
     'postApiProjectsByIdSteps',

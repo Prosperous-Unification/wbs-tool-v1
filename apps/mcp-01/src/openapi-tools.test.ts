@@ -216,9 +216,13 @@ describe('toolsFromDocument, on the generated document', () => {
     expect(tools.map((tool) => tool.name).sort()).toEqual([...expected].sort());
   });
 
-  /** A new tool requires an explicit surface decision, independently of registry iteration. */
-  it('is 32 tools, so a route that appears must be decided about', () => {
-    expect(tools).toHaveLength(32);
+  /**
+   * A new tool requires an explicit surface decision, independently of registry iteration.
+   * Optimizer Retry belongs because it is a project-scoped lifecycle action with no
+   * `commands` equivalent.
+   */
+  it('is 33 tools, so a route that appears must be decided about', () => {
+    expect(tools).toHaveLength(33);
     expect(EXCLUDED_PATHS).toHaveLength(3);
   });
 

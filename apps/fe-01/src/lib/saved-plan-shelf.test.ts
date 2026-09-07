@@ -91,6 +91,7 @@ describe('reading a project’s shelf', () => {
           list: () =>
             Promise.resolve({
               kind: 'refusal',
+              representation: 'json',
               status: 404,
               headers: new Headers(),
               body: { error: 'not_found' },

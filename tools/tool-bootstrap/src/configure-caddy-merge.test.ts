@@ -1,9 +1,17 @@
-import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describe, expect, it } from 'bun:test';
+import { afterAll, describe, expect, it } from 'bun:test';
 
 // TASK-160, finding 4. `configure-caddy.test.ts` asserts on configure.sh's
 // SOURCE TEXT, so it catches a wholesale revert to `cat > "$caddyfile"` and
@@ -16,6 +24,10 @@ import { describe, expect, it } from 'bun:test';
 // that passes against a copy of the code proves nothing about the code.
 const configureShPath = join(import.meta.dir, 'configure.sh');
 const configureSh = readFileSync(configureShPath, 'utf8');
+const SHIPPED_FIXTURE_DIRECTORY = mkdtempSync(join(tmpdir(), 'task160-suite-'));
+afterAll(() => {
+  rmSync(SHIPPED_FIXTURE_DIRECTORY, { force: true, recursive: true });
+});
 
 /**
  * The eight-process host sweep took 25–33 seconds on macOS. Bun's default
@@ -26,8 +38,9 @@ const HOST_SWEEP_TIMEOUT_MS = 120_000;
 
 /**
  * Each environment sweep runs 128 complete shell fixtures. The full gate
- * measured 339–452 seconds on macOS against the former 60-second timeout;
- * every scenario and injected-fault assertion remains in the sweep.
+ * measured 1,017,614ms under workspace load when those fixtures ran serially.
+ * The bounded runner below preserves every scenario and injected-fault
+ * assertion while keeping process pressure finite.
  */
 const ENVIRONMENT_SWEEP_TIMEOUT_MS = 900_000;
 
@@ -277,20 +290,28 @@ const readOrNull = (path: string): string | null => {
 // constant, so a wrapper reading one was true in all eight cells. `null`
 // means UNSET rather than empty -- REGISTRY_INSECURE's documented pair is
 // "unset" vs "1", and `REGISTRY_INSECURE=''` is a third thing that is neither.
-const runShippedScript = (
-  opts: {
-    stubs?: Record<string, string>;
-    mutate?: (text: string) => string;
-    seedCaddyfile?: string;
-    env?: Record<string, string | null>;
-  } = {},
-): {
+interface ShippedScriptOptions {
+  readonly stubs?: Record<string, string>;
+  readonly mutate?: (text: string) => string;
+  readonly seedCaddyfile?: string;
+  readonly env?: Record<string, string | null>;
+}
+
+interface ShippedScriptOutcome {
   status: number | null;
   stderr: string;
   caddyfile: string | null;
   siteCaddy: string | null;
-} => {
-  const root = mkdtempSync(join(tmpdir(), 'task160-reach-'));
+}
+
+interface ShippedScriptFixture {
+  readonly root: string;
+  readonly script: string;
+  readonly env: Record<string, string>;
+}
+
+const prepareShippedScript = (opts: ShippedScriptOptions): ShippedScriptFixture => {
+  const root = mkdtempSync(join(SHIPPED_FIXTURE_DIRECTORY, 'reach-'));
   if (opts.seedCaddyfile !== undefined) {
     // A host that has already been configured once. The script creates this
     // directory itself, well before the block under test; seeding it here just
@@ -335,15 +356,80 @@ const runShippedScript = (
   // On every run, against the finished object, not against any literal that
   // fed it.
   assertEveryNameAccountedFor(env);
-  const res = spawnSync('/bin/sh', [script], { encoding: 'utf8', env });
-  if (res.error) throw res.error;
-  return {
-    status: res.status,
-    stderr: res.stderr,
-    caddyfile: readOrNull(join(root, 'caddy', 'Caddyfile')),
-    siteCaddy: readOrNull(join(root, 'caddy', 'site.caddy')),
-  };
+  return { root, script, env };
 };
+
+const inspectShippedScript = (
+  root: string,
+  status: number | null,
+  stderr: string,
+): ShippedScriptOutcome => ({
+  status,
+  stderr,
+  caddyfile: readOrNull(join(root, 'caddy', 'Caddyfile')),
+  siteCaddy: readOrNull(join(root, 'caddy', 'site.caddy')),
+});
+
+const runShippedScript = (opts: ShippedScriptOptions = {}): ShippedScriptOutcome => {
+  const fixture = prepareShippedScript(opts);
+  try {
+    const spawned = spawnSync('/bin/sh', [fixture.script], {
+      encoding: 'utf8',
+      env: fixture.env,
+    });
+    if (spawned.error) throw spawned.error;
+    return inspectShippedScript(fixture.root, spawned.status, spawned.stderr);
+  } finally {
+    rmSync(fixture.root, { force: true, recursive: true });
+  }
+};
+
+const runShippedScriptAsync = async (
+  opts: ShippedScriptOptions = {},
+): Promise<ShippedScriptOutcome> => {
+  const fixture = prepareShippedScript(opts);
+  try {
+    const spawned = spawn('/bin/sh', [fixture.script], {
+      env: fixture.env,
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    let stderr = '';
+    spawned.stderr.setEncoding('utf8');
+    spawned.stderr.on('data', (chunk: string) => {
+      stderr += chunk;
+    });
+    const status = await new Promise<number | null>((resolve, reject) => {
+      spawned.once('error', reject);
+      spawned.once('close', resolve);
+    });
+    return inspectShippedScript(fixture.root, status, stderr);
+  } finally {
+    rmSync(fixture.root, { force: true, recursive: true });
+  }
+};
+
+const mapConcurrently = async <Input, Output>(
+  values: readonly Input[],
+  concurrency: number,
+  transform: (value: Input) => Promise<Output>,
+): Promise<readonly Output[]> => {
+  const outputs: Output[] = Array.from({ length: values.length });
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(concurrency, values.length) },
+    async (): Promise<void> => {
+      while (nextIndex < values.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        outputs[index] = await transform(values[index]);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return outputs;
+};
+
+const ENVIRONMENT_SWEEP_CONCURRENCY = 8;
 
 interface Run {
   status: number | null;
@@ -398,6 +484,17 @@ const OWNED = ['import log-redact.caddy', 'import site.caddy'];
 const RUNNING_AS_ROOT = process.getuid?.() === 0;
 
 describe('configure.sh Caddyfile merge, executed', () => {
+  it('removes each whole-script fixture after reading its outcome', () => {
+    const fixtureNames = (): string[] => readdirSync(SHIPPED_FIXTURE_DIRECTORY).sort();
+    const before = fixtureNames();
+
+    runShippedScript();
+
+    // Proof: before the cleanup was added, this failed with one new
+    // `task160-reach-8Z41g2` fixture present only in the received list.
+    expect(fixtureNames()).toEqual(before);
+  });
+
   it('slices the shipped block rather than a copy of it', () => {
     // If this ever passes while the block above is empty or truncated, every
     // other case in this file is asserting on nothing.
@@ -882,10 +979,17 @@ describe('configure.sh Caddyfile merge, executed', () => {
 
   it(
     'runs the merge block at every point of the environment product',
-    () => {
+    async () => {
       const failures: string[] = [];
-      for (const cell of ENV_CELLS) {
-        const run = runShippedScript({ ...cell.host, env: cell.env });
+      const runs = await mapConcurrently(
+        ENV_CELLS,
+        ENVIRONMENT_SWEEP_CONCURRENCY,
+        async (cell) => ({
+          cell,
+          run: await runShippedScriptAsync({ ...cell.host, env: cell.env }),
+        }),
+      );
+      for (const { cell, run } of runs) {
         const expected = cell.host.seedCaddyfile === undefined ? OWNED : [...OWNED, PRESERVED];
         const actual = {
           status: run.status,
@@ -927,16 +1031,23 @@ describe('configure.sh Caddyfile merge, executed', () => {
   for (const [label, wrap] of ENV_CONDITIONALS) {
     it(
       `is caught somewhere in the environment product when disconnected by ${label}`,
-      () => {
+      async () => {
         const broken: string[] = [];
         const killed: string[] = [];
         const hidden: string[] = [];
-        for (const cell of ENV_CELLS) {
-          const run = runShippedScript({
-            ...cell.host,
-            env: cell.env,
-            mutate: (text) => text.replace(mergeBlock, () => wrap(mergeBlock)),
-          });
+        const runs = await mapConcurrently(
+          ENV_CELLS,
+          ENVIRONMENT_SWEEP_CONCURRENCY,
+          async (cell) => ({
+            cell,
+            run: await runShippedScriptAsync({
+              ...cell.host,
+              env: cell.env,
+              mutate: (text) => text.replace(mergeBlock, () => wrap(mergeBlock)),
+            }),
+          }),
+        );
+        for (const { cell, run } of runs) {
           if (run.status !== STOP_STATUS || run.stderr !== '' || run.siteCaddy === null) {
             broken.push(`${cell.key}: status ${String(run.status)} stderr ${run.stderr}`);
           } else if (wroteOwned(run)) hidden.push(cell.key);

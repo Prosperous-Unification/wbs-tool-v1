@@ -210,10 +210,37 @@ jobs:
       # it only worked locally because volta has the real CLI on PATH. Pinning
       # the version stops a CLI release from changing what this gate means.
       #
-      # Proof: with a change's scenarios written `###` instead of `####`,
-      # this exits 1 with failed: 1. Restored, it exits 0 with passed: 2.
+      # `--json` used to only *emit* JSON. Nothing read it, so what actually
+      # gated was the process exit status — an inference from the command's own
+      # behaviour, which is the one thing a "parsed from JSON" gate exists to
+      # rule out. The verdict now comes from a named field.
+      #
+      # `passed > 0` is not decoration. `failed == 0` alone is also true of a
+      # run that validated nothing, which is what an empty checkout or an
+      # `--all` that stopped matching looks like from here.
+      #
+      # `pipefail` is load-bearing, not boilerplate: without it a validator that
+      # crashes after writing a well-formed green JSON goes green, because `tee`
+      # succeeds and `jq` reads the good bytes.
+      #
+      # Proof of the validator half: with a change's scenarios written `###`
+      # instead of `####`, it exits 1 with failed: 1. Restored, it exits 0 with
+      # passed: 2.
+      # Proof of the assertion half, against the real JSON this step emitted on
+      # CI 34083621444 (`summary.totals` = items 39 / passed 39 / failed 0):
+      # unmodified it exits 0; with `failed` forced to 1 it exits 1; with
+      # `passed` forced to 0 it exits 1; with the validator stubbed to exit 1
+      # the step reds through the pipe, and with `pipefail` removed that same
+      # case goes green. The field path is `.summary.totals.*` and not a
+      # top-level `.failed`/`.passed` — the latter is `null` on the real
+      # document and would make the assertion fail on a green run.
       - name: OpenSpec
-        run: bunx @fission-ai/openspec@1.3.0 validate --all --json
+        run: |
+          set -euo pipefail
+          bunx @fission-ai/openspec@1.3.0 validate --all --json \
+            | tee "$RUNNER_TEMP/openspec-validate.json"
+          jq -e '.summary.totals.failed == 0 and .summary.totals.passed > 0' \
+            "$RUNNER_TEMP/openspec-validate.json" > /dev/null
 
   # The eyes. Everything the `gate` job runs sees this table through jsdom,
   # which lays nothing out: the overlap that prompted this job passed 450 unit

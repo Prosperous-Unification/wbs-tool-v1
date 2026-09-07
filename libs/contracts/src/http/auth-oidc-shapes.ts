@@ -43,11 +43,15 @@ export const completeOidcLogin = defineEndpointShape({
     malformed,
     {
       status: 400,
-      schema: responseSchema(type({ error: "'invalid_oidc_callback' | 'duplicate_parameter'" })),
+      schema: responseSchema(type({ error: "'duplicate_parameter'" })),
     },
-    sessionRefusal,
+    // Exchange classification deliberately carries no provider detail to the browser.
+    { kind: 'empty', status: 400 },
+    { kind: 'empty', status: 401 },
+    { kind: 'empty', status: 409 },
+    { kind: 'empty', status: 500 },
+    { kind: 'empty', status: 503 },
     { status: 405, schema: responseSchema(type({ error: "'method_not_allowed'" })) },
-    { status: 409, schema: responseSchema(type({ error: "'oidc_identity_conflict'" })) },
   ],
   document: { summary: 'Complete one browser OIDC login.' },
 });

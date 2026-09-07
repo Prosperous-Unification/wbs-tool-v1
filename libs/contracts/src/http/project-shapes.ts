@@ -179,3 +179,42 @@ export const patchProject = defineEndpointShape({
   ],
   document: { summary: 'Update the addressed project’s settings.' },
 });
+
+const retryRefusal = responseSchema(
+  type({ code: "'stale-input-hash'", currentInputHash: 'string' })
+    .or({
+      code: "'not-retryable'",
+      state: "'ready' | 'pending' | 'retrying' | 'failed' | 'corrupt' | 'plan-infeasible' | 'idle'",
+    })
+    .or({ code: "'already-running'" }),
+);
+
+/** Retries one retained failed or corrupt optimizer variant against the current plan input. */
+export const retryProjectOptimization = defineEndpointShape({
+  method: 'POST',
+  path: '/api/projects/:id/optimization/retry',
+  operationId: 'postApiProjectsByIdOptimizationRetry',
+  policies: writePolicies,
+  params,
+  // Proof: widening objective to string made the production-path Retry test receive 409 instead of 422.
+  body: requestSchema(type({ objective: "'pri' | 'time'", inputHash: 'string' }), {
+    undeclaredKeys: 'delete',
+  }),
+  bodyMedia,
+  responses: [
+    {
+      kind: 'json',
+      status: 202,
+      schema: responseSchema(
+        type({ state: "'retrying'", generation: 'number', inputHash: 'string' }),
+      ),
+    },
+  ],
+  refusals: [
+    ...bodyRefusals,
+    notFound,
+    { status: 403, schema: responseSchema(type({ error: "'forbidden'" })) },
+    { status: 409, schema: retryRefusal },
+  ],
+  document: { summary: 'Retry one failed or corrupt optimized schedule.' },
+});

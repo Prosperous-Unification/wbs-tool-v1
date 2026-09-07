@@ -27,6 +27,7 @@ import type { CapacityService } from './service/capacity.service';
 import type { DirectoryService } from './service/directory.service';
 import type { HistoryService } from './service/history.service';
 import { LoginThrottle } from './service/login-throttle';
+import type { OptimizationCoordinator } from './service/optimization-coordinator';
 import type { OuterTransaction } from './service/outer-transaction';
 import { PlanCommandRunner } from './service/plan-commands';
 import type { PriorityBandService } from './service/priority-band.service';
@@ -58,6 +59,8 @@ export interface AppOptions {
   projects: ProjectService;
   /** Required for the same reason as `projects`. */
   workItems: WorkItemService;
+  /** The manual Retry admission seam; absent only in optimizer-less deployments and tests. */
+  optimizer?: Pick<OptimizationCoordinator, 'retry'>;
   /**
    * Required for the same reason as `projects`. A process built without it
    * would answer 404 on every saved-plan route, which a client reads as "this
@@ -212,7 +215,7 @@ export function mountedEndpoints(
     ...directoryRoutes(opts.directory),
     ...historyRoutes(opts.history),
     ...solutionRoutes(opts.projects),
-    ...projectRoutes(opts.projects, opts.workItems),
+    ...projectRoutes(opts.projects, opts.workItems, opts.optimizer),
     ...workItemRoutes(opts.workItems, commands),
     ...calendarMarkerRoutes(opts.calendarMarkers),
     ...savedPlanRoutes(opts.savedPlans, opts.projects, opts.writes.announcements),

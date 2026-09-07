@@ -1,5 +1,6 @@
 import type { StandardSchemaV1 } from '@ark/schema';
 import type {
+  EmptyRefusalResponse,
   EmptyResponse,
   EndpointShape,
   JsonResponse,
@@ -102,14 +103,16 @@ type SuccessReply<R> = R extends JsonResponse
  * Proof (type boundary): disabling distribution over R admits the pinned
  * 400/invalid_credentials handler and makes its actual-bind fixture report TS2578.
  */
-type RefusalReply<R> = R extends RefusalResponse
-  ? {
-      ok: false;
-      status: R['status'];
-      body: R['schema'] extends SchemaShape<infer T> ? T : never;
-      headers?: readonly Header[];
-    }
-  : never;
+type RefusalReply<R> = R extends EmptyRefusalResponse
+  ? { ok: false; status: R['status']; body: typeof EMPTY; headers?: readonly Header[] }
+  : R extends RefusalResponse
+    ? {
+        ok: false;
+        status: R['status'];
+        body: R['schema'] extends SchemaShape<infer T> ? T : never;
+        headers?: readonly Header[];
+      }
+    : never;
 
 /**
  * Derives each status and body together from its declared response variant.
@@ -156,10 +159,11 @@ export interface Endpoint<S extends EndpointShape> extends BindingOptions<S> {
 
 /** The wire representation after a heterogeneous endpoint table erases its types. */
 export type EndpointReply =
-  | { ok: true; status: 200 | 201; body: unknown; headers?: readonly Header[] }
+  | { ok: true; status: 200 | 201 | 202; body: unknown; headers?: readonly Header[] }
   | { ok: true; status: 204 | 302; body: typeof EMPTY; headers?: readonly Header[] }
   | { ok: true; status: 200 | 500; text: string; headers?: readonly Header[] }
-  | { ok: false; status: RefusalStatus; body: Refusal; headers?: readonly Header[] };
+  | { ok: false; status: RefusalStatus; body: Refusal; headers?: readonly Header[] }
+  | { ok: false; status: RefusalStatus; body: typeof EMPTY; headers?: readonly Header[] };
 
 /**
  * A bound endpoint in a heterogeneous table. The erased input is deliberately

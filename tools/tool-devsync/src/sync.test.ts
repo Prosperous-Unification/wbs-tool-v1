@@ -175,7 +175,7 @@ describe('dev supervisor', () => {
       },
       readConfig: () => {
         configReads += 1;
-        return Promise.reject(new Error('missing optional supervisor config'));
+        return Promise.resolve(undefined);
       },
       requireHost: () => {
         hostChecks += 1;
@@ -183,11 +183,11 @@ describe('dev supervisor', () => {
       },
     });
 
-    expect(configReads).toBe(0);
+    expect(configReads).toBe(1);
     expect(hostChecks).toBe(0);
   });
 
-  it('still requires the solver mapping when compatibility sources changed', async () => {
+  it('names the materialize and install remedy when changed solver sources have no config', async () => {
     let configReads = 0;
 
     expect(
@@ -197,13 +197,46 @@ describe('dev supervisor', () => {
           changedPaths: () => Promise.resolve(['libs/solver-py/src/wbs_solver/solve.py']),
           readConfig: () => {
             configReads += 1;
-            return Promise.reject(new Error('missing required supervisor config'));
+            return Promise.resolve(undefined);
           },
           requireHost: () => Promise.reject(new Error('host check must follow config validation')),
         }),
       ),
-    ).toContain('missing required supervisor config');
+    ).toContain(
+      'materialize-solver-supervisor-config and install-solver-supervisor before deploying',
+    );
     expect(configReads).toBe(1);
+  });
+
+  it('refuses an unrelated deploy while a future solver mapping is staged', async () => {
+    const deployedSha = 'b'.repeat(40);
+    const targetSha = 'c'.repeat(40);
+    const futureMappingSha = 'd'.repeat(40);
+    let changedPathReads = 0;
+    let hostChecks = 0;
+
+    expect(
+      await rejection(
+        preflightSolver(targetSha, {
+          currentSha: () => Promise.resolve(deployedSha),
+          changedPaths: (from, to) => {
+            changedPathReads += 1;
+            expect(to).toBe(targetSha);
+            expect(from).toBe(changedPathReads === 1 ? deployedSha : futureMappingSha);
+            return Promise.resolve(
+              changedPathReads === 1 ? [] : ['libs/solver-py/src/wbs_solver/solve.py'],
+            );
+          },
+          readConfig: () => Promise.resolve(solverConfigBytes(futureMappingSha)),
+          requireHost: () => {
+            hostChecks += 1;
+            return Promise.resolve();
+          },
+        }),
+      ),
+    ).toContain('dev solver mapping is stale');
+    expect(changedPathReads).toBe(2);
+    expect(hostChecks).toBe(0);
   });
 
   it('refuses a stale solver mapping before the host preflight', async () => {

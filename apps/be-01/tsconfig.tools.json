@@ -4,7 +4,10 @@
     "outDir": "../../dist/out-tsc-tools",
     "noEmit": true
   },
-  "include": ["tools/**/*.ts"],
+  // Proof: before `scripts` joined this project, the staged-file lint hook
+  // refused both container-side solver-supervisor fixture scripts as absent
+  // from the TypeScript project service.
+  "include": ["tools/**/*.ts", "scripts/**/*.ts"],
   // `capture-capacity-oracle.ts` is a **pin**, not a script anybody runs again:
   // it was run once at `050fd45`, before `change/capacity-per-project` had a
   // line in it, and the JSON it printed is committed as the oracle

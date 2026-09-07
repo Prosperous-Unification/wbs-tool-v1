@@ -128,10 +128,16 @@ function validateRequestParts<Shape extends EndpointShape>(
     return Promise.resolve(validation).then((completed) => {
       // Proof: bypassing request issues failed 'validates request input before invoking transport and does not share calls'.
       if (completed.issues !== undefined) return failed({ code: 'invalid_request', part });
+      // Proof: discarding this value made the async forwarding test receive
+      // `{ name: 'Plan', ignored: 'future-field' }` instead of `{ name: 'Plan' }`.
+      if (part !== 'params') input[part] = completed.value;
       return validateRequestParts(shape, input, index + 1);
     });
   // Proof: bypassing request issues failed 'validates request input before invoking transport and does not share calls'.
   if (validation.issues !== undefined) return failed({ code: 'invalid_request', part });
+  // Proof: discarding this value made the Retry transport receive the
+  // undeclared `ignored: 'future-field'` property.
+  if (part !== 'params') input[part] = validation.value;
   return validateRequestParts(shape, input, index + 1);
 }
 
@@ -207,10 +213,13 @@ async function invokeAfterPreflight(
       );
     }
     if (supplied.signal?.aborted) return failed({ code: 'cancelled' });
+    // Proof: checking empty successes only made the real Response test return
+    // invalid_response/json at 503 instead of a bodyless refusal.
     if (
-      shape.responses.some(
+      (shape.responses.some(
         (candidate) => candidate.status === status && candidate.kind === 'empty',
-      ) &&
+      ) ||
+        shape.refusals.some((candidate) => candidate.status === status && 'kind' in candidate)) &&
       source === ''
     ) {
       reply = { kind: 'empty', status, headers };
@@ -238,11 +247,29 @@ async function invokeAfterPreflight(
     for (const refusal of shape.refusals) {
       if (refusal.status !== status) continue;
       applicable = true;
+      if ('kind' in refusal) continue;
       // Proof: bypassing validation failed malformed 429/503/501 refusals and recognized-code malformed 501 details.
       const checked = await validateSchema(refusal.schema, reply.body);
       if (supplied.signal?.aborted) return failed({ code: 'cancelled' });
       if (checked.issues === undefined)
-        return { kind: 'refusal', status: refusal.status, body: checked.value, headers };
+        return {
+          kind: 'refusal',
+          representation: 'json',
+          status: refusal.status,
+          body: checked.value,
+          headers,
+        };
+    }
+  }
+  if (reply.kind === 'empty') {
+    for (const refusal of shape.refusals) {
+      if (refusal.status !== status || !('kind' in refusal)) continue;
+      return {
+        kind: 'refusal',
+        representation: 'empty',
+        status: refusal.status,
+        headers,
+      };
     }
   }
   // Proof: first-only alternatives failed later JSON/null/text/empty responses: expected success, received failure.

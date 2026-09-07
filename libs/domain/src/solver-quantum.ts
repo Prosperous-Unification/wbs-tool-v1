@@ -90,7 +90,21 @@ export function durationRoundedUp(slice: Slice): boolean {
  * choice for the same input: this is malformed input, not a missing default.
  */
 function quantise(slice: Slice): { units: number; rounded: boolean } {
-  const exact = snapWorkdays(durationOf(slice) * SOLVER_QUANTUM);
+  // The drift window is a WORKDAY-space window, so it is applied in workday
+  // space **before** the multiplication as well as after it. Snapping only
+  // after is what TASK-302 was: `snapWorkdays` cleans to within `DRIFT` of a
+  // whole *argument*, so once the argument is units the same constant is a
+  // window `SOLVER_QUANTUM` times narrower in the duration it is really about.
+  // A duration that `lastWorkdayOf` — which snaps in workday space — reads as
+  // a whole day could therefore fail to snap here, `ceil` to one unit more,
+  // and make the model report `plan-infeasible` for a plan the real-domain
+  // predicate reports on time.
+  //
+  // The second snap stays, because it answers a different question: a duration
+  // nowhere near a whole workday can still land a bit off a whole unit
+  // (`days / width` for a width that does not divide 48), and that step onto
+  // the integer axis is the one `workday.ts` lists this site for.
+  const exact = snapWorkdays(snapWorkdays(durationOf(slice)) * SOLVER_QUANTUM);
   if (!Number.isFinite(exact) || exact < 0) {
     throw new Error(
       `slice ${slice.workItemId} has no finite duration in solver units: width ${String(slice.width)}, days ${String(slice.days)}`,

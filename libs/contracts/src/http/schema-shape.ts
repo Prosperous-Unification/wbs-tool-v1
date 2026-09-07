@@ -14,9 +14,26 @@ export interface SchemaShape<T> {
   jsonSchema: JsonSchema;
 }
 
-/** Declares a request without accepting or stripping undeclared nested fields. */
-export function requestSchema<S extends Type>(declaration: S): SchemaShape<S['infer']> {
-  return checkedSchema(declareSchema(declaration.onDeepUndeclaredKey('reject')));
+interface RequestSchemaOptions {
+  undeclaredKeys?: 'reject' | 'delete';
+}
+
+/** Declares a closed request, with explicit deletion only for established tolerant contracts. */
+export function requestSchema<S extends Type>(
+  declaration: S,
+  options: RequestSchemaOptions = {},
+): SchemaShape<S['infer']> {
+  const undeclaredKeys = options.undeclaredKeys ?? 'reject';
+  if (undeclaredKeys === 'delete') {
+    // Validate the caller's declaration before adding the one projection this
+    // boundary owns; other transforms and defaults remain unsupported.
+    declareSchema(declaration);
+  }
+  const shape =
+    undeclaredKeys === 'delete'
+      ? schemaOf(declaration.onDeepUndeclaredKey('delete'))
+      : declareSchema(declaration.onDeepUndeclaredKey('reject'));
+  return undeclaredKeys === 'delete' ? checkedNormalizedSchema(shape) : checkedSchema(shape);
 }
 
 /**
@@ -36,18 +53,54 @@ function checkedSchema<T>(shape: SchemaShape<T>): SchemaShape<T> {
       '~standard': {
         ...standard,
         validate(value: unknown) {
-          if (!validates(value)) {
-            const errors = validates.errors;
-            // Proof: deleting this guard changed the malformed-diagnostics test's expected contextual exception.
-            if (errors === null || errors === undefined)
-              throw new Error('HTTP descriptor refused without issues');
-            return { issues: errors.map((error) => descriptorIssue(error, value)) };
-          }
+          const issues = descriptorIssues(validates, value);
+          if (issues !== undefined) return { issues };
           return standard.validate(value);
         },
       },
     },
   };
+}
+
+/** Runs a deleting validator before checking the precise value delivered inside the boundary. */
+function checkedNormalizedSchema<T>(shape: SchemaShape<T>): SchemaShape<T> {
+  const validates = descriptors.compile(shape.jsonSchema);
+  const standard = shape.validator['~standard'];
+  const complete = (checked: StandardSchemaV1.Result<T>): StandardSchemaV1.Result<T> => {
+    if (checked.issues !== undefined) return checked;
+    const issues = descriptorIssues(validates, checked.value);
+    return issues === undefined ? checked : { issues };
+  };
+  return {
+    ...shape,
+    validator: {
+      '~standard': {
+        ...standard,
+        validate(value: unknown) {
+          const checked = standard.validate(value);
+          return isPromiseLike(checked)
+            ? Promise.resolve(checked).then(complete)
+            : complete(checked);
+        },
+      },
+    },
+  };
+}
+
+function descriptorIssues(
+  validates: ReturnType<Ajv2020['compile']>,
+  value: unknown,
+): StandardSchemaV1.Issue[] | undefined {
+  if (validates(value)) return undefined;
+  const errors = validates.errors;
+  // Proof: deleting this guard changed the malformed-diagnostics test's expected contextual exception.
+  if (errors === null || errors === undefined)
+    throw new Error('HTTP descriptor refused without issues');
+  return errors.map((error) => descriptorIssue(error, value));
+}
+
+function isPromiseLike<T>(value: T | PromiseLike<T>): value is PromiseLike<T> {
+  return typeof value === 'object' && value !== null && 'then' in value;
 }
 
 /** Declares a reply that remains readable when a newer server adds fields. */
@@ -62,15 +115,20 @@ export function responseSchema<S extends Type>(declaration: S): SchemaShape<S['i
  * that mismatch. Both descriptors use the same converter and property order.
  */
 function declareSchema<S extends Type>(declaration: S): SchemaShape<S['infer']> {
-  const jsonSchema = declaration.toJsonSchema();
-  // Proof: omitting this call reached emission (expected false, received true)
-  // in MCP's recursive-declaration publication test (shape-document.test.ts).
-  assertInlineSchema(jsonSchema);
+  const shape = schemaOf(declaration);
   const input = declaration.in.toJsonSchema();
   const output = declaration.out.toJsonSchema();
   if (JSON.stringify(input) !== JSON.stringify(output)) {
     throw new Error('HTTP wire schemas must have identical input and output contracts');
   }
+  return shape;
+}
+
+function schemaOf<S extends Type>(declaration: S): SchemaShape<S['infer']> {
+  const jsonSchema = declaration.toJsonSchema();
+  // Proof: omitting this call reached emission (expected false, received true)
+  // in MCP's recursive-declaration publication test (shape-document.test.ts).
+  assertInlineSchema(jsonSchema);
   return { validator: declaration, jsonSchema: normalizeNever(jsonSchema) };
 }
 

@@ -3,9 +3,12 @@ import { randomBytes } from 'node:crypto';
 import {
   browserBindingCookieName,
   browserBindingsIn,
+  classifyOidcFailure,
   consumeBrowserBinding,
   type HeldBrowserBinding,
+  isOidcCallbackRefused,
   MAX_BROWSER_BINDINGS,
+  type OidcFailureKind,
   oidcIdentityFromClaims,
   selectBrowserBindings,
 } from '@wbs/auth';
@@ -36,6 +39,15 @@ const reportable = new Set([
   'login_required',
   'temporarily_unavailable',
 ]);
+/** Parameters from response modes this code-flow client never requests. */
+const OTHER_RESPONSE_MODE_PARAMS = ['response', 'id_token', 'token'] as const;
+/** The caller-visible status for every owned exchange-failure classification. */
+const STATUS_FOR_OIDC_FAILURE: Record<OidcFailureKind, 401 | 500 | 503> = {
+  defect: 500,
+  indeterminate: 503,
+  refused: 401,
+  unavailable: 503,
+};
 /** Serializes one independently appended hardened browser cookie.
  * Proof: removing Secure failed the mounted recovery test’s exact three-cookie assertion. */
 function cookie(name: string, value: string, maxAge: number): Header {
@@ -82,7 +94,7 @@ function callbackFailure(
 }
 /**
  * Browser OIDC bindings. Composition registers these only when OIDC options exist.
- * Exchange failures are modeled401; account and token-store failures remain throws.
+ * Exchange failures carry their owned classification; account and token-store failures remain throws.
  */
 export function authOidcEndpoints(auth: AuthService, options: OidcRouteOptions) {
   const now = options.now ?? Date.now;
@@ -122,8 +134,9 @@ export function authOidcEndpoints(auth: AuthService, options: OidcRouteOptions) 
     }),
     bind(
       completeOidcLogin,
-      async ({ request, query }): Promise<HttpReply<typeof completeOidcLogin>> => {
-        const state = query['state'];
+      async ({ request }): Promise<HttpReply<typeof completeOidcLogin>> => {
+        const sent = request.url.searchParams;
+        const state = sent.get('state') ?? undefined;
         const held = selectBrowserBindings(options.transactions, browserBindingsOf(request), now());
         let settled = held.surplus;
         // Proof: substituting invalid_query made the mounted absent-binding
@@ -132,7 +145,7 @@ export function authOidcEndpoints(auth: AuthService, options: OidcRouteOptions) 
           return {
             ok: false,
             status: 400,
-            body: { error: 'invalid_oidc_callback' },
+            body: EMPTY,
             // Proof: clearing live bindings here made `refuses a stateless callback without
             // discarding the logins in flight` fail at its honest callback, Expected302 Received400.
             headers: clearsFor(settled),
@@ -151,31 +164,31 @@ export function authOidcEndpoints(auth: AuthService, options: OidcRouteOptions) 
           return {
             ok: false,
             status: 400,
-            body: { error: 'invalid_oidc_callback' },
+            body: EMPTY,
             // Proof: clearing the mismatched binding made `refuses a forged error callback
             // without burning the login it interrupts` receive a Set-Cookie clear and made
             // its subsequent honest callback fail, Expected302 Received400.
             headers: clearsFor(settled),
           };
-        // Proof: substituting invalid_query made the mounted missing-transaction
-        // assertion receive that code instead of invalid_oidc_callback.
+        // Proof: returning invalid_oidc_callback made the mounted missing-transaction
+        // assertion receive its JSON envelope instead of an empty string.
         if (transaction.outcome !== 'consumed')
           return {
             ok: false,
             status: 400,
-            body: { error: 'invalid_oidc_callback' },
+            body: EMPTY,
             headers: clearsFor(settled),
           };
         // Proof: bypassing this branch redirected access_denied to / in the mounted provider test.
-        if (Object.hasOwn(query, 'error')) {
-          const providerError = query['error'] ?? '';
+        if (sent.has('error')) {
+          const providerError = sent.get('error') ?? '';
           // Proof: skipping the blank-code refusal returned302 instead of400 in the mounted provider test.
           if (providerError === '') {
             options.logger?.warn({}, 'oidc callback carried an empty error code');
             return {
               ok: false,
               status: 400,
-              body: { error: 'invalid_oidc_callback' },
+              body: EMPTY,
               headers: clearsFor(settled),
             };
           }
@@ -184,7 +197,7 @@ export function authOidcEndpoints(auth: AuthService, options: OidcRouteOptions) 
           // Proof: logging description text exposed PRIVATE in the mounted provider test’s log assertion.
           const reported = {
             error: providerError,
-            has_description: Object.hasOwn(query, 'error_description'),
+            has_description: sent.has('error_description'),
             auth_error: reason,
           };
           if (reason === 'provider_error')
@@ -198,6 +211,30 @@ export function authOidcEndpoints(auth: AuthService, options: OidcRouteOptions) 
             headers: [...clearsFor(settled), ['location', `/?auth_error=${reason}`]],
           };
         }
+        // A matching state is not permission to choose the defect/outage bucket
+        // with a callback this code-flow client could never have initiated.
+        if ((sent.get('code') ?? '') === '') {
+          options.logger?.info({}, 'oidc callback carried no code');
+          return {
+            ok: false,
+            status: 400,
+            body: EMPTY,
+            headers: clearsFor(settled),
+          };
+        }
+        const impossible = OTHER_RESPONSE_MODE_PARAMS.filter((name) => sent.has(name));
+        if (impossible.length > 0) {
+          options.logger?.info(
+            { oidc_callback_params: impossible },
+            'oidc callback carried a parameter from a response mode this app does not use',
+          );
+          return {
+            ok: false,
+            status: 400,
+            body: EMPTY,
+            headers: clearsFor(settled),
+          };
+        }
         // Proof: using arrived origin forwarded internal HTTP instead of configured HTTPS in the mounted proxy test.
         const callbackUrl = new URL(options.redirectUri);
         callbackUrl.search = request.url.search;
@@ -205,7 +242,7 @@ export function authOidcEndpoints(auth: AuthService, options: OidcRouteOptions) 
           headers: request.headers,
           method: request.method,
         });
-        // Proof: rethrowing exchange failure returned500 instead of401 in the mounted failure test.
+        // Proof: collapsing these arms to 401 made the mounted outage test receive 401 instead of 503.
         let tokens;
         try {
           tokens = await options.client.exchange(providerCallback, {
@@ -214,11 +251,35 @@ export function authOidcEndpoints(auth: AuthService, options: OidcRouteOptions) 
             verifier: transaction.verifier,
           });
         } catch (err) {
-          options.logger?.error({ err }, 'oidc token exchange failed');
+          if (isOidcCallbackRefused(err)) {
+            options.logger?.info(
+              { oidc_callback_refusal: err.reason },
+              'oidc callback did not come from the configured issuer',
+            );
+            return {
+              ok: false,
+              status: 400,
+              body: EMPTY,
+              headers: clearsFor(settled),
+            };
+          }
+          const failure = classifyOidcFailure(err);
+          const classified = {
+            err,
+            oidc_failure_kind: failure.kind,
+            oidc_failure_reason: failure.reason,
+          };
+          if (failure.kind === 'refused') {
+            options.logger?.info(classified, 'oidc token exchange was refused');
+          } else if (failure.kind === 'indeterminate') {
+            options.logger?.warn(classified, 'oidc token exchange failed inconclusively');
+          } else {
+            options.logger?.error(classified, 'oidc token exchange failed');
+          }
           return {
             ok: false,
-            status: 401,
-            body: { error: 'invalid_oidc_session' },
+            status: STATUS_FOR_OIDC_FAILURE[failure.kind],
+            body: EMPTY,
             headers: clearsFor(settled),
           };
         }
@@ -226,7 +287,7 @@ export function authOidcEndpoints(auth: AuthService, options: OidcRouteOptions) 
           return {
             ok: false,
             status: 401,
-            body: { error: 'invalid_oidc_session' },
+            body: EMPTY,
             headers: clearsFor(settled),
           };
         let identity;
@@ -239,7 +300,7 @@ export function authOidcEndpoints(auth: AuthService, options: OidcRouteOptions) 
           return {
             ok: false,
             status: 401,
-            body: { error: 'invalid_oidc_session' },
+            body: EMPTY,
             headers: clearsFor(settled),
           };
         }
@@ -249,7 +310,7 @@ export function authOidcEndpoints(auth: AuthService, options: OidcRouteOptions) 
           return {
             ok: false,
             status: 409,
-            body: { error: 'oidc_identity_conflict' },
+            body: EMPTY,
             headers: clearsFor(settled),
           };
         const correlation = random();

@@ -25,7 +25,7 @@ The scheduler is one deterministic millisecond pass (Fast) with no notion of opt
 
 **Feedback**
 
-- To: one compact indicator — Earlier/Later by N days, Same deadline + reordered, Same deadline + same order, `Optimizing…`, or `Optimization unavailable · Retry`.
+- To: one compact indicator — Earlier/Later project deadline by N days, Same project deadline + reordered, Same project deadline + same order, `Optimizing…`, or `Optimization unavailable · Retry`.
 
 **Packaging**
 

@@ -502,6 +502,30 @@ describe('sharing the plan', () => {
     expect(text).toContain('\r\n');
   });
 
+  itDom('carries a work item deadline from the plan read into the downloaded CSV', async () => {
+    // Proof: replacing `planForExport`'s rows with copies whose deadline was
+    // null made this fail on `expected … to contain '2026-09-30'`; the CSV kept
+    // the deadline header but its one production-row cell was empty.
+    const downloads = captureDownloads();
+    const api = fakeApi();
+    const row = await api.createWorkItem('p1', {
+      parentId: null,
+      afterId: null,
+      name: 'Deadline row',
+    });
+    await api.patchWorkItem(row.id, { deadline: '2026-09-30' });
+    render(<WbsTable projectId="p1" api={api} projectName="Rewire the shed" />);
+    await screen.findByLabelText('Name of 010');
+
+    click('Download CSV');
+
+    const file = downloads.blobs.at(0);
+    if (file === undefined) throw new Error('nothing was handed to createObjectURL');
+    const text = new TextDecoder().decode(await readBlobBytes(file));
+    expect(text).toContain('Work item deadline');
+    expect(text).toContain('2026-09-30');
+  });
+
   itDom('downloads the bundled Markdown document, the fence and the table together', async () => {
     const downloads = captureDownloads();
     await onePlannedRow();

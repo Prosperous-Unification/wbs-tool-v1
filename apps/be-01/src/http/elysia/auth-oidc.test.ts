@@ -136,14 +136,16 @@ test('live mismatch retains cookies for honest recovery; expired and missing bin
   const f = fixture();
   const absent = await f.callback('', 'state=random-2&code=ok');
   expect(absent.status).toBe(400);
-  expect(await absent.json()).toEqual({ error: 'invalid_oidc_callback' });
+  // Proof: serializing a declared bodyless refusal as
+  // `{"error":"restored-envelope"}` failed on Expected: "", Received: that envelope.
+  expect(await absent.text()).toBe('');
   expect(absent.headers.getSetCookie()).toEqual([]);
   let cookie = await f.start();
   const bindingName = cookie.split('=')[0] ?? '';
   const clearedBinding = `${bindingName}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`;
   const forged = await f.callback(cookie, 'state=forged&error=access_denied');
   expect(forged.status).toBe(400);
-  expect(await forged.json()).toEqual({ error: 'invalid_oidc_callback' });
+  expect(await forged.text()).toBe('');
   expect(forged.headers.getSetCookie()).toEqual([]);
   for (const changed of forged.headers.getSetCookie()) cookie = changed.split(';')[0] ?? '';
   const honest = await f.callback(cookie);
@@ -156,7 +158,7 @@ test('live mismatch retains cookies for honest recovery; expired and missing bin
   expect(await honest.text()).toBe('');
   const missing = await f.callback(cookie);
   expect(missing.status).toBe(400);
-  expect(await missing.json()).toEqual({ error: 'invalid_oidc_callback' });
+  expect(await missing.text()).toBe('');
   expect(missing.headers.getSetCookie()).toEqual([clearedBinding]);
   const expired = fixture();
   const old = await expired.start();
@@ -164,7 +166,7 @@ test('live mismatch retains cookies for honest recovery; expired and missing bin
   expired.expire();
   const refused = await expired.callback(old);
   expect(refused.status).toBe(400);
-  expect(await refused.json()).toEqual({ error: 'invalid_oidc_callback' });
+  expect(await refused.text()).toBe('');
   expect(refused.headers.getSetCookie()).toEqual([
     `${oldName}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`,
   ]);
@@ -196,15 +198,22 @@ test('provider refusals never exchange or reflect descriptions and blank errors 
   }
 });
 
-test('exchange failures are401 while account-store failures remain500', async () => {
+test('exchange defects are classified as bodiless500 while account-store failures remain500', async () => {
   const f = fixture();
   const cookie = await f.start();
   const failure = new Error('provider unavailable');
   spyOn(f.options.client, 'exchange').mockRejectedValueOnce(failure);
   const response = await f.callback(cookie);
-  expect(response.status).toBe(401);
-  expect(await response.json()).toEqual({ error: 'invalid_oidc_session' });
-  expect(f.logs).toContainEqual({ level: 'error', fields: { err: failure } });
+  expect(response.status).toBe(500);
+  expect(await response.text()).toBe('');
+  expect(f.logs).toContainEqual({
+    level: 'error',
+    fields: {
+      err: failure,
+      oidc_failure_kind: 'defect',
+      oidc_failure_reason: 'unrecognised_failure',
+    },
+  });
   const broken = fixture();
   const next = await broken.start();
   broken.resolve.mockRejectedValueOnce(new Error('account store unavailable'));
@@ -251,8 +260,9 @@ test('refresh and logout require cookie Origin before reading state and retain e
   expect(missing.headers.getSetCookie()).toHaveLength(2);
 });
 
-test('missing or malformed claims and identity conflicts retain their distinct status and cleared binding', async () => {
-  for (const mode of ['missing', 'malformed', 'conflict']) {
+test.each(['missing', 'malformed', 'conflict'] as const)(
+  '%s callback retains its distinct status and cleared binding',
+  async (mode) => {
     const f = fixture();
     const cookie = await f.start();
     if (mode === 'conflict') f.resolve.mockResolvedValueOnce(null);
@@ -264,12 +274,12 @@ test('missing or malformed claims and identity conflicts retain their distinct s
       });
     const response = await f.callback(cookie);
     expect(response.status).toBe(mode === 'conflict' ? 409 : 401);
-    expect(await response.json()).toEqual({
-      error: mode === 'conflict' ? 'oidc_identity_conflict' : 'invalid_oidc_session',
-    });
+    // Proof: serializing declared bodyless refusals as `{"error":"restored-envelope"}`
+    // failed both mounted 401 cases and the mounted 409 case on Expected: "", Received: that envelope.
+    expect(await response.text()).toBe('');
     expect(response.headers.getSetCookie()).toHaveLength(1);
-  }
-});
+  },
+);
 
 test('refresh refuses lost rotation, retains a nonrotating token, and leaves unknown outages as500', async () => {
   const f = fixture();

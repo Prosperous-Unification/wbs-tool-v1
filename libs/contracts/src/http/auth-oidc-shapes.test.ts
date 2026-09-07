@@ -20,6 +20,10 @@ test('declares four OIDC operations, open provider queries and empty redirects',
   expect(startOidcLogin.responses).toEqual([{ kind: 'empty', status: 302 }]);
   expect(refreshOidcSession.responses).toEqual([{ kind: 'empty', status: 204 }]);
   expect(
-    documentFromShapes(shapes).paths['/api/auth/okta/callback']?.['get']?.parameters,
-  ).toMatchObject([{ in: 'query', style: 'form', explode: true }]);
+    completeOidcLogin.refusals.filter((refusal) => 'kind' in refusal).map(({ status }) => status),
+  ).toEqual([400, 401, 409, 500, 503]);
+  const callback = documentFromShapes(shapes).paths['/api/auth/okta/callback']?.['get'];
+  expect(callback?.responses['500']).toEqual({ description: 'Refusal' });
+  expect(callback?.responses['503']).toEqual({ description: 'Refusal' });
+  expect(callback?.parameters).toMatchObject([{ in: 'query', style: 'form', explode: true }]);
 });

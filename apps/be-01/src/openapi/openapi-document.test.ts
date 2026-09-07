@@ -14,9 +14,10 @@ describe('the generated shared OpenAPI document', () => {
       if (!isRecord(path)) throw new Error('generated document has a malformed path');
       operationCount += Object.values(path).filter((operation) => operation !== undefined).length;
     }
-    // Proof: publishing the full registry in this local-mode app produced 44
+    // Proof: publishing the full registry in this local-mode app produced 45
     // operations and advertised an OIDC callback whose request returned 404.
-    expect(operationCount).toBe(40);
+    // Adding Retry without updating this inventory produced 41 against the prior 40.
+    expect(operationCount).toBe(41);
     expect(paths).not.toHaveProperty('/api/auth/okta/callback');
   });
   it('preserves operation names and omits operational routes until they have bindings', async () => {

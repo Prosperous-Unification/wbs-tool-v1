@@ -1,9 +1,9 @@
 /**
  * Modeled HTTP failures; status/code pairing is narrowed by each endpoint shape.
- * Proof (type boundary only): adding 500 makes refusal.test.ts report TS2578
- * for the thrown-server-failure fixture. Production binding proof is pending.
+ * A classified OIDC defect is the one modeled 500; thrown failures still bypass
+ * endpoint replies and reach the adapter error boundary.
  */
-export type RefusalStatus = 400 | 401 | 403 | 404 | 405 | 409 | 422 | 429 | 501 | 503;
+export type RefusalStatus = 400 | 401 | 403 | 404 | 405 | 409 | 422 | 429 | 500 | 501 | 503;
 
 /** Portable command discriminants, shared with runtime command refusal context. */
 export type PlanCommandKind =
@@ -292,9 +292,20 @@ type Envelope<C, D> = D extends undefined ? { error: C } : { error: C } & D;
  * produces eleven TS2578 diagnostics for invalid detail/context fixtures.
  * Endpoint response validation and wire status correlation remain pending.
  */
-export type Refusal<C extends RefusalCode = RefusalCode> = {
+type ErrorRefusal<C extends RefusalCode = RefusalCode> = {
   [K in C]: ClosedVariants<Envelope<K, RefusalDetail[K]>>;
 }[C];
+
+/** Retry retains the coordinator decision as `code`; clients branch on this established envelope. */
+export type OptimizerRetryRefusal =
+  | { code: 'stale-input-hash'; currentInputHash: string }
+  | {
+      code: 'not-retryable';
+      state: 'ready' | 'pending' | 'retrying' | 'failed' | 'corrupt' | 'plan-infeasible' | 'idle';
+    }
+  | { code: 'already-running' };
+
+export type Refusal<C extends RefusalCode = RefusalCode> = ErrorRefusal<C> | OptimizerRetryRefusal;
 
 /** Runtime command failures always retain their command index and recognized kind. */
 export type CommandRefusal<C extends CommandRefusalCode = CommandRefusalCode> = {

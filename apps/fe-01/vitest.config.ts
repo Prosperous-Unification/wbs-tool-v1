@@ -12,7 +12,8 @@ export default defineConfig({
   // value is one React plugin either way, and `vite.config.ts` beside this file
   // needs no cast because it imports `defineConfig` from `vite` itself.
   plugins: [react()] as UserConfig['plugins'],
-  // The same seven the app is built with. `@wbs/domain/workday`,
+  // The same domain leaf imports the app is built with. `@wbs/domain/workday`,
+  // `@wbs/domain/deadline-offsets`,
   // `@wbs/domain/assumed-duration`, `@wbs/domain/effective-team`,
   // `@wbs/domain/effective-tag`, `@wbs/domain/effective-service`,
   // `@wbs/domain/label-mismatch` and
@@ -41,6 +42,10 @@ export default defineConfig({
     alias: {
       '@': resolve(__dirname, 'src'),
       '@wbs/domain/workday': resolve(__dirname, '../../libs/domain/src/workday.ts'),
+      '@wbs/domain/deadline-offsets': resolve(
+        __dirname,
+        '../../libs/domain/src/deadline-offsets.ts',
+      ),
       '@wbs/domain/assumed-duration': resolve(
         __dirname,
         '../../libs/domain/src/assumed-duration.ts',

@@ -760,6 +760,7 @@ test('accepts every same-status JSON, text and refusal alternative', async () =>
     ],
     refusals: [
       { status: 400, schema: responseSchema(type({ error: "'invalid_body'" })) },
+      { kind: 'empty', status: 400 },
       {
         status: 400,
         schema: asynchronous(responseSchema(type({ error: "'invalid_query'" })), [], 'refusal'),
@@ -771,6 +772,8 @@ test('accepts every same-status JSON, text and refusal alternative', async () =>
     { ok: true, status: 200, body: { second: 'two' } },
     { ok: true, status: 200, text: 'three' },
     { ok: false, status: 400, body: { error: 'invalid_body' } },
+    // Proof: deleting the empty declaration made this response 500 with an undeclared-refusal error.
+    { ok: false, status: 400, body: EMPTY },
     { ok: false, status: 400, body: { error: 'invalid_query' } },
   ];
   for (const reply of replies) {
@@ -778,7 +781,9 @@ test('accepts every same-status JSON, text and refusal alternative', async () =>
       request('{"text":"x"}'),
     );
     expect(response.status).toBe(reply.status);
-    expect(await response.text()).toBe('text' in reply ? reply.text : JSON.stringify(reply.body));
+    expect(await response.text()).toBe(
+      'text' in reply ? reply.text : reply.body === EMPTY ? '' : JSON.stringify(reply.body),
+    );
   }
   const wrong: BoundEndpoint = {
     shape,

@@ -115,6 +115,7 @@ const REQUEST_BODIES: Readonly<Record<string, unknown>> = {
   patchApiProjectsById: {
     pertWeights: { optimistic: 1, realistic: 4, pessimistic: 1 },
   },
+  postApiProjectsByIdOptimizationRetry: { objective: 'pri', inputHash: 'route-probe' },
   postApiProjectsByIdCommands: {
     commands: [
       {
@@ -198,6 +199,7 @@ const WRITE_SCOPE_OPERATIONS = [
   'postApiProjectsByIdCalendar-markers',
   'postApiProjectsByIdCommands',
   'postApiProjectsByIdOpened',
+  'postApiProjectsByIdOptimizationRetry',
   'postApiProjectsByIdRedo',
   'postApiProjectsByIdSaved-plans',
   'postApiProjectsByIdSteps',
@@ -221,6 +223,7 @@ const COOKIE_ORIGIN_OPERATIONS = [
   'postApiProjectsByIdCalendar-markers',
   'postApiProjectsByIdCommands',
   'postApiProjectsByIdOpened',
+  'postApiProjectsByIdOptimizationRetry',
   'postApiProjectsByIdRedo',
   'postApiProjectsByIdSaved-plans',
   'postApiProjectsByIdSteps',

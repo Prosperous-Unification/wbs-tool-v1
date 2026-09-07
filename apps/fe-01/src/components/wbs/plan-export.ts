@@ -5,6 +5,8 @@ import { priorityBandOf } from '@wbs/domain/priority-band';
 
 import type { EstimateMethod, PriorityBandView, SliceView } from '@/lib/wbs-api';
 
+import { DEADLINE_UNREACHABLE_CELL, deadlineBeforeProjectStart } from './deadline-impossible';
+
 /** One estimate's three points, as a row carries them into an export. */
 export interface ExportTrio {
   optimistic: number;
@@ -81,6 +83,25 @@ export interface ExportRow {
    * explained anyway.
    */
   startNoEarlierThanReason?: string | null;
+  /**
+   * The last day this work item may finish on, as somebody typed it, or null
+   * where nobody has set one.
+   *
+   * **Required rather than optional**, which is the `priority` and `serviceIds`
+   * lesson a third time: a `Partial` spread satisfies a required field the base
+   * object omits, so an optional field is one every caller may forget and a
+   * forgotten date column exports blank rather than failing. Nothing in
+   * `planForExport` fills it by hand — `rows: flat` hands the whole
+   * `WorkItemView` over — so what this line buys is the type checker, and the
+   * assertions below read the cell rather than the header so a producer that
+   * stopped filling it fails a test.
+   *
+   * The floor one column over was exported from the day it existed and this was
+   * not (TASK-291): a reader who exported a plan to hand to somebody lost every
+   * deadline on it, with nothing on the sheet saying a column was missing. That
+   * asymmetry is what made it a defect rather than a scope choice.
+   */
+  deadline: string | null;
   /** The priority somebody gave this work — 1 upward, smaller first — or null. */
   priority: number | null;
   /**
@@ -775,6 +796,32 @@ function columnsOf(plan: PlanExport, markSums: boolean): ExportColumn[] {
     {
       header: 'Not before because',
       cell: (row) => row.startNoEarlierThanReason ?? '',
+    },
+    // Beside the floor rather than at the end of the sheet, because the two are
+    // the pair a planner types about when work may happen and a reader sorting
+    // dates wants them together. Blank on a row with no deadline — the
+    // Priority column's bargain again, and deliberately not the em-dash the
+    // table draws: that dash is a screen affordance saying "none" where a blank
+    // cell would read as failed-to-load, and a spreadsheet has the opposite
+    // problem.
+    { header: 'Work item deadline', cell: (row) => row.deadline ?? '' },
+    // The read-time §2.3 state in a column of its own, which is exactly why
+    // `Not before because` is not folded into `Not before`: a date column
+    // carrying a sentence has stopped being a date column. **The impossible
+    // date is printed unchanged above** — it is what the reader typed and what
+    // be-01 still stores, and blanking it would be this document deleting their
+    // input on somebody else's edit.
+    //
+    // `deadlineBeforeProjectStart`, so the sheet, the table cell and be-01's
+    // write boundary all resolve the question through `deadlineOffsetOf` and no
+    // face holds a second opinion. **No lateness is derived here**: `Late by N
+    // workdays` is be-01's number and 9.2's rule is that no view recomputes it,
+    // which is why this column answers only whether the date is reachable at
+    // all.
+    {
+      header: 'Work item deadline unreachable',
+      cell: (row) =>
+        deadlineBeforeProjectStart(plan.startDate, row.deadline) ? DEADLINE_UNREACHABLE_CELL : '',
     },
     { header: 'Starts', cell: (row) => startsCell(plan, row) },
     { header: 'Ends', cell: (row) => endsCell(plan, row) },

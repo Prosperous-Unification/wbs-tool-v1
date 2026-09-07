@@ -12,6 +12,8 @@ import type { EventLogRepo, RecordedEvent } from '../repository/event-log';
 import {
   bindSolverSlot,
   reserveSolverSlot,
+  reserveSolverSlotIn,
+  solverAdmissionStartedAt,
   type SolverSlotAdmission,
 } from '../repository/optimization-admission';
 import {
@@ -19,12 +21,17 @@ import {
   reconcileOptimizationDrains,
   releaseSolverSlot,
 } from '../repository/optimization-drain';
-import { allocateGeneration } from '../repository/optimization-generation';
-import { dequeueSolverRequest, enqueueSolverRequest } from '../repository/optimization-queue';
+import { allocateGeneration, readGeneration } from '../repository/optimization-generation';
+import {
+  dequeueSolverRequest,
+  enqueueSolverRequest,
+  enqueueSolverRequestIn,
+} from '../repository/optimization-queue';
 import {
   optimizedVariantIsLive,
   type OutcomeWrite,
   type OutcomeWriteResult,
+  readOptimizedPair,
   readOptimizedPairAndSpawn,
   type SpawnRequest,
   storeOptimizedOutcomeIn,
@@ -32,6 +39,7 @@ import {
 import type { SolverObjectiveName } from '../repository/schema';
 import { type ProjectEvent, subscriptionFor } from './broadcast';
 import {
+  type OptimizationVariantState,
   optimizationVariantState,
   type OptimizedScheduleReader,
 } from './optimized-schedule-reader';
@@ -87,7 +95,14 @@ export type ScheduleOptimizationFailedEvent = Extract<
   ProjectEvent,
   { type: 'schedule_optimization_failed' }
 >;
-export type OptimizationOutcomeEvent = ScheduleOptimizedEvent | ScheduleOptimizationFailedEvent;
+export type ScheduleOptimizationInfeasibleEvent = Extract<
+  ProjectEvent,
+  { type: 'schedule_optimization_infeasible' }
+>;
+export type OptimizationOutcomeEvent =
+  | ScheduleOptimizedEvent
+  | ScheduleOptimizationFailedEvent
+  | ScheduleOptimizationInfeasibleEvent;
 
 export interface RecordedOptimizedOutcome {
   readonly result: OutcomeWriteResult;
@@ -104,7 +119,7 @@ export function storeOptimizedOutcomeAndRecord(
 ): RecordedOptimizedOutcome {
   return db.transaction((tx) => {
     const result = storeOptimizedOutcomeIn(tx, write);
-    if (result !== 'stored' || write.outcome.kind === 'plan-infeasible') return { result };
+    if (result !== 'stored') return { result };
     const identity = {
       projectId: write.claim.projectId,
       generation: write.claim.generation,
@@ -116,11 +131,13 @@ export function storeOptimizedOutcomeAndRecord(
     const event: OptimizationOutcomeEvent =
       write.outcome.kind === 'ok'
         ? { type: 'schedule_optimized', ...identity }
-        : {
-            type: 'schedule_optimization_failed',
-            ...identity,
-            failureReason: write.outcome.reason,
-          };
+        : write.outcome.kind === 'failed'
+          ? {
+              type: 'schedule_optimization_failed',
+              ...identity,
+              failureReason: write.outcome.reason,
+            }
+          : { type: 'schedule_optimization_infeasible', ...identity };
     const subscription = subscriptionFor(write.claim.projectId);
     const recorded = eventLog.recordEventIn(tx, subscription, event, write.now);
     return { result, subscription, recorded, event };
@@ -150,6 +167,25 @@ export interface ReservedSolverChild extends SolverChildProcess {
 }
 
 export type ReservedSpawner = (request: ReservedSpawnRequest) => Promise<ReservedSolverChild>;
+
+export type OptimizationRetryResult =
+  | { readonly kind: 'stale-input-hash'; readonly currentInputHash: string }
+  | { readonly kind: 'not-retryable'; readonly state: OptimizationVariantState['state'] }
+  | { readonly kind: 'already-running' }
+  | {
+      readonly kind: 'accepted';
+      readonly state: 'retrying';
+      readonly generation: number;
+      readonly inputHash: string;
+    };
+
+type OptimizationRetryDecision =
+  | Extract<OptimizationRetryResult, { readonly kind: 'not-retryable' | 'already-running' }>
+  | {
+      readonly kind: 'accepted';
+      readonly generation: number;
+      readonly admission: ReservedAdmission | null;
+    };
 
 export const OPTIMIZATION_EDIT_DEBOUNCE_MS = 250;
 
@@ -252,8 +288,16 @@ export class OptimizationCoordinator {
       inputHash: request.key.inputHash,
       admittedCancelEpoch: request.admission.admittedCancelEpoch,
       outcome: { kind: 'failed', reason: 'internal-error' },
-      now: this.options.now(),
+      now: this.outcomeTimestamp(request),
     });
+  }
+
+  /** Never stamp a Retry replacement before the slot that authorized it. */
+  private outcomeTimestamp(request: ReservedSpawnRequest): number {
+    return Math.max(
+      this.options.now(),
+      solverAdmissionStartedAt(request.admission, request.key.budgetMs),
+    );
   }
 
   private storeOutcome(write: OutcomeWrite): OutcomeWriteResult {
@@ -347,7 +391,7 @@ export class OptimizationCoordinator {
             inputHash: request.key.inputHash,
             admittedCancelEpoch: request.admission.admittedCancelEpoch,
             outcome: evaluateSolverOutcome(request.input, request.request, outcome),
-            now: this.options.now(),
+            now: this.outcomeTimestamp(request),
           });
         },
       });
@@ -414,6 +458,7 @@ export class OptimizationCoordinator {
       }
       if (scheduleInputHash(input) !== next.inputHash) {
         releaseSolverSlot(this.options.db, slot);
+        if (!(await this.options.enabledOf(next.entry.projectId))) continue;
         this.read({ projectId: next.entry.projectId, objective: next.entry.objective, input });
         continue;
       }
@@ -451,6 +496,124 @@ export class OptimizationCoordinator {
       });
     }
   }
+
+  /**
+   * Admit one manual Retry in the contract's stale → retryable → live → capacity order.
+   * The retained marker remains the read authority until this attempt commits.
+   */
+  readonly retry = (ask: {
+    readonly projectId: string;
+    readonly objective: SolverObjectiveName;
+    readonly inputHash: string;
+    readonly input: ScheduleInput;
+  }): OptimizationRetryResult => {
+    const currentInputHash = scheduleInputHash(ask.input);
+    if (ask.inputHash !== currentInputHash) {
+      return { kind: 'stale-input-hash', currentInputHash };
+    }
+    const key = {
+      projectId: ask.projectId,
+      inputHash: currentInputHash,
+      contractVersion: this.options.contractVersion,
+      budgetMs: this.options.budgetMs,
+    };
+    const now = this.options.now();
+    const decision: OptimizationRetryDecision = this.options.db.transaction((tx) => {
+      const current = readGeneration(tx, ask.projectId, this.options.contractVersion);
+      if (current?.inputHash !== currentInputHash) {
+        return { kind: 'not-retryable', state: 'idle' } as const;
+      }
+
+      const outcome = readOptimizedPair(tx, key)[ask.objective];
+      const live = optimizedVariantIsLive(tx, key, current.generation, ask.objective);
+      if (outcome.kind !== 'failed' && outcome.kind !== 'corrupt') {
+        return {
+          kind: 'not-retryable',
+          state: optimizationVariantState(outcome, live).state,
+        } as const;
+      }
+      if (live) return { kind: 'already-running' } as const;
+
+      // Strictly after the marker even when a deterministic test clock has not
+      // advanced: storeOptimizedOutcomeIn uses this order to permit one update.
+      const admittedAt = Math.max(now, outcome.createdAt + 1);
+      const request = {
+        projectId: ask.projectId,
+        contractVersion: this.options.contractVersion,
+        generation: current.generation,
+        objective: ask.objective,
+        budgetMs: this.options.budgetMs,
+        ownerId: this.options.ownerId,
+        attemptToken: this.options.attemptToken(),
+        now: admittedAt,
+      };
+      const admission = reserveSolverSlotIn(tx, request);
+      if (admission.kind === 'already-present') return { kind: 'already-running' } as const;
+      if (admission.kind === 'closed') {
+        return { kind: 'not-retryable', state: outcome.kind } as const;
+      }
+      if (admission.kind === 'reserved') {
+        return { kind: 'accepted', generation: current.generation, admission } as const;
+      }
+      const queued = enqueueSolverRequestIn(tx, {
+        projectId: ask.projectId,
+        contractVersion: this.options.contractVersion,
+        generation: current.generation,
+        objective: ask.objective,
+        budgetMs: this.options.budgetMs,
+        enqueuedAt: admittedAt,
+      });
+      if (queued.kind === 'closed') {
+        return { kind: 'not-retryable', state: outcome.kind } as const;
+      }
+      if (queued.kind === 'already-present') return { kind: 'already-running' } as const;
+      return { kind: 'accepted', generation: current.generation, admission: null } as const;
+    });
+
+    if (decision.kind !== 'accepted') return decision;
+    if (decision.admission !== null) {
+      const built = buildSolverRequestPair(ask.input, this.options.solverVersion, key.budgetMs)[
+        ask.objective
+      ];
+      const slot = {
+        projectId: ask.projectId,
+        contractVersion: key.contractVersion,
+        generation: decision.generation,
+        objective: ask.objective,
+        budgetMs: key.budgetMs,
+        attemptToken: decision.admission.attemptToken,
+      };
+      if (!built.ok) {
+        try {
+          this.storeOutcome({
+            claim: { ...slot, ownerId: this.options.ownerId },
+            inputHash: currentInputHash,
+            admittedCancelEpoch: decision.admission.admittedCancelEpoch,
+            outcome: { kind: 'failed', reason: dispositionOfPreflightFailure(built.failure) },
+            now: Math.max(now, solverAdmissionStartedAt(decision.admission, key.budgetMs)),
+          });
+        } finally {
+          releaseSolverSlot(this.options.db, slot);
+          this.requestPump();
+        }
+      } else {
+        this.startReserved({
+          key,
+          objective: ask.objective,
+          generation: decision.generation,
+          admission: decision.admission,
+          request: built.request,
+          input: ask.input,
+        });
+      }
+    }
+    return {
+      kind: 'accepted',
+      state: 'retrying',
+      generation: decision.generation,
+      inputHash: currentInputHash,
+    };
+  };
 
   /**
    * The reader wired into {@link WorkItemService}. It is an arrow so handing it

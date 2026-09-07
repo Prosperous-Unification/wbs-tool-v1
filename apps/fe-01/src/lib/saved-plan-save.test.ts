@@ -28,12 +28,14 @@ const savedReply = (savedPlan: SavedPlanListEntryView): SavedPlanSaveReply => ({
 });
 const busyReply = (): SavedPlanSaveReply => ({
   kind: 'refusal',
+  representation: 'json',
   status: 503,
   headers: new Headers(),
   body: { error: 'snapshot_busy' },
 });
 const quotaReply = (): SavedPlanSaveReply => ({
   kind: 'refusal',
+  representation: 'json',
   status: 409,
   headers: new Headers(),
   body: { error: 'quota', refusal: { limit: 'plan_count', asked: 11, allowed: 10 } },

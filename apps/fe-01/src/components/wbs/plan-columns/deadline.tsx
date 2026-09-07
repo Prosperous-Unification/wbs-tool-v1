@@ -1,22 +1,13 @@
-import { deadlineOffsetOf, isIsoDate } from '@wbs/domain/workday';
-
+import { DEADLINE_EFFECT_HINT } from '../column-hints';
 import { DateField } from '../date-field';
+import { DEADLINE_BEFORE_START, deadlineBeforeProjectStart } from '../deadline-impossible';
 import { cellKey } from '../editable-grid';
 import type { PlanLive } from '../plan-live';
 import { shortIsoDate } from '../short-date';
 import { DATE_EDITOR_WIDTH } from '../table-frame';
 import { column } from './column';
 
-const DEADLINE_BEFORE_START =
-  "This deadline falls before the project's first working day, so nothing can finish by it. The date is kept; move the deadline or the project start.";
 const DEADLINE_MARK_PX = 10;
-
-/** Whether a stored deadline resolves before the project's first working day. */
-const deadlineBeforeProjectStart = (startDate: string | null, deadline: string | null): boolean => {
-  if (startDate === null || deadline === null) return false;
-  if (!isIsoDate(startDate) || !isIsoDate(deadline)) return false;
-  return deadlineOffsetOf(startDate, deadline).kind === 'before-project-start';
-};
 
 /** Builds the work-item deadline column against the stable live cell contract. */
 export function createDeadlineColumn({ live }: { live: PlanLive }) {
@@ -27,6 +18,7 @@ export function createDeadlineColumn({ live }: { live: PlanLive }) {
       const day = row.original.deadline;
       const noCalendar = live.current.startDate === null;
       const impossible = deadlineBeforeProjectStart(live.current.startDate, day);
+      const impossibleMarkId = impossible ? `deadline-impossible-${row.original.id}` : undefined;
       const editing = live.current.editingDeadline === row.original.id;
       const open = (): void => {
         if (!noCalendar) live.current.openDeadline(row.original.id);
@@ -37,10 +29,10 @@ export function createDeadlineColumn({ live }: { live: PlanLive }) {
 
       return editing ? (
         <DateField
-          aria-label={`Deadline for ${row.original.number}`}
+          aria-label={`Work item deadline for ${row.original.number}`}
           data-deadline={row.original.id}
           data-cell={cellKey(row.original.id, 'deadline')}
-          data-hint="The last day this work item may finish on. It does not move the plan; a plan that misses it says so."
+          data-hint={DEADLINE_EFFECT_HINT}
           onKeyDown={(event) => {
             if (event.key === 'Enter') close();
             live.current.onAltMove(event, row.original, 'deadline');
@@ -63,18 +55,18 @@ export function createDeadlineColumn({ live }: { live: PlanLive }) {
       ) : (
         <span style={{ position: 'relative', display: 'block' }}>
           <input
-            aria-label={`Deadline for ${row.original.number}`}
+            aria-label={`Work item deadline for ${row.original.number}`}
+            aria-describedby={impossibleMarkId}
+            aria-invalid={impossible ? true : undefined}
             disabled={noCalendar}
             data-deadline={row.original.id}
             data-cell={cellKey(row.original.id, 'deadline')}
             data-fact={
               noCalendar
-                ? 'Set the project start date first — without one there are no dates to hold a deadline against.'
+                ? 'Set the project start date first — without one there are no dates to hold a work item deadline against.'
                 : [
                     day === null ? null : `${day}.`,
-                    impossible
-                      ? DEADLINE_BEFORE_START
-                      : 'The last day this work item may finish on. It does not move the plan; a plan that misses it says so.',
+                    impossible ? DEADLINE_BEFORE_START : DEADLINE_EFFECT_HINT,
                   ]
                     .filter((part) => part !== null)
                     .join(' ')
@@ -110,8 +102,9 @@ export function createDeadlineColumn({ live }: { live: PlanLive }) {
           />
           {impossible && (
             <span
-              aria-label={`Deadline for ${row.original.number} falls before the project's first working day`}
+              aria-label={`Work item deadline for ${row.original.number} falls before the project's first working day`}
               role="img"
+              id={impossibleMarkId}
               data-deadline-impossible={row.original.id}
               style={{
                 position: 'absolute',

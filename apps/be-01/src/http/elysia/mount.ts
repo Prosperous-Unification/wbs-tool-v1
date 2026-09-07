@@ -358,6 +358,7 @@ async function validateRequest(
  */
 async function refuse(shape: EndpointShape, body: Refusal): Promise<Response> {
   for (const refusal of shape.refusals) {
+    if ('kind' in refusal) continue;
     const checked = await validateSchema(refusal.schema, body);
     if (checked.issues === undefined)
       return renderReply(shape, { ok: false, status: refusal.status, body });
@@ -384,6 +385,10 @@ async function renderReply(shape: EndpointShape, reply: EndpointReply): Promise<
   if (!reply.ok) {
     for (const refusal of shape.refusals) {
       if (refusal.status !== reply.status) continue;
+      if ('kind' in refusal) {
+        if (reply.body === EMPTY) return new Response(null, { status: reply.status, headers });
+        continue;
+      }
       if ((await validateSchema(refusal.schema, reply.body)).issues === undefined) {
         return Response.json(reply.body, { status: reply.status, headers });
       }

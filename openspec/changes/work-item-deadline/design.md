@@ -30,11 +30,20 @@ comparison indicator whose four strings are `Earlier by N days`, `Later by N
 days`, `Same deadline + reordered`, `Same deadline + same order`. That
 "deadline" is the **schedule's project finish date** and is now written
 **Project deadline**; this task's per-item constraint is always **Work item
-deadline**. The two indicator strings become `Same project deadline +
-reordered` and `Same project deadline + same order`. Amending them is a
-required slice of this change (§6 slice 8), not a follow-up: shipping a
-per-item "deadline" beside an unqualified "Same deadline" is the exact
-ambiguity the task exists to prevent.
+deadline**. **All four indicator strings** become `Earlier project deadline by N
+days`, `Later project deadline by N days`, `Same project deadline + reordered`
+and `Same project deadline + same order`. Amending them is a required slice of
+this change (§6 slice 8), not a follow-up: shipping a per-item "deadline" beside
+an unqualified "Same deadline" is the exact ambiguity the task exists to
+prevent.
+
+This paragraph, and the requirement it drives, named only the two `Same …`
+strings until 8.9b's search read them against the shipped component. Half a
+rename is the same ambiguity in a different sentence: "Earlier by 2 days" beside
+a **Work item deadline** column does not say which deadline moved, and
+`optimization-indicator.tsx` had already qualified all four when it shipped in
+PR 246 (`9a1f79e7`). The under-specification is corrected here rather than the
+code narrowed back to it.
 
 ## §1 Domain semantics
 

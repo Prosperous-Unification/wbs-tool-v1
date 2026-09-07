@@ -178,6 +178,24 @@ test('refuses ambiguous repeated empty statuses', () => {
   ).toThrow('ambiguous empty response at 204');
 });
 
+test('emits a typed refusal independently of where its empty alternative is declared', () => {
+  const typed = {
+    status: 400,
+    schema: responseSchema(type({ error: "'invalid_body'" })),
+  } as const;
+  const empty = { kind: 'empty', status: 400 } as const;
+  const responses = (
+    refusals: readonly [typeof empty, typeof typed] | readonly [typeof typed, typeof empty],
+  ) =>
+    documentFromShapes([{ ...batch, refusals }]).paths['/api/projects/{id}/commands']?.['post']
+      ?.responses;
+
+  expect(responses([empty, typed])).toEqual(responses([typed, empty]));
+  expect(responses([empty, typed])?.['400']?.content?.['application/json']?.schema).toEqual(
+    typed.schema.jsonSchema,
+  );
+});
+
 test('refuses object-level query constraints that cannot become named parameters', () => {
   const indexed = requestSchema(type({ '[string]': 'string' }));
   // Without the explicit mode, an indexed query is still refused rather than

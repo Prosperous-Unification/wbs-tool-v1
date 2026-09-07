@@ -29,6 +29,7 @@ import {
   patchProject,
   readProject,
   recordProjectOpen,
+  retryProjectOptimization,
 } from './project-shapes';
 import {
   compareSavedPlans,
@@ -78,6 +79,7 @@ export const httpShapes = [
   exportProject,
   readProject,
   patchProject,
+  retryProjectOptimization,
   getWorkItems,
   applyProjectCommands,
   applyDirectoryCommands,

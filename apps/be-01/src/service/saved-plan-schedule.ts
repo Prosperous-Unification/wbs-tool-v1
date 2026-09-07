@@ -1,6 +1,8 @@
 import {
+  deadlineOffsetsOf,
   effectiveTeamsOf,
   type EstimateRule,
+  type IsoDate,
   type Schedule,
   schedule,
   type Slice,
@@ -8,7 +10,7 @@ import {
 } from '@wbs/domain';
 
 import type { PlanInputReads, SavedPlanCaptureRepository } from '../repository/saved-plan-capture';
-import { slicesOf } from './work-item.service';
+import { NO_DEADLINES, slicesOf } from './work-item.service';
 
 /**
  * The dates a captured plan has, computed from the captured values alone.
@@ -67,6 +69,28 @@ export function schedulePlanInput(reads: PlanInputReads): Schedule {
       notBefore.set(row.id, workdaysBetween(reads.project.startDate, row.startNoEarlierThan));
     }
   }
+  // The seventh argument, folded exactly as the live projection folds it
+  // (`work-item.service.ts` `:418-428`) and keyed **as authored** — parents
+  // included, not pre-expanded to leaves, because `leafDeadlinesOf` inside
+  // `schedule()` owns the expansion and doing it twice is how the hash and the
+  // fold come to disagree. `NO_DEADLINES` is imported from the projection
+  // rather than declared again here: the empty case is one frozen map, so a
+  // capture cannot be handed a map somebody later writes into.
+  //
+  // Without a project start date there is nothing to count an offset from, the
+  // same reason `notBefore` above is left empty — and the same branch the
+  // projection takes, so the two agree about a project that has no start.
+  const deadlines =
+    reads.project.startDate === null
+      ? NO_DEADLINES
+      : deadlineOffsetsOf(
+          reads.project.startDate,
+          new Map(
+            rows
+              .filter((row): row is typeof row & { deadline: IsoDate } => row.deadline !== null)
+              .map((row) => [row.id, row.deadline]),
+          ),
+        );
   return schedule(
     rows,
     reads.dependencies,
@@ -74,6 +98,7 @@ export function schedulePlanInput(reads: PlanInputReads): Schedule {
     notBefore,
     reads.capacity,
     reads.project.depReach,
+    deadlines,
   );
 }
 

@@ -25,6 +25,7 @@ let logged: ReturnType<typeof muteConsoleError>;
 beforeEach(() => {
   me.mockResolvedValue({
     kind: 'refusal',
+    representation: 'json',
     status: 401,
     body: { error: 'invalid_token' },
     headers: new Headers(),

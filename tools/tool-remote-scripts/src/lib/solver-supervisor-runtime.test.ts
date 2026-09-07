@@ -67,6 +67,7 @@ class FakeDriver implements SolverSupervisorDriver {
       stdout: output(),
       stderr: output(),
       write: () => Promise.resolve(),
+      closeInput: () => Promise.resolve(),
     });
   }
 
@@ -156,8 +157,9 @@ describe('the solver supervisor runtime composition', () => {
     );
 
     expect(result).toBe(listener as ReturnType<SupervisorListen>);
-    // Proof: opening the socket before the awaited sweep moves listen ahead of remove.
-    expect(driver.events).toEqual(['list:1', 'inspect:1', 'remove', 'listen']);
+    // Proof: opening the socket before the awaited sweep moves listen ahead of
+    // the kill/wait/inspect/remove containment sequence.
+    expect(driver.events).toEqual(['list:1', 'kill', 'wait', 'inspect:1', 'remove', 'listen']);
     if (dependencies === undefined) throw new Error('listener dependencies were not composed');
     expect(dependencies.credentials({ fd: 17 }).pid).toBe(4242);
     expect((await dependencies.inspect(CALLER_ID, [/^wbs-dev-src$/])).id).toBe(CALLER_ID);
@@ -176,14 +178,14 @@ describe('the solver supervisor runtime composition', () => {
       image: 'wbs-dev-src:1',
     });
     expect(mapped).toEqual(['wbs-dev-src:wbs-dev-src:1']);
-    expect(driver.events.slice(4)).toEqual([
+    expect(driver.events.slice(6)).toEqual([
       'peer-inspect:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       'list:2',
       'create',
-      'attach',
       'timer',
       'start',
       'inspect:2',
+      'attach',
       'kill',
       'wait',
       'inspect:3',

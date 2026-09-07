@@ -57,7 +57,8 @@ export function documentFromShapes(shapes: readonly EndpointShape[]): ShapeDocum
     for (const response of shape.responses) {
       if (response.kind === 'json') assertInlineSchema(response.schema.jsonSchema);
     }
-    for (const refusal of shape.refusals) assertInlineSchema(refusal.schema.jsonSchema);
+    for (const refusal of shape.refusals)
+      if (!('kind' in refusal)) assertInlineSchema(refusal.schema.jsonSchema);
     // Proof: removing blank-name or duplicate-name refusal made the named emitter
     // tests return documents instead of throwing (document-from-shapes.test.ts).
     if (shape.operationId.trim() === '' || names.has(shape.operationId)) {
@@ -126,10 +127,21 @@ export function documentFromShapes(shapes: readonly EndpointShape[]): ShapeDocum
       });
     }
     for (const refusal of shape.refusals) {
+      if ('kind' in refusal) continue;
       addResponse(responses, refusal.status, {
         description: 'Refusal',
         content: { 'application/json': { schema: refusal.schema.jsonSchema } },
       });
+    }
+    for (const refusal of shape.refusals) {
+      if (!('kind' in refusal)) continue;
+      // OpenAPI has one response slot per status. Keep the JSON schema when
+      // this status also has a typed body; the runtime declaration still
+      // admits the endpoint's deliberate empty alternative.
+      // Proof: emitting in declaration order made the reversed mixed-refusal
+      // test throw "ambiguous empty response at 400" instead of producing the same document.
+      if (responses[String(refusal.status)] === undefined)
+        addResponse(responses, refusal.status, { description: 'Refusal' });
     }
     // Proof: removing operationId made the actual MCP consumer reject the emitted
     // document; dropping label or one commands union arm failed its input assertions

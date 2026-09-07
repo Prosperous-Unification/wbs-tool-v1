@@ -90,9 +90,11 @@ type Success<R> = R extends { kind: 'json'; status: infer S; schema: SchemaShape
     : R extends { kind: 'empty'; status: infer S }
       ? { kind: 'success'; representation: 'empty'; status: S; headers: Headers }
       : never;
-type Refused<R> = R extends { status: infer S; schema: SchemaShape<infer T> }
-  ? { kind: 'refusal'; status: S; body: T; headers: Headers }
-  : never;
+type Refused<R> = R extends { kind: 'empty'; status: infer S }
+  ? { kind: 'refusal'; representation: 'empty'; status: S; headers: Headers }
+  : R extends { status: infer S; schema: SchemaShape<infer T> }
+    ? { kind: 'refusal'; representation: 'json'; status: S; body: T; headers: Headers }
+    : never;
 
 /** Status and representation remain paired with their own schema's inferred output. */
 export type ClientReply<S extends EndpointShape> =

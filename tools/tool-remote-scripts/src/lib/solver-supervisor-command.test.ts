@@ -130,6 +130,7 @@ describe('the host-owned solver command builder', () => {
       'docker',
       'ps',
       '--all',
+      '--no-trunc',
       '--filter',
       'label=wbs-managed-solver=true',
       '--format',

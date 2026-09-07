@@ -1352,7 +1352,9 @@ export function WbsTable({
         <OptimizationIndicator
           optimization={chartRead.optimization}
           stale={treeMayBeStale}
-          workItemName={(id) => flat.find((row) => row.id === id)?.name ?? id}
+          projectStart={startDate}
+          today={new Date()}
+          workItemName={(id) => flat.find((row) => row.id === id)?.name ?? null}
         />
       )}
 
@@ -1493,12 +1495,11 @@ export function WbsTable({
           createTeam={(row, name, currentTeamIds) => {
             return createTeamFor(row.id, name, currentTeamIds);
           }}
-          // The `not-before` cell's own question and its own writer, handed to
-          // the face that had neither. `hasCalendar` is the cell's `noCalendar`
-          // read the positive way round: without a project start date be-01
-          // ignores the constraint, so both faces refuse rather than taking a
-          // date that would do nothing.
-          hasCalendar={startDate !== null}
+          // The `not-before` and `deadline` cells' calendar, handed to the face
+          // that cannot read it from a row. Both controls derive availability
+          // from it, and the deadline also uses the date to identify a stored
+          // deadline that the project start has moved past.
+          projectStart={startDate}
           // Both boxes in one call, which is what the third argument is for —
           // `setNotBefore` is the table's own writer widened, not a card-shaped
           // copy, so a date set on a phone reaches be-01 by the path a date set
@@ -1506,6 +1507,10 @@ export function WbsTable({
           // transaction is answered by one request.
           setNotBefore={(row, day, reason) => {
             setNotBefore(row.id, day, reason);
+          }}
+          // A deadline has no reason field, so clearing it remains one field.
+          setDeadline={(row, day) => {
+            setDeadline(row.id, day);
           }}
           // The Prio cell's own writer, handed to the face that had none — and
           // the string, not a parsed number, because `setPriority` is where

@@ -61,6 +61,7 @@ class SpawnRecorder {
   readonly argv: string[][] = [];
   readonly inputModes: ('ignore' | 'pipe')[] = [];
   readonly writes: string[] = [];
+  ends = 0;
   readonly replies: Reply[] = [];
 
   readonly spawn: ManagedCommandSpawn = (
@@ -82,6 +83,10 @@ class SpawnRecorder {
                 return Promise.resolve();
               },
               flush: (): Promise<void> => Promise.resolve(),
+              end: (): Promise<void> => {
+                this.ends += 1;
+                return Promise.resolve();
+              },
             }
           : null,
     };
@@ -171,11 +176,13 @@ describe('the concrete managed-container driver', () => {
     const attachment = await driver.attach(exactManagedContainerArgs('attach', CONTAINER_ID));
 
     await attachment.write('bound\n');
+    await attachment.closeInput();
     expect(await textOf(attachment.stdout)).toBe('answer');
     expect(await textOf(attachment.stderr)).toBe('warning');
     await attachment.closed;
     expect(recorder.inputModes).toEqual(['pipe']);
     expect(recorder.writes).toEqual(['bound\n']);
+    expect(recorder.ends).toBe(1);
   });
 
   it('records a successful persistent timer activation and cancels both transient units', async () => {

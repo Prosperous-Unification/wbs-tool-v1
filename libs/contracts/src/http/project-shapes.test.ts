@@ -9,6 +9,7 @@ import {
   patchProject,
   readProject,
   recordProjectOpen,
+  retryProjectOptimization,
 } from './project-shapes';
 import { validateSchema } from './schema-shape';
 
@@ -19,9 +20,10 @@ const shapes = [
   exportProject,
   readProject,
   patchProject,
+  retryProjectOptimization,
 ] as const;
 
-test('preserves six operation ids and declares both export representations without undo flags', () => {
+test('preserves seven operation ids and declares both export representations without undo flags', () => {
   expect(shapes.map((shape) => shape.operationId)).toEqual([
     'postApiProjects',
     'getApiProjects',
@@ -29,6 +31,7 @@ test('preserves six operation ids and declares both export representations witho
     'getApiProjectsByIdExport',
     'getApiProjectsById',
     'patchApiProjectsById',
+    'postApiProjectsByIdOptimizationRetry',
   ]);
   expect(createProject.responses[0].schema).toBe(projectWithSteps);
   expect(readProject.responses[0].schema).toBe(projectWithSteps);
@@ -44,6 +47,32 @@ test('preserves six operation ids and declares both export representations witho
   expect(document.paths['/api/projects/{id}']?.['patch']?.requestBody).toMatchObject({
     required: true,
   });
+});
+
+test('declares the Retry request and every established wire outcome', async () => {
+  expect(
+    await validateSchema(retryProjectOptimization.body, {
+      objective: 'pri',
+      inputHash: 'held-hash',
+    }),
+  ).toEqual({ value: { objective: 'pri', inputHash: 'held-hash' } });
+  for (const body of [{ objective: 'quickest', inputHash: 'held-hash' }, { objective: 'pri' }])
+    expect((await validateSchema(retryProjectOptimization.body, body)).issues).toBeDefined();
+  expect(
+    await validateSchema(retryProjectOptimization.body, {
+      objective: 'pri',
+      inputHash: 'held-hash',
+      extra: true,
+    }),
+  ).toEqual({ value: { objective: 'pri', inputHash: 'held-hash' } });
+  expect(retryProjectOptimization.responses.map(({ status }) => status)).toEqual([202]);
+  expect(retryProjectOptimization.refusals.map(({ status }) => status)).toContain(409);
+  const operation = documentFromShapes([retryProjectOptimization]).paths[
+    '/api/projects/{id}/optimization/retry'
+  ]?.['post'];
+  expect(operation?.operationId).toBe('postApiProjectsByIdOptimizationRetry');
+  expect(operation?.responses).toHaveProperty('202');
+  expect(operation?.responses).toHaveProperty('409');
 });
 
 test('allows empty names and empty patches while rejecting unknown nested fields', async () => {

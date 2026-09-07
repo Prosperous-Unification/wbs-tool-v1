@@ -338,28 +338,40 @@ between two ready slices; that comment now says so and says why.
 
 `tasks.md` 10.1 asks for all six watched reds "recorded failing before their
 implementation lands, per AGENTS.md R5, each with the exact fault injected and
-the exact assertion that caught it". **Three of the six are in this change's
-slices 2–4 and are recorded below. The other three are in slices 7–8, which this
-change does not own** — the ownership table gives them to `dual-optimized-scheduler`
-(TASK-219/241) — **so 10.1 stays unticked until those land and append here.**
-Ticking it on a half ledger would claim evidence for reds nobody has run.
+the exact assertion that caught it". **All six are now here.** W1, W3 and W4 are
+this change's own slices 2–4 and were recorded first; W2, W5 and W6 are slices
+7–8, which the ownership table gives to `dual-optimized-scheduler`
+(TASK-219/241), and they appended here as they landed. The item stayed unticked
+while the ledger was a half ledger, because ticking it then would have claimed
+evidence for reds nobody had run.
 
-| red    | `tasks.md` | fault                                                       | state                           |
-| ------ | ---------- | ----------------------------------------------------------- | ------------------------------- |
-| **W1** | 4.4        | drop the `max` term from `lastWorkdayOf`                    | recorded below, twice           |
-| **W2** | 8.4        | `finishUnits <= (D + 1) × quantum` in the CP-SAT constraint | owed — slice 8, not this change |
-| **W3** | 2.4        | `workdaysBetween` in place of `deadlineOffsetOf`            | recorded below                  |
-| **W4** | 3.5        | `max` instead of `min` in the deadline fold                 | recorded below                  |
-| **W5** | 8.6        | map solver `infeasible` onto `unknown`                      | owed — slice 8, not this change |
-| **W6** | 7.6        | omit the seventh argument from the canonical-input hash     | owed — slice 7, not this change |
+| red    | `tasks.md` | fault                                                       | where measured         | state                 |
+| ------ | ---------- | ----------------------------------------------------------- | ---------------------- | --------------------- |
+| **W1** | 4.4        | drop the `max` term from `lastWorkdayOf`                    | h2puni                 | recorded below, twice |
+| **W2** | 8.4        | `finishUnits <= (D + 1) × quantum` in the CP-SAT constraint | h2puni at `eff07d9f`   | recorded below        |
+| **W3** | 2.4        | `workdaysBetween` in place of `deadlineOffsetOf`            | h2puni                 | recorded below        |
+| **W4** | 3.5        | `max` instead of `min` in the deadline fold                 | h2puni                 | recorded below        |
+| **W5** | 8.6        | map solver `infeasible` onto `unknown`                      | **CI** run 34079393999 | recorded below        |
+| **W6** | 7.6        | omit the seventh argument from the canonical-input hash     | h2puni at `0e716cba`   | recorded below        |
 
-Every measurement below ran on **h2puni** over ssh; nothing was built or run on
-the workspace box. **For W1, W3 and W4** each fault was reverted immediately and
-the restored file md5-compared on both hosts, and that md5 is quoted with the
-file it belongs to, so the revert is checkable rather than asserted. The
-slice-level table further down does not carry restoring hashes; its faults are
-cited by count and by failing assertion only, and it says so rather than
-borrowing this sentence.
+**Five of the six ran on h2puni over ssh; nothing was built or run on the
+workspace box. W5 is the exception, and it is named rather than blurred:** by
+the time 8.6 could be measured against a route, h2puni was at 100% inodes
+(`df -i /`: `9849520 / 9849520`, `IFree 0`, filed as `TASK-315`) and no gate
+could run there at all, so W5's fault went up to CI instead — as a draft PR that
+was closed and its branch deleted the moment the red was read.
+
+**The restoration evidence also differs by red, and that is three sentences
+rather than one.** For W1, W3 and W4 each fault was reverted immediately and the
+restored file md5-compared on both hosts, and that md5 is quoted with the file it
+belongs to, so the revert is checkable rather than asserted. W6 records only that
+the tree was restored clean after the probe. W2 and W5 carry no restoring hash at
+all: W2's two substitutions were made and undone inside a single h2puni gate
+session, and W5's fault never existed anywhere but on a deleted branch — so for
+those two what is checkable is that the fault is absent at the shipped head, not
+that a hash matches. The slice-level table further down likewise cites its faults
+by count and by failing assertion only, and it says so rather than borrowing this
+sentence.
 
 ### W3 — `workdaysBetween` substituted for `deadlineOffsetOf` (2.4)
 
@@ -435,6 +447,114 @@ consistency case cannot double as a correctness case, and reading its green as
 proof of either function would be the check-that-cannot-fail shape R5 exists to
 forbid. It is kept for the one thing it does prove — that the definition is an
 identity and not a second comparison.
+
+### W2 — `end <= deadlineUnits` restored in CP-SAT clause 6 (8.4)
+
+**Measured on h2puni at `eff07d9f` (PR 256), one fault per side of the seam, and
+each reds exactly one case.**
+
+`libs/solver-py/src/wbs_solver/model.py` clause 6 ships as
+`start + max(duration, 1) <= deadlineUnits`. Substituting the pre-change
+`end <= int(deadline)` back takes `solver-py`'s unittest suite from a green
+**195 OK** to **1 red / 194 green**, and the red is
+`test_a_zero_duration_milestone_one_day_late_is_infeasible`.
+
+**The fault as measured and the fault as 10.1 words it are the same off-by-one
+seen from two sides, and the difference is recorded rather than smoothed over.**
+The item says `finishUnits <= (D + 1) × quantum`; what was actually substituted
+is `end <= int(deadline)`. For a zero-duration milestone `end == start`, so the
+shipped `start + max(duration, 1) <= D` requires the milestone to stand strictly
+inside the deadline while `end <= D` admits it standing on the exclusive
+boundary — the same extra day, written in the units the file already used.
+**That is also why the case had to be the milestone:** every non-zero-duration
+fixture has `end > start` and is blind to the substitution, which is 8.4's own
+claim, measured rather than argued.
+
+The Bun half is the second control. Substituting a units-style
+`earliestFinish > dueDay + 1` for the `isOnTime` call in
+`revalidateOptimizedDeadlines` reds exactly one of the `contracts` suite's 256
+cases, the new `refuses a zero-duration milestone standing on the exclusive
+boundary`.
+
+No restoring md5 is quoted for either half — both substitutions were made and
+undone inside the same h2puni gate session. What is checkable at this head is
+that clause 6 reads `start + max(duration, 1) <= deadlineUnits` and that the
+revalidator's verdict goes through `isOnTime`.
+
+### W5 — solver `infeasible` folded onto `unknown` (8.6)
+
+**Measured on CI, not h2puni**, for the reason the intro gives. The fault, in
+`apps/be-01/src/service/solver-exit-outcome.ts` inside
+`if (response.status !== 'feasible')`:
+
+```ts
+const status = response.status === 'infeasible' ? ('unknown' as const) : response.status;
+if (status === 'unknown') return { kind: 'failed', reason: 'no-solution' };
+```
+
+CI fires on `pull_request` and `push: [main]` and not on a bare branch push, so
+the fault went up as **draft PR 274**, `red/t241-w5`, head `754eff8d`, **closed
+and its branch deleted the moment the red was read**. Gate run **34079393999**
+failed tasks `be-01:test` and `be-01:lint` at two sites:
+
+| where                                | expected                                       | received                                                                         |
+| ------------------------------------ | ---------------------------------------------- | -------------------------------------------------------------------------------- |
+| `solver-exit-outcome.test.ts:116`    | `{ kind: 'failed', reason: 'invalid-output' }` | `reason: 'no-solution'`                                                          |
+| `optimization-events.db.test.ts:278` | two `schedule_optimization_infeasible` events  | two `schedule_optimization_failed`, each carrying `failureReason: 'no-solution'` |
+
+**W5 is the one red in this ledger with no pass/fail count, and the reason is
+the host it had to run on.** A CI gate reports failed task names and failing
+assertions; it does not print a suite total the way an ssh gate does, and the
+only totals available for this fault — `1840 pass / 1 fail` — belong to the
+**withdrawn** earlier measurement at `4538b811` recorded below, not to run
+34079393999, so borrowing them here would attach a count to the wrong
+measurement. What W5 carries instead is the two exact assertion sites, which is
+what the item is actually about.
+
+The second site is 8.6's own sentence. Those two events are the disposition of a
+**real** `status: 'infeasible'` wire response over a deadlined input, and under
+the fault both variants become `failed` rows — and `failed` is exactly what
+`optimization-coordinator.ts`'s retry admits, so an infeasible plan starts
+offering a Retry that re-solves an unchanged input for the same proof.
+
+**What the red does not show, stated rather than implied.** The refusal
+assertion added for 8.6 sits _after_ that event assertion in the same case, so
+the case aborts before reaching it and the failure list names line 278 rather
+than the refusal. The refusal's own proof is the green side: gate run
+**34079387465** on `change/deadline-w5-retry` at `2796ca13`, where
+`instance.retry(...)` answers `{ kind: 'not-retryable', state:
+'plan-infeasible' }` for both `pri` and `time` on those same two rows. The red
+proves the rows stop being `plan-infeasible`; the green proves that while they
+are, Retry refuses them.
+
+**An earlier and weaker measurement was withdrawn on purpose, and is recorded so
+the withdrawal is checkable.** Substituting the same mapping at `4538b811` gave
+1840 pass / 1 fail, the single failure being `evaluateSolverOutcome > keeps
+classified process failures and distinguishes solver no-answer states`. That
+proves the classification seam distinguishes the two statuses and says nothing
+about Retry: at that head the refusal had no route to be refused at — 8.7d did
+not exist — and `optimization-coordinator.db.test.ts`'s `generationWith` writes
+its `plan-infeasible` row **directly**, so no substitution inside
+`solver-exit-outcome.ts` can reach it.
+
+### W6 — the seventh argument dropped from the canonical input (7.6)
+
+**Measured on h2puni at `0e716cba` with `NX_DAEMON=false`.** Deleting
+`deadlines: sortedPairs(input.deadlines)` from `canonical-schedule-input.ts`
+takes `canonical-schedule-input.test.ts` from a green **26 pass / 0 fail** to
+**23 pass / 3 fail**, and the three reds are exactly the ones 7.6 names.
+
+| red case                                                             | what it catches                                                                                                                                                                                 |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `a deadline the engine now reads`                                    | W6 itself: two plans differing only in `b`'s deadline hash equal, while `schedule()` places `b` and `c` in the opposite order — so the second plan reads the first's schedule off one cache row |
+| `a deadline authored on the parent rather than on its only leaf`     | 7.1's as-authored key collapses with the entry                                                                                                                                                  |
+| `puts every one of the seven arguments in the string, maps included` | the structural guard, catching the same hole a second way                                                                                                                                       |
+
+This is the same removal the 1.9 sweep recorded as `22 / 2` at `05b78008`. The
+third red is new because 7.1 added a case, and the first now reds on **both** of
+its assertions rather than on the hash alone, because the engine has read the
+field since TASK-267 slice 5. Tree restored clean after the probe; no restoring
+md5 was taken.
 
 ### The slice-level reds this change also measured
 

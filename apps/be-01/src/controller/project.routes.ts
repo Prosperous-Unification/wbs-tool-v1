@@ -5,11 +5,13 @@ import {
   patchProject,
   readProject,
   recordProjectOpen,
+  retryProjectOptimization,
 } from '@wbs/contracts';
 
 import { bind, EMPTY, type HttpReply, type RequestFailure } from '../http/endpoint';
 import type { Project } from '../repository';
-import type { ProjectService } from '../service/project.service';
+import type { OptimizationCoordinator } from '../service/optimization-coordinator';
+import { canEdit, type ProjectService } from '../service/project.service';
 import type { WorkItemService } from '../service/work-item.service';
 
 interface ExportedWorkItem {
@@ -83,7 +85,11 @@ function classifyExportFailure(failure: RequestFailure) {
  * of access checks, semantic date/weight refusals and optimizer announcements.
  * Opening is caller navigation, so it bypasses canEdit while retaining write scope.
  */
-export function projectRoutes(projects: ProjectService, workItems: WorkItemService) {
+export function projectRoutes(
+  projects: ProjectService,
+  workItems: WorkItemService,
+  optimizer?: Pick<OptimizationCoordinator, 'retry'>,
+) {
   return [
     bind(
       createProject,
@@ -150,6 +156,56 @@ export function projectRoutes(projects: ProjectService, workItems: WorkItemServi
           // Proof: mapping this to 422 made the mounted unavailable-optimizer test receive 500 instead of 409.
           case 'optimizer_unavailable':
             return { ok: false, status: 409, body: { error: outcome.reason } };
+        }
+      },
+      { classifyRequestFailure: classifyBodyFailure },
+    ),
+    bind(
+      retryProjectOptimization,
+      async ({ params, body, principal }): Promise<HttpReply<typeof retryProjectOptimization>> => {
+        const found = await projects.read(params.id);
+        if (found === null) return { ok: false, status: 404, body: { error: 'not_found' } };
+        if (!canEdit(found.project, principal.id)) {
+          return { ok: false, status: 403, body: { error: 'forbidden' } };
+        }
+        const input = await workItems.scheduleInput(params.id);
+        if (input === null) return { ok: false, status: 404, body: { error: 'not_found' } };
+        if (optimizer === undefined) {
+          return {
+            ok: false,
+            status: 409,
+            body: { code: 'not-retryable', state: 'idle' },
+          };
+        }
+        const outcome = optimizer.retry({ projectId: params.id, ...body, input });
+        switch (outcome.kind) {
+          case 'stale-input-hash':
+            return {
+              ok: false,
+              status: 409,
+              body: {
+                code: 'stale-input-hash',
+                currentInputHash: outcome.currentInputHash,
+              },
+            };
+          case 'not-retryable':
+            return {
+              ok: false,
+              status: 409,
+              body: { code: 'not-retryable', state: outcome.state },
+            };
+          case 'already-running':
+            return { ok: false, status: 409, body: { code: 'already-running' } };
+          case 'accepted':
+            return {
+              ok: true,
+              status: 202,
+              body: {
+                state: outcome.state,
+                generation: outcome.generation,
+                inputHash: outcome.inputHash,
+              },
+            };
         }
       },
       { classifyRequestFailure: classifyBodyFailure },

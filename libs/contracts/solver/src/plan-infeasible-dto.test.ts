@@ -117,6 +117,20 @@ describe('plan-infeasible cache DTO', () => {
     expect(() =>
       decodePlanInfeasible({
         dtoVersion: 1,
+        items: [{ ownerWorkItemId: 'a', boundWorkItemId: 'b', effectiveDeadlineOffset: -2 }],
+      }),
+    ).toThrow(/effectiveDeadlineOffset/);
+    expect(
+      decodePlanInfeasible({
+        dtoVersion: 1,
+        items: [{ ownerWorkItemId: 'a', boundWorkItemId: 'b', effectiveDeadlineOffset: -1 }],
+      }),
+    ).toEqual({
+      items: [{ ownerWorkItemId: 'a', boundWorkItemId: 'b', effectiveDeadlineOffset: -1 }],
+    });
+    expect(() =>
+      decodePlanInfeasible({
+        dtoVersion: 1,
         items: [
           { ownerWorkItemId: 'a', boundWorkItemId: 'b', effectiveDeadlineOffset: 5 },
           { ownerWorkItemId: 'parent', boundWorkItemId: 'b', effectiveDeadlineOffset: 8 },

@@ -106,6 +106,12 @@ const row = (over: Partial<ExportRow> & Pick<ExportRow, 'id' | 'number'>): Expor
   // No floor, so no words about one — the pair be-01 refuses is the only one
   // this fixture cannot build by accident.
   startNoEarlierThanReason: null,
+  // No deadline, spelled out for the same reason as everything above: a
+  // `Partial` spread satisfies a required field the base object omits, so the
+  // omission would compile and every row in this file would carry `undefined`
+  // — which is neither a date nor the absence of one, and is exactly how the
+  // Priority column came to export the literal text `undefined`.
+  deadline: null,
   dates: null,
   schedule: { earliestStart: 0, earliestFinish: 0, float: 0, critical: false },
   assignees: {},
@@ -307,6 +313,8 @@ describe('the columns', () => {
       'Priority band',
       'Not before',
       'Not before because',
+      'Work item deadline',
+      'Work item deadline unreachable',
       'Starts',
       'Ends',
       'Slack',
@@ -513,6 +521,116 @@ describe('the columns', () => {
     expect(csvDataRow(csv)[date]).toBe('2026-09-12');
     expect(csvDataRow(csv, 1)[at]).toBe('');
     expect(csvDataRow(csv, 2)[at]).toBe('');
+  });
+
+  it('exports the work item deadline as its own column, beside the floor and blank where there is none', () => {
+    // TASK-291 AC #1. The asymmetry that made this a defect: `Not before` is
+    // the floor and it has always been exported, while the deadline one column
+    // over was dropped with nothing on the sheet saying a column was missing —
+    // so a reader handing the export to somebody lost every date the plan is
+    // actually judged against.
+    //
+    // Blank and not `—` on a row with no deadline, which is the bargain
+    // `Priority` and `Not before` already keep: a spreadsheet reader sorting
+    // this column wants an empty cell, and the em-dash the table draws is a
+    // screen affordance rather than a value.
+    //
+    // Positioned with the other date columns and asserted as such rather than
+    // by a typed index — `columnAt` reads the header, so a column inserted to
+    // the left moves this with it.
+    const rows = [
+      row({ id: 'a', number: '010', startNoEarlierThan: '2026-09-12', deadline: '2026-09-30' }),
+      row({ id: 'b', number: '020' }),
+    ];
+    const csv = planToCsv(plan({ rows, startDate: '2026-09-01' }));
+    const at = columnAt(csv, 'Work item deadline');
+
+    expect(csvDataRow(csv)[at]).toBe('2026-09-30');
+    expect(csvDataRow(csv, 1)[at]).toBe('');
+    // Among the dates rather than at the end of the sheet: after the floor it
+    // sits beside, before the placement columns the schedule produced.
+    expect(at).toBeGreaterThan(columnAt(csv, 'Not before because'));
+    expect(at).toBeLessThan(columnAt(csv, 'Starts'));
+
+    const markdown = planToMarkdown(plan({ rows, startDate: '2026-09-01' }));
+    const heading = markdown
+      .split('\n')
+      .find((each) => each.startsWith('| Number |'))
+      ?.slice(1, -1)
+      .split(' | ')
+      .map((cell) => cell.trim());
+    const column = heading?.indexOf('Work item deadline') ?? -1;
+    expect(column).toBeGreaterThan(-1);
+    expect(markdownRow(markdown, '010')[column]).toBe('2026-09-30');
+    expect(markdownRow(markdown, '020')[column]).toBe('');
+  });
+
+  it('says a work item deadline is unreachable rather than printing the impossible date alone', () => {
+    // TASK-291 AC #3, the read-time `before-project-start` case: somebody typed
+    // a legal date and the project start then moved past it. The date is
+    // printed unchanged — it is what the reader typed and what be-01 still
+    // stores — and the state goes in a column of its own, which is `Not before
+    // because`'s shape exactly: a date column that also carried a sentence
+    // would stop being a date column.
+    //
+    // `deadlineBeforeProjectStart` and therefore `deadlineOffsetOf`, the same
+    // function be-01's write boundary calls, so this sheet cannot hold a
+    // second opinion about the predicate. **No lateness is recomputed here**:
+    // `Late by N workdays` is be-01's number and 9.2's rule is that no view
+    // derives it.
+    //
+    // The wording is "first working day" and not "start", for the reason the
+    // table's own copy records: a project starting Saturday 2026-08-08 with a
+    // deadline of that same Saturday is impossible while the two dates a reader
+    // can see are equal.
+    const rows = [
+      // Impossible: 2026-08-31 is a Monday and the project starts the Tuesday
+      // after it.
+      row({ id: 'a', number: '010', deadline: '2026-08-31' }),
+      // Ordinary, on the same plan, so the column is proved to be about the
+      // predicate and not about carrying a deadline at all.
+      row({ id: 'b', number: '020', deadline: '2026-09-30' }),
+      // No deadline: nothing to be unreachable.
+      row({ id: 'c', number: '030' }),
+    ];
+    const csv = planToCsv(plan({ rows, startDate: '2026-09-01' }));
+    const state = columnAt(csv, 'Work item deadline unreachable');
+    const date = columnAt(csv, 'Work item deadline');
+
+    expect(csvDataRow(csv)[state]).toBe("before the project's first working day");
+    // Printed unchanged beside it, never blanked: blanking would be this
+    // document deleting the reader's input on somebody else's edit.
+    expect(csvDataRow(csv)[date]).toBe('2026-08-31');
+    expect(csvDataRow(csv, 1)[state]).toBe('');
+    expect(csvDataRow(csv, 2)[state]).toBe('');
+  });
+
+  it('claims nothing about a work item deadline on a plan with no start date, or a date be-01 never stored', () => {
+    // The two modelled absences the table's cell answers the same way, and the
+    // negative controls for the assertion above: with no day zero there is
+    // nothing for a date to fall before — be-01 applies no deadline at all
+    // there — and `deadlineOffsetOf` *throws* on a value that is not a calendar
+    // date, which an export is not the moment to take a download down over.
+    //
+    // Proof: `deadlineBeforeProjectStart`'s `isIsoDate` guard removed and this
+    // case failed, 1 of 64 — `Error: not a calendar date: "the end of August"`
+    // thrown from `toUtc` (`workday.ts:24`) through `previousWorkday` →
+    // `deadlineOffsetOf` → `deadline-impossible.ts:39` → `plan-export.ts`'s
+    // `cell` → `planToCsv`; watched on h2puni 2026-09-07, TASK-309. The other
+    // 63 passed, so the guard is not one that fires on every row.
+    const rows = [row({ id: 'a', number: '010', deadline: '2026-08-31' })];
+    const offCalendar = planToCsv(plan({ rows, startDate: null }));
+    expect(csvDataRow(offCalendar)[columnAt(offCalendar, 'Work item deadline unreachable')]).toBe(
+      '',
+    );
+    // Still exported, because the date is a fact whether or not the plan is on
+    // a calendar to judge it against.
+    expect(csvDataRow(offCalendar)[columnAt(offCalendar, 'Work item deadline')]).toBe('2026-08-31');
+
+    const nonsense = [row({ id: 'a', number: '010', deadline: 'the end of August' })];
+    const text = planToCsv(plan({ rows: nonsense, startDate: '2026-09-01' }));
+    expect(csvDataRow(text)[columnAt(text, 'Work item deadline unreachable')]).toBe('');
+    expect(csvDataRow(text)[columnAt(text, 'Work item deadline')]).toBe('the end of August');
   });
 
   it('escapes a reason like any other row text, in both formats', () => {

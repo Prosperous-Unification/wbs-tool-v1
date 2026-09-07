@@ -682,7 +682,9 @@ describe('Tab moves between the fields, from every cell', () => {
     // both at once.
     await threeRoots();
     expect(screen.getByLabelText<HTMLInputElement>('Earliest start for 010').disabled).toBe(true);
-    expect(screen.getByLabelText<HTMLInputElement>('Deadline for 010').disabled).toBe(true);
+    expect(screen.getByLabelText<HTMLInputElement>('Work item deadline for 010').disabled).toBe(
+      true,
+    );
 
     // Straight into the next row: both dates are stepped over and they were the
     // last cells of this one, now that the notes are written under the name.
@@ -706,13 +708,13 @@ describe('Tab moves between the fields, from every cell', () => {
     expect(fireEvent.keyDown(screen.getByLabelText('Earliest start for 010'), { key: 'Tab' })).toBe(
       false,
     );
-    expect(document.activeElement).toBe(screen.getByLabelText('Deadline for 010'));
+    expect(document.activeElement).toBe(screen.getByLabelText('Work item deadline for 010'));
 
     // And out again. A date input is focused rather than selected: it has no
     // text caret to ask for.
-    expect(fireEvent.keyDown(screen.getByLabelText('Deadline for 010'), { key: 'Tab' })).toBe(
-      false,
-    );
+    expect(
+      fireEvent.keyDown(screen.getByLabelText('Work item deadline for 010'), { key: 'Tab' }),
+    ).toBe(false);
     expect(document.activeElement).toBe(screen.getByLabelText('Name of 020'));
   });
 

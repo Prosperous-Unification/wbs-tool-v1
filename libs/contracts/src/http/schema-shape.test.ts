@@ -25,6 +25,22 @@ describe('the HTTP schema declaration boundary', () => {
     ).toBeUndefined();
   });
 
+  test('deletes undeclared request fields only when the contract opts in', async () => {
+    const shape = requestSchema(type({ objective: "'pri' | 'time'", inputHash: 'string' }), {
+      undeclaredKeys: 'delete',
+    });
+    const body = { objective: 'pri', inputHash: 'held', ignored: 'future-field' };
+
+    expect(await validateSchema(shape, body)).toEqual({
+      value: { objective: 'pri', inputHash: 'held' },
+    });
+    expect(body).toHaveProperty('ignored', 'future-field');
+    expect(
+      (await validateSchema(shape, { objective: 'quickest', inputHash: 'held', ignored: true }))
+        .issues,
+    ).toBeDefined();
+  });
+
   test('emits both nested command arms and optional fields from the same declaration', () => {
     const shape = requestSchema(commands);
     expect(shape.jsonSchema).toMatchObject({

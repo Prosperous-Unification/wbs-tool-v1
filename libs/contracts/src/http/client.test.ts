@@ -6,6 +6,7 @@ import { ClientConfigurationError } from './client-error';
 import { fetchTransport } from './client-fetch';
 import type { ClientTransport, TransportReply } from './client-types';
 import { defineEndpointShape } from './endpoint-shape';
+import { retryProjectOptimization } from './project-shapes';
 import { requestSchema, responseSchema, type SchemaShape } from './schema-shape';
 
 const read = defineEndpointShape({
@@ -58,6 +59,25 @@ function returning(reply: TransportReply): ClientTransport {
 }
 
 describe('shape-derived client response boundary', () => {
+  test('preserves a declared bodyless refusal through the portable client', async () => {
+    const shape = defineEndpointShape({
+      method: 'GET',
+      path: '/callback',
+      operationId: 'completeCallback',
+      policies: [],
+      responses: [{ kind: 'empty', status: 302 }],
+      refusals: [{ kind: 'empty', status: 503 }],
+      document: { summary: 'Complete callback' },
+    });
+    // Proof: decoding empty bodies only for successes returned
+    // `{ kind: 'failure', failure: { code: 'invalid_response', reason: 'json', status: 503 } }`.
+    expect(
+      await clientFromShapes([shape], () =>
+        Promise.resolve(new Response(null, { status: 503 })),
+      ).completeCallback({}),
+    ).toMatchObject({ kind: 'refusal', representation: 'empty', status: 503 });
+  });
+
   test('validates an in-process response while retaining additive nested fields', async () => {
     const transport = returning({
       kind: 'json',
@@ -485,6 +505,63 @@ test('preflights synchronous request shapes without yielding and returns their w
   expect(
     preflightRequest(write, { ...input, params: { id: '.' }, body: { name: 'Plan' } }),
   ).toMatchObject({ kind: 'failure', failure: { code: 'invalid_request', part: 'params' } });
+});
+
+test('forwards the Retry validator projected body to the transport', async () => {
+  const received: unknown[] = [];
+  const client = clientFromShapes([retryProjectOptimization], (_shape, supplied) => {
+    received.push(supplied.body);
+    return Promise.resolve({
+      kind: 'json',
+      status: 202,
+      body: { state: 'retrying', generation: 1, inputHash: 'held-hash' },
+    });
+  });
+  const supplied = {
+    params: { id: 'p' },
+    body: { objective: 'pri', inputHash: 'held-hash', ignored: 'future-field' },
+  } as const;
+
+  expect((await client.postApiProjectsByIdOptimizationRetry(supplied)).kind).toBe('success');
+  // Proof: discarding the synchronous validator's value retained
+  // `ignored: 'future-field'` in the body received here.
+  expect(received).toEqual([{ objective: 'pri', inputHash: 'held-hash' }]);
+});
+
+test('forwards an asynchronous validator normalized value to the transport', async () => {
+  const normalizing: SchemaShape<{ name: string }> = {
+    ...write.body,
+    validator: {
+      '~standard': {
+        version: 1,
+        vendor: 'async-normalizing-probe',
+        async validate(value: unknown) {
+          await Promise.resolve(undefined);
+          if (
+            typeof value !== 'object' ||
+            value === null ||
+            !('name' in value) ||
+            typeof value.name !== 'string'
+          ) {
+            return { issues: [{ message: 'name missing' }] };
+          }
+          return { value: { name: value.name } };
+        },
+      },
+    },
+  };
+  const shape = defineEndpointShape({ ...write, body: normalizing });
+  const received: unknown[] = [];
+  const client = clientFromShapes([shape], (_shape, supplied) => {
+    received.push(supplied.body);
+    return Promise.resolve({ kind: 'empty', status: 204 });
+  });
+  const supplied = { ...input, body: { name: 'Plan', ignored: 'future-field' } };
+
+  expect((await client.writeProject(supplied)).kind).toBe('success');
+  // Proof: discarding the asynchronous validator's value retained
+  // `ignored: 'future-field'` in the body received here.
+  expect(received).toEqual([{ name: 'Plan' }]);
 });
 
 test('starts transport in the calling stack after synchronous request validation', async () => {

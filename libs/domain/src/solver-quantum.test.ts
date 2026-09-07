@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import { ASSUMED_SLICE_WORKDAYS } from './assumed-duration';
+import { isOnTime } from './on-time';
 import { durationOf, type Slice } from './schedule';
 import { durationRoundedUp, durationUnits, SOLVER_QUANTUM } from './solver-quantum';
 
@@ -96,5 +97,75 @@ describe('durationUnits', () => {
     expect(durationUnits(each)).toBe(10);
     expect(durationUnits(each) * 3).toBe(30);
     expect(durationRoundedUp(each)).toBe(true);
+  });
+});
+
+describe('the drift window across the unit boundary', () => {
+  // **WATCHED RED — TASK-302 AC #1.** Revert the inner `snapWorkdays` in
+  // `quantise` (leave `snapWorkdays(durationOf(slice) * SOLVER_QUANTUM)`) and
+  // the first case below fails on `durationUnits`: 49, not 48, while
+  // `isOnTime` in the same assertion block still returns `true`. That is the
+  // whole defect in one test — the two sides of the seam answering differently
+  // about one slice — and it is the reviewer's own input, not a fixture chosen
+  // to be convenient.
+
+  it('reads a duration one drift above a whole workday the way the real-domain predicate does', () => {
+    // Sol's exact input on TASK-241 PR 256: start 0, duration 1.0000000005
+    // workdays, width 1, due day 0, so the exclusive bound is (0 + 1) x 48.
+    const s = slice(1.0000000005, 1);
+    expect(durationOf(s)).toBe(1.0000000005);
+
+    // The workday side. `snapWorkdays` cleans 5.0e-10 of drift, so the slice
+    // is still ON workday 0 and meets a day-0 deadline.
+    expect(Math.abs(durationOf(s) - 1)).toBeLessThan(1e-9);
+    expect(isOnTime(0, durationOf(s), 0)).toBe(true);
+
+    // The unit side, which before this fix saw 2.4e-8 of drift — the same
+    // number multiplied by 48, and so outside a window that was never scaled.
+    expect(Math.abs(durationOf(s) * SOLVER_QUANTUM - 48)).toBeGreaterThan(1e-9);
+    expect(durationUnits(s)).toBe(48);
+    expect(durationRoundedUp(s)).toBe(false);
+
+    // The model's clause verbatim: `startUnits + max(durationUnits, 1) <= deadlineUnits`.
+    expect(0 + Math.max(durationUnits(s), 1)).toBeLessThanOrEqual(48);
+  });
+
+  it('still refuses a duration that is genuinely past the whole day, by one unit', () => {
+    // The negative control the case above needs: a duration outside the drift
+    // window must still cost a whole extra unit, or the fix would be "snap
+    // everything" rather than "snap the same window on both sides".
+    const s = slice(1.000001, 1);
+    expect(isOnTime(0, durationOf(s), 0)).toBe(false);
+    expect(durationUnits(s)).toBe(49);
+    expect(durationRoundedUp(s)).toBe(true);
+    expect(0 + Math.max(durationUnits(s), 1)).toBeGreaterThan(48);
+  });
+
+  it('leaves every duration that is not within the window of a whole workday exactly where it was', () => {
+    // The blast radius, asserted rather than argued. The inner snap fires only
+    // within `DRIFT` of a whole workday; everywhere else `quantise` is the
+    // expression it always was, so these are the pre-fix numbers unchanged —
+    // including the two widths that do not divide 48, which are what the
+    // OUTER snap is for and why it stays.
+    expect(durationUnits(slice(1, 2))).toBe(24);
+    expect(durationUnits(slice(1, 3))).toBe(16);
+    expect(durationUnits(slice(5, 3))).toBe(80);
+    expect(durationUnits(slice(1, 5))).toBe(10);
+    expect(durationUnits(slice(1, 7))).toBe(7);
+    expect(durationUnits(slice(2.5, 1))).toBe(120);
+    expect(durationUnits(slice(0, 4))).toBe(0);
+  });
+
+  it('moves only a duration drifted ABOVE a whole workday, because below one `ceil` already agreed', () => {
+    // Which inputs this change can move, stated as a test so the answer is not
+    // a paragraph. Under the window and BELOW the whole day, `d * 48` is under
+    // `48W` and `ceil` returned `48W` before the fix too — so nothing moves.
+    // Above it, `ceil` returned `48W + 1`, and that is the only shift.
+    const below = slice(1 - 5e-10, 1);
+    const above = slice(1 + 5e-10, 1);
+    expect(durationUnits(below)).toBe(48);
+    expect(durationUnits(above)).toBe(48);
+    expect(isOnTime(0, durationOf(below), 0)).toBe(true);
+    expect(isOnTime(0, durationOf(above), 0)).toBe(true);
   });
 });
