@@ -63,9 +63,10 @@ export function evaluateSolverOutcome(
   // `deadlineUnits: 1`) is genuinely infeasible to CP-SAT, and that answer was
   // stored as a `plan-infeasible` certificate having passed no
   // request-relative validation at all. `Retry` refuses to re-solve such a hit
-  // and `inputHash` does not cover `deadlineUnits`, so the certificate is
-  // sticky: a deterministic statement about the user's deadlines derived from
-  // a request that does not mean anything.
+  // and `inputHash` cannot distinguish a derived `deadlineUnits` that diverges
+  // from the authored deadline it hashes, so the certificate is sticky: a
+  // deterministic statement about the user's deadlines derived from a request
+  // that does not mean anything.
   //
   // Nothing else moves. `revalidateSolverResult` returns
   // `{ ok: true, published: false }` for every non-feasible status before it

@@ -148,7 +148,8 @@ describe('evaluateSolverOutcome', () => {
    * unsolvable, so CP-SAT's `infeasible` is a true answer to a question that
    * means nothing: the due day is `1 / 48 − 1`. Before this change the answer
    * was stored as a `plan-infeasible` certificate, which `Retry` refuses to
-   * re-solve and `inputHash` does not key on `deadlineUnits` — a sticky
+   * re-solve. `inputHash` keys the authored deadline, so it cannot distinguish
+   * a derived `deadlineUnits` that has diverged from that input — a sticky
    * deterministic claim about the user's deadlines. It is now `internal-error`,
    * which is where `malformed-request` disposes: the fault is on our side of
    * the seam because the builder is ours.
