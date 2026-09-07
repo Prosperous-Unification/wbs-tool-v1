@@ -98,5 +98,7 @@ if [ "${WBS_RUN_SOLVER_ORPHAN_PROC:-0}" = '1' ]; then
     exit 1
   fi
   WBS_SOLVER_ORPHAN_IMAGE="${orphan_digests[0]}" \
-    bun test apps/be-01/src/service/optimization-orphan.proc.db.test.ts
+    bun test \
+      apps/be-01/src/service/optimization-orphan.proc.db.test.ts \
+      tools/tool-remote-scripts/src/lib/solver-supervisor-lifecycle.proc.test.ts
 fi
