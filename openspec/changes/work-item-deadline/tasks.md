@@ -562,7 +562,7 @@ contractVersion, inputHash)`. That draft had quoted the requirement's
       binding date and the item the constraint **fell on**. The
       ancestor-bound-leaf case is the test — a payload showing the leaf's own
       later date sends the user to edit a field that changes nothing.
-- [ ] 8.7b **`plan-infeasible` is a seventh `VariantState`, and the union is
+- [x] 8.7b **`plan-infeasible` is a seventh `VariantState`, and the union is
       enumerated in FIVE places.** Amend all five in the same commit:
       (1) `dual-optimized-scheduler/design.md`'s plan-read DTO bullet — the list
       that artifact calls "the one authority";
@@ -795,3 +795,40 @@ single member 8.7 adds rather than back to `kind !== 'ok'`.
 the row was decoded to its envelope only, while the code called the codec and a
 third case already asserted a malformed item list reading `corrupt`. The
 comments recorded the falsification the split predicted; the code had met it.
+
+## 8.7b, measured
+
+**Four of the five sites were already at seven; site 5 was the gap, exactly as
+8.7b predicted.** Verified by the member-name search this item mandates — the
+lines naming `corrupt` together with `idle`, across both changes and the
+workspace note — rather than by the count word:
+
+| site | artifact                                                         | state found                                                   |
+| ---- | ---------------------------------------------------------------- | ------------------------------------------------------------- |
+| 1    | `dual-optimized-scheduler/design.md` plan-read DTO bullet        | seven, with `plan-infeasible` carrying owner and bound ids    |
+| 2    | `.../specs/scheduler-optimization/spec.md` plan-read requirement | seven, in the normative "SHALL be one of"                     |
+| 3    | `.../tasks.md` 7.10                                              | "one of seven", and `plan-infeasible` in the proof-state list |
+| 4    | `.../tasks.md` 8.3–8.4                                           | the indicator wording and its no-Retry rule in both           |
+| 5    | `notes/wbs-dual-optimized-scheduler-design.md` §3.2              | **five rows missing** — amended here                          |
+
+Site 5's table now carries the first-stage `INFEASIBLE` row (a
+`plan-infeasible` row plus certificate in one transaction, and **no** event),
+the later-stage row that stays `failed` + `invalid-output`, the two settled-read
+rows that spawn nothing, and the explicit Retry refusal. Its review-ledger rows
+are untouched, per 7.2b.
+
+**The search found a sixth site 8.7b does not name, and it was wrong.**
+`design.md`'s Retry evaluation order, step (2), listed the states a
+`not-retryable` covers as "`ready`, `pending` and `idle`" while
+`spec.md`'s own ordering already read "`ready`, `pending`, `idle` and
+`plan-infeasible`". Two normative artifacts, one instantiating list short by
+the member this task adds — the same shape as the `solver_slot.lifecycle`
+omission `design.md` records at the stored-enum boundary, where the blanket
+rule covered the column and the instantiating list did not. Amended in the same
+commit. **8.7b's list of five is therefore a floor, not a ceiling:** the member
+names find sites the item's own enumeration missed, which is the second time
+that has been true of this union.
+
+No test changes, so no gate counts: this chunk is two documents. The union it
+describes is asserted by 8.7's own cases and by
+`work-item.controller.test.ts`'s variant fixtures, both green at `cc9da8f8`.
