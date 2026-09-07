@@ -244,10 +244,68 @@ describe('the constant is read as a number, not as bytes', () => {
     ).toEqual([]);
   });
 
+  it('reads no version out of a string or a template literal, which is the round-3 bypass', () => {
+    // The one that broke the comment stripper, and it was measured before it
+    // was believed: `'/*'` and `'*' + '/'` are STRINGS, but a stripper that
+    // does not know what a string is treats them as a block comment and blanks
+    // the real declaration between them. The line inside the template literal
+    // is data — never a statement — but it is the only thing left that a
+    // line-anchored pattern can match, so the reader returned 9 while the
+    // module still exported 8. A parse cannot be fooled this way: a template's
+    // contents are not statements and a string's contents are not tokens.
+    const bypass = [
+      'const TEMPLATE = `',
+      'export const SCHEDULER_CONTRACT_VERSION = 9;',
+      '`;',
+      "const OPEN = '/*';",
+      'export const SCHEDULER_CONTRACT_VERSION = 8;',
+      "const CLOSE = '*' + '/';",
+    ].join('\n');
+    const found = reasons(
+      EIGHT,
+      tree({
+        [CONTRACT_VERSION_PATH]: bypass,
+        [QUANTUM]: corpus(8, { drift: { units: 49 } }),
+      }),
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0]).toContain('went from 8 to 8');
+    expect(found[0]).not.toContain('to 9');
+  });
+
   it('fails closed on a value that is not an integer literal', () => {
     const found = reasons(EIGHT, tree({ [CONTRACT_VERSION_PATH]: constantSource('LATEST') }));
     expect(found).toHaveLength(1);
     expect(found[0]).toContain('LATEST');
+  });
+
+  it('refuses a digit string too long to be a safe integer, rather than storing Infinity', () => {
+    // `Number('9'.repeat(400))` is `Infinity`, which compares greater than
+    // every version and can never be exceeded afterwards — a version no bump
+    // could follow. Refused rather than accepted as an increase.
+    const found = reasons(
+      EIGHT,
+      tree({
+        [CONTRACT_VERSION_PATH]: constantSource('9'.repeat(400)),
+        [QUANTUM]: corpus(8, { drift: { units: 49 } }),
+      }),
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0]).toContain('safe integer');
+  });
+
+  it('accepts a legal numeric separator, which the text reader refused', () => {
+    // `1_000` is one integer literal spelled legally. The old `^\d+$` test on
+    // raw text called it a non-integer; the parser hands back `1000`.
+    expect(
+      reasons(
+        EIGHT,
+        tree({
+          [CONTRACT_VERSION_PATH]: constantSource('1_000'),
+          [QUANTUM]: corpus(1000, { drift: { units: 49 } }),
+        }),
+      ),
+    ).toEqual([]);
   });
 });
 

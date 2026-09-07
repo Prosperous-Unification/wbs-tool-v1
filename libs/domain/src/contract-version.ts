@@ -93,7 +93,7 @@
  *   merge discipline on pull requests and detective on direct pushes.
  *
  * **Two corpora enforce this list, and neither enforces all of it.**
- * `fast-golden-corpus.ts` is a byte guard over eight named plans as
+ * `fast-golden-corpus.ts` is a VALUE guard over eight named plans as
  * `schedule()` renders them, and its cases are aimed one apiece at the entries
  * plan output depends on — {@link ASSUMED_SLICE_WORKDAYS}, `snapWorkdays`,
  * dependency reach, numbering, resource tie-breaks; each case's own comment

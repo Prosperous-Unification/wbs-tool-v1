@@ -1,6 +1,6 @@
 /**
  * The quantum golden corpus: fixed slices, and their solver units kept as
- * **bytes**, version-pinned the same way Fast's corpus is.
+ * **stored values**, version-pinned the same way Fast's corpus is.
  *
  * **Why a second corpus rather than a ninth case in the first one.**
  * `SCHEDULER_CONTRACT_VERSION` names `SOLVER_QUANTUM` on its bump list,

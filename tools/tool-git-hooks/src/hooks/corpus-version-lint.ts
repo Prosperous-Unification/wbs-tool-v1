@@ -1,5 +1,7 @@
 import { spawnSync } from 'node:child_process';
 
+import ts from 'typescript';
+
 /**
  * The mechanical half of `SCHEDULER_CONTRACT_VERSION`'s obligation: a golden
  * fixture whose `cases` moved without the constant moving with them.
@@ -86,24 +88,66 @@ export interface Boundary {
 const ALL_ZERO = /^0{40}$/;
 
 /**
- * Comments blanked, keeping every newline so surviving lines stay where they
- * were.
+ * The exported declaration, found by PARSING the file rather than by matching
+ * text in it.
  *
- * Peer review found the bypass this closes, and it is legal TypeScript: put a
- * block comment between the constant's name and its `=` so the pattern below
- * misses the real declaration, and leave a commented-out declaration naming a
- * higher number above it. The comment then supplies the only match and a moved
- * fixture reads as an increase. Stripping first, and anchoring the pattern to
- * the start of a line, means a commented declaration contributes nothing and a
- * reformatted one is a hard failure rather than a silent miss. A string literal
- * containing a line-comment marker would be over-stripped; the consequence is a
- * named "declares no exported SCHEDULER_CONTRACT_VERSION" error, which is the
- * direction this whole file errs in.
+ * Two rounds of peer review defeated a textual reader, and the second one is
+ * the reason this is a parse. Round 2 broke a bare pattern with a block comment
+ * placed between the constant's name and its `=`, plus a commented-out
+ * declaration naming a higher number; the answer was to blank comments first
+ * and anchor the pattern to a line start. Round 3 then broke *that*, and the
+ * bypass was measured before it was believed:
+ *
+ * ```ts
+ * const TEMPLATE = `
+ * export const SCHEDULER_CONTRACT_VERSION = 9;
+ * `;
+ * const OPEN = '/*';
+ * export const SCHEDULER_CONTRACT_VERSION = 8;
+ * const CLOSE = '*' + '/';
+ * ```
+ *
+ * A comment stripper that does not know what a string is treats `'/*'` … as
+ * opening a block comment, blanks the real declaration between them, and the
+ * line inside the template literal — which is data, not code — supplies the
+ * only match. The reader returns `9` while the module still exports `8`, and
+ * moved fixture cases pass as an increase.
+ *
+ * There is no textual patch for that: the difference between code and a string
+ * containing code is exactly what a parser is for, and the previous header's
+ * claim that over-stripping "can only produce a named missing-declaration
+ * error" was wrong for the same reason. So the value comes from the syntax
+ * tree: one exported `const` binding this name, at the top level, whose
+ * initialiser is a numeric literal node. A template's contents are never
+ * statements, a string's contents are never tokens, and a commented-out
+ * declaration is trivia the parser never yields.
  */
-function stripComments(source: string): string {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, (block) => block.replace(/[^\n]/g, ' '))
-    .replace(/\/\/[^\n]*/g, '');
+function versionDeclarationsIn(source: string): {
+  readonly file: ts.SourceFile;
+  readonly initialisers: readonly (ts.Expression | undefined)[];
+} {
+  const file = ts.createSourceFile(
+    CONTRACT_VERSION_PATH,
+    source,
+    ts.ScriptTarget.Latest,
+    /* setParentNodes */ true,
+    ts.ScriptKind.TS,
+  );
+  const initialisers: (ts.Expression | undefined)[] = [];
+  for (const statement of file.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    const exported = statement.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+    if (exported !== true) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name)) continue;
+      if (declaration.name.text !== 'SCHEDULER_CONTRACT_VERSION') continue;
+      // A binding with no initialiser is `declare const`-shaped and names no
+      // number. Recorded as a declaration anyway, so that a file holding one
+      // fails with a reason rather than reading as "declares none".
+      initialisers.push(declaration.initializer);
+    }
+  }
+  return { file, initialisers };
 }
 
 /**
@@ -112,35 +156,54 @@ function stripComments(source: string): string {
  * Comparing `contract-version.ts` blobs would count a prose edit as a bump, and
  * that file is nearly all prose. Reading the fixture's own `contractVersion`
  * field would hand the invariant back to the assertion the corpora already
- * make. So the integer literal is extracted from the declaration, and anything
- * that is not exactly one integer-valued declaration is an error.
+ * make. So the integer is taken off the declaration's initialiser node, and
+ * anything that is not exactly one integer-valued declaration is an error.
  */
 function versionAt(rev: string, port: RevisionPort): number {
   const source = port.readAt(rev, CONTRACT_VERSION_PATH);
   if (source === null)
     throw new Error(`${CONTRACT_VERSION_PATH} does not exist at ${rev}, so no version can be read`);
-  const declarations = [
-    ...stripComments(source).matchAll(
-      /^export\s+const\s+SCHEDULER_CONTRACT_VERSION\s*(?::[^=]+)?=([^;]*);/gm,
-    ),
-  ];
-  if (declarations.length === 0)
+  const { file, initialisers } = versionDeclarationsIn(source);
+  if (initialisers.length === 0)
     throw new Error(
       `${CONTRACT_VERSION_PATH} at ${rev} declares no exported SCHEDULER_CONTRACT_VERSION, ` +
         'so the version this change starts from is unknown.',
     );
-  if (declarations.length > 1)
+  if (initialisers.length > 1)
     throw new Error(
       `${CONTRACT_VERSION_PATH} at ${rev} declares SCHEDULER_CONTRACT_VERSION twice, ` +
         'so which one governs the corpora is ambiguous.',
     );
-  const literal = declarations[0][1].trim();
+  const initialiser = initialisers[0];
+  // `ts.isNumericLiteral` is the whole type check: `-1` is a prefix unary
+  // expression and not a numeric literal, `'8'` is a string literal, and `8n`
+  // is a bigint literal. Each of them arrives here as its own node kind.
+  if (initialiser === undefined || !ts.isNumericLiteral(initialiser))
+    throw new Error(
+      `SCHEDULER_CONTRACT_VERSION at ${rev} is \`${
+        initialiser === undefined ? '' : initialiser.getText(file)
+      }\`, not an integer literal. ` +
+        'This check compares version numbers and cannot order anything else.',
+    );
+  // `.text` is the literal with numeric separators already removed, so `1_000`
+  // reads as `1000` rather than being refused for a legal spelling. What it
+  // does NOT do is bound the value: a long enough digit string converts to
+  // `Infinity`, which compares greater than every version and can never be
+  // exceeded afterwards. That is a version no bump could follow, so it is
+  // refused here rather than stored.
+  const literal = initialiser.text;
   if (!/^\d+$/.test(literal))
     throw new Error(
       `SCHEDULER_CONTRACT_VERSION at ${rev} is \`${literal}\`, not an integer literal. ` +
         'This check compares version numbers and cannot order anything else.',
     );
-  return Number(literal);
+  const version = Number(literal);
+  if (!Number.isSafeInteger(version))
+    throw new Error(
+      `SCHEDULER_CONTRACT_VERSION at ${rev} is \`${literal}\`, which is not a safe integer. ` +
+        'A version no later version can compare greater than is not a version this check can order.',
+    );
+  return version;
 }
 
 /**
