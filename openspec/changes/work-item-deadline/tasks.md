@@ -584,7 +584,7 @@ contractVersion, inputHash)`. That draft had quoted the requirement's
       sites of five and misses three — including site 5, the note's
       authoritative table, whose omission is the exact failure this item exists
       to prevent.
-- [ ] 8.7c The stored row status and the DTO union are **different layers** and
+- [x] 8.7c The stored row status and the DTO union are **different layers** and
       both get a value. `plan-infeasible` is a row status beside `ok` and
       `failed`, and is **not** an `ok` row carrying an infeasible payload:
       `corrupt` is defined as an `ok` row whose `resultJson` fails to decode, so
@@ -832,3 +832,25 @@ that has been true of this union.
 No test changes, so no gate counts: this chunk is two documents. The union it
 describes is asserted by 8.7's own cases and by
 `work-item.controller.test.ts`'s variant fixtures, both green at `cc9da8f8`.
+
+## 8.7c, measured
+
+**The two resolutions are now read side by side, off one database, in one
+pair.** Both rows carry the **same bytes** in `result_json` — a well-formed
+certificate — and both satisfy the table's payload `CHECK`, which asks only
+that an `ok` row and a `plan-infeasible` row each have a non-NULL payload and
+no `failureReason`. So neither the database nor the JSON can tell them apart.
+`status` can, and does: `pri` is an `ok` row whose payload is not a schedule,
+which is precisely the definition of `corrupt`, and `time` is the same payload
+under the status that claims it, which reads as a certificate.
+
+Measured at `d9fcbb4d` on h2puni: `apps/be-01` **1845/0**. One control, reverted
+after measuring — **1844 / 1, exactly the new case.** The mutation is the
+modelling 8.7c forbids, written out rather than approximated: the `ok` branch of
+`decodePayload`, on a schedule decode failure, tries `decodePlanInfeasible`
+before giving up, so an `ok` row carrying an infeasible payload resolves to
+`plan-infeasible`. Every other `corrupt` case stays green under it, because
+their payloads are truncated JSON or a schedule with a wrong `dtoVersion` and
+fail the certificate codec too — which is the point: the defect is invisible
+except on the one row where both codecs could plausibly apply, and that row is
+this case.
