@@ -202,9 +202,7 @@ describe('schedule comparison indicator', () => {
 
     fireEvent.click(screen.getByText('Show affected work items'));
     expect(
-      screen.getByText(
-        "Migration · Work item deadline before the project's first working day",
-      ),
+      screen.getByText("Migration · Work item deadline before the project's first working day"),
     ).toBeVisible();
   });
 
