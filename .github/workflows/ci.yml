@@ -9,7 +9,20 @@
 #                  would flag it, which is itself the proof.)
 #   migration-lint Proof: `migration-lint.ts` on a file containing
 #                  `DROP TABLE users;` exits 1 with "destructive statement".
-# Both were run against the real scripts before this file was committed. See
+#   corpus-version- Proof, against real git history from `0adaf700` on h2puni,
+#   lint           2026-09-07: with `libs/domain/fixtures/solver-quantum-golden-
+#                  corpus.json` regenerated and the constant left at 8
+#                  (`6e86c115`) it exits 1 naming the fixture and "8 to 8"; with
+#                  the constant then moved to 9 (`8d5068c6`) it exits 0; moved to
+#                  7 instead (`ae13f70f`) it exits 1 naming the decrease; with
+#                  only a comment added to `contract-version.ts` beside the moved
+#                  fixture (`566bd302`) it exits 1, so a prose edit is not a
+#                  bump; on `0adaf700^..0adaf700`, which touches neither, it
+#                  exits 0; and on an all-zero base it exits 1 rather than
+#                  skipping. The remaining control — a genuine semantic change
+#                  regenerated and watched red INSIDE a CI run rather than
+#                  through the script — is TASK-338 AC #2 and is still owed.
+# All three were run against the real scripts before this file was committed. See
 # AGENTS.md, "Non-vacuous checks".
 #
 # Deliberately run-many, not affected: at ~10k LOC the whole suite is cheap, and
