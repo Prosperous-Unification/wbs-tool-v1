@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -69,6 +69,33 @@ describe('durable dev poller', () => {
     expect(failed.code).not.toBe(0);
     expect(failed.stderr).toContain('install the managed Bun 1.3.14');
     expect(failed.stderr).toContain('docs/runbook-dev-deploy.md');
+  });
+
+  it('removes its private candidate when target extraction fails', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'wbs-dev-poller-extract-failure-'));
+    const source = join(root, 'src');
+    const installed = join(root, 'bin');
+    const commands = join(root, 'commands');
+    const fakeGit = join(commands, 'git');
+    const fakeBun = join(root, 'bun');
+    const helper = new URL('../../../bin/dev-poll-sync.sh', import.meta.url).pathname;
+
+    await requireCommand(['mkdir', '-p', source, commands]);
+    await writeFile(fakeGit, '#!/usr/bin/env bash\nexit 17\n');
+    await writeFile(
+      fakeBun,
+      '#!/usr/bin/env bash\nif [ "$1" = --version ]; then echo 1.3.14; exit 0; fi\nexit 64\n',
+    );
+    await chmod(fakeGit, 0o755);
+    await chmod(fakeBun, 0o755);
+
+    const failed = await command(
+      ['bash', helper, source, installed, fakeBun, 'a'.repeat(40)],
+      { PATH: `${commands}:${process.env['PATH'] ?? ''}` },
+    );
+
+    expect(failed.code).toBe(17);
+    expect(await readdir(installed)).toEqual([]);
   });
 
   it('a repaired target deployer replaces a broken candidate without bypassing sync', async () => {

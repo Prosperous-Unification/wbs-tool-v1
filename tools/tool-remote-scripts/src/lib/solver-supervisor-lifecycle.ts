@@ -219,7 +219,9 @@ export async function runManagedSolverAttempt(
       removeFailure = error;
     }
 
-    const cleanupFailure = timerFailure ?? removeFailure;
+    // A retained container consumes the hard cap; prefer that diagnostic when
+    // the less consequential timer cancellation also failed.
+    const cleanupFailure = removeFailure ?? timerFailure;
     if (cleanupFailure !== undefined) {
       const detail = cleanupFailure instanceof Error ? cleanupFailure.message : 'unknown failure';
       throw new Error(`managed solver lifecycle: attempt and cleanup failed: ${detail}`, {

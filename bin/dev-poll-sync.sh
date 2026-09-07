@@ -27,7 +27,16 @@ if [ "$("$BUN" --version)" != '1.3.14' ]; then
 fi
 
 mkdir -p "$BIN"
-SYNC_NEXT=$(mktemp "$BIN/sync.${SHA}.XXXXXXXX.ts")
+# Commit candidates are recovery snapshots, not an archive. Bound inode use on
+# the durable host while leaving recent targets available for diagnosis.
+find "$BIN" -type f -name 'sync.*.ts' -mtime +7 -exec rm -f -- {} +
+
+SYNC_NEXT=''
+cleanup_candidate() {
+  if [ -n "$SYNC_NEXT" ]; then rm -f -- "$SYNC_NEXT"; fi
+}
+trap cleanup_candidate EXIT HUP INT TERM
+SYNC_NEXT=$(mktemp "$BIN/sync.${SHA}.ts.XXXXXXXX")
 SYNC="$BIN/sync.${SHA}.ts"
 
 # Reading from the fetched target, rather than the checkout's pre-reset tree,
@@ -37,5 +46,7 @@ SYNC="$BIN/sync.${SHA}.ts"
 # post-reset HEAD checks are never bypassed.
 git -C "$SRC" show "$SHA:tools/tool-devsync/src/sync.ts" > "$SYNC_NEXT"
 mv "$SYNC_NEXT" "$SYNC"
+SYNC_NEXT=''
+trap - EXIT HUP INT TERM
 cd "$SRC"
 exec "$BUN" "$SYNC" "$SHA"

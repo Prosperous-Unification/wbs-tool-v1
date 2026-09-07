@@ -49,8 +49,10 @@ class FakeDriver implements ManagedContainerDriver {
   inspectCount = 0;
   firstInspectPid = 4242;
   attachFailure: Error | undefined;
+  deadlineCancelFailure: Error | undefined;
   killFailure: Error | undefined;
   inspectFailure: Error | undefined;
+  removeFailure: Error | undefined;
   naturalExit = true;
   stdout = output();
   stderr = output();
@@ -90,6 +92,8 @@ class FakeDriver implements ManagedContainerDriver {
       hasFired: (): Promise<boolean> => Promise.resolve(false),
       cancel: (): Promise<void> => {
         this.events.push('timer-cancel');
+        if (this.deadlineCancelFailure !== undefined)
+          return Promise.reject(this.deadlineCancelFailure);
         return Promise.resolve();
       },
     });
@@ -124,6 +128,7 @@ class FakeDriver implements ManagedContainerDriver {
 
   remove(argv: readonly string[]): Promise<void> {
     this.events.push(`rm:${argv.slice(1).join(' ')}`);
+    if (this.removeFailure !== undefined) return Promise.reject(this.removeFailure);
     return Promise.resolve();
   }
 }
@@ -282,6 +287,24 @@ describe('the managed solver lifecycle', () => {
       'wait',
       'rm',
     ]);
+  });
+
+  it('reports a removal failure ahead of a simultaneous timer cleanup failure', async () => {
+    const driver = new FakeDriver();
+    driver.attachFailure = new Error('container stopped before attach');
+    driver.deadlineCancelFailure = new Error('timer cancel refused');
+    driver.removeFailure = new Error('container remove refused');
+
+    let rejection: unknown;
+    try {
+      await runManagedSolverAttempt(START, OPTIONS, driver, channel([], driver.events));
+    } catch (error) {
+      rejection = error;
+    }
+
+    expect(rejection).toBeInstanceOf(Error);
+    expect((rejection as Error).message).toContain('container remove refused');
+    expect((rejection as Error).cause).toBe(driver.attachFailure);
   });
 
   it('kills and reports only after an output overflow is contained', async () => {
