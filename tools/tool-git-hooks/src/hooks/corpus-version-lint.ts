@@ -251,6 +251,7 @@ function casesAt(rev: string, path: string, port: RevisionPort): string | null {
     throw new Error(
       `${path} at ${rev} is not valid JSON (${e instanceof Error ? e.message : String(e)}), ` +
         'so its cases could not be compared.',
+      { cause: e },
     );
   }
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
