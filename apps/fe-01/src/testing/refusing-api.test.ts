@@ -241,6 +241,26 @@ describe('refusingApi contract boundary', () => {
     expect(addPerson).not.toHaveBeenCalled();
   });
 
+  // The real `createPerson` answer carries no memberships: `personEntity` in
+  // `work-item.routes.ts` is `{ id, name, kind }` and the batch entity in
+  // `work-item-shapes.ts` declares `'teamIds?'`. Production stopped requiring
+  // the field in 732614df and this fake did not, so it rejected the one shape
+  // be-01 actually sends. Proof: before that was fixed this case failed with
+  // `fake_invalid_response`.
+  it('accepts a created person with no memberships, the shape createPerson really answers', async () => {
+    const addPerson = vi.fn(() =>
+      Promise.resolve({ id: 'person-1', name: 'Ada', kind: 'person' as const }),
+    );
+    const api = refusingApi({ addPerson });
+
+    await expect(api.addPerson('Ada', [])).resolves.toEqual({
+      id: 'person-1',
+      name: 'Ada',
+      kind: 'person',
+    });
+    expect(addPerson).toHaveBeenCalledWith('Ada', []);
+  });
+
   it('refuses malformed project creation before the stated mutation runs', async () => {
     const createProject = vi.fn(() =>
       Promise.resolve({ id: 'project-1', name: 'Plan', restricted: false }),
