@@ -249,10 +249,16 @@ function casesAt(rev: string, path: string, port: RevisionPort): string | null {
     parsed = JSON.parse(raw);
   } catch (e: unknown) {
     // The message keeps the parser's own words because that is what the gate
-    // prints; `cause` keeps the error itself, so a caller that ever stops
-    // flattening these to `.message` still has the parse failure to read. Only
-    // the message is interpolated — never `raw` — so the fixture's contents
-    // stay out of the gate output either way.
+    // prints: `lintCorpusVersion` flattens every throw from here to
+    // `{ reason: e.message }`, so a bare `cause` would read as preserved and
+    // print as nothing. `cause` is attached as well, for a caller that ever
+    // stops flattening.
+    //
+    // `raw` is never interpolated, but that is not a guarantee that the
+    // fixture stays out of the log: a `JSON.parse` message may quote the token
+    // it choked on. That is how this line already behaved before `cause`
+    // existed, and narrowing it is a separate decision from unbreaking the
+    // gate — so it is said here rather than claimed away.
     throw new Error(
       `${path} at ${rev} is not valid JSON (${e instanceof Error ? e.message : String(e)}), ` +
         'so its cases could not be compared.',
