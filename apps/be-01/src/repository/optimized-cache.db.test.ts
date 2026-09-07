@@ -561,6 +561,62 @@ describe('a plan-infeasible row, decoded by its own codec', () => {
       db.cleanup();
     }
   });
+
+  /**
+   * tasks.md 8.7c: the stored row `status` and the DTO union are **different
+   * layers**, and `status` is the only thing that tells these two rows apart.
+   *
+   * Both rows below carry the **same bytes** in `result_json` — a well-formed
+   * certificate — and both satisfy the table's payload `CHECK`, which asks only
+   * that an `ok` row and a `plan-infeasible` row each have a non-NULL payload
+   * and no `failureReason`. So the database cannot distinguish them, and
+   * neither can the JSON. Only the discriminator can, and it does: `pri` is an
+   * `ok` row whose payload is not a schedule, which is precisely the definition
+   * of `corrupt`, while `time` is the same payload under the status that claims
+   * it and reads as a certificate.
+   *
+   * **Why this is the case worth writing.** If `plan-infeasible` had been
+   * modelled as "an `ok` row carrying an infeasible payload" rather than as its
+   * own status, these two rows would be one row, and the read would have to
+   * guess from the payload's shape whether a decode failure meant "the plan
+   * cannot be met" or "this row is damaged" — the one point the two must be
+   * told apart. Read side by side in a single pair so the discrimination is
+   * asserted on one read of one database rather than on two.
+   */
+  it('tells an ok row carrying a certificate from a plan-infeasible row carrying the same bytes', () => {
+    const db = tempDb();
+    try {
+      const generation = prepared(db.path);
+      const payload = JSON.stringify({
+        dtoVersion: 1,
+        items: [{ ownerWorkItemId: 'parent', boundWorkItemId: 'leaf', effectiveDeadlineOffset: 7 }],
+      });
+      for (const [objective, status] of [
+        ['pri', 'ok'],
+        ['time', 'plan-infeasible'],
+      ]) {
+        storeRow(db.path, {
+          objective,
+          generation,
+          status,
+          resultJson: payload,
+          failureReason: null,
+        });
+      }
+
+      const pair = read(db.path);
+
+      expect(pair.pri.kind).toBe('corrupt');
+      expect(pair.time.kind).toBe('plan-infeasible');
+      if (pair.time.kind !== 'plan-infeasible') throw new Error('unreachable');
+      expect(pair.time.certificate.items).toEqual([
+        { ownerWorkItemId: 'parent', boundWorkItemId: 'leaf', effectiveDeadlineOffset: 7 },
+      ]);
+      expect(storedRowCount(db.path)).toBe(2);
+    } finally {
+      db.cleanup();
+    }
+  });
 });
 
 describe('the 3.8 boundary still throws on the read path', () => {
