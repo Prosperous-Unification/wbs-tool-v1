@@ -246,7 +246,7 @@ describe('toolsFromDocument, on the committed document', () => {
    * project's gate can see is a count that drifts silently; the routes landed at
    * `2ad567c` in chunk 7 and were noticed at `e82b023` in chunk 14.
    */
-  it('is 32 tools, so a route that appears must be decided about', () => {
+  it('is 33 tools, so a route that appears must be decided about', () => {
     // **51 to 19 with `plan-commands`.** Every single-item plan and directory
     // write is excluded — a model gets one write tool, `commands`, and cannot
     // pick the slow path — and the batch route arrives. What stays: the reads,
@@ -337,7 +337,12 @@ describe('toolsFromDocument, on the committed document', () => {
     // first run past it. That is the guard doing exactly what it is for — the
     // routes could not reach a tool list until the collision was fixed, and the
     // moment they could, the count demanded a decision.
-    expect(tools).toHaveLength(32);
+    //
+    // **32 to 33 with optimizer Retry.** `postApiProjectsByIdOptimizationRetry`
+    // belongs because Retry is a project-scoped lifecycle action with no
+    // `commands` equivalent; excluding it would leave an MCP caller able to
+    // read a failed/corrupt variant but unable to request its recovery.
+    expect(tools).toHaveLength(33);
     expect(EXCLUDED_PATHS).toHaveLength(5);
   });
 
