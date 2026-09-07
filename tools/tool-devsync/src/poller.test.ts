@@ -89,10 +89,9 @@ describe('durable dev poller', () => {
     await chmod(fakeGit, 0o755);
     await chmod(fakeBun, 0o755);
 
-    const failed = await command(
-      ['bash', helper, source, installed, fakeBun, 'a'.repeat(40)],
-      { PATH: `${commands}:${process.env['PATH'] ?? ''}` },
-    );
+    const failed = await command(['bash', helper, source, installed, fakeBun, 'a'.repeat(40)], {
+      PATH: `${commands}:${process.env['PATH'] ?? ''}`,
+    });
 
     expect(failed.code).toBe(17);
     expect(await readdir(installed)).toEqual([]);
