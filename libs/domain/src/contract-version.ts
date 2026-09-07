@@ -66,11 +66,14 @@
  *
  * **Two corpora enforce this list, and neither enforces all of it.**
  * `fast-golden-corpus.ts` is a byte guard over eight named plans as
- * `schedule()` renders them, so it sees the entries that plan output depends on
- * — {@link ASSUMED_SLICE_WORKDAYS}, `snapWorkdays`, dependency reach, numbering,
- * resource tie-breaks — and it is **blind to {@link SOLVER_QUANTUM}**, because
- * `schedule.ts` does not import `solver-quantum` and no case there executes
- * `quantise`. That is measured: this bump's own change left that corpus green.
+ * `schedule()` renders them, and its cases are aimed one apiece at the entries
+ * plan output depends on — {@link ASSUMED_SLICE_WORKDAYS}, `snapWorkdays`,
+ * dependency reach, numbering, resource tie-breaks; each case's own comment
+ * names which. Only the first of those has a watched red behind it, so read the
+ * rest as aim rather than as proof. What IS measured is the other half: it is
+ * **blind to {@link SOLVER_QUANTUM}**, because `schedule.ts` does not import
+ * `solver-quantum` and no case there executes `quantise` — this bump's own
+ * change left that corpus green.
  * `solver-quantum-golden-corpus.ts` covers the entry it cannot, over six named
  * slices as `durationUnits` renders them, and `1.0000000005` above is its first
  * case for the reason this comment already gives. Everything on the list that
