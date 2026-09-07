@@ -4,6 +4,7 @@ import { useCallback, useRef } from 'react';
 import type { PersonView, PriorityBandView, ServiceView, TagView, TeamView } from '@/lib/wbs-api';
 import { type StepView } from '@/lib/wbs-api';
 
+import type { PlanTableFeatures } from './plan-columns/column';
 import { type PlanExport, planFileName, planToCsv, planToMarkdown } from './plan-export';
 import { planToMermaid, planToMermaidDocument } from './plan-mermaid';
 import { type Toast } from './toasts';
@@ -277,7 +278,7 @@ export function usePlanOnScreenExport({
   filterLabels,
 }: {
   planForExport: () => PlanExport;
-  shownRows: Row<TreeRow>[];
+  shownRows: Row<PlanTableFeatures, TreeRow>[];
   flat: TreeRow[];
   criteria: FilterCriteria;
   filterLabels: FilterLabels;

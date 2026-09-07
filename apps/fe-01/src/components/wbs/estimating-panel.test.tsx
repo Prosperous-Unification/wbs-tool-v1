@@ -34,7 +34,7 @@ interface Arithmetic {
  * `ReturnType<typeof vi.fn>` the option was `Mock<any[], unknown>`, whose union
  * with the default is assignable to neither the prop nor `.mock.calls`.
  */
-type SetArithmetic = Mock<[Arithmetic], Promise<void>>;
+type SetArithmetic = Mock<(arithmetic: Arithmetic) => Promise<void>>;
 
 function stubbed(
   over: {
@@ -46,7 +46,7 @@ function stubbed(
 ) {
   const setArithmetic =
     over.setArithmetic ??
-    vi.fn<[Arithmetic], Promise<void>>(async () => {
+    vi.fn<(arithmetic: Arithmetic) => Promise<void>>(async () => {
       await Promise.resolve();
     });
   const onChanged = vi.fn(async () => {
@@ -193,7 +193,7 @@ describe('the estimating panel', () => {
   });
 
   itDom('keeps what was typed when be-01 refuses the triple, and says why', async () => {
-    const refusing = vi.fn<[Arithmetic], Promise<void>>(async () => {
+    const refusing = vi.fn<(arithmetic: Arithmetic) => Promise<void>>(async () => {
       await Promise.resolve();
       throw new Error('bad_pert_weights');
     });

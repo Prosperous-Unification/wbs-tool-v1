@@ -27,7 +27,7 @@ afterEach(cleanup);
  */
 function stubbed(
   bands: readonly PriorityBandView[] = DEFAULT_PRIORITY_BANDS,
-  setBands = vi.fn<[readonly PriorityBandView[]], Promise<void>>(async () => {
+  setBands = vi.fn<(bands: readonly PriorityBandView[]) => Promise<void>>(async () => {
     await Promise.resolve();
   }),
 ) {
@@ -196,7 +196,7 @@ describe('the priorities section', () => {
   });
 
   itDom('says what be-01 refused, in words, and keeps what was typed', async () => {
-    const setBands = vi.fn<[readonly PriorityBandView[]], Promise<void>>(() =>
+    const setBands = vi.fn<(bands: readonly PriorityBandView[]) => Promise<void>>(() =>
       Promise.reject(new Error('band_default_must_be_inside_its_own_band')),
     );
     const { onChanged, onDone } = stubbed(DEFAULT_PRIORITY_BANDS, setBands);
@@ -222,7 +222,7 @@ describe('the priorities section', () => {
     // C3's P2-2 and C5's R5 #18, written here rather than rediscovered a third
     // time: `(http_502)` beside a box somebody is typing in is a word about HTTP
     // where a sentence about their plan belongs.
-    const setBands = vi.fn<[readonly PriorityBandView[]], Promise<void>>(() =>
+    const setBands = vi.fn<(bands: readonly PriorityBandView[]) => Promise<void>>(() =>
       Promise.reject(new Error('http_502')),
     );
     stubbed(DEFAULT_PRIORITY_BANDS, setBands);
@@ -311,7 +311,7 @@ describe('what the section tells the modal it is holding', () => {
     let land = (): void => {
       throw new Error('the ladder never left');
     };
-    const setBands = vi.fn<[readonly PriorityBandView[]], Promise<void>>(
+    const setBands = vi.fn<(bands: readonly PriorityBandView[]) => Promise<void>>(
       () =>
         new Promise<void>((resolve) => {
           land = resolve;

@@ -491,7 +491,7 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
 
   private publicJwk(): JsonWebKey & { alg: string; kid: string; use: string } {
     return {
-      ...(this.publicKey.export({ format: 'jwk' }) as JsonWebKey),
+      ...this.publicKey.export({ format: 'jwk' }),
       alg: 'RS256',
       kid: 'mcp-01-ephemeral',
       use: 'sig',

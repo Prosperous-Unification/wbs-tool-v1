@@ -459,7 +459,7 @@ const runMerge = (
     },
   });
   if (opts.mode !== undefined) chmodSync(caddyfile, 0o644);
-  let written = '';
+  let written: string;
   try {
     written = readFileSync(caddyfile, 'utf8');
   } catch {

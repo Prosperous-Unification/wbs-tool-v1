@@ -18,8 +18,7 @@ export interface SignedIn {
 }
 
 export type RegisterOutcome =
-  | { ok: true; value: SignedIn }
-  | { ok: false; reason: 'taken' | 'invalid' };
+  { ok: true; value: SignedIn } | { ok: false; reason: 'taken' | 'invalid' };
 
 export type LoginOutcome = { ok: true; value: SignedIn } | { ok: false; reason: 'invalid' };
 

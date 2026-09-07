@@ -129,7 +129,6 @@ async function giveThePlanADayZero(page: Page, day: string): Promise<void> {
  * another card disturbs this one.
  */
 async function seedPlan(page: Page, _account: string): Promise<void> {
-  void _account;
   await page.goto('/');
 
   await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();
@@ -1010,6 +1009,7 @@ test.describe('the plan on a phone, measured by a browser', () => {
             `  before the open: ${JSON.stringify(scrollerBefore)}\n` +
             `  with the sheet up: ${JSON.stringify(after)}\n` +
             `  the sheet: ${JSON.stringify(sheetSeen)}`,
+          { cause: failure },
         );
       }
 

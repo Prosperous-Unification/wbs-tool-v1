@@ -306,8 +306,7 @@ export interface ReplayOrchestratorDeps {
 }
 
 export type ResumeStatus =
-  | { status: 'replaying'; count: number }
-  | { status: 'denied'; reason: 'out_of_range' };
+  { status: 'replaying'; count: number } | { status: 'denied'; reason: 'out_of_range' };
 
 export interface ResumeContext {
   clientId: string | null;
@@ -674,8 +673,7 @@ export interface ReplayOrchestratorDeps {
 }
 
 export type ResumeStatus =
-  | { status: 'replaying'; count: number }
-  | { status: 'denied'; reason: 'out_of_range' };
+  { status: 'replaying'; count: number } | { status: 'denied'; reason: 'out_of_range' };
 
 export interface ResumeContext {
   clientId: string | null;

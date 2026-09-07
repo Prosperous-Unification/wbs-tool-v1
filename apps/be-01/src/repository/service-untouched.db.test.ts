@@ -68,10 +68,9 @@ function columnsOf(dbPath: string, table: string): { name: string; type: string;
   const sqlite = openDatabase(dbPath);
   try {
     return sqlite
-      .query<
-        { name: string; type: string; pk: number },
-        [string]
-      >('SELECT name, type, pk FROM pragma_table_info(?) ORDER BY cid')
+      .query<{ name: string; type: string; pk: number }, [string]>(
+        'SELECT name, type, pk FROM pragma_table_info(?) ORDER BY cid',
+      )
       .all(table);
   } finally {
     sqlite.close();

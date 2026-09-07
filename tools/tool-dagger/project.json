@@ -79,7 +79,8 @@
         "default",
         "^production",
         "{workspaceRoot}/bin/with-heavy-lock.sh",
-        "{workspaceRoot}/bin/heavy-lock-lib.sh"
+        "{workspaceRoot}/bin/heavy-lock-lib.sh",
+        "{workspaceRoot}/docs/runbook-prod-deploy.md"
       ],
       "options": {
         "command": "bun test",

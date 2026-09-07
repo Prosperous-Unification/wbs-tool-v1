@@ -160,13 +160,7 @@ export interface ScheduleView {
  * between them.
  */
 export type ScheduleFloorView =
-  | 'projectStart'
-  | 'predecessor'
-  | 'stepOrder'
-  | 'notBefore'
-  | 'person'
-  | 'capacity'
-  | 'optimizer';
+  'projectStart' | 'predecessor' | 'stepOrder' | 'notBefore' | 'person' | 'capacity' | 'optimizer';
 
 /**
  * One placed slice — one work item's work for one step — as be-01 sends it.
@@ -862,8 +856,7 @@ export interface DirectoryUsage {
  * can agree to that without being shown what it takes.
  */
 export type DirectoryRemoval =
-  | { ok: true }
-  | { ok: false; reason: 'in_use'; usage: DirectoryUsage };
+  { ok: true } | { ok: false; reason: 'in_use'; usage: DirectoryUsage };
 
 /**
  * What came of renaming a person or a service team, or editing memberships.
@@ -875,8 +868,7 @@ export type DirectoryRemoval =
  * {@link directoryRefusalSentence} turns into a sentence.
  */
 export type DirectoryWrite<T> =
-  | { ok: true; entry: T }
-  | { ok: false; reason: 'taken'; survivingName: string };
+  { ok: true; entry: T } | { ok: false; reason: 'taken'; survivingName: string };
 
 /**
  * The parts of a person a patch may change.
@@ -1616,9 +1608,8 @@ type WbsShape = (typeof WBS_SHAPES)[number];
 export type WbsOperationId = WbsShape['operationId'];
 type RefusalFor<S extends WbsShape> = Extract<ClientReply<S>, { kind: 'refusal' }>['body'];
 type WbsProblemFor<S extends WbsShape> = S extends WbsShape
-  ?
-      | { kind: 'refusal'; operation: S['operationId']; refusal: RefusalFor<S> }
-      | { kind: 'failure'; operation: S['operationId']; failure: ClientFailure }
+  ? | { kind: 'refusal'; operation: S['operationId']; refusal: RefusalFor<S> }
+    | { kind: 'failure'; operation: S['operationId']; failure: ClientFailure }
   : never;
 
 /** A validated operation-specific refusal or failure at the shared client boundary. */
@@ -1665,8 +1656,7 @@ function problemCode(problem: WbsProblem): string {
 }
 
 type RejectedReply<S extends WbsShape> =
-  | Extract<ClientReply<S>, { kind: 'refusal' }>
-  | ClientBoundaryFailure;
+  Extract<ClientReply<S>, { kind: 'refusal' }> | ClientBoundaryFailure;
 
 function throwReply<S extends WbsShape>(shape: S, reply: RejectedReply<S>): never {
   // Proof: bypassing this shared failure arm made the malformed team-id production call
@@ -1748,8 +1738,7 @@ export const STEP_REFUSALS: RefusalWords = {
  * makes the other arm out of whatever was thrown.
  */
 export type DirectoryRefusal =
-  | { reason: 'taken'; survivingName: string }
-  | { reason: 'refused'; code: string };
+  { reason: 'taken'; survivingName: string } | { reason: 'refused'; code: string };
 
 /**
  * The leader of be-01's over-the-ceiling refusal code, whose tail is the

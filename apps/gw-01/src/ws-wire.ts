@@ -27,8 +27,10 @@ export const gatewayAdapter: ElysiaAdapter = {
             message(socket, raw) {
               // Elysia's public dispatcher forwards nonstrings unchanged at runtime;
               // its wire-only parameter type cannot express this private envelope.
+              // The socket too: Bun 1.4's `ServerWebSocket<T>` no longer lets the
+              // listener's `<unknown>` stand in for the dispatcher's `<any>`.
               return websocket.message(
-                socket,
+                socket as Parameters<typeof websocket.message>[0],
                 new WireFrame(raw) as unknown as Parameters<typeof websocket.message>[1],
               );
             },

@@ -99,8 +99,9 @@ export function OptimizationIndicator({
         statusWords = 'Optimizing…';
         break;
       default: {
-        const exhaustive: never = variant;
-        void exhaustive;
+        // Named with the underscore the unused-vars policy reads: this binding
+        // exists for the `never` check alone.
+        const _exhaustive: never = variant;
         statusWords = 'Schedule comparison unavailable';
       }
     }

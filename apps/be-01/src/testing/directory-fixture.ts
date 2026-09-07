@@ -272,12 +272,10 @@ export function inMemoryDirectory(
       Promise.resolve(
         [...people.values()]
           .sort((a, b) => a.name.localeCompare(b.name))
-          .map(
-            (each): PersonWithTeams => ({
-              ...each,
-              teamIds: [...(memberships.get(each.id) ?? [])],
-            }),
-          ),
+          .map((each): PersonWithTeams => ({
+            ...each,
+            teamIds: [...(memberships.get(each.id) ?? [])],
+          })),
       ),
     addPerson(toAdd, teamIds, stamp) {
       stampsSeen.push(stamp);

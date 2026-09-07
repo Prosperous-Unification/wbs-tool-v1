@@ -145,6 +145,7 @@ export function routedColorFromAdminConfig(
     throw new Error(
       `Caddy's live admin config is not valid JSON (${e instanceof Error ? e.message : String(e)}), ` +
         'so the colour actually being served cannot be determined',
+      { cause: e },
     );
   }
 

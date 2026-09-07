@@ -1,7 +1,6 @@
 /** A decoded form remains untrusted until the endpoint's strict body schema validates it. */
 export type DecodedForm =
-  | { ok: true; fields: Record<string, FormDataEntryValue | FormDataEntryValue[]> }
-  | { ok: false };
+  { ok: true; fields: Record<string, FormDataEntryValue | FormDataEntryValue[]> } | { ok: false };
 
 type FormMedia = 'application/x-www-form-urlencoded' | 'multipart/form-data';
 

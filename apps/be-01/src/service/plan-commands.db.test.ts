@@ -8,7 +8,7 @@ import {
   type PriorityBand,
   priorityBandRankOf,
 } from '@wbs/domain';
-import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, spyOn } from 'bun:test';
 
 import type { Step } from '../repository';
 import { ActualRepository } from '../repository/actual';
@@ -730,7 +730,7 @@ it('throws on malformed trusted deadline detail before creating a modeled batch 
   }
 });
 
-function appliedProducerTypes() {
+export function appliedProducerTypes() {
   const missingMintedId = { index: 0, kind: 'createWorkItem' as const };
   const missingDirectoryId = {
     index: 0,
@@ -756,14 +756,13 @@ function appliedProducerTypes() {
     detail: { workItemId: 'w' },
   };
   // @ts-expect-error Every created result preserves its minted top-level id.
-  void (missingMintedId satisfies AppliedCommand);
+  expectTypeOf<AppliedCommand>(missingMintedId);
   // @ts-expect-error A directory entity id cannot replace the minted top-level id.
-  void (missingDirectoryId satisfies AppliedCommand);
+  expectTypeOf<AppliedCommand>(missingDirectoryId);
   // @ts-expect-error Patch teams require their membership field.
-  void (missingServices satisfies AppliedCommand);
+  expectTypeOf<AppliedCommand>(missingServices);
   // @ts-expect-error Create-person output carries its known person kind.
-  void (missingPersonKind satisfies AppliedCommand);
+  expectTypeOf<AppliedCommand>(missingPersonKind);
   // @ts-expect-error Deadline output requires both correlated detail fields.
-  void (missingDayZero satisfies BatchRefusal);
+  expectTypeOf<BatchRefusal>(missingDayZero);
 }
-void appliedProducerTypes;

@@ -1,7 +1,7 @@
 # The only image build in the cheap-dev design. It carries toolchain and no
 # application code: the app arrives through a bind mount, so this is rebuilt
 # when Bun or Node moves, not when the app changes.
-FROM oven/bun:1.2.20-debian
+FROM oven/bun:1.4.2-debian
 
 # be-01 and gw-01 run under `bun --watch`, but fe-01 runs `bunx vite`, and
 # vite's bin starts with `#!/usr/bin/env node` -- bunx honours the shebang and

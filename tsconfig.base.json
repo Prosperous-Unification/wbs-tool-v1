@@ -13,7 +13,6 @@
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "skipLibCheck": true,
     "skipDefaultLibCheck": true,
-    "baseUrl": ".",
     "strict": true,
     "noImplicitOverride": true,
     "noPropertyAccessFromIndexSignature": true,
@@ -24,58 +23,62 @@
     "resolveJsonModule": true,
     "types": ["bun-types"],
     "paths": {
-      "@wbs/be-01": ["apps/be-01/src/index.ts"],
-      "@wbs/auth": ["libs/auth/src/index.ts"],
-      "@wbs/config": ["libs/config/src/index.ts"],
-      "@wbs/contracts": ["libs/contracts/src/index.ts"],
-      "@wbs/domain": ["libs/domain/src/index.ts"],
-      "@wbs/domain/workday": ["libs/domain/src/workday.ts"],
-      "@wbs/domain/deadline-offsets": ["libs/domain/src/deadline-offsets.ts"],
-      "@wbs/domain/assumed-duration": ["libs/domain/src/assumed-duration.ts"],
-      "@wbs/domain/effective-team": ["libs/domain/src/effective-team.ts"],
-      "@wbs/domain/effective-tag": ["libs/domain/src/effective-tag.ts"],
-      "@wbs/domain/effective-service": ["libs/domain/src/effective-service.ts"],
-      "@wbs/domain/label-mismatch": ["libs/domain/src/label-mismatch.ts"],
-      "@wbs/domain/marker-color": ["libs/domain/src/marker-color.ts"],
-      "@wbs/domain/is-within": ["libs/domain/src/is-within.ts"],
-      "@wbs/domain/priority-band": ["libs/domain/src/priority-band.ts"],
-      "@wbs/domain/dependency-reach": ["libs/domain/src/dependency-reach.ts"],
-      "@wbs/domain/external-system": ["libs/domain/src/external-system.ts"],
-      "@wbs/domain/canonical-schedule-input": ["libs/domain/src/canonical-schedule-input.ts"],
-      "@wbs/gw-01": ["apps/gw-01/src/index.ts"],
-      "@wbs/observability": ["libs/observability/src/index.ts"],
-      "@wbs/runtime-portable/testing": ["libs/runtime-portable/src/testing.ts"],
-      "@wbs/runtime-portable": ["libs/runtime-portable/src/index.ts"],
-      "@wbs/realtime": ["libs/realtime/src/index.ts"],
-      "@wbs/contracts/ws-frames": ["libs/contracts/src/ws-frames.ts"],
+      "@wbs/be-01": ["./apps/be-01/src/index.ts"],
+      "@wbs/auth": ["./libs/auth/src/index.ts"],
+      "@wbs/config": ["./libs/config/src/index.ts"],
+      "@wbs/contracts": ["./libs/contracts/src/index.ts"],
+      "@wbs/domain": ["./libs/domain/src/index.ts"],
+      "@wbs/domain/workday": ["./libs/domain/src/workday.ts"],
+      "@wbs/domain/deadline-offsets": ["./libs/domain/src/deadline-offsets.ts"],
+      "@wbs/domain/assumed-duration": ["./libs/domain/src/assumed-duration.ts"],
+      "@wbs/domain/effective-team": ["./libs/domain/src/effective-team.ts"],
+      "@wbs/domain/effective-tag": ["./libs/domain/src/effective-tag.ts"],
+      "@wbs/domain/effective-service": ["./libs/domain/src/effective-service.ts"],
+      "@wbs/domain/label-mismatch": ["./libs/domain/src/label-mismatch.ts"],
+      "@wbs/domain/marker-color": ["./libs/domain/src/marker-color.ts"],
+      "@wbs/domain/is-within": ["./libs/domain/src/is-within.ts"],
+      "@wbs/domain/priority-band": ["./libs/domain/src/priority-band.ts"],
+      "@wbs/domain/dependency-reach": ["./libs/domain/src/dependency-reach.ts"],
+      "@wbs/domain/external-system": ["./libs/domain/src/external-system.ts"],
+      "@wbs/domain/canonical-schedule-input": ["./libs/domain/src/canonical-schedule-input.ts"],
+      "@wbs/gw-01": ["./apps/gw-01/src/index.ts"],
+      "@wbs/observability": ["./libs/observability/src/index.ts"],
+      "@wbs/runtime-portable/testing": ["./libs/runtime-portable/src/testing.ts"],
+      "@wbs/runtime-portable": ["./libs/runtime-portable/src/index.ts"],
+      "@wbs/realtime": ["./libs/realtime/src/index.ts"],
+      "@wbs/contracts/ws-frames": ["./libs/contracts/src/ws-frames.ts"],
       "@wbs/contracts/solver/optimized-result": [
-        "libs/contracts/solver/src/optimized-result-dto.ts"
+        "./libs/contracts/solver/src/optimized-result-dto.ts"
       ],
-      "@wbs/contracts/solver/plan-infeasible": ["libs/contracts/solver/src/plan-infeasible-dto.ts"],
+      "@wbs/contracts/solver/plan-infeasible": [
+        "./libs/contracts/solver/src/plan-infeasible-dto.ts"
+      ],
       "@wbs/contracts/solver/materialise-optimized": [
-        "libs/contracts/solver/src/materialise-optimized.ts"
+        "./libs/contracts/solver/src/materialise-optimized.ts"
       ],
       "@wbs/contracts/solver/parse-solver-response": [
-        "libs/contracts/solver/src/parse-solver-response.ts"
+        "./libs/contracts/solver/src/parse-solver-response.ts"
       ],
       "@wbs/contracts/solver/quantised-baseline": [
-        "libs/contracts/solver/src/quantised-baseline.ts"
+        "./libs/contracts/solver/src/quantised-baseline.ts"
       ],
-      "@wbs/contracts/solver/build-request": ["libs/contracts/solver/src/build-solver-request.ts"],
+      "@wbs/contracts/solver/build-request": [
+        "./libs/contracts/solver/src/build-solver-request.ts"
+      ],
       "@wbs/contracts/solver/solver-failure-disposition": [
-        "libs/contracts/solver/src/solver-failure-disposition.ts"
+        "./libs/contracts/solver/src/solver-failure-disposition.ts"
       ],
       "@wbs/contracts/solver/revalidate-solver-result": [
-        "libs/contracts/solver/src/revalidate-solver-result.ts"
+        "./libs/contracts/solver/src/revalidate-solver-result.ts"
       ],
       "@wbs/contracts/solver/supervisor-protocol": [
-        "libs/contracts/solver/supervisor-protocol/src/index.ts"
+        "./libs/contracts/solver/supervisor-protocol/src/index.ts"
       ],
-      "@wbs/deploy-contract": ["tools/tool-remote-scripts/src/lib/deploy-contract.ts"],
-      "@wbs/tool-compose": ["tools/tool-compose/src/index.ts"],
-      "@wbs/tool-env": ["tools/tool-remote-scripts/src/lib/env.ts"],
-      "@wbs/validation": ["libs/validation/src/index.ts"],
-      "@wbs/validation/fixtures": ["libs/validation/src/fixtures/index.ts"]
+      "@wbs/deploy-contract": ["./tools/tool-remote-scripts/src/lib/deploy-contract.ts"],
+      "@wbs/tool-compose": ["./tools/tool-compose/src/index.ts"],
+      "@wbs/tool-env": ["./tools/tool-remote-scripts/src/lib/env.ts"],
+      "@wbs/validation": ["./libs/validation/src/index.ts"],
+      "@wbs/validation/fixtures": ["./libs/validation/src/fixtures/index.ts"]
     }
   },
   "exclude": ["node_modules", "tmp"]

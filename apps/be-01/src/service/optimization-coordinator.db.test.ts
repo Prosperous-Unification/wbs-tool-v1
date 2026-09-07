@@ -782,8 +782,12 @@ describe('OptimizationCoordinator read', () => {
         stdout: stream(''),
         stderr: stream(''),
         exited: Promise.resolve(0),
-        verdict: (verdict) => void verdicts.push(verdict),
-        kill: () => void (killed += 1),
+        verdict: (verdict) => {
+          verdicts.push(verdict);
+        },
+        kill: () => {
+          killed += 1;
+        },
       };
     });
 
@@ -898,7 +902,9 @@ describe('OptimizationCoordinator read', () => {
         verdict: () => {
           throw new Error('bind pipe closed');
         },
-        kill: () => void (killed += 1),
+        kill: () => {
+          killed += 1;
+        },
       }),
       runSolverChildLifecycle,
       (error) => void errors.push(error),
@@ -945,7 +951,9 @@ describe('OptimizationCoordinator read', () => {
     ]);
 
     let drained = false;
-    const draining = instance.drain().then(() => void (drained = true));
+    const draining = instance.drain().then(() => {
+      drained = true;
+    });
     for (let turn = 0; turn < 4; turn += 1) await Promise.resolve();
     expect(drained).toBe(false);
 

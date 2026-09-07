@@ -94,6 +94,7 @@ export function parseRemoteStateOutput(out: string): Partial<Record<Tier, Remote
       throw new Error(
         `/srv/wbs/state/${tier}.json is not valid JSON (${e instanceof Error ? e.message : String(e)}) — ` +
           'refusing rather than treating it as never-deployed.',
+        { cause: e },
       );
     }
   }

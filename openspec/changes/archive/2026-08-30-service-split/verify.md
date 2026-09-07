@@ -320,9 +320,9 @@ libs/domain/src`, minus its own cases and the five directory files that own
 `notes/delivery-modes.md`. The worker does not merge this.
 
 1. **`apps/be-01/drizzle/**`** — two migrations, and the D2 decision to leave
-`work_item.service_id` standing and unread rather than drop it.
+   `work_item.service_id` standing and unread rather than drop it.
 2. **`libs/domain/**`** — `effective-service.ts`and`label-mismatch.ts`, both
-read by both apps, and the shared `effectiveLabelsOf` walk they lean on.
+   read by both apps, and the shared `effectiveLabelsOf` walk they lean on.
 3. **`service/schedule.ts`** — untouched, and asserted untouched by section 8's
    faults rather than by a file list.
 4. **Auth** — untouched. No route added here changes who may read or write; the

@@ -264,7 +264,6 @@ test('mounted tree validates core fields, deadline and slice lateness while pres
     slices: [{ lateBy: null }],
   });
   const { projectRevision, ...missing } = tree;
-  void projectRevision;
   for (const malformed of [
     missing,
     { ...tree, workItems: [{ ...row, deadline: false }] },

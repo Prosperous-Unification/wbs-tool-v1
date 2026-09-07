@@ -1,5 +1,10 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { type ComponentPropsWithoutRef, type ElementRef, forwardRef, type ReactNode } from 'react';
+import {
+  type ComponentPropsWithoutRef,
+  type ComponentRef,
+  forwardRef,
+  type ReactNode,
+} from 'react';
 
 import { cn } from '@/lib/utils';
 
@@ -41,7 +46,7 @@ export const ModalClose = DialogPrimitive.Close;
  * right.
  */
 export const ModalOverlay = forwardRef<
-  ElementRef<typeof DialogPrimitive.Overlay>,
+  ComponentRef<typeof DialogPrimitive.Overlay>,
   ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
 >(function ModalOverlay({ className, ...props }, ref) {
   return (
@@ -117,7 +122,7 @@ function PageShortcutsHeld(): null {
  * with no accessible name is one a screen reader announces as "dialog".
  */
 export const ModalContent = forwardRef<
-  ElementRef<typeof DialogPrimitive.Content>,
+  ComponentRef<typeof DialogPrimitive.Content>,
   ModalContentProps
 >(function ModalContent(
   { className, side = 'centre', closeButton = true, children, ...props },
@@ -170,7 +175,7 @@ export function ModalFooter({ className, ...props }: ComponentPropsWithoutRef<'d
 
 /** The modal's accessible name, wired to `aria-labelledby` by Radix. */
 export const ModalTitle = forwardRef<
-  ElementRef<typeof DialogPrimitive.Title>,
+  ComponentRef<typeof DialogPrimitive.Title>,
   ComponentPropsWithoutRef<typeof DialogPrimitive.Title>
 >(function ModalTitle({ className, ...props }, ref) {
   return (
@@ -184,7 +189,7 @@ export const ModalTitle = forwardRef<
 
 /** The modal's `aria-describedby` sentence — what this surface is for. */
 export const ModalDescription = forwardRef<
-  ElementRef<typeof DialogPrimitive.Description>,
+  ComponentRef<typeof DialogPrimitive.Description>,
   ComponentPropsWithoutRef<typeof DialogPrimitive.Description>
 >(function ModalDescription({ className, ...props }, ref) {
   return (

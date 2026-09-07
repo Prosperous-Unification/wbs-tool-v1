@@ -16,7 +16,7 @@ import type { Toast } from './toasts';
  */
 function useDateCellEditor(
   columnId: string,
-  gridElement: React.MutableRefObject<HTMLElement | null>,
+  gridElement: React.RefObject<HTMLElement | null>,
 ): { editing: string | null; open: (rowId: string) => void; close: (rowId: string) => void } {
   const [editing, setEditing] = useState<string | null>(null);
   const owedFocus = useRef<string | null>(null);
@@ -61,7 +61,7 @@ export function usePlanFields({
   api: ProjectApi;
   priorityBands: PriorityBandView[];
   pushToast: (toast: Toast) => void;
-  gridElement: React.MutableRefObject<HTMLElement | null>;
+  gridElement: React.RefObject<HTMLElement | null>;
 }) {
   /**
    * Sets or clears one work item's "not before" day.

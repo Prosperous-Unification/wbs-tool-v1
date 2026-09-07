@@ -11,6 +11,7 @@ import {
   startFloorByRow,
   type TagLabel,
 } from './gantt-geometry';
+import type { PlanTableFeatures } from './plan-columns/column';
 import { showDay } from './plan-number-format';
 import { printedDay } from './short-date';
 import type { ChartRead } from './use-plan-read';
@@ -30,7 +31,7 @@ export function usePlanChartInput({
   priorityBands,
   startFloor,
 }: {
-  shownRows: Row<TreeRow>[];
+  shownRows: Row<PlanTableFeatures, TreeRow>[];
   startDate: string | null;
   effectiveTeamLabelOf: (row: TreeRow) => ServiceTeamLabel;
   effectiveTagLabelOf: (row: TreeRow) => TagLabel;
@@ -40,7 +41,7 @@ export function usePlanChartInput({
   filtering: boolean;
   teams: TeamView[];
   priorityBands: PriorityBandView[];
-  startFloor: React.MutableRefObject<ReadonlyMap<string, string>>;
+  startFloor: React.RefObject<ReadonlyMap<string, string>>;
 }) {
   /**
    * What the Gantt panel draws, from the rows the renderer is drawing.

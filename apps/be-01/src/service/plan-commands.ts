@@ -93,8 +93,7 @@ type ServiceRefusal =
   | Extract<DirectoryOutcome<never> | RemoveDirectoryOutcome, { ok: false }>;
 
 export type BatchOutcome =
-  | { ok: true; results: AppliedCommand[]; undoable: boolean; redoable: boolean }
-  | BatchRefusal;
+  { ok: true; results: AppliedCommand[]; undoable: boolean; redoable: boolean } | BatchRefusal;
 
 export interface PlanCommandRunnerOptions {
   workItems: WorkItemService;

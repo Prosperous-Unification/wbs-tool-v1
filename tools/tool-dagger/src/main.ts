@@ -25,7 +25,38 @@ const REGISTRY_USER = process.env['REGISTRY_USER'] ?? 'wbs';
 
 const GIBIBYTE = 1024 ** 3;
 const ENGINE_NAME = 'wbs-dagger-engine';
-const ENGINE_IMAGE = 'registry.dagger.io/engine:v0.21.8';
+/**
+ * The version of `@dagger.io/dagger` this checkout has installed, read from
+ * the package's own package.json by path: the package exports no
+ * `./package.json`, and an import through the module boundary is what
+ * `@nx/enforce-module-boundaries` refuses. A missing file or a version that is
+ * not `major.minor.patch` throws — an engine tag built from nothing is exactly
+ * the drift this exists to stop.
+ */
+export async function installedDaggerSdkVersion(): Promise<string> {
+  const manifest = new URL('../../../node_modules/@dagger.io/dagger/package.json', import.meta.url);
+  const { version } = (await Bun.file(manifest).json()) as { version?: unknown };
+  if (typeof version !== 'string' || !/^\d+\.\d+\.\d+$/.test(version)) {
+    throw new Error(
+      `@dagger.io/dagger's package.json carries no release version: ${String(version)}`,
+    );
+  }
+  return version;
+}
+
+/**
+ * The engine image, at the SDK's own version.
+ *
+ * Dagger's CLI, engine and SDK negotiate a protocol version, and a CLI or SDK
+ * newer than the engine asks for one the engine will not serve
+ * (`docs/runbook-prod-deploy.md`). Until 2026-09-06 this was a literal beside
+ * a second literal in `main.test.ts` and a third in the runbook, so bumping
+ * the SDK left the engine behind with nothing to say so. Read from the
+ * installed SDK's own package.json — by path, because the package exports no
+ * `./package.json` — so the SDK moves the engine with it; the runbook's stated
+ * CLI version is held equal to the same string by `main.test.ts`.
+ */
+const ENGINE_IMAGE = `registry.dagger.io/engine:v${await installedDaggerSdkVersion()}`;
 const ENGINE_MEMORY_BYTES = 8 * GIBIBYTE;
 const ENGINE_NANO_CPUS = 6_000_000_000;
 const ENGINE_PIDS = 2048;

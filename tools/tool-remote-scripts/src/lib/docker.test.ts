@@ -114,7 +114,7 @@ describe('envLayout', () => {
   });
 
   it('refuses an unknown environment by name, not by falling back to prod', () => {
-    let layout: unknown = null;
+    let layout: unknown;
     try {
       layout = envLayout('staging');
     } catch {

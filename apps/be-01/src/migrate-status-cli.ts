@@ -18,19 +18,17 @@ try {
   // The table does not exist until the first migration runs; that is a real
   // "nothing applied" answer rather than an error.
   const exists = db
-    .query<
-      { name: string },
-      []
-    >("SELECT name FROM sqlite_master WHERE type='table' AND name='__drizzle_migrations'")
+    .query<{ name: string }, []>(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='__drizzle_migrations'",
+    )
     .get();
   if (exists === null) {
     console.log(ROLLBACK_ALL);
   } else {
     const rows = db
-      .query<
-        AppliedMigration,
-        []
-      >('SELECT id, hash, created_at, name FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 1')
+      .query<AppliedMigration, []>(
+        'SELECT id, hash, created_at, name FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 1',
+      )
       .all();
     // `rows[0]` is typed non-nullish here (noUncheckedIndexedAccess is off in
     // this repo), so the length check is what actually guards the read.

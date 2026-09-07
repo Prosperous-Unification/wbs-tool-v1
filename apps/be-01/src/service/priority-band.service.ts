@@ -17,8 +17,7 @@ export interface PriorityBandServiceOptions {
 export type PriorityBandRefusal = 'not_found' | 'forbidden';
 
 export type PriorityBandOutcome =
-  | { ok: true; value: PriorityBand[] }
-  | { ok: false; reason: PriorityBandRefusal };
+  { ok: true; value: PriorityBand[] } | { ok: false; reason: PriorityBandRefusal };
 
 /**
  * What one project calls its priority numbers.

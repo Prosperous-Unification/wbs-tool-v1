@@ -148,8 +148,7 @@ export interface SavedPlanRead {
  * would otherwise silently address the live plan.
  */
 export type SavedPlanSideRef =
-  | { readonly kind: 'current' }
-  | { readonly kind: 'saved'; readonly savedPlanId: string };
+  { readonly kind: 'current' } | { readonly kind: 'saved'; readonly savedPlanId: string };
 
 /**
  * What a comparison answers.

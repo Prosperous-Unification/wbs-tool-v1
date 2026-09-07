@@ -35,9 +35,9 @@ import { type TreeRow } from './wbs-rows';
  * report TS2741: busy is missing but required in PlanLiveValues (2026-09-06).
  */
 export interface PlanLiveValues {
-  focusIntent: React.MutableRefObject<FocusIntent>;
-  gridElement: React.MutableRefObject<HTMLElement | null>;
-  startFloor: React.MutableRefObject<ReadonlyMap<string, string>>;
+  focusIntent: React.RefObject<FocusIntent>;
+  gridElement: React.RefObject<HTMLElement | null>;
+  startFloor: React.RefObject<ReadonlyMap<string, string>>;
   api: ProjectApi;
   projectId: string;
   run: (action: () => Promise<void>) => Promise<CommitOutcome>;
@@ -146,4 +146,4 @@ export interface PlanLiveValues {
   matchIds: ReadonlySet<string>;
   filtering: boolean;
 }
-export type PlanLive = React.MutableRefObject<PlanLiveValues>;
+export type PlanLive = React.RefObject<PlanLiveValues>;

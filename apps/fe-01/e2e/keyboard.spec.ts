@@ -130,7 +130,6 @@ async function typeDateInto(page: Page, box: Locator, iso: string): Promise<void
  * what the keyboard does to a table somebody has actually been typing in.
  */
 async function seedRows(page: Page, _account: string, rows: number): Promise<void> {
-  void _account;
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();
 

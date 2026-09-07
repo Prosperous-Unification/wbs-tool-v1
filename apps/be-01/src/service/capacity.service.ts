@@ -15,8 +15,7 @@ export interface CapacityServiceOptions {
 export type CapacityRefusal = 'not_found' | 'forbidden';
 
 export type CapacityOutcome =
-  | { ok: true; value: TeamCapacity[] }
-  | { ok: false; reason: CapacityRefusal };
+  { ok: true; value: TeamCapacity[] } | { ok: false; reason: CapacityRefusal };
 
 /**
  * How many of each team a project may have at work at once.

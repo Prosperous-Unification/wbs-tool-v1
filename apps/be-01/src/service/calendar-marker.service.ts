@@ -62,8 +62,7 @@ export interface CalendarMarkerRefused {
 export type CalendarMarkerOutcome = { ok: true; value: CalendarMarker } | CalendarMarkerRefused;
 
 export type CalendarMarkerListOutcome =
-  | { ok: true; value: CalendarMarker[] }
-  | CalendarMarkerRefused;
+  { ok: true; value: CalendarMarker[] } | CalendarMarkerRefused;
 
 /** What a create carries that is not the project or the actor. */
 export interface NewCalendarMarker {

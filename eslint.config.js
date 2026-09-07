@@ -76,6 +76,21 @@ export default [
     rules: {
       ...nxRules,
       '@typescript-eslint/no-floating-promises': 'error',
+      // A binding kept for its name — a helper parameter that documents what
+      // its caller hands over, a rest-destructure's discarded key — is spelled
+      // with a leading underscore or as a rest sibling rather than acknowledged
+      // with `void x;`: typescript-eslint 8.69's `no-meaningless-void-operator`
+      // reads that idiom as the fault it is named for, and its autofix leaves a
+      // bare expression statement behind (21 sites, 2026-09-06).
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+          ignoreRestSiblings: true,
+        },
+      ],
       '@typescript-eslint/consistent-type-imports': [
         'error',
         { fixStyle: 'separate-type-imports' },
@@ -106,11 +121,38 @@ export default [
       ...react.configs.flat.recommended.rules,
       ...react.configs.flat['jsx-runtime'].rules,
       ...reactHooks.configs['recommended-latest'].rules,
+      // eslint-plugin-react-hooks 7 ships the React Compiler's own rules in
+      // `recommended-latest`. Four of them describe what the *compiler* needs
+      // in order to memoize a component, and this app does not run the
+      // compiler: `refs` refuses a `ref.current` read during render, which is
+      // the `live` seam every cell in `wbs-table.tsx` reads its live state
+      // through on purpose (LLM_README's first landmine); `set-state-in-effect`
+      // refuses the per-project re-reads of remembered layout that happen in
+      // effects by design; `immutability` refuses a test harness that captures
+      // a hook's API during render because reading it out of an effect would
+      // be one render stale (`toasts.test.tsx`); and
+      // `preserve-manual-memoization` reports "Compilation Skipped", which is
+      // about a compilation that never runs. Measured on 2026-09-06 with all
+      // four on: 41 + 15 + 2 + 1 findings, every one at a site that is
+      // deliberate and documented where it stands. The other compiler rules
+      // (`purity`, `set-state-in-render`, `error-boundaries`, `globals`, …)
+      // stay on: they name faults regardless of the compiler.
+      'react-hooks/refs': 'off',
+      'react-hooks/set-state-in-effect': 'off',
+      'react-hooks/immutability': 'off',
+      'react-hooks/preserve-manual-memoization': 'off',
       ...jsxA11y.flatConfigs.recommended.rules,
       ...tanstackRouter.configs['flat/recommended'].rules,
       ...tanstackQuery.configs['flat/recommended'].rules,
     },
-    settings: { react: { version: 'detect' } },
+    // The installed React's version, spelled rather than detected. ESLint 10
+    // removed `context.getFilename`, and eslint-plugin-react 7.37's detection
+    // path still calls it — `TypeError: contextOrFilename.getFilename is not
+    // a function` on every file, which is how the whole lint target died on
+    // the bump. A literal skips that path. `toolchain-pins.test.ts` holds it
+    // equal to `react`'s installed version, so a React bump that forgets this
+    // line fails the test tier rather than linting against the wrong React.
+    settings: { react: { version: '19.2.8' } },
   },
 
   {

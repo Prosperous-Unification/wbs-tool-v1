@@ -21,7 +21,6 @@ import { createProject } from './create-project';
 
 /** Opens the fixed local identity and makes a plan two estimated rows deep. */
 async function seedPlan(page: Page, _account: string): Promise<void> {
-  void _account;
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();
 

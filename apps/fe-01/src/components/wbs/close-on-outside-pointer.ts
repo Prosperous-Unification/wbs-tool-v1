@@ -25,8 +25,11 @@ import { type RefObject, useEffect, useRef } from 'react';
  * Native `<select>` popups (the Export panel's Mermaid lanes picker) are drawn
  * by the platform, not the document, so choosing from one fires no `pointerdown`
  * here and cannot close the panel underneath it.
+ *
+ * `| null` in the return type is React 19's own: `useRef<T>(null)` now answers
+ * `RefObject<T | null>`, which is what a `ref` prop takes.
  */
-export function useClosedByPointerOutside(): RefObject<HTMLDetailsElement> {
+export function useClosedByPointerOutside(): RefObject<HTMLDetailsElement | null> {
   const panel = useRef<HTMLDetailsElement>(null);
 
   useEffect(() => {

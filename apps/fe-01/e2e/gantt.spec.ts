@@ -264,7 +264,6 @@ async function seedPlan(
     zeroQa?: boolean;
   } = {},
 ): Promise<void> {
-  void _account;
   const { estimate = '2/4/6', extraRows = 0, costedExtras = false, zeroQa = false } = fixture;
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();
@@ -370,7 +369,6 @@ async function seedPlan(
  * four workdays and `020` begins after them.
  */
 async function seedUnestimatedChain(page: Page, _account: string): Promise<void> {
-  void _account;
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();
 
@@ -428,7 +426,6 @@ async function seedUnestimatedChain(page: Page, _account: string): Promise<void>
  * what says the chart being measured is the one this helper seeded.
  */
 async function seedEdgeRoutes(page: Page, _account: string): Promise<void> {
-  void _account;
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();
 

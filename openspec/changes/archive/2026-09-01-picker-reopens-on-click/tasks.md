@@ -5,7 +5,7 @@ Ordered TDD slices. Only `- [ ]` checkboxes are tracked by the apply phase.
 ## 1. The gesture, reproduced in a browser first
 
 - [x] 1.1 `e2e/reference-cells.spec.ts` `offers the rest of the directory when
-      the add field is clicked again` takes one tag through the cell as a reader
+the add field is clicked again` takes one tag through the cell as a reader
       does, asserts the box still holds the focus and the list is shut, and then
       clicks. Watched **failing on `main`'s component**, which is this change's
       whole negative: `clicking the focused add field offered nothing ·

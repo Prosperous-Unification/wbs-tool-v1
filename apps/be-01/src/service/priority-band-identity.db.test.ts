@@ -290,8 +290,8 @@ describe('a priority ladder moves no date', () => {
     bands: readonly PriorityBand[],
   ): Promise<Record<string, unknown>> {
     const projects = inMemoryProjects();
-    const directory = inMemoryDirectory(
-      (projectId): Promise<readonly { id: string }[]> => workItems.listByProject(projectId),
+    const directory = inMemoryDirectory((projectId): Promise<readonly { id: string }[]> =>
+      workItems.listByProject(projectId),
     );
     const workItems = inMemoryWorkItems(directory);
     const estimates = inMemoryEstimates(workItems);
@@ -435,7 +435,7 @@ describe('a priority ladder moves no date', () => {
   ): Record<string, unknown> {
     const byId = new Map(tree.workItems.map((row) => [row.id, row]));
     const effectiveTeamOf = (rowId: string): string | null => {
-      for (let at: string | null = rowId; at !== null; ) {
+      for (let at: string | null = rowId; at !== null;) {
         const row = byId.get(at);
         if (row === undefined) return null;
         if (row.serviceTeamId !== null) return row.serviceTeamId;
@@ -678,8 +678,8 @@ describe('a priority ladder moves no date', () => {
     bands: readonly PriorityBand[],
   ): Promise<NonNullable<Awaited<ReturnType<WorkItemService['tree']>>>> {
     const projects = inMemoryProjects();
-    const directory = inMemoryDirectory(
-      (projectId): Promise<readonly { id: string }[]> => workItems.listByProject(projectId),
+    const directory = inMemoryDirectory((projectId): Promise<readonly { id: string }[]> =>
+      workItems.listByProject(projectId),
     );
     const workItems = inMemoryWorkItems(directory);
     const estimates = inMemoryEstimates(workItems);

@@ -31,10 +31,7 @@ export interface PointerRect {
 }
 
 export type DependencyPointerRegion =
-  | { kind: 'owner' }
-  | { kind: 'corridor' }
-  | { kind: 'row'; id: string }
-  | { kind: 'outside' };
+  { kind: 'owner' } | { kind: 'corridor' } | { kind: 'row'; id: string } | { kind: 'outside' };
 
 const containsPoint = (point: { x: number; y: number }, box: PointerRect): boolean =>
   point.x >= box.left && point.x <= box.right && point.y >= box.top && point.y <= box.bottom;
@@ -202,10 +199,58 @@ export function DependsCard({
   const targets = useRef(new Map<string, HTMLDivElement>());
 
   useEffect(() => {
-    const clear = () => {
+    const ownerCell = (): HTMLElement | null => {
+      const first = targets.current.values().next().value;
+      const owner = first?.closest('td');
+      return owner instanceof HTMLElement ? owner : null;
+    };
+    const clear = (event: Event) => {
+      // A scroll *inside* the owner cell moves nothing this card is anchored
+      // to: the cell's clipped rest line is an `overflow: hidden` span, and
+      // Chromium scrolls it on the card's own mount. React 18 flushed the
+      // effect that attaches this listener after that scroll had passed;
+      // React 19 flushes it in time to hear it, and the card closed in the
+      // same gesture that opened it — logged in Chromium on 2026-09-06 as
+      // `clear scroll target=SPAN inCard=false`. The page, the table and any
+      // ancestor scroller still close the card, which is what this is for.
+      //
+      // Proof: with this return removed, `travels through passive card space
+      // to the third row and leaves empty padding click-through`
+      // (`e2e/hover-cards.spec.ts`) failed under React 19 on `the owner did
+      // not open its dependency card · Expected: 1 · Received: 0`.
+      if (
+        event.type === 'scroll' &&
+        event.target instanceof Node &&
+        ownerCell()?.contains(event.target)
+      ) {
+        return;
+      }
       onPointerOutside();
     };
     const move = (event: PointerEvent) => {
+      // A pill under the pointer is the pill's own to report: its `mouseenter`
+      // narrowed the light to one row, and the owner-cell region this listener
+      // would otherwise answer with (`onPointEntry(null)`, every row lit) is
+      // the cell's reading, not the pointer's. React 18 never raced this:
+      // the card mounts on the cell's enter and this listener is attached
+      // from an effect, which React 18 flushed after the gesture's own
+      // `pointermove` had passed. React 19 flushes it in time to see that
+      // very event — logged in Chromium on 2026-09-06 as settle(cell) →
+      // pill enter → settle(pill) → onPointEntry(null) → settle(cell), with
+      // the pointer at rest on the pill — so the listener has to know a pill
+      // when it is on one.
+      //
+      // Proof: with this return removed, `narrows to one pill when the
+      // pointer settles on it, from the cell` (`e2e/deps-cell.spec.ts`) and
+      // three cases of `e2e/hover-cards.spec.ts` failed under React 19 on
+      // `- Expected - 0 / + Received + 1` — `['040', '050']` where `['040']`
+      // was owed; all four pass on React 18 either way.
+      if (
+        event.target instanceof Element &&
+        event.target.closest('[data-reference-chip]') !== null
+      ) {
+        return;
+      }
       const first = targets.current.values().next().value;
       const owner = first?.closest('td');
       if (!(owner instanceof HTMLElement)) return;

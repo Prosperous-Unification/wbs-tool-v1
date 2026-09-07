@@ -122,8 +122,7 @@ type RefusalReply<R> = R extends EmptyRefusalResponse
  * explicitly typed null-endpoint handler; inference cannot hide it by widening a symbol.
  */
 export type HttpReply<S extends EndpointShape> =
-  | SuccessReply<S['responses'][number]>
-  | RefusalReply<S['refusals'][number]>;
+  SuccessReply<S['responses'][number]> | RefusalReply<S['refusals'][number]>;
 
 /** The rejected external value and portable validator issues, never an accepted input. */
 export type RequestFailure = {

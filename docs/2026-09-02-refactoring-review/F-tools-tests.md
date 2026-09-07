@@ -143,9 +143,9 @@ project has no `@wbs/_`public entry point"* to justify duplicating`TIER_APP`,
 `git status --porcelain`gate as`tool-dagger/src/main.ts:assertCleanTree()`
 (`:~460`), with two different messages and two different shapes (paths vs
 string).
-*Performance:* `assertBundleInstalled` (`:432`) does one `ssh` round trip for
+_Performance:_ `assertBundleInstalled` (`:432`) does one `ssh` round trip for
 both files — good. The deploy is sequential per tier, deliberately (`:~540`).
-*Readability/DDD:* `buildDeployPlan` (`:158`) is a pure planner over an injected
+_Readability/DDD:_ `buildDeployPlan` (`:158`) is a pure planner over an injected
 `DeployPlanDeps` — the right shape. Its migration gate (`:200–250`) is the
 sharpest domain rule in the tool tree.
 
@@ -298,15 +298,15 @@ hiding it.
 
 ## 3 · `deploy/**`
 
-| file                                      | LOC                  | role                          | finding                                                                                                                                                                                                                                     |
+| file | LOC | role | finding |
 | ----------------------------------------- | -------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- |
-| `deploy/compose/base.yml`                 | 88                   | edge Caddy + private registry | reuse: none. perf: none. DDD: the `wbs-dev-net` external-network comment (`:11–18`) is the reason dev survives a prod teardown. Checked by CI's `Compose files` step (`docker compose config -q` + a `jq -e` on the network) — a real check |
-| `deploy/compose/base.dev.yml`             | 23                   | dev overlay                   | not covered by CI's compose step (only `base.yml` and `dev-src/compose.yml` are)                                                                                                                                                            |
-| `deploy/dev-src/compose.yml`              | 68                   | the one dev container         | perf: `mem_limit 1536m`, `cpus 1.5`, `pids_limit 512`, measured at 278 MiB steady — sized, not guessed                                                                                                                                      |
-| `deploy/dev-src/Dockerfile`               | 31                   | dev image                     | —                                                                                                                                                                                                                                           |
-| `deploy/compose/Caddyfile.bootstrap`      | 38                   | placeholder vhost             | the thing `caddy reload`'s exit-0 defect kept serving                                                                                                                                                                                       |
-| `deploy/compose/site-dev.caddy.candidate` | 60                   | dev vhost draft               | **duplicates `lib/site.ts:5`'s `DEV_MCP_ROUTES`**; only the TS copy is rendered                                                                                                                                                             |
-| `deploy/compose/log-redact.caddy`         | 59, `registry.caddy` | 20                            | edge fragments                                                                                                                                                                                                                              | —   |
+| `deploy/compose/base.yml` | 88 | edge Caddy + private registry | reuse: none. perf: none. DDD: the `wbs-dev-net` external-network comment (`:11–18`) is the reason dev survives a prod teardown. Checked by CI's `Compose files` step (`docker compose config -q` + a `jq -e` on the network) — a real check |
+| `deploy/compose/base.dev.yml` | 23 | dev overlay | not covered by CI's compose step (only `base.yml` and `dev-src/compose.yml` are) |
+| `deploy/dev-src/compose.yml` | 68 | the one dev container | perf: `mem_limit 1536m`, `cpus 1.5`, `pids_limit 512`, measured at 278 MiB steady — sized, not guessed |
+| `deploy/dev-src/Dockerfile` | 31 | dev image | — |
+| `deploy/compose/Caddyfile.bootstrap` | 38 | placeholder vhost | the thing `caddy reload`'s exit-0 defect kept serving |
+| `deploy/compose/site-dev.caddy.candidate` | 60 | dev vhost draft | **duplicates `lib/site.ts:5`'s `DEV_MCP_ROUTES`**; only the TS copy is rendered |
+| `deploy/compose/log-redact.caddy` | 59, `registry.caddy` | 20 | edge fragments | — |
 
 The two `.tmpl` files (`tools/tool-compose/src/templates/`) are the rendered
 path and are inlined into `swap.js` at build time — good depth, one file ships
@@ -375,8 +375,8 @@ Same result for all 17. Real: `be-01`, `gw-01`, `mcp-01`, `fe-01` (`tsc --build
 Consequences, in order of severity:
 
 1. **`tools/**`is typechecked by nothing.**`apps/be-01:typecheck`pulls 40`libs/`files transitively but **0**`tools/`files.`swap.ts`— 1,033 lines
-that swap production — is covered only by ESLint's typed rules (which *do*
-work:`projectService`finds`tsconfig.lib.json`).
+   that swap production — is covered only by ESLint's typed rules (which _do_
+   work:`projectService`finds`tsconfig.lib.json`).
 2. **Every lib's test files are typechecked by nothing.** `tsconfig.spec.json`
    is referenced and never entered; consumers pull production sources only.
 3. It is fast for the wrong reason: 0.39s × 17 looks like a healthy typecheck
@@ -689,7 +689,7 @@ two halves of one contract that disagree about which environment they are in.
 `BUNDLE_FILES`, `sha256File`, `parseSha256sumOutput`, `assertCleanTree`. Give
 `install.ts`an`--env`flag off the same`envLayout`. Follow
 `tool-compose/src/index.ts`, which already does exactly this.
-**Benefits:** *depth* — one module, one interface, five consumers. *Locality* —
+**Benefits:** _depth_ — one module, one interface, five consumers. _Locality_ —
 the environment question has one answer on both sides of the SSH seam, which is
 the property `lib/env.ts`'s own doc comment claims and does not yet have.
 **Effort:** ~1 day. **Risk:** low (`enforce-module-boundaries`already permits`scope:infra → scope:infra`).

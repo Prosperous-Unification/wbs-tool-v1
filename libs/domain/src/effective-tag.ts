@@ -137,10 +137,7 @@ export function effectiveTagsOf(rows: readonly TagsLabelled[]): Map<string, Effe
     const unsettled: string[] = [];
     const seen = new Set<string>();
     let carried: EffectiveTags = [];
-    for (
-      let cursor: string | null | undefined = row.id;
-      cursor !== null && cursor !== undefined;
-    ) {
+    for (let cursor: string | null | undefined = row.id; cursor !== null && cursor !== undefined;) {
       const already = settled.get(cursor);
       if (already !== undefined) {
         carried = already;

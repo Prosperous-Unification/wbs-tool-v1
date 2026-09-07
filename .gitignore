@@ -65,3 +65,5 @@ tmp/
 # reads as a dirty tree — which is how a worker learns to ignore that check.
 __pycache__/
 *.py[cod]
+
+.nx/migrate-runs

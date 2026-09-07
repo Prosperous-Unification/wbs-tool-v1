@@ -170,8 +170,7 @@ export function TeamsPanel({
 
   const forget = (teamId: string): void => {
     setTyped((current) => {
-      const { [teamId]: gone, ...rest } = current;
-      void gone;
+      const { [teamId]: _gone, ...rest } = current;
       return rest;
     });
   };

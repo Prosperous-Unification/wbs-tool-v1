@@ -216,18 +216,18 @@ export async function runManagedSolverAttempt(
         timerFailure = error;
       }
     }
-    let stopFailure: unknown;
-    let waitFailure: unknown;
+    let _stopFailure: unknown;
+    let _waitFailure: unknown;
     if (!containerWaited) {
       try {
         await driver.kill(exactManagedContainerArgs('kill', containerId));
       } catch (error) {
-        stopFailure = error;
+        _stopFailure = error;
       }
       try {
         await driver.wait(exactManagedContainerArgs('wait', containerId));
       } catch (error) {
-        waitFailure = error;
+        _waitFailure = error;
       }
     }
     let inspectFailure: unknown;
@@ -262,9 +262,9 @@ export async function runManagedSolverAttempt(
       });
     }
     // A kill or wait can report an already-stopped container. Successful
-    // removal is the modeled proof that those intermediate failures are safe.
-    void stopFailure;
-    void waitFailure;
+    // removal is the modeled proof that those intermediate failures are safe,
+    // which is why the two are caught into underscore-named bindings above and
+    // never read.
     throw attemptFailure;
   }
 }

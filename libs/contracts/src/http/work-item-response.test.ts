@@ -27,7 +27,6 @@ test('tree boundary refuses missing core producer fields while allowing additive
     (await validateSchema(schema, { ...tree, future: { extra: true } })).issues,
   ).toBeUndefined();
   const { projectRevision, ...missing } = tree;
-  void projectRevision;
   expect((await validateSchema(schema, missing)).issues).toBeDefined();
 });
 

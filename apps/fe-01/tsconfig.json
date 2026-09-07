@@ -4,9 +4,8 @@
     "jsx": "react-jsx",
     "lib": ["DOM", "DOM.Iterable", "ES2022"],
     "types": ["vite/client"],
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"],
+      "@/*": ["./src/*"],
       "@wbs/domain/workday": ["../../libs/domain/src/workday.ts"],
       "@wbs/domain/deadline-offsets": ["../../libs/domain/src/deadline-offsets.ts"],
       "@wbs/domain/assumed-duration": ["../../libs/domain/src/assumed-duration.ts"],

@@ -29,7 +29,6 @@ const TRANSPARENT = 'rgba(0, 0, 0, 0)';
  * as the chipless row the height claim is measured against.
  */
 async function seedSevenChips(page: Page, _account: string): Promise<void> {
-  void _account;
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();
 

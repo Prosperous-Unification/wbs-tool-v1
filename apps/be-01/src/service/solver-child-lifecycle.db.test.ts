@@ -107,7 +107,9 @@ function deferredChild(
       stderr: stream(stderr),
       exited,
       verdict: () => undefined,
-      kill: () => void (killed += 1),
+      kill: () => {
+        killed += 1;
+      },
     },
     exit,
     killed: () => killed,
@@ -156,7 +158,9 @@ describe('runSolverChildLifecycle', () => {
       child: process.child,
       now: () => 20,
       sleep: () => Promise.resolve(),
-      onExit: () => void (handled += 1),
+      onExit: () => {
+        handled += 1;
+      },
     });
     await Promise.resolve();
     process.exit(143);

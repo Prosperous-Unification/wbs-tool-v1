@@ -1,9 +1,4 @@
-import {
-  flexRender,
-  getCoreRowModel,
-  getExpandedRowModel,
-  useReactTable,
-} from '@tanstack/react-table';
+import { flexRender, useTable } from '@tanstack/react-table';
 import {
   type ComponentProps,
   type ReactNode,
@@ -29,6 +24,7 @@ import { OptimizationIndicator } from './optimization-indicator';
 import { PlanCards } from './plan-cards';
 import { createPlanCellProps, opensAPopover } from './plan-cell-props';
 import { usePlanChartInput, usePlanSchedule } from './plan-chart-input';
+import { PLAN_TABLE_FEATURES } from './plan-columns/column';
 import { createPlanColumns } from './plan-columns/columns';
 import { usePlanExportActions, usePlanOnScreenExport } from './plan-export-actions';
 import type { PlanLiveValues } from './plan-live';
@@ -610,8 +606,6 @@ export function WbsTable({
     effectiveTeams,
     effectiveTags,
     effectiveServices,
-    ownedServicesByTeam,
-    teamsByPerson,
     ownershipKnown,
     membershipKnown,
     mismatchByRow,
@@ -661,8 +655,6 @@ export function WbsTable({
     mismatchByRow,
     effectiveTags,
     priorityBands,
-    ownedServicesByTeam,
-    teamsByPerson,
     query,
     facets,
     teams,
@@ -974,7 +966,8 @@ export function WbsTable({
     [steps, unfoldedSteps, hiddenColumnIds],
   );
 
-  const table = useReactTable({
+  const table = useTable({
+    features: PLAN_TABLE_FEATURES,
     data: workItems,
     columns,
     // While a search is on, the expansion in force is the search's overlay:
@@ -990,10 +983,20 @@ export function WbsTable({
     // back` failed with the whole plan open. Both watched, 2026-08-06.
     state: { expanded: search.expandedOverlay ?? expanded },
     onExpandedChange: setExpanded,
+    // The expansion is this component's — remembered per project, opened on
+    // a drop and on a gap visit, never the table's to reset. TanStack Table 9
+    // resets it to `{}` after every row-structure change unless told not to,
+    // and every write here refetches the tree, so without this line the plan
+    // folded shut on its own first edit.
+    //
+    // Proof: with this line removed, 69 jsdom tests failed, `types a
+    // three-level breakdown without touching the mouse` among them on
+    // `expected [ '010' ] to deeply equal [ '010', '010.1' ]` — the table's
+    // `expanded` read back as `{}` on the render after the indent's refetch.
+    // Observed 2026-09-06.
+    autoResetExpanded: false,
     getSubRows: (row) => row.subRows,
     getRowId: (row) => row.id,
-    getCoreRowModel: getCoreRowModel(),
-    getExpandedRowModel: getExpandedRowModel(),
   });
 
   /**
@@ -1099,7 +1102,12 @@ export function WbsTable({
    * table model rather than listed here, so unfolding a step cannot leave the
    * declared widths describing the columns of a moment ago.
    */
-  const leafColumnIds = table.getVisibleLeafColumns().map((column) => column.id);
+  // `getAllLeafColumns`, not `getVisibleLeafColumns`: a hidden column is left
+  // out of `columns` (see `hiddenColumnIds`) rather than hidden through table
+  // state, so every column the table has is a shown one and the visibility
+  // feature is not among `PLAN_TABLE_FEATURES`. Same for `getAllCells` on the
+  // rows below.
+  const leafColumnIds = table.getAllLeafColumns().map((column) => column.id);
 
   /**
    * Every width this render declares, resolved once.
@@ -1766,7 +1774,7 @@ export function WbsTable({
                       );
                     }}
                   >
-                    {row.getVisibleCells().map((cell) => (
+                    {row.getAllCells().map((cell) => (
                       <td
                         key={cell.id}
                         // See the `th` above: the layout gate measures these boxes

@@ -200,24 +200,32 @@ export default defineConfig(({ command, mode }) => ({
   build: {
     outDir: '../../dist/apps/fe-01',
     emptyOutDir: true,
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        /**
-         * React and the router in their own chunk.
-         *
-         * Not for the total — it is the same bytes over the wire on a cold load
-         * — but for the **second** load: the vendor chunk's hash changes when a
-         * dependency is upgraded, and the app's when the app changes, so a
-         * deploy that touches neither the router nor React leaves the larger
-         * half of the bundle in the reader's cache. Before this there was one
-         * 797 kB file and every deploy invalidated all of it.
-         *
-         * Listed rather than "everything in node_modules": a catch-all pulls
-         * whatever a transitive dependency drags in, and the point is the two
-         * that never change with the app.
-         */
-        manualChunks: (id) =>
-          /node_modules\/(react|react-dom|scheduler|@tanstack)\//.test(id) ? 'vendor' : undefined,
+        codeSplitting: {
+          groups: [
+            /**
+             * React and the router in their own chunk.
+             *
+             * Not for the total — it is the same bytes over the wire on a cold
+             * load — but for the **second** load: the vendor chunk's hash
+             * changes when a dependency is upgraded, and the app's when the app
+             * changes, so a deploy that touches neither the router nor React
+             * leaves the larger half of the bundle in the reader's cache.
+             * Before this there was one 797 kB file and every deploy
+             * invalidated all of it.
+             *
+             * Listed rather than "everything in node_modules": a catch-all
+             * pulls whatever a transitive dependency drags in, and the point is
+             * the two that never change with the app.
+             *
+             * A rolldown `codeSplitting` group rather than rollup's
+             * `manualChunks`, which Vite 8 still accepts and marks deprecated;
+             * the `test` is the same regex the function used to apply.
+             */
+            { name: 'vendor', test: /node_modules\/(react|react-dom|scheduler|@tanstack)\// },
+          ],
+        },
       },
     },
   },

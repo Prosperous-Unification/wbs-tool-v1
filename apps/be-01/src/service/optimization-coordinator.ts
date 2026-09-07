@@ -100,9 +100,7 @@ export type ScheduleOptimizationInfeasibleEvent = Extract<
   { type: 'schedule_optimization_infeasible' }
 >;
 export type OptimizationOutcomeEvent =
-  | ScheduleOptimizedEvent
-  | ScheduleOptimizationFailedEvent
-  | ScheduleOptimizationInfeasibleEvent;
+  ScheduleOptimizedEvent | ScheduleOptimizationFailedEvent | ScheduleOptimizationInfeasibleEvent;
 
 export interface RecordedOptimizedOutcome {
   readonly result: OutcomeWriteResult;

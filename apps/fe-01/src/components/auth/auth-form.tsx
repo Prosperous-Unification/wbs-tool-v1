@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from 'react';
+import { type SubmitEvent, useEffect, useState } from 'react';
 
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -116,7 +116,7 @@ export function AuthForm({ onSignedIn }: AuthFormProps) {
     clearAuthError();
   }, []);
 
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
+  const submit = async (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     const values = new FormData(event.currentTarget);
     const username = values.get('username');

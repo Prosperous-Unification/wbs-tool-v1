@@ -645,7 +645,7 @@ describe('the priority cell', () => {
     // Proof: the `color: paint?.ink` line deleted from `PriorityCell`, and this
     // failed on `expected '' not to be ''` — a Critical row and a Lowest row
     // drawn in one ink. Watched 2026-08-14.
-    const api = await twoRows();
+    await twoRows();
     typeIntoPriority('010', '5');
     await waitFor(() => {
       expect(priorityCell('010').value).toBe('5');
@@ -654,7 +654,6 @@ describe('the priority cell', () => {
     await waitFor(() => {
       expect(priorityCell('020').value).toBe('90');
     });
-    void api;
 
     const critical = priorityCell('010').style.color;
     const lowest = priorityCell('020').style.color;
@@ -2904,7 +2903,9 @@ describe('the links column', () => {
     // "same fill" fault has to stop at.
     expect(confluence.style.background).toBe('transparent');
     expect(jira.style.background).toBe('oklch(0.55 0.19 255)');
-    expect(jira.style.borderStyle).toBe('');
+    // `'none'` is what jsdom 30 reads back for `border: 'none'`; jsdom 24 read
+    // it as `''`. Either way the filled mark carries no stroke.
+    expect(jira.style.borderStyle).toBe('none');
     // One hue, stated as an assertion rather than as a comment: if these ever
     // stop being the same colour the fill distinction is no longer the thing
     // being relied on and this test is about something else.

@@ -136,7 +136,6 @@ async function readHoverCard(page: Page): Promise<string> {
  * rename replaces the picker with a name field.
  */
 async function signInWithAProject(page: Page, _account: string): Promise<void> {
-  void _account;
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();
   await createProject(page);
@@ -154,11 +153,9 @@ async function signInWithAProject(page: Page, _account: string): Promise<void> {
  */
 async function switchToAccountWithAProject(
   page: Page,
-  leaving: string,
-  account: string,
+  _leaving: string,
+  _account: string,
 ): Promise<void> {
-  void leaving;
-  void account;
   await createProject(page);
   await expect(page.getByRole('button', { name: 'Add work item' })).toBeVisible();
 }

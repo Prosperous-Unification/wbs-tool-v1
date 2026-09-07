@@ -97,10 +97,9 @@ describe('the priorities of a plan written before the default', () => {
       try {
         expect(
           after
-            .query<
-              { id: string; priority: number | null },
-              []
-            >('SELECT id, priority FROM work_item ORDER BY id')
+            .query<{ id: string; priority: number | null }, []>(
+              'SELECT id, priority FROM work_item ORDER BY id',
+            )
             .all(),
         ).toEqual([
           { id: 'sand', priority: null },

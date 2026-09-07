@@ -172,7 +172,7 @@ describe('removing a step', () => {
   });
 
   it('asks for the cascade only when it is given one', async () => {
-    const fetched = vi.fn<[string, RequestInit?], Promise<Response>>(() =>
+    const fetched = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(() =>
       Promise.resolve(response(204, '')),
     );
     vi.stubGlobal('fetch', fetched);
@@ -198,7 +198,7 @@ describe('removing a step', () => {
 
 describe('adding and renaming a step', () => {
   it('sends the name and answers with the step', async () => {
-    const fetched = vi.fn<[string, RequestInit?], Promise<Response>>(() =>
+    const fetched = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(() =>
       Promise.resolve(
         response(
           200,
@@ -731,7 +731,7 @@ const APPLIED = JSON.stringify({ results: [{ index: 0 }], undoable: true, redoab
 
 /** The fetch stub, answering `body` to everything and keeping every call. */
 function stubbed(status: number, body: string) {
-  const fetched = vi.fn<[string, RequestInit?], Promise<Response>>(() =>
+  const fetched = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(() =>
     Promise.resolve(response(status, body)),
   );
   vi.stubGlobal('fetch', fetched);
@@ -775,7 +775,7 @@ describe('the browser writes through command batches (plan-commands)', () => {
   });
 
   it('posts exactly one command for every plan write, of the kind the write stands for', async () => {
-    const fetched = vi.fn<[string, RequestInit?], Promise<Response>>((url: string) =>
+    const fetched = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>((url: string) =>
       Promise.resolve(
         response(
           200,

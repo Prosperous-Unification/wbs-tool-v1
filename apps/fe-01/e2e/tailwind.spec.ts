@@ -56,7 +56,6 @@ const TRACKING_TIGHT_EM = -0.025;
  * @param _account The legacy fixture label, retained to keep call sites descriptive.
  */
 async function seedChip(page: Page, _account: string): Promise<void> {
-  void _account;
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();
 

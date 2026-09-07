@@ -28,8 +28,7 @@ export type SolverProcessOutcome =
   | { readonly kind: 'failed'; readonly reason: SolverFailureReason };
 
 export type EvaluatedSolverOutcome =
-  | OutcomeToStore
-  | { readonly kind: 'plan-infeasible'; readonly certificate: PlanInfeasibleResult };
+  OutcomeToStore | { readonly kind: 'plan-infeasible'; readonly certificate: PlanInfeasibleResult };
 
 /**
  * Turn one classified child outcome into the exact cache value it earned.

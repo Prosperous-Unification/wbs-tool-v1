@@ -72,7 +72,7 @@ used to run on dev before prod; they no longer do. Run a prod dry-run before any
 
 ### prod — image-based, blue/green
 
-**h2puni can build and publish** since 2026-08-05: pinned `dagger` v0.21.8, a build checkout at
+**h2puni can build and publish** since 2026-08-05: pinned `dagger` v0.21.9, a build checkout at
 `/home/puni1/wbs-build` (**not** dev's), and the `h2puni` alias resolving to itself. Proven:
 images published, dry run planned the swap. Runbook has the why.
 

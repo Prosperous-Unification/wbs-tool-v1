@@ -23,7 +23,7 @@ function cssOf(built: Awaited<ReturnType<typeof build>>, what: string): string {
   // `build` is overloaded: a watcher for `build.watch`, one bundle or an array
   // of them otherwise. Neither call below sets a watcher, so this is a shape
   // check on a union the compiler cannot collapse.
-  const outputs = (Array.isArray(built) ? built : [built]) as Rollup.RollupOutput[];
+  const outputs = (Array.isArray(built) ? built : [built]) as Rollup.RolldownOutput[];
   const css = outputs
     .flatMap((bundle) => bundle.output)
     .filter((chunk): chunk is Rollup.OutputAsset => chunk.type === 'asset')

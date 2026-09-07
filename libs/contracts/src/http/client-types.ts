@@ -53,9 +53,7 @@ export type PreflightInput<S extends EndpointShape> = Omit<
 
 /** Explicit representations let an in-process adapter translate its own empty sentinel. */
 export type TransportReply = { status: number; headers?: HttpHeaders } & (
-  | { kind: 'json'; body: unknown }
-  | { kind: 'text'; text: string }
-  | { kind: 'empty' }
+  { kind: 'json'; body: unknown } | { kind: 'text'; text: string } | { kind: 'empty' }
 );
 
 /** Fetch and in-process transports share response validation, without a backend import. */
@@ -98,9 +96,7 @@ type Refused<R> = R extends { kind: 'empty'; status: infer S }
 
 /** Status and representation remain paired with their own schema's inferred output. */
 export type ClientReply<S extends EndpointShape> =
-  | Success<S['responses'][number]>
-  | Refused<S['refusals'][number]>
-  | ClientBoundaryFailure;
+  Success<S['responses'][number]> | Refused<S['refusals'][number]> | ClientBoundaryFailure;
 
 export type Client<Shapes extends readonly EndpointShape[]> = {
   [S in Shapes[number] as S['operationId']]: (input: ClientInput<S>) => Promise<ClientReply<S>>;

@@ -34,7 +34,6 @@ const SUBMIT_CHORD = 'Control+Enter';
 
 /** Registers a throwaway account and opens an empty project. */
 async function signInWithAProject(page: Page, _account: string): Promise<void> {
-  void _account;
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();
   await createProject(page);

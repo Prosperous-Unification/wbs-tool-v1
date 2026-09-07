@@ -255,7 +255,7 @@ describe('every plan schedules identically across the migration', () => {
       );
       /** The label in force on a row: its own, else the nearest ancestor's. */
       const effectiveTeamOf = (rowId: string): string | null => {
-        for (let at: string | null | undefined = rowId; at !== null && at !== undefined; ) {
+        for (let at: string | null | undefined = rowId; at !== null && at !== undefined;) {
           const own = ownTeam.get(at);
           if (own !== undefined && own !== null) return own;
           at = parentOf.get(at);
@@ -553,8 +553,8 @@ describe('every plan schedules identically across the migration', () => {
     seeded: ReadonlyMap<string, ReadonlyMap<string, number>>,
   ): Promise<NonNullable<Awaited<ReturnType<WorkItemService['tree']>>>> {
     const projects = inMemoryProjects();
-    const directory = inMemoryDirectory(
-      (projectId): Promise<readonly { id: string }[]> => workItems.listByProject(projectId),
+    const directory = inMemoryDirectory((projectId): Promise<readonly { id: string }[]> =>
+      workItems.listByProject(projectId),
     );
     const workItems = inMemoryWorkItems(directory);
     const estimates = inMemoryEstimates(workItems);

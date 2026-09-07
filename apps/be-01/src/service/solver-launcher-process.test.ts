@@ -24,13 +24,19 @@ function harness(): Harness {
   const process: SolverLauncherProcess = {
     pid: 42,
     stdin: {
-      write: (chunk) => void writes.push(chunk),
-      end: () => void (ended += 1),
+      write: (chunk) => {
+        writes.push(chunk);
+      },
+      end: () => {
+        ended += 1;
+      },
     },
     stdout: new ReadableStream<Uint8Array>(),
     stderr: new ReadableStream<Uint8Array>(),
     exited: Promise.resolve(0),
-    kill: () => void (killed += 1),
+    kill: () => {
+      killed += 1;
+    },
   };
   return {
     calls,

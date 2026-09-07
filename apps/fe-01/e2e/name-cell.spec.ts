@@ -52,7 +52,6 @@ const TEN_LINES = [
  * somebody has typed into, sized by the same render path a real session takes.
  */
 async function seedRows(page: Page, _account: string, rows: number): Promise<void> {
-  void _account;
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();
 

@@ -107,6 +107,7 @@ describe('what the theme puts on the document', () => {
   });
 
   itDom('refuses a runtime that cannot be asked what colour scheme it prefers', () => {
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- restored below, never called detached
     const real = window.matchMedia;
     // The failure this guards is a runtime with no `matchMedia`, and the only
     // way to construct it is to take the one this environment installed away.

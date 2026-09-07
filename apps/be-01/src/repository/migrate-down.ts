@@ -213,6 +213,7 @@ export function rollbackTo(dbPath: string, migrationsFolder: string, target: str
         if (rebuild) db.run('PRAGMA foreign_keys = ON;');
         throw new Error(
           `rolling back ${row.name} failed: ${e instanceof Error ? e.message : String(e)}`,
+          { cause: e },
         );
       }
       if (rebuild) db.run('PRAGMA foreign_keys = ON;');

@@ -81,7 +81,7 @@ async function rejectionOf(promise: Promise<unknown>): Promise<Error> {
     await promise;
   } catch (error: unknown) {
     if (error instanceof Error) return error;
-    throw new Error(`expected Error rejection, got ${String(error)}`);
+    throw new Error(`expected Error rejection, got ${String(error)}`, { cause: error });
   }
   throw new Error('expected rejection');
 }

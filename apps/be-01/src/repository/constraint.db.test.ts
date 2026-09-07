@@ -4,7 +4,12 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
-import { isUniqueViolation, UNIQUE_INDEXES, type UniqueIndexColumns } from './constraint';
+import {
+  isForeignKeyViolation,
+  isUniqueViolation,
+  UNIQUE_INDEXES,
+  type UniqueIndexColumns,
+} from './constraint';
 import { openDatabase } from './db';
 import { runMigrations } from './migrate';
 
@@ -142,5 +147,42 @@ describe('the unique indexes a refusal names', () => {
     const err = refusalOf(`INSERT INTO tag (id, name) VALUES (hex(randomblob(8)), 'same')`);
     expect(isUniqueViolation(err, UNIQUE_INDEXES.personName)).toBe(false);
     expect(isUniqueViolation(err, UNIQUE_INDEXES.stepNameInProject)).toBe(false);
+  });
+});
+
+/**
+ * drizzle 1.0.0-rc.4 hands a repository `DrizzleQueryError` with SQLite's own
+ * error as `cause`; the tests above hit SQLite directly and so never see the
+ * wrapper. These do, with the wrapper built the way drizzle builds it — the
+ * real SQLite refusal as `cause`, a `Failed query` message on top — so the
+ * matcher is read through the exact shape the production path produces.
+ *
+ * Proof: with `messagesOf` reduced to the outer message, `finds the index name
+ * one cause down` and `finds a foreign key one cause down` failed on `expected
+ * false to be true`; `still refuses an index the chain does not name` stayed
+ * green either way, which is why it is here — a walk that matched anything
+ * on the chain would pass the first two and fail this one. Observed 2026-09-06.
+ */
+describe('a violation wrapped the way drizzle wraps it', () => {
+  const wrapped = (inner: unknown): Error =>
+    new Error('DrizzleQueryError: Failed query: insert into "tag" ("id", "name") values (?, ?)', {
+      cause: inner,
+    });
+
+  it('finds the index name one cause down', () => {
+    const inner = refusalOf(`INSERT INTO tag (id, name) VALUES (hex(randomblob(8)), 'same')`);
+    expect(isUniqueViolation(wrapped(inner), UNIQUE_INDEXES.tagName)).toBe(true);
+  });
+
+  it('finds a foreign key one cause down', () => {
+    const inner = refusalOf(
+      `INSERT INTO project (id, name, owner_id, created_at) VALUES (hex(randomblob(8)), 'orphan', 'nobody', 1000)`,
+    );
+    expect(isForeignKeyViolation(wrapped(inner))).toBe(true);
+  });
+
+  it('still refuses an index the chain does not name', () => {
+    const inner = refusalOf(`INSERT INTO tag (id, name) VALUES (hex(randomblob(8)), 'same')`);
+    expect(isUniqueViolation(wrapped(inner), UNIQUE_INDEXES.personName)).toBe(false);
   });
 });

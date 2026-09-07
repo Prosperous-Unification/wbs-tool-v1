@@ -60,13 +60,7 @@ export class GanttDataError extends Error {
  * carrying it came from the optimized path.
  */
 export type BindingFloor =
-  | 'projectStart'
-  | 'predecessor'
-  | 'stepOrder'
-  | 'notBefore'
-  | 'person'
-  | 'capacity'
-  | 'optimizer';
+  'projectStart' | 'predecessor' | 'stepOrder' | 'notBefore' | 'person' | 'capacity' | 'optimizer';
 
 /**
  * The ten colours a person's bars are drawn in, handed out in this order.

@@ -97,8 +97,8 @@ const fakeDeps = (start: readonly SavedPlanListEntryView[] = [ROW]) => {
   let fire: (() => void) | undefined;
   const list = vi.fn(() => Promise.resolve(listReply(shelf)));
   const save = vi.fn((): Promise<SavedPlanSaveReply> => Promise.resolve(saveReply(NEWER)));
-  const compare = vi.fn(
-    (): Promise<SavedPlanCompareReply> => Promise.resolve(compareReply(EMPTY_DIFF)),
+  const compare = vi.fn((): Promise<SavedPlanCompareReply> =>
+    Promise.resolve(compareReply(EMPTY_DIFF)),
   );
   const rename = vi.fn((savedPlanId: string, name: string): Promise<SavedPlanRenameReply> => {
     shelf = shelf.map((row) => (row.id === savedPlanId ? { ...row, name } : row));

@@ -116,10 +116,9 @@ function joinedTeams(): { workItemId: string; teamId: string }[] {
   const db = openDatabase(dbPath);
   try {
     return db
-      .query<
-        { workItemId: string; teamId: string },
-        []
-      >('SELECT work_item_id AS workItemId, team_id AS teamId FROM work_item_team ORDER BY work_item_id, team_id')
+      .query<{ workItemId: string; teamId: string }, []>(
+        'SELECT work_item_id AS workItemId, team_id AS teamId FROM work_item_team ORDER BY work_item_id, team_id',
+      )
       .all();
   } finally {
     db.close();

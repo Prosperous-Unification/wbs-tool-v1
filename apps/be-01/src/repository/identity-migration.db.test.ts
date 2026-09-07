@@ -128,10 +128,9 @@ describe('the OIDC identity migration', () => {
       try {
         expect(
           sqlite
-            .query<
-              { id: string; password_hash: string | null; email: string | null },
-              []
-            >('SELECT id, password_hash, email FROM users ORDER BY id')
+            .query<{ id: string; password_hash: string | null; email: string | null }, []>(
+              'SELECT id, password_hash, email FROM users ORDER BY id',
+            )
             .all(),
         ).toEqual([{ id: 'legacy', password_hash: 'hash', email: null }]);
         expect(sqlite.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM project').get()?.n).toBe(

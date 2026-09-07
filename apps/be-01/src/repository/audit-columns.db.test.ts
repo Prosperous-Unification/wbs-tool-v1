@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { eq } from 'drizzle-orm';
 
+import { messagesOf } from './constraint';
 import type { Drizzle } from './db';
 import { openDrizzle } from './db';
 import { DirectoryRepository } from './directory';
@@ -156,18 +157,19 @@ describe('a row records who made it and when', () => {
     expect(row?.updatedAt).toBeNull();
   });
 
-  it('refuses a row authored by an account that does not exist', () => {
+  it('refuses a row authored by an account that does not exist', async () => {
     // The foreign key, which is what makes `created_by` a reference rather than
     // a string that looks like one. Measured because a `REFERENCES` clause can
     // be present in the DDL and unenforced — `steps-schema-rename` shipped
     // exactly that, and the check written for it passed against the broken
     // database.
     //
-    // Unawaited, which is this suite's own shape (`dependency.test.ts`'s
-    // `rejects.toThrow(/FOREIGN KEY/i)`): bun's matcher is not thenable and
-    // `await-thenable` refuses the await.
-    expect(
-      directory.addTag({ id: crypto.randomUUID(), name: 'ghost' }, stampAt(1000, 'nobody')),
-    ).rejects.toThrow(/FOREIGN KEY/);
+    // Read down the `cause` chain, as `dependency.db.test.ts` does: drizzle
+    // 1.0.0-rc.4 wraps SQLite's refusal in a `DrizzleQueryError` whose own
+    // message names the statement, not the constraint.
+    const refusal = await directory
+      .addTag({ id: crypto.randomUUID(), name: 'ghost' }, stampAt(1000, 'nobody'))
+      .catch((err: unknown) => err);
+    expect(messagesOf(refusal).join('\n')).toMatch(/FOREIGN KEY/);
   });
 });

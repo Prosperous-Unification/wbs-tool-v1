@@ -39,9 +39,10 @@ async function unixSocketIsAcceptingConnections(unix: string): Promise<boolean> 
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'ECONNREFUSED' || code === 'ENOENT') return false;
-    throw new Error('solver supervisor listener: socket liveness probe failed', {
-      cause: connectionError(error),
-    });
+    // The caught value itself as the cause — ESLint 10's preserve-caught-error
+    // wants the original, and connectionError() answers the same object for
+    // every Error; only a non-Error throw differs, and it is truer raw.
+    throw new Error('solver supervisor listener: socket liveness probe failed', { cause: error });
   }
 }
 

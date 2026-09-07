@@ -21,8 +21,8 @@ checkout somebody else commits from.
 
 **`E2E_PORT_SHIFT=1800 is unusable on this host and the config cannot know
 it.** 4200 + 1800 = **6000**, which is X11's port and one of Chromium's own
-blocked ports: every navigation fails on `net::ERR_UNSAFE_PORT` before a single
-assertion runs. The pre-flight check in `playwright.config.ts` compares a shift
+blocked ports: every navigation fails on `net::ERR_UNSAFE_PORT`before a single
+assertion runs. The pre-flight check in`playwright.config.ts` compares a shift
 against the three tier defaults, which is all a config can do; a blocked-port
 list is the second thing it cannot know, after "what else this machine
 listens on" (the 1700/5900 finding it already records). **Every run below used

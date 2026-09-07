@@ -4,7 +4,8 @@
     "esbenp.prettier-vscode",
     "bradlc.vscode-tailwindcss",
     "nrwl.angular-console",
-    "ms-azuretools.vscode-docker"
+    "ms-azuretools.vscode-docker",
+    "typescriptteam.native-preview"
   ],
   "unwantedRecommendations": ["biomejs.biome"]
 }

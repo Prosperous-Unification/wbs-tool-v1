@@ -34,13 +34,13 @@ carries`.
       header block (with the new `Scope` field), the fence, and
       `markdownTableLines`. Tests: `bundles the header, the fence and the
 table, in that order`, `embeds the same table planToMarkdown writes for
-      the same plan`.
+the same plan`.
 - [x] 2.2 The `Scope` field states the document is the whole plan, not what is
       on screen. Test: `says in its header that the document is the whole
 plan, not what is on screen`.
 - [x] 2.3 The refusals pass through unchanged. Tests: `refuses exactly where the
 diagram refuses, and says the same sentence`, `puts no document in a
-      refusal, so a download cannot save one`.
+refusal, so a download cannot save one`.
 
 ## 3. The one new guard, watched red
 
@@ -50,7 +50,7 @@ diagram refuses, and says the same sentence`, `puts no document in a
       grammar escapes a backtick) would close early and spill the rest of the
       document, including the whole table, out as prose. Guard test: `widens
 the fence past a backtick run in a task name, so the name cannot close it
-      early`. Negative test: the fence hard-coded back to ` ``` ` — verify.md
+early`. Negative test: the fence hard-coded back to ` ``` ` — verify.md
       fault 1.
 
 ## 4. planFileName
@@ -58,7 +58,7 @@ the fence past a backtick run in a task name, so the name cannot close it
 - [x] 4.1 `extension` argument, defaulting to `csv` so every existing caller
       compiles unchanged. Tests: `defaults to csv when no extension is asked
 for, so every existing caller is unchanged`, `names the bundled Mermaid
-      document md instead, on the same date and slug`.
+document md instead, on the same date and slug`.
 
 ## 5. The record
 

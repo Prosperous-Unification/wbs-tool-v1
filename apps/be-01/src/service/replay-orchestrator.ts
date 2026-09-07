@@ -7,8 +7,7 @@ export interface ReplayEvent {
 }
 
 export type ReplayOutcome =
-  | { status: 'replaying'; events: ReplayEvent[] }
-  | { status: 'denied'; reason: 'out_of_range' };
+  { status: 'replaying'; events: ReplayEvent[] } | { status: 'denied'; reason: 'out_of_range' };
 
 export interface ReplayOrchestratorOptions {
   log: EventLogRepo;

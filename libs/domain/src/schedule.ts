@@ -1180,7 +1180,7 @@ function eligibleSet(goesFirst: (left: number, right: number) => boolean) {
   return {
     push(node: number): void {
       heap.push(node);
-      for (let at = heap.length - 1; at > 0; ) {
+      for (let at = heap.length - 1; at > 0;) {
         const parent = (at - 1) >> 1;
         if (!goesFirst(heap[at], heap[parent])) break;
         swap(at, parent);
@@ -1192,7 +1192,7 @@ function eligibleSet(goesFirst: (left: number, right: number) => boolean) {
       const last = heap.pop();
       if (last !== undefined && heap.length > 0) {
         heap[0] = last;
-        for (let at = 0; ; ) {
+        for (let at = 0; ;) {
           const left = at * 2 + 1;
           const right = left + 1;
           let first = at;
@@ -1839,10 +1839,7 @@ export function priorityByLeaf(rows: readonly PlannedRow[], index: TreeIndex): M
   const ownPriority = new Map(rows.map((row) => [row.id, row.priority]));
   const found = new Map<string, number>();
   for (const leafId of index.leafIds) {
-    for (
-      let cursor: string | null | undefined = leafId;
-      cursor !== null && cursor !== undefined;
-    ) {
+    for (let cursor: string | null | undefined = leafId; cursor !== null && cursor !== undefined;) {
       const own = ownPriority.get(cursor);
       if (own !== undefined && own !== null) {
         found.set(leafId, own);

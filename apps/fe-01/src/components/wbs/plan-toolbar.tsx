@@ -14,6 +14,7 @@ import { MenuControl } from './actions-menu';
 import { useClosedByPointerOutside } from './close-on-outside-pointer';
 import { DateField } from './date-field';
 import { type CommitOutcome } from './live-editing';
+import type { PlanTableFeatures } from './plan-columns/column';
 import type { EstimateGaps } from './plan-completeness';
 import { describeGaps } from './plan-completeness';
 import { isSectionMode, SECTION_MODES } from './plan-mermaid';
@@ -616,7 +617,7 @@ export function PlanToolbar({
   setStoredHiddenColumns: React.Dispatch<React.SetStateAction<readonly string[]>>;
   offeredColumns: { id: string; label: string }[];
   toggleColumn: (columnId: string) => void;
-  shownRows: Row<TreeRow>[];
+  shownRows: Row<PlanTableFeatures, TreeRow>[];
   search: TreeNarrowing;
   gaps: EstimateGaps;
   walkToNextGap: () => void;

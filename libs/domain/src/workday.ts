@@ -390,8 +390,7 @@ export function workdaysBetween(from: IsoDate, to: IsoDate): number {
  * has to name the case to read past it.
  */
 export type DeadlineOffset =
-  | { readonly kind: 'offset'; readonly offset: number }
-  | { readonly kind: 'before-project-start' };
+  { readonly kind: 'offset'; readonly offset: number } | { readonly kind: 'before-project-start' };
 
 /**
  * Which workday offset a `deadline` falls on, counted from `projectStart` the

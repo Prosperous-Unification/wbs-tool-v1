@@ -96,6 +96,7 @@ export async function readMcpExposure(layout: EnvLayout): Promise<boolean> {
     throw new Error(
       `cannot read ${path}; refusing to rewrite the dev vhost without its exposure state ` +
         `(${e instanceof Error ? e.message : String(e)})`,
+      { cause: e },
     );
   }
 }
@@ -282,6 +283,7 @@ async function preflightRegistry(image: string): Promise<void> {
         '  This host must be able to reach the registry and authenticate to it\n' +
         '  (docker login <registry>; see tools/tool-bootstrap/src/configure.sh).\n' +
         `  Underlying error: ${e instanceof Error ? e.message : String(e)}`,
+      { cause: e },
     );
   }
 }
@@ -356,6 +358,7 @@ async function liveRoutedColors(): Promise<Record<Tier, Color | null>> {
         'unknown — refusing to plan a swap from the possibly-stale site.caddy file ' +
         '(design decision 6). Is the caddy container up?\n' +
         `  Underlying error: ${e instanceof Error ? e.message : String(e)}`,
+      { cause: e },
     );
   }
   // The admin dump is every site on the host at once, so each tier is read
@@ -398,6 +401,7 @@ export function parseRecordedColor(path: string, raw: string): Color {
         `(${e instanceof Error ? e.message : String(e)}) — refusing rather than ` +
         'treating it as never-deployed, which would let a swap pick a colour ' +
         'that may already be serving.',
+      { cause: e },
     );
   }
 }
@@ -413,6 +417,7 @@ async function readRecordedColor(tier: Tier): Promise<Color | null> {
       `${path} exists but could not be read ` +
         `(${e instanceof Error ? e.message : String(e)}) — refusing rather than ` +
         'treating it as never-deployed.',
+      { cause: e },
     );
   }
   return parseRecordedColor(path, raw);

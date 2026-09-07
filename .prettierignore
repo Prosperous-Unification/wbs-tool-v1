@@ -26,3 +26,13 @@ apps/be-01/drizzle/**/snapshot.json
 # it, which fails `nx format:check`. AGENTS.md itself is still formatted.
 /CLAUDE.md
 /GEMINI.md
+# Prettier 3.9.6 never settles on these four: a hard-wrapped **bold** paragraph
+# inside a checklist item is indented one level deeper on every pass, without
+# limit (measured 2026-09-06: twelve passes, still moving; the fourth joined
+# on the merge of main the same day). They are change records, formatted by
+# 3.8 as they stand; the day the bug is fixed, delete these lines and run
+# `prettier --write` once.
+openspec/changes/saved-plans/tasks.md
+openspec/changes/dual-optimized-scheduler/tasks.md
+openspec/changes/archive/2026-08-30-token-tracking/tasks.md
+openspec/changes/work-item-deadline/tasks.md

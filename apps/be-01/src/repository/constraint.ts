@@ -5,7 +5,8 @@
  * `bun:sqlite` reports constraint violations as messages rather than typed
  * errors, so this is a string test — the same translation
  * `UserRepository.create` makes for a duplicate username, and
- * `StepRepository.add` for a duplicate step name.
+ * `StepRepository.add` for a duplicate step name. The message is looked for
+ * down the `cause` chain, not on the outer error alone: see {@link messagesOf}.
  *
  * **It does not say which key.** SQLite's message names no column, so a caller
  * that turns this into a refusal must establish *which* of the request's ids is
@@ -14,7 +15,35 @@
  * steps and rethrowing when the step is still there.
  */
 export function isForeignKeyViolation(err: unknown): boolean {
-  return err instanceof Error && err.message.includes('FOREIGN KEY constraint failed');
+  return messagesOf(err).some((message) => message.includes('FOREIGN KEY constraint failed'));
+}
+
+/**
+ * Every message on an error's `cause` chain, outermost first, at most eight
+ * deep.
+ *
+ * The string tests either side of {@link isWriteLockBusy} used to read the
+ * outer message alone, and that was right until drizzle 1.0.0-rc.4: a
+ * statement issued through drizzle now throws `DrizzleQueryError: Failed
+ * query: insert into "step" …` with SQLite's own `UNIQUE constraint failed:
+ * step.project_id, step.name` one level down, as `cause`. Read the outer
+ * message alone and every modeled refusal in be-01 becomes an unhandled 500 —
+ * 22 tests said so on 2026-09-06, the controllers' among them answering
+ * `Failed query` text where a 409 was owed. The walk and its depth bound are
+ * {@link isWriteLockBusy}'s, for the reason given there.
+ *
+ * Exported for the repository tests that assert an *unmodeled* violation
+ * escapes as SQLite's own refusal — they read the chain the same way rather
+ * than the wrapper's text, which names the statement and not the constraint.
+ */
+export function messagesOf(err: unknown): string[] {
+  const messages: string[] = [];
+  let at: unknown = err;
+  for (let depth = 0; depth < 8 && at instanceof Error; depth += 1) {
+    messages.push(at.message);
+    at = at.cause;
+  }
+  return messages;
 }
 
 /**
@@ -101,10 +130,17 @@ export const UNIQUE_INDEXES = {
  * A string test for the same reason {@link isForeignKeyViolation} is one, and
  * unlike that one it **does** say which key: the message names the index's
  * columns, so a different constraint failing at the same call site stays an
- * unknown and still throws.
+ * unknown and still throws. Looked for down the `cause` chain — see
+ * {@link messagesOf}.
+ *
+ * Proof: with {@link messagesOf} cut to the outer message, `patchTeam ›
+ * answers 409 taken with the surviving name`, `patchPerson › …` and `the
+ * service commands › …` in `directory.controller.db.test.ts` failed on the
+ * 500 that escaped instead, and `finds the index name one cause down` and
+ * `finds a foreign key one cause down` in `constraint.db.test.ts` on
+ * `Expected: true · Received: false`. Observed 2026-09-06.
  */
 export function isUniqueViolation(err: unknown, index: UniqueIndexColumns): boolean {
-  return (
-    err instanceof Error && err.message.includes(`UNIQUE constraint failed: ${index.join(', ')}`)
-  );
+  const named = `UNIQUE constraint failed: ${index.join(', ')}`;
+  return messagesOf(err).some((message) => message.includes(named));
 }

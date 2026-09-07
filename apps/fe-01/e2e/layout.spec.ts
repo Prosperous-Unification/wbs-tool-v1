@@ -197,7 +197,6 @@ async function dragColumnEdge(page: Page, columnId: string, travel: number): Pro
  * in a plan seeded behind the table's back.
  */
 async function seedPlan(page: Page, _account: string): Promise<void> {
-  void _account;
   await page.goto('/');
 
   await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();

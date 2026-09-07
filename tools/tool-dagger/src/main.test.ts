@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
+import { installedDaggerSdkVersion } from './main';
 import {
   applyRunnerHostAlias,
   assertBuildCapacity,
@@ -19,12 +20,14 @@ import {
   runEngineLifecycle,
 } from './main';
 
+const sdkVersion = await installedDaggerSdkVersion();
+
 const expectedEngine = {
   State: {
     Running: false,
   },
   Config: {
-    Image: 'registry.dagger.io/engine:v0.21.8',
+    Image: `registry.dagger.io/engine:v${sdkVersion}`,
     Cmd: [
       '--addr',
       'unix:///run/buildkit/buildkitd.sock',
@@ -74,7 +77,7 @@ async function captureFailure(work: () => Promise<unknown>): Promise<Error> {
     await work();
   } catch (error: unknown) {
     if (error instanceof Error) return error;
-    throw new Error(`expected Error, received ${String(error)}`);
+    throw new Error(`expected Error, received ${String(error)}`, { cause: error });
   }
   throw new Error('expected work to fail');
 }
@@ -168,7 +171,7 @@ describe('engineCreateArgs', () => {
       '127.0.0.1:8081:8080',
       '--volume',
       'wbs-dagger-engine:/var/lib/dagger',
-      'registry.dagger.io/engine:v0.21.8',
+      `registry.dagger.io/engine:v${sdkVersion}`,
       '--addr',
       'unix:///run/buildkit/buildkitd.sock',
       '--addr',
@@ -570,5 +573,33 @@ describe('assertCleanTree', () => {
     expect(() => {
       assertCleanTree();
     }).toThrow(/dirty working tree/);
+  });
+});
+
+/**
+ * The engine tag is derived from the SDK (see `ENGINE_IMAGE`), so those two
+ * cannot drift; the runbook's stated CLI version is the third copy, and the
+ * one a person installs on h2puni from. Held here to the same string.
+ *
+ * Proof: with the SDK at 0.21.9 and the runbook still saying v0.21.8, both
+ * cases failed on `Expected to contain: "\`dagger\` v0.21.9"` and
+ * `Expected to contain: "registry.dagger.io/engine:v0.21.9"`. And with
+ * `ENGINE_IMAGE` pinned back to the v0.21.8 literal, `engineCreateArgs` and
+ * two `assertEngineContract` cases failed on `engine image mismatch: expected
+ * registry.dagger.io/engine:v0.21.8` — the SDK had moved and the engine had
+ * not, which is the drift this arrangement exists to stop (2026-09-06).
+ */
+describe("the prod runbook names the SDK's dagger", () => {
+  const runbook = readFileSync(
+    new URL('../../../docs/runbook-prod-deploy.md', import.meta.url),
+    'utf8',
+  );
+
+  it('as the CLI version to install on h2puni', () => {
+    expect(runbook).toContain(`\`dagger\` v${sdkVersion}`);
+  });
+
+  it('as the engine image the CLI is pinned to', () => {
+    expect(runbook).toContain(`registry.dagger.io/engine:v${sdkVersion}`);
   });
 });

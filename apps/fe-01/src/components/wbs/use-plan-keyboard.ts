@@ -37,7 +37,7 @@ export function usePlanKeyboardEffects({
   pushToast: (toast: Toast) => void;
   setArmedDelete: React.Dispatch<React.SetStateAction<{ rowId: string; number: string } | null>>;
   dismissToast: (key: string) => void;
-  dReleased: React.MutableRefObject<boolean>;
+  dReleased: React.RefObject<boolean>;
 }) {
   /**
    * `?` anywhere on the page opens the cheat sheet.
@@ -196,9 +196,9 @@ export function usePlanKeyboard({
   moveAmongSiblings: (row: TreeRow, direction: 'up' | 'down', landOn: string) => void;
   setArmedDelete: React.Dispatch<React.SetStateAction<{ rowId: string; number: string } | null>>;
   armedDelete: { rowId: string; number: string } | null;
-  dReleased: React.MutableRefObject<boolean>;
+  dReleased: React.RefObject<boolean>;
   deleteRow: (row: TreeRow) => Promise<CommitOutcome>;
-  commandInFlight: React.MutableRefObject<boolean>;
+  commandInFlight: React.RefObject<boolean>;
   addSibling: (after: TreeRow) => Promise<CommitOutcome>;
 }) {
   /**
@@ -706,7 +706,7 @@ export function usePlanReadiness({
   unfoldedSteps: readonly string[];
   setExpanded: React.Dispatch<React.SetStateAction<ExpandedState>>;
   setGapVisit: React.Dispatch<React.SetStateAction<{ rowId: string; cell: CellRef } | null>>;
-  gridElement: React.MutableRefObject<HTMLElement | null>;
+  gridElement: React.RefObject<HTMLElement | null>;
 }) {
   /**
    * The work items between `rowId` and the root, nearest first.
@@ -816,7 +816,7 @@ export function usePlanReadiness({
 export function useRowNavigation({
   gridElement,
 }: {
-  gridElement: React.MutableRefObject<HTMLElement | null>;
+  gridElement: React.RefObject<HTMLElement | null>;
 }) {
   /**
    * Takes the plan to one row: its name cell gets the caret and is scrolled to.

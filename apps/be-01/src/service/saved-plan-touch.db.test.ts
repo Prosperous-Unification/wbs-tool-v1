@@ -112,9 +112,7 @@ describe('renaming and deleting a saved plan', () => {
 
   const nameOf = (id: string): string | null => {
     const row = reader.query('SELECT name FROM saved_plan WHERE id = ?').get(id) as
-      | { name: string }
-      | undefined
-      | null;
+      { name: string } | undefined | null;
     return row?.name ?? null;
   };
 

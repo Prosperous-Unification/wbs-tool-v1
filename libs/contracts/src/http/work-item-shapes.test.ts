@@ -47,6 +47,5 @@ test('deadline refusal requires both fields in its exact status declaration', as
   };
   expect((await validateSchema(refusal.schema, body)).issues).toBeUndefined();
   const { projectDayZero, ...missing } = body;
-  void projectDayZero;
   expect((await validateSchema(refusal.schema, missing)).issues).toBeDefined();
 });

@@ -87,9 +87,7 @@ export function trioProblem(typed: TypedTrio): TrioProblem | null {
  * without inspecting the text again.
  */
 export type TrioShorthand =
-  | { kind: 'empty' }
-  | { kind: 'trio'; days: Days }
-  | { kind: 'problem'; message: string };
+  { kind: 'empty' } | { kind: 'trio'; days: Days } | { kind: 'problem'; message: string };
 
 /** One part of a shorthand entry as days, or null when it is not days at all. */
 function readDays(part: string): number | null {

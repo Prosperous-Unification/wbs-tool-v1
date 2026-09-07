@@ -24,8 +24,8 @@ export function usePlanStructureEffects({
   pushToast: (toast: Toast) => void;
   setDropHint: React.Dispatch<React.SetStateAction<{ rowId: string; zone: DropZone } | null>>;
   workItems: TreeRow[];
-  focusIntent: React.MutableRefObject<FocusIntent>;
-  gridElement: React.MutableRefObject<HTMLElement | null>;
+  focusIntent: React.RefObject<FocusIntent>;
+  gridElement: React.RefObject<HTMLElement | null>;
 }) {
   /**
    * A drag does not survive the tree changing underneath it.
@@ -84,10 +84,10 @@ export function useAddWorkItem({
 }: {
   flat: TreeRow[];
   projectId: string;
-  activeProject: React.MutableRefObject<string>;
+  activeProject: React.RefObject<string>;
   run: (action: () => Promise<void>) => Promise<CommitOutcome>;
   api: ProjectApi;
-  focusIntent: React.MutableRefObject<FocusIntent>;
+  focusIntent: React.RefObject<FocusIntent>;
 }) {
   const siblingsOf = useCallback(
     (parentId: string | null) => flat.filter((row) => row.parentId === parentId),
@@ -180,7 +180,7 @@ export function usePlanStructure({
   run: (action: () => Promise<void>) => Promise<CommitOutcome>;
   api: ProjectApi;
   projectId: string;
-  focusIntent: React.MutableRefObject<FocusIntent>;
+  focusIntent: React.RefObject<FocusIntent>;
   siblingsOf: (parentId: string | null) => TreeRow[];
 }) {
   /**

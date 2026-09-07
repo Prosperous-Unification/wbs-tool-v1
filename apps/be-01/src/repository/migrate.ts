@@ -13,10 +13,9 @@ const FOREIGN_KEYS_OFF_MARKER = '-- foreign-keys-off-rebuild';
 function appliedMigrationNames(sqlite: ReturnType<typeof openDatabase>): Set<string> {
   const hasLedger =
     sqlite
-      .query<
-        { n: number },
-        []
-      >("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='__drizzle_migrations'")
+      .query<{ n: number }, []>(
+        "SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='__drizzle_migrations'",
+      )
       .get()?.n === 1;
   if (!hasLedger) return new Set<string>();
   return new Set(
@@ -131,10 +130,9 @@ function applyOnly(
 function restoreDowngradedOidcIdentities(sqlite: ReturnType<typeof openDatabase>): void {
   const hasRecovery =
     sqlite
-      .query<
-        { n: number },
-        []
-      >("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='oidc_identity_downgrade'")
+      .query<{ n: number }, []>(
+        "SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='oidc_identity_downgrade'",
+      )
       .get()?.n === 1;
   if (!hasRecovery) return;
 
@@ -189,6 +187,7 @@ function restoreDowngradedOidcIdentities(sqlite: ReturnType<typeof openDatabase>
     sqlite.run('ROLLBACK');
     throw new Error(
       `restoring identities after an OIDC downgrade failed: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
   }
 }

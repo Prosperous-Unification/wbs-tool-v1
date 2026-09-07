@@ -123,10 +123,7 @@ export function effectiveLabelsOf<Row extends Labelled, Answer>(
     const walked: string[] = [];
     const seen = new Set<string>();
     let resolved: Answer | undefined;
-    for (
-      let cursor: string | null | undefined = row.id;
-      cursor !== null && cursor !== undefined;
-    ) {
+    for (let cursor: string | null | undefined = row.id; cursor !== null && cursor !== undefined;) {
       const already = found.get(cursor);
       if (already !== undefined) {
         resolved = already;

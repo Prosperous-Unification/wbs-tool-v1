@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { expect, expectTypeOf, test } from 'bun:test';
 
 import type {
   CommandRefusal,
@@ -11,28 +11,28 @@ import type {
 } from './refusal';
 
 /** Compiled by the test below; these are type-boundary checks, not production wire proofs. */
-function refusalTypeCases() {
-  void ('parentId_must_be_id_or_null' satisfies RefusalCode);
-  void ('typeRefs_must_be_at_most_10' satisfies RefusalCode);
-  void (405 satisfies RefusalStatus);
-  void (500 satisfies RefusalStatus);
-  void (501 satisfies RefusalStatus);
+export function refusalTypeCases() {
+  expectTypeOf<RefusalCode>('parentId_must_be_id_or_null');
+  expectTypeOf<RefusalCode>('typeRefs_must_be_at_most_10');
+  expectTypeOf<RefusalStatus>(405);
+  expectTypeOf<RefusalStatus>(500);
+  expectTypeOf<RefusalStatus>(501);
   // @ts-expect-error Unknown codes cannot escape through a string fallback.
-  void ('anything_else' satisfies RefusalCode);
+  expectTypeOf<RefusalCode>('anything_else');
   // @ts-expect-error Field templates enumerate their actual callers.
-  void ('password_must_be_an_id' satisfies RefusalCode);
-  void ({ error: 'not_found' } satisfies Refusal);
-  void ({ error: 'not_found', savedPlanId: 'saved' } satisfies Refusal);
-  void ({ error: 'not_found', at: 0, kind: 'patchWorkItem' } satisfies CommandRefusal);
+  expectTypeOf<RefusalCode>('password_must_be_an_id');
+  expectTypeOf<Refusal>({ error: 'not_found' });
+  expectTypeOf<Refusal>({ error: 'not_found', savedPlanId: 'saved' });
+  expectTypeOf<CommandRefusal>({ error: 'not_found', at: 0, kind: 'patchWorkItem' });
   // @ts-expect-error Runtime command context always includes a recognized kind.
-  void ({ error: 'not_found', at: 0 } satisfies CommandRefusal);
+  expectTypeOf<CommandRefusal>({ error: 'not_found', at: 0 });
   // @ts-expect-error Bare global variants must not permit incomplete batch context.
-  void ({ error: 'not_found', at: 0 } satisfies Refusal);
+  expectTypeOf<Refusal>({ error: 'not_found', at: 0 });
   // @ts-expect-error A runtime command kind is finite.
-  void ({ error: 'not_found', at: 0, kind: 'arbitrary' } satisfies CommandRefusal);
-  void ({ error: 'unknown_kind', at: 0 } satisfies Refusal);
+  expectTypeOf<CommandRefusal>({ error: 'not_found', at: 0, kind: 'arbitrary' });
+  expectTypeOf<Refusal>({ error: 'unknown_kind', at: 0 });
   // @ts-expect-error Recognized parser kind requires its index.
-  void ({ error: 'expected_object', kind: 'patchWorkItem' } satisfies Refusal);
+  expectTypeOf<Refusal>({ error: 'expected_object', kind: 'patchWorkItem' });
   const mixedNotFound = {
     error: 'not_found',
     savedPlanId: 'saved',
@@ -40,19 +40,19 @@ function refusalTypeCases() {
     kind: 'patchWorkItem',
   } as const;
   // @ts-expect-error A marker/lookup refusal cannot be combined with batch metadata.
-  void (mixedNotFound satisfies Refusal);
-  void ({ error: 'taken', at: 0, kind: 'createTeam', name: 'Team' } satisfies CommandRefusal);
+  expectTypeOf<Refusal>(mixedNotFound);
+  expectTypeOf<CommandRefusal>({ error: 'taken', at: 0, kind: 'createTeam', name: 'Team' });
   // @ts-expect-error An arbitrary detail bag is not a directory refusal.
-  void ({ error: 'taken', at: 0, kind: 'createTeam', arbitrary: true } satisfies Refusal);
-  void ({
+  expectTypeOf<Refusal>({ error: 'taken', at: 0, kind: 'createTeam', arbitrary: true });
+  expectTypeOf<CommandRefusal>({
     error: 'in_use',
     at: 0,
     kind: 'deleteTeam',
     usage: { projects: [], members: [] },
-  } satisfies CommandRefusal);
+  });
   // @ts-expect-error Directory usage always reports both arrays.
-  void ({ error: 'in_use', at: 0, kind: 'deleteTeam', usage: { projects: [] } } satisfies Refusal);
-  void ({
+  expectTypeOf<Refusal>({ error: 'in_use', at: 0, kind: 'deleteTeam', usage: { projects: [] } });
+  expectTypeOf<Refusal>({
     error: 'in_use',
     inUse: {
       estimates: 1,
@@ -62,7 +62,7 @@ function refusalTypeCases() {
       assignments: 5,
       assumedAssignees: [{ workItemId: 'w', assumedNow: null, assumedAfter: 'Ada' }],
     },
-  } satisfies Refusal);
+  });
   const missingAssignments = {
     estimates: 1,
     actuals: 2,
@@ -71,25 +71,25 @@ function refusalTypeCases() {
     assumedAssignees: [],
   };
   // @ts-expect-error Explicit assignment losses cannot disappear from step usage.
-  void (missingAssignments satisfies StepInUse);
-  void ({
+  expectTypeOf<StepInUse>(missingAssignments);
+  expectTypeOf<Refusal>({
     error: 'quota',
     refusal: { limit: 'body_bytes', asked: 10, allowed: 9 },
-  } satisfies Refusal);
+  });
   // @ts-expect-error A quota names the allowed bound, not an arbitrary payload.
-  void ({ error: 'quota', refusal: { limit: 'body_bytes', asked: 10 } } satisfies Refusal);
-  void ({ error: 'malformed', field: 'markerId' } satisfies Refusal);
+  expectTypeOf<Refusal>({ error: 'quota', refusal: { limit: 'body_bytes', asked: 10 } });
+  expectTypeOf<Refusal>({ error: 'malformed', field: 'markerId' });
   // @ts-expect-error Contrast failures belong only to marker color.
-  void ({ error: 'contrast', field: 'date' } satisfies Refusal);
+  expectTypeOf<Refusal>({ error: 'contrast', field: 'date' });
   // @ts-expect-error Marker validation keeps its required field detail.
-  void ({ error: 'malformed' } satisfies Refusal);
-  void ({
+  expectTypeOf<Refusal>({ error: 'malformed' });
+  expectTypeOf<Refusal>({
     error: 'unsupported_body_version',
     savedPlanId: 's',
     body: 'input',
     version: 2,
     supported: [1],
-  } satisfies Refusal);
+  });
   const missingSupported = {
     error: 'unsupported_body_version',
     savedPlanId: 's',
@@ -97,14 +97,14 @@ function refusalTypeCases() {
     version: 2,
   } as const;
   // @ts-expect-error A version refusal must retain supported reader versions.
-  void (missingSupported satisfies Refusal);
-  void ({
+  expectTypeOf<Refusal>(missingSupported);
+  expectTypeOf<Integrity>({
     savedPlanId: 's',
     body: 'schedule',
     reason: 'schedule_input_mismatch',
     scheduleInputSha256: 'a',
     inputSha256: 'b',
-  } satisfies Integrity);
+  });
   const inputScheduleMismatch = {
     savedPlanId: 's',
     body: 'input',
@@ -113,7 +113,7 @@ function refusalTypeCases() {
     inputSha256: 'b',
   } as const;
   // @ts-expect-error Schedule/input mismatch cannot claim an input body.
-  void (inputScheduleMismatch satisfies Integrity);
+  expectTypeOf<Integrity>(inputScheduleMismatch);
   const missingStoredHash = {
     savedPlanId: 's',
     body: 'input',
@@ -121,34 +121,35 @@ function refusalTypeCases() {
     recomputed: 'b',
   } as const;
   // @ts-expect-error Missing stored hash is not a complete integrity report.
-  void (missingStoredHash satisfies Integrity);
-  void ({
+  expectTypeOf<Integrity>(missingStoredHash);
+  expectTypeOf<Refusal>({
     error: 'dependency_unavailable',
     status: 'schema_missing',
     commit: null,
-  } satisfies Refusal);
+  });
   // @ts-expect-error Health detail keeps its commit metadata.
-  void ({ error: 'dependency_unavailable', status: 'migrating' } satisfies Refusal);
+  expectTypeOf<Refusal>({ error: 'dependency_unavailable', status: 'migrating' });
   // @ts-expect-error Healthy status cannot appear in a dependency refusal.
-  void ({ error: 'dependency_unavailable', status: 'ok', commit: null } satisfies Refusal);
+  expectTypeOf<Refusal>({ error: 'dependency_unavailable', status: 'ok', commit: null });
   // @ts-expect-error No-detail is absence, never arbitrary text or an open object.
-  void ('anything' satisfies RefusalDetail['invalid_json']);
-  void ({ error: 'invalid_oidc_callback' } satisfies Refusal);
-  void ({ error: 'invalid_oidc_session' } satisfies Refusal);
-  void ({ error: 'oidc_identity_conflict' } satisfies Refusal);
-  void ({ code: 'stale-input-hash', currentInputHash: 'new' } satisfies Refusal);
-  void ({ code: 'not-retryable', state: 'plan-infeasible' } satisfies Refusal);
-  void ({ code: 'already-running' } satisfies Refusal);
+  expectTypeOf<RefusalDetail['invalid_json']>('anything');
+  expectTypeOf<Refusal>({ error: 'invalid_oidc_callback' });
+  expectTypeOf<Refusal>({ error: 'invalid_oidc_session' });
+  expectTypeOf<Refusal>({ error: 'oidc_identity_conflict' });
+  expectTypeOf<Refusal>({ code: 'stale-input-hash', currentInputHash: 'new' });
+  expectTypeOf<Refusal>({ code: 'not-retryable', state: 'plan-infeasible' });
+  expectTypeOf<Refusal>({ code: 'already-running' });
   // @ts-expect-error Retry states are the coordinator's finite public states.
-  void ({ code: 'not-retryable', state: 'future' } satisfies Refusal);
+  expectTypeOf<Refusal>({ code: 'not-retryable', state: 'future' });
 }
-void refusalTypeCases;
 
 test('the compiler enforces closed refusal codes, detail variants and command context', () => {
   const checked = Bun.spawnSync({
     cmd: [
       process.execPath,
-      'node_modules/typescript/bin/tsc',
+      // The gate's own compiler (`bunx tsc`); the `typescript` package is the
+      // TS6 API kept for ESLint and ships no `tsc` bin.
+      'node_modules/.bin/tsc',
       '--noEmit',
       '--strict',
       '--skipLibCheck',
@@ -172,7 +173,7 @@ test('the compiler enforces closed refusal codes, detail variants and command co
   expect(checked.exitCode).toBe(0);
 });
 
-function deadlineRefusalTypes() {
+export function deadlineRefusalTypes() {
   const valid = {
     error: 'deadline_before_project_start' as const,
     at: 0,
@@ -180,28 +181,25 @@ function deadlineRefusalTypes() {
     workItemId: 'w',
     projectDayZero: '2026-09-07',
   };
-  void (valid satisfies Refusal);
+  expectTypeOf<Refusal>(valid);
   const { projectDayZero, ...missingDayZero } = valid;
-  void projectDayZero;
   // @ts-expect-error The deadline refusal identifies both the row and project day zero.
-  void (missingDayZero satisfies Refusal);
+  expectTypeOf<Refusal>(missingDayZero);
   const missingContext = {
     error: 'deadline_before_project_start' as const,
     workItemId: 'w',
     projectDayZero: '2026-09-07',
   };
   // @ts-expect-error A runtime deadline refusal cannot lose its recognized command context.
-  void (missingContext satisfies Refusal);
-  void ({ error: 'deadline_must_be_a_date', at: 0, kind: 'patchWorkItem' } satisfies Refusal);
+  expectTypeOf<Refusal>(missingContext);
+  expectTypeOf<Refusal>({ error: 'deadline_must_be_a_date', at: 0, kind: 'patchWorkItem' });
 }
-void deadlineRefusalTypes;
 
-function markerOptionalFieldTypes(field?: 'markerId') {
-  void ({ error: 'not_found', field } satisfies Refusal);
-  void ({ error: 'taken', field } satisfies Refusal);
+export function markerOptionalFieldTypes(field?: 'markerId') {
+  expectTypeOf<Refusal>({ error: 'not_found', field });
+  expectTypeOf<Refusal>({ error: 'taken', field });
   // @ts-expect-error Optional marker detail still cannot mix with saved-plan detail.
-  void ({ error: 'not_found', field: 'markerId', savedPlanId: 's' } satisfies Refusal);
+  expectTypeOf<Refusal>({ error: 'not_found', field: 'markerId', savedPlanId: 's' });
   // @ts-expect-error Optional marker detail still cannot mix with command context.
-  void ({ error: 'taken', field: 'markerId', at: 0, kind: 'createTeam' } satisfies Refusal);
+  expectTypeOf<Refusal>({ error: 'taken', field: 'markerId', at: 0, kind: 'createTeam' });
 }
-void markerOptionalFieldTypes;

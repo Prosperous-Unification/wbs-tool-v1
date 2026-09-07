@@ -184,7 +184,7 @@ be-01 suite completed at all. Recorded as a host bottleneck, not absorbed.
 `service/saved-plan-input.ts` carried a raw `0x00` byte inside the composite map
 key `${workItemId}<NUL>${stepId}`, so git classified the file as binary: it
 showed as `Bin 0 -> 11026 bytes` in every diff, could not be reviewed as text,
-and needed `git apply --binary` to patch. Written as the escape ` ` the
+and needed `git apply --binary` to patch. Written as the escape `�` the
 character is identical and the file is text again. The key is an in-memory `Map`
 key only (lines 165, 171–173, 176) — never persisted, never digested — so the
 runtime value is byte-identical either way.

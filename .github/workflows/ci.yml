@@ -48,10 +48,11 @@ jobs:
       # race inside bun's own output write, so the runtime version is part of
       # what this gate is testing. On `latest` a bun release can change the
       # verdict with no commit to attribute it to, and the next person debugging
-      # a red main has no version to bisect against. Bump deliberately.
+      # a red main has no version to bisect against. The pin is `.bun-version`,
+      # the same file the Dockerfiles are held to by `toolchain-pins.test.ts`.
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.14
+          bun-version-file: .bun-version
 
       - uses: actions/setup-python@v5
         with:
@@ -298,12 +299,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The same pin as `gate` above, copied rather than floated, for the same
+      # The same pin as `gate` above, read from the same file, for the same
       # reason: bun is part of what is being tested here — it runs be-01 and
       # gw-01 — and `latest` changes the verdict with no commit to blame.
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.14
+          bun-version-file: .bun-version
 
       - name: Install
         run: bun install --frozen-lockfile

@@ -43,7 +43,9 @@ Only `- [ ]` checkboxes are tracked by the apply phase.
       pass it) and then the focus, node identity and half-typed value;
       negative: `depHover` added to the `columns` memo's dependency list →
       watched failing on `expected <textarea …(5)></textarea> to be
+
 <textarea …(5)></textarea>` — the same-labelled box a different node,
+
       the cell remounted under the typist
 
 - [x] 1.3 The card: `DependsCard` gains `emphasisedId: string | null`, fed

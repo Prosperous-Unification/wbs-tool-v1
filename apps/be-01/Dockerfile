@@ -3,11 +3,11 @@
 # Build from the repo root:
 #   docker build -f apps/be-01/Dockerfile -t wbs-be-01:local .
 #
-# Uses 1.3.14 (not the 1.2.x line) to match the Bun version this repo is
-# developed and tested against locally (bun-types is pinned to ^1.3.13) and
-# to avoid `bun.lock` text-lockfile format drift across Bun's 1.2 -> 1.3
-# lockfile schema changes.
-FROM oven/bun:1.3.14 AS deps
+# The Bun tag is the version in `.bun-version`, which CI also reads; a
+# Dockerfile cannot read a file, so `toolchain-pins.test.ts` holds this line
+# to it. The lockfile is still v1 text: Bun 1.4 reads and writes v1 for an
+# existing lockfile and only starts new ones at v2.
+FROM oven/bun:1.4.2 AS deps
 WORKDIR /app
 COPY package.json bun.lock ./
 # --production: be-01 runs its TypeScript source directly under Bun (no

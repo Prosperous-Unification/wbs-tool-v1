@@ -65,7 +65,6 @@ const TALL_PLAN = 23;
 
 /** Signs up a throwaway account and opens a project with `rows` work items. */
 async function seedPlan(page: Page, _account: string, rows: number): Promise<void> {
-  void _account;
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();
 

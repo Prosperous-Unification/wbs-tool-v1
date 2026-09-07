@@ -35,7 +35,9 @@ function harness(): {
           writes.push(new TextDecoder().decode(bytes.slice(offset, offset + length)));
           return length;
         },
-        terminate: () => void (terminated += 1),
+        terminate: () => {
+          terminated += 1;
+        },
       });
     },
     writes,

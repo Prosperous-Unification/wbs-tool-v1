@@ -475,7 +475,7 @@ export function usePlanLayoutSwap({
   setGanttDayPx,
   setGanttLabelsShown,
 }: {
-  widthProject: React.MutableRefObject<string>;
+  widthProject: React.RefObject<string>;
   projectId: string;
   setWidthOverrides: React.Dispatch<React.SetStateAction<Map<string, number>>>;
   setStoredHiddenColumns: React.Dispatch<React.SetStateAction<readonly string[]>>;
@@ -521,11 +521,11 @@ export function usePlanLayoutEffects({
   ganttColumn,
   setGanttRoomPx,
 }: {
-  frameRef: React.MutableRefObject<HTMLDivElement | null>;
+  frameRef: React.RefObject<HTMLDivElement | null>;
   ganttOpen: boolean;
   renderer: PlanRenderer;
   chartRead: ChartRead;
-  ganttColumn: React.MutableRefObject<HTMLElement | null>;
+  ganttColumn: React.RefObject<HTMLElement | null>;
   setGanttRoomPx: React.Dispatch<React.SetStateAction<number | null>>;
 }) {
   /**

@@ -31,12 +31,12 @@ picker open`, `refuses the press the focus, so the box beside it keeps
 what was typed`;
       negatives, each watched 2026-08-11 and each restored with a `Proof:`
       comment: the button removed → all four failed on `Unable to find a
-      label with the text of: Make 030 wait for something`; the `onClick`
+label with the text of: Make 030 wait for something`; the `onClick`
       body dropped → `expected <body><div>…(1)</div></body> to be <input
-      …(10)></input>`; the chips' condition copied onto `tabIndex`
+…(10)></input>`; the chips' condition copied onto `tabIndex`
       (`picker === null ? -1 : undefined`) → `expected +0 to be -1` with
       the picker open; the `preventDefault` dropped → `expected true to be
-      false`
+false`
 
 ## 2. The quiet, in the stylesheet
 
@@ -55,7 +55,7 @@ what was typed`;
 - [x] 3.1 `e2e/deps-cell.spec.ts`, three tests on the existing seven-chip
       fixture: (a) `keeps the add button visible in a cell whose chips are
 clipped` — the strip proven to be clipping (`scrollWidth >
-      clientWidth`) and the last chip proven invisible at its own centre
+clientWidth`) and the last chip proven invisible at its own centre
       first, then the add button laid out with real area, answering a hit
       test at its own centre, and no taller than a chip; (b) `opens the
 picker from the add button, with the caret in the box` — a real click

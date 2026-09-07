@@ -1,11 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { exportJWK, generateKeyPair, type KeyLike, SignJWT } from 'jose';
+import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 
 import { JwksTokenVerifier } from './token-verifier';
 
 const ISSUER = 'https://idp.example.test/oauth2/default';
 const AUDIENCE = 'api://wbs';
-let privateKey: KeyLike;
+let privateKey: CryptoKey;
 let jwksUri: URL;
 let server: ReturnType<typeof Bun.serve>;
 

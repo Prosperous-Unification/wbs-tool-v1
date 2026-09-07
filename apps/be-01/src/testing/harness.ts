@@ -74,8 +74,8 @@ export interface InMemoryPlan {
 export function inMemoryServices(overrides: Partial<WorkItemServiceOptions> = {}): InMemoryPlan {
   const directory =
     overrides.directory ??
-    inMemoryDirectory(
-      (projectId): Promise<readonly { id: string }[]> => workItems.listByProject(projectId),
+    inMemoryDirectory((projectId): Promise<readonly { id: string }[]> =>
+      workItems.listByProject(projectId),
     );
   const workItems = overrides.workItems ?? inMemoryWorkItems(directory);
   const estimates = overrides.estimates ?? inMemoryEstimates(workItems);

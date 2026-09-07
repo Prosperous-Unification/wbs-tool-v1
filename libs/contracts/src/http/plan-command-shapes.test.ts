@@ -159,33 +159,27 @@ test('emits inline MCP-readable command branches with real nested patch and esti
   expect(find('deleteService')?.properties?.['cascade']).toEqual({ type: 'boolean' });
 });
 
-function commandTypes(command: PlanCommandWire) {
+export function commandTypes(command: PlanCommandWire) {
   if (command.kind === 'setAssignee') {
-    const id: string | null | undefined = command.personId;
-    void id;
+    const _id: string | null | undefined = command.personId;
   }
   if (command.kind === 'patchWorkItem') {
-    const refs: { systemId: string; url: string }[] | undefined = command.patch.externalRefs;
-    void refs;
+    const _refs: { systemId: string; url: string }[] | undefined = command.patch.externalRefs;
     // @ts-expect-error Numbering is derived and never part of a writable patch.
-    void command.patch.frozenNumber;
+    const _frozenNumber: unknown = command.patch.frozenNumber;
   }
   // @ts-expect-error Commands retain their finite discriminated vocabulary.
-  const invented: PlanCommandWire = { kind: 'invented' };
-  void invented;
+  const _invented: PlanCommandWire = { kind: 'invented' };
   const wrongEstimate = {
     kind: 'setEstimate' as const,
     stepId: 's',
     days: { optimistic: '1', realistic: 2, pessimistic: 3 },
   };
   // @ts-expect-error Estimate days retain the three numeric fields.
-  const estimate: PlanCommandWire = wrongEstimate;
-  void estimate;
+  const _estimate: PlanCommandWire = wrongEstimate;
   // @ts-expect-error The inferred batch keeps the command vocabulary rather than an unknown list.
-  const batch: PlanCommandsBody = { commands: [{ kind: 'invented' }] };
-  void batch;
+  const _batch: PlanCommandsBody = { commands: [{ kind: 'invented' }] };
 }
-void commandTypes;
 
 test('retains the nullable deadline wire field without taking over date semantics', async () => {
   for (const deadline of [null, '2026-09-07', 'not-a-date']) {

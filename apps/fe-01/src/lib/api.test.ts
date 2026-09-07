@@ -72,7 +72,7 @@ describe('shape-derived session requests', () => {
     });
   });
   it('uses the register shape and same-origin cookie transport without a token header', async () => {
-    const send = vi.fn<[string, RequestInit?], Promise<Response>>(() =>
+    const send = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(() =>
       Promise.resolve(response(200, { token: '', user: { id: 'u', username: 'ada' } })),
     );
     vi.stubGlobal('fetch', send);

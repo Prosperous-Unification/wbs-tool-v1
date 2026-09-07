@@ -178,7 +178,7 @@ holds the prod SSH key, registry credentials and the GitHub PAT, so builds do no
 belong on it. A hook there denies `dagger`, `docker build` and the Nx publish and
 deploy targets; anything sent over `ssh … h2puni` passes.
 
-As of 2026-08-05 h2puni can drive a prod build: `dagger` v0.21.8 pinned to the
+As of 2026-08-05 h2puni can drive a prod build: `dagger` v0.21.9 (since 2026-09-06; 0.21.8 before) pinned to the
 engine image, a build checkout at `/home/puni1/wbs-build` that dev's deploy cannot
 reset under it, and the `h2puni` alias resolving to itself so the deploy can ssh
 where it already is. `docs/runbook-prod-deploy.md` has the detail and the traps.

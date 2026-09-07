@@ -93,10 +93,9 @@ function creatorOf(id: string): { created_by: string; created_by_id: string | nu
   try {
     return (
       db
-        .query<
-          { created_by: string; created_by_id: string | null },
-          [string]
-        >(`SELECT created_by, created_by_id FROM saved_plan WHERE id = ?`)
+        .query<{ created_by: string; created_by_id: string | null }, [string]>(
+          `SELECT created_by, created_by_id FROM saved_plan WHERE id = ?`,
+        )
         .get(id) ?? null
     );
   } finally {

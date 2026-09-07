@@ -2,7 +2,6 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  REFERENCE_SET_EDGE_FADE,
   REFERENCE_SET_LINE_HEIGHT,
   type ReferenceSetAdapter,
   referenceSetLines,
@@ -355,8 +354,9 @@ describe('the add button closes what it opened', () => {
     fireEvent.click(add);
 
     expect(document.activeElement).not.toBe(box);
-    // `'0'` and not `'0px'`: a unitless zero is what React writes.
-    expect(searching()?.style.minWidth).toBe('0');
+    // Read as a number: React writes the unitless `0`, jsdom 30 reads it back
+    // as `0px`, and the claim is the width, not the spelling.
+    expect(parseFloat(searching()?.style.minWidth ?? 'NaN')).toBe(0);
   });
 
   itDom('still opens the press after a value is taken', async () => {
@@ -425,13 +425,15 @@ describe('the reference strip on one rest line', () => {
     render(<ReferenceSetStrip label="Teams" adapter={crowded()} />);
 
     expect(strip().style.overflow).toBe('hidden');
-    expect(strip().getAttribute('style')).toContain(REFERENCE_SET_EDGE_FADE);
+    // Read back as a property rather than matched against the constant's
+    // text: jsdom 30 re-spells `#000` as `rgb(0, 0, 0)` on the way in.
+    expect(strip().style.maskImage).toContain('linear-gradient(to left');
     fireEvent.focus(screen.getByRole('combobox', { name: 'Teams' }));
     // The picker's list opens inside this element. A clip or a mask at that
     // moment cuts the directory somebody has just opened — the Depends-on
     // cell's own rule, and why both belong to rest alone.
     expect(strip().style.overflow).toBe('visible');
-    expect(strip().getAttribute('style')).not.toContain(REFERENCE_SET_EDGE_FADE);
+    expect(strip().style.maskImage).toBe('');
   });
 
   itDom('leaves the flow while it is edited, on a line the anchor keeps', () => {

@@ -46,9 +46,7 @@ export interface EmptyRefusalResponse {
  * null, an empty response, a redirect and plain text cannot be interchanged.
  */
 export type BodyMedia =
-  | 'application/json'
-  | 'application/x-www-form-urlencoded'
-  | 'multipart/form-data';
+  'application/json' | 'application/x-www-form-urlencoded' | 'multipart/form-data';
 
 export type QueryMode = 'arbitrary-singleton';
 

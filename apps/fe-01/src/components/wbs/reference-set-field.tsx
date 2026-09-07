@@ -124,9 +124,19 @@ export const REFERENCE_SET_STRIP_STYLE = {
  * a `+N` marker is written there. It belongs to **rest** alone on both cells:
  * the picker's list opens inside the element this masks, and a mask over an
  * open directory cuts the list somebody is reading.
+ *
+ * Spelled from the right edge (`to left … 14px`) rather than as `to right …
+ * calc(100% - 14px)`: the same fade, without a `calc()` stop. jsdom 30's CSS
+ * model drops a gradient it cannot parse, declaration and all, and the jsdom
+ * tests of both cells read this declaration back — with the `calc()` form
+ * they could not see the fade at all, on or off.
+ *
+ * Proof, both cells, 2026-09-06: with this set to `''`, `keeps the truncation
+ * fade on the rested strip, and off the open one` failed on `expected '' to
+ * contain 'linear-gradient'` and `fades and clips the rest line, and does
+ * neither while editing` on `expected '' to contain 'linear-gradient(to left'`.
  */
-export const REFERENCE_SET_EDGE_FADE =
-  'linear-gradient(to right, #000 calc(100% - 14px), transparent)';
+export const REFERENCE_SET_EDGE_FADE = 'linear-gradient(to left, transparent, #000 14px)';
 
 /**
  * How tall one resting reference strip stands, in px.

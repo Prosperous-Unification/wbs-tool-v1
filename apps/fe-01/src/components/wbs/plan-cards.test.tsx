@@ -490,10 +490,8 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
       clearEstimate: (id: string, stepId: string) => {
         const row = rows.find((each) => each.id === id);
         if (row === undefined) return Promise.reject(new Error('not_found'));
-        const { [stepId]: goneDays, ...keptDays } = row.estimates;
-        const { [stepId]: goneFinal, ...keptFinal } = row.finalDays;
-        void goneDays;
-        void goneFinal;
+        const { [stepId]: _goneDays, ...keptDays } = row.estimates;
+        const { [stepId]: _goneFinal, ...keptFinal } = row.finalDays;
         row.estimates = keptDays;
         row.finalDays = keptFinal;
         row.finalTotal = Object.values(keptFinal).reduce((total, each) => total + each, 0);

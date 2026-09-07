@@ -62,13 +62,13 @@ const internalShape = defineEndpointShape({
 export function endpointTypeFixtures(path: `/${string}` = '/probe'): void {
   bind(echoShape, (input) => {
     // @ts-expect-error An unauthenticated endpoint has no principal property.
-    void input.principal;
+    const _principal: unknown = input.principal;
     return Promise.resolve({ ok: true, status: 200, body: { echoed: input.body.text } });
   });
   bind(projectShape, (input) => {
     const absentParam = 'wrong';
     // @ts-expect-error Parameters derive from this literal path.
-    void input.params[absentParam];
+    const _absent: unknown = input.params[absentParam];
     return Promise.resolve({ ok: true, status: 200, body: { id: input.principal.id } });
   });
   const successfulRefusal = (): Promise<{
@@ -101,14 +101,14 @@ export function endpointTypeFixtures(path: `/${string}` = '/probe'): void {
   bind(nullShape, emptyInsteadOfNull);
   bind(internalShape, (input) => {
     // @ts-expect-error An internal principal is not a user account.
-    void input.principal.id;
+    const _id: unknown = input.principal.id;
     return Promise.resolve({ ok: true, status: 200, body: { identity: input.principal.kind } });
   });
   bind(
     defineEndpointShape({ ...echoShape, policies: [{ kind: 'origin', when: 'always' }] }),
     (input) => {
       // @ts-expect-error Origin enforcement does not provide a principal.
-      void input.principal;
+      const _principal: unknown = input.principal;
       return Promise.resolve({ ok: true, status: 200, body: { echoed: input.body.text } });
     },
   );
@@ -118,7 +118,7 @@ export function endpointTypeFixtures(path: `/${string}` = '/probe'): void {
   });
   bind(variableIdentity, (input) => {
     // @ts-expect-error A variable identity requirement must be narrowed before reading user fields.
-    void input.principal.id;
+    const _id: unknown = input.principal.id;
     const name = 'kind' in input.principal ? input.principal.kind : input.principal.username;
     return Promise.resolve({ ok: true, status: 200, body: { echoed: name } });
   });

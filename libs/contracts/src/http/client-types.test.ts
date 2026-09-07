@@ -45,10 +45,10 @@ const client = clientFromShapes([read, write], () =>
 );
 
 /** Compile-only fixtures use the actual generated methods and the gate's spec project. */
-async function clientTypeFixtures(): Promise<void> {
+export async function clientTypeFixtures(): Promise<void> {
   const missingOperation = 'deleteProject';
   // @ts-expect-error Only declared operation identifiers are methods.
-  void client[missingOperation];
+  const _missingOperation: unknown = client[missingOperation];
   // @ts-expect-error Path parameters are mandatory.
   await client.readProject({});
   // @ts-expect-error Parameter names come from the declared path.
@@ -63,20 +63,17 @@ async function clientTypeFixtures(): Promise<void> {
   await client.readProject({ params: { id: 'p' }, principal: { id: 'caller' } });
   const readReply = await client.readProject({ params: { id: 'p' } });
   if (readReply.kind === 'success') {
-    const name: string = readReply.body.project.name;
-    void name;
+    const _name: string = readReply.body.project.name;
     const missingField = 'title';
     // @ts-expect-error Only fields from the response schema are statically readable.
-    void readReply.body.project[missingField];
+    const _missingField: unknown = readReply.body.project[missingField];
   } else if (readReply.kind === 'refusal' && readReply.status === 501) {
-    const versions: number[] = readReply.body.supported;
-    void versions;
+    const _versions: number[] = readReply.body.supported;
     // @ts-expect-error A 501 detail cannot widen into an unrelated refusal code.
-    const code: 'rate_limited' = readReply.body.error;
-    void code;
+    const _code: 'rate_limited' = readReply.body.error;
   } else if (readReply.kind === 'refusal') {
     // @ts-expect-error Detail belongs to its own status-specific refusal.
-    void readReply.body.supported;
+    const _supported: unknown = readReply.body.supported;
   }
   const wrongPair = {
     kind: 'refusal' as const,
@@ -91,14 +88,11 @@ async function clientTypeFixtures(): Promise<void> {
     headers: new Headers(),
   };
   // @ts-expect-error The actual method's return type correlates each status and body.
-  const checkedPair: Awaited<ReturnType<typeof client.readProject>> = wrongPair;
-  void checkedPair;
+  const _checkedPair: Awaited<ReturnType<typeof client.readProject>> = wrongPair;
   const written = await client.renameProject({ params: { id: 'p' }, body: { name: 'new' } });
   if (written.kind === 'success') {
-    const status: 204 = written.status;
-    void status;
+    const _status: 204 = written.status;
     // @ts-expect-error An empty response has no JSON body.
-    void written.body;
+    const _body: unknown = written.body;
   }
 }
-void clientTypeFixtures;

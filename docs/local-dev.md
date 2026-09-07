@@ -88,6 +88,13 @@ it reports a clean run having never looked at the frontend. Measured: root
 `build` needs `shellcheck` on PATH (`brew install shellcheck`) and is no longer
 allowed to skip itself when it is absent.
 
+**Two TypeScripts.** `bunx tsc` is TypeScript 7 (the native compiler, installed
+as `@typescript/native`); `require('typescript')` is the TS 6 API build, which
+typescript-eslint needs because TS 7 ships no compiler API until 7.1. VS Code's
+`typescript.tsdk` therefore points at TS 6; install the recommended
+`typescriptteam.native-preview` extension to get TS 7 in the editor too.
+`tools/tool-devsync/src/toolchain-pins.test.ts` holds both roles to their majors.
+
 Scoped variants:
 
 ```bash

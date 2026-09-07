@@ -147,10 +147,9 @@ describe('a project’s priority ladder', () => {
     expect(await bands.listFor('p1')).toEqual([...DEFAULT_PRIORITY_BANDS]);
     expect(
       sqlite
-        .query<
-          { n: number },
-          [string]
-        >('SELECT COUNT(*) AS n FROM project_priority_band WHERE project_id = ?')
+        .query<{ n: number }, [string]>(
+          'SELECT COUNT(*) AS n FROM project_priority_band WHERE project_id = ?',
+        )
         .get('p1')?.n,
     ).toBe(5);
   });
@@ -187,10 +186,9 @@ describe('a project’s priority ladder', () => {
 
     expect(
       sqlite
-        .query<
-          { n: number },
-          [string]
-        >('SELECT COUNT(*) AS n FROM project_priority_band WHERE project_id = ?')
+        .query<{ n: number }, [string]>(
+          'SELECT COUNT(*) AS n FROM project_priority_band WHERE project_id = ?',
+        )
         .get('p1')?.n,
     ).toBe(0);
   });

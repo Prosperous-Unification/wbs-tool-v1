@@ -8,8 +8,8 @@ lives in `LLM_README.md`; this is the operating detail.
 Three things had to exist before any command below could run. All three are in
 place; each is worth knowing about because each failed in its own way first.
 
-- **`dagger` v0.21.8** in `/home/puni1/.local/bin`, pinned to the engine's own
-  image tag (`registry.dagger.io/engine:v0.21.8`). A CLI newer than the engine
+- **`dagger` v0.21.9** in `/home/puni1/.local/bin`, pinned to the engine's own
+  image tag (`registry.dagger.io/engine:v0.21.9`). A CLI newer than the engine
   negotiates a version the engine will not serve. Installed as `puni1` — there is
   **no passwordless sudo** on this host, and none is needed.
 - **A build checkout at `/home/puni1/wbs-build`**, cloned over https. It is not
@@ -45,7 +45,7 @@ refuses before Dagger starts when available memory is below 8 GiB, combined
 `/tmp` + `/dev/shm` use is above 25%, or one-minute load exceeds the online CPU
 count. Do not bypass these refusals with the underlying Nx target.
 
-`bin/publish-release.sh` creates or validates `wbs-dagger-engine`: v0.21.8,
+`bin/publish-release.sh` creates or validates `wbs-dagger-engine`: v0.21.9 (the tag is derived from the installed SDK, and `main.test.ts` holds this file to it),
 8 GiB memory with no swap expansion, 6 CPUs, 2,048 PIDs, loopback port 8081,
 and persistent volume `wbs-dagger-engine`. It stops the engine after success or
 failure. A stopped engine after a release is the expected state; do not add an

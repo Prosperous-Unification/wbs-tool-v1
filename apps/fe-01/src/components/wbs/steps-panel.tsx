@@ -1,5 +1,5 @@
 import { DEPENDENCY_REACHES, type DependencyReach } from '@wbs/domain/dependency-reach';
-import { type FormEvent, type KeyboardEvent, useState } from 'react';
+import { type KeyboardEvent, type SubmitEvent, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -234,7 +234,7 @@ export function StepsPanel({
     await section.attempt(change);
   }
 
-  function submitNew(event: FormEvent): void {
+  function submitNew(event: SubmitEvent<HTMLFormElement>): void {
     event.preventDefault();
     const clean = newName.trim();
     // Refused here rather than by be-01: the answer is the same either way and
@@ -283,7 +283,7 @@ export function StepsPanel({
     });
   }
 
-  function submitRename(event: FormEvent, step: StepView): void {
+  function submitRename(event: SubmitEvent<HTMLFormElement>, step: StepView): void {
     event.preventDefault();
     commitRename(step);
   }

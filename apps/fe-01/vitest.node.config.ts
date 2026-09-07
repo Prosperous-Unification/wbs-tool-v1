@@ -1,4 +1,4 @@
-import { defineConfig, type UserConfig } from 'vitest/config';
+import { defineConfig, type ViteUserConfig } from 'vitest/config';
 
 import baseConfig from './vitest.config';
 import { NODE_SUITES } from './vitest.node-suites';
@@ -31,12 +31,12 @@ import { NODE_SUITES } from './vitest.node-suites';
 // return type widens to `UserConfigExport` — an object, a promise, or a factory
 // — and spreading a promise would be an empty config and therefore a tier that
 // runs nothing, so a shape check was written here. TypeScript resolves this
-// import to a plain `UserConfig` (the base calls the object-literal overload),
+// import to a plain `ViteUserConfig` (the base calls the object-literal overload),
 // which made every arm of that check unreachable: `no-unnecessary-condition` on
 // the null test and `no-unnecessary-type-assertion` on the cast behind it. A
 // check that cannot fail is worse than none, so the annotation below is the
 // whole of it — the day the base becomes a factory, this line fails the build.
-const base: UserConfig = baseConfig;
+const base: ViteUserConfig = baseConfig;
 
 export default defineConfig({
   ...base,

@@ -416,7 +416,7 @@ export function usePlanRead({
 }: {
   setDrafts: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   projectId: string;
-  activeProject: React.MutableRefObject<string>;
+  activeProject: React.RefObject<string>;
   api: ProjectApi;
   setTreeMayBeStale: React.Dispatch<React.SetStateAction<boolean>>;
   setMarkers: React.Dispatch<React.SetStateAction<readonly CalendarMarkerView[]>>;
@@ -427,8 +427,8 @@ export function usePlanRead({
   setExternalSystems: React.Dispatch<React.SetStateAction<ExternalSystemView[]>>;
   setPeople: React.Dispatch<React.SetStateAction<PersonView[]>>;
   setWorkItems: React.Dispatch<React.SetStateAction<TreeRow[]>>;
-  treeReadProject: React.MutableRefObject<string | null>;
-  rowPlacements: React.MutableRefObject<ReadonlyMap<string, string>>;
+  treeReadProject: React.RefObject<string | null>;
+  rowPlacements: React.RefObject<ReadonlyMap<string, string>>;
   setHoveredCell: React.Dispatch<React.SetStateAction<string | null>>;
   setChartRead: React.Dispatch<React.SetStateAction<ChartRead>>;
   setStack: React.Dispatch<React.SetStateAction<{ undoable: boolean; redoable: boolean }>>;
@@ -445,7 +445,7 @@ export function usePlanRead({
     | ((projectId: string, handlers: SubscriptionHandlers, baseline: number) => ProjectStream)
     | undefined;
   setConnected: React.Dispatch<React.SetStateAction<boolean>>;
-  focusIntent: React.MutableRefObject<FocusIntent>;
+  focusIntent: React.RefObject<FocusIntent>;
   setBusy: React.Dispatch<React.SetStateAction<boolean>>;
 }) {
   const ownerRef = useRef<PlanRefresh | null>(null);

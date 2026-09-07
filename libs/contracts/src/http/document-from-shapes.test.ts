@@ -264,13 +264,11 @@ test('refuses malformed arbitrary-singleton declarations before emitting them', 
   }
 });
 
-function queryModeFixtures() {
+export function queryModeFixtures() {
   const { query: omitted, ...queryless } = batch;
-  void omitted;
   // @ts-expect-error An arbitrary-singleton mode requires a query validator.
   defineEndpointShape({ ...queryless, queryMode: 'arbitrary-singleton' });
 }
-void queryModeFixtures;
 
 test('refuses references in every descriptor location without reading validators', () => {
   const schema = {
@@ -366,14 +364,12 @@ test('refuses malformed erased body media declarations before emitting a documen
   }
 });
 
-function mediaTypeFixtures() {
+export function mediaTypeFixtures() {
   // @ts-expect-error A declared body media list cannot be empty.
   defineEndpointShape({ ...batch, bodyMedia: [] });
   // @ts-expect-error Text is not an accepted structural body decoder.
   defineEndpointShape({ ...batch, bodyMedia: ['text/plain'] });
   const { body: omitted, ...bodyless } = batch;
-  void omitted;
   // @ts-expect-error Media declarations require a body schema.
   defineEndpointShape({ ...bodyless, bodyMedia: ['application/json'] });
 }
-void mediaTypeFixtures;

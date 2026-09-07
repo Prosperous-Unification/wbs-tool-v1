@@ -25,7 +25,6 @@ const PHONE = { width: 390, height: 844 };
 
 /** Registers a throwaway account. Nothing in the deployment's directory yet. */
 async function signIn(page: Page, _account: string): Promise<void> {
-  void _account;
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Directory' })).toBeVisible();

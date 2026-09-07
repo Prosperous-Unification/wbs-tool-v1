@@ -157,10 +157,9 @@ describe('the names the schema uses', () => {
     try {
       const objectsNamed = (type: string, name: string): number =>
         sqlite
-          .query<
-            { n: number },
-            [string, string]
-          >('SELECT count(*) AS n FROM sqlite_master WHERE type = ? AND name = ?')
+          .query<{ n: number }, [string, string]>(
+            'SELECT count(*) AS n FROM sqlite_master WHERE type = ? AND name = ?',
+          )
           .get(type, name)?.n ?? 0;
 
       for (const table of ['step', 'step_progress', 'step_measure'])
@@ -184,10 +183,9 @@ describe('the names the schema uses', () => {
       // rather than a list, because a name nobody thought to name is exactly
       // the one a rename forgets.
       const named = sqlite
-        .query<
-          { type: string; name: string },
-          []
-        >("SELECT type, name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")
+        .query<{ type: string; name: string }, []>(
+          "SELECT type, name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
+        )
         .all();
       expect(named.filter((each) => /role/i.test(each.name))).toEqual([]);
       const roleColumns = named

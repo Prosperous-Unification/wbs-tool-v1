@@ -294,8 +294,8 @@ export function useEstimateMentions({
   teams,
   createPersonFor,
 }: {
-  foldedBox: React.MutableRefObject<CellElement | null>;
-  foldedAtFocus: React.MutableRefObject<string>;
+  foldedBox: React.RefObject<CellElement | null>;
+  foldedAtFocus: React.RefObject<string>;
   setMention: React.Dispatch<
     React.SetStateAction<{ rowId: string; stepId: string; typed: string } | null>
   >;

@@ -38,8 +38,7 @@ function failed(failure: ClientFailure): ClientBoundaryFailure {
 }
 
 export type RequestPreflight<Shape extends EndpointShape> =
-  | { kind: 'ready'; input: PreflightInput<Shape> }
-  | ClientBoundaryFailure;
+  { kind: 'ready'; input: PreflightInput<Shape> } | ClientBoundaryFailure;
 
 /**
  * Normalizes and validates one request before transport. Synchronous schemas

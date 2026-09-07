@@ -54,7 +54,7 @@ afterEach(() => {
 
 describe('whether this node has the routes at all', () => {
   it('reads the served document rather than probing a saved-plan route', async () => {
-    const send = vi.fn<[string, RequestInit?], Promise<Response>>(() =>
+    const send = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(() =>
       Promise.resolve(response(200, document(SAVED_PLAN_SPEC_PATHS))),
     );
     vi.stubGlobal('fetch', send);
@@ -150,7 +150,7 @@ describe('shape-derived saved-plan requests', () => {
   });
 
   it('converts the real stored save response into the shelf confirmation view', async () => {
-    const send = vi.fn<[string, RequestInit?], Promise<Response>>(() =>
+    const send = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(() =>
       Promise.resolve(response(201, { savedPlan: STORED })),
     );
     vi.stubGlobal('fetch', send);
@@ -162,7 +162,7 @@ describe('shape-derived saved-plan requests', () => {
   });
 
   it('refuses an empty name before transport instead of silently selecting the default', async () => {
-    const send = vi.fn<[string, RequestInit?], Promise<Response>>();
+    const send = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>();
     vi.stubGlobal('fetch', send);
     await expect(httpSavedPlanApi().save('p1', '')).resolves.toMatchObject({
       kind: 'failure',
@@ -229,7 +229,7 @@ describe('shape-derived saved-plan requests', () => {
       stored: 'old',
       recomputed: 'new',
     } as const;
-    const send = vi.fn<[string, RequestInit?], Promise<Response>>(() =>
+    const send = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(() =>
       Promise.resolve(response(422, { error: 'corrupt', savedPlanId: 'sp2', refusal: integrity })),
     );
     vi.stubGlobal('fetch', send);
@@ -261,7 +261,7 @@ describe('shape-derived saved-plan requests', () => {
   });
 
   it('uses same-origin cookies without the obsolete token header', async () => {
-    const send = vi.fn<[string, RequestInit?], Promise<Response>>(() =>
+    const send = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(() =>
       Promise.resolve(response(200, { savedPlans: [] })),
     );
     vi.stubGlobal('fetch', send);

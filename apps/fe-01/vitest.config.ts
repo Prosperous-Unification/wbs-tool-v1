@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 
 import react from '@vitejs/plugin-react';
-import type { UserConfig } from 'vitest/config';
+import type { ViteUserConfig } from 'vitest/config';
 import { configDefaults, defineConfig } from 'vitest/config';
 
 export default defineConfig({
@@ -11,7 +11,7 @@ export default defineConfig({
   // is where they part. The cast names that boundary and nothing else: the
   // value is one React plugin either way, and `vite.config.ts` beside this file
   // needs no cast because it imports `defineConfig` from `vite` itself.
-  plugins: [react()] as UserConfig['plugins'],
+  plugins: [react()] as ViteUserConfig['plugins'],
   // The same domain leaf imports the app is built with. `@wbs/domain/workday`,
   // `@wbs/domain/deadline-offsets`,
   // `@wbs/domain/assumed-duration`, `@wbs/domain/effective-team`,

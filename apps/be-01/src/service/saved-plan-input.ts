@@ -68,13 +68,11 @@ export function planInputRowsOf(reads: PlanInputReads): PlanInputRows {
       // spelling to disagree with. Ranking here is also the stabler of the two:
       // were a row ever spaced in gaps, two plans identical in every visible way
       // would hash apart on the spacing alone.
-      externalRefs: row.externalRefs.map(
-        (ref, at): CanonicalExternalRef => ({
-          externalSystemId: ref.systemId,
-          url: ref.url,
-          position: at,
-        }),
-      ),
+      externalRefs: row.externalRefs.map((ref, at): CanonicalExternalRef => ({
+        externalSystemId: ref.systemId,
+        url: ref.url,
+        position: at,
+      })),
       priority: row.priority,
       maxParallel: row.maxParallel,
       frozenNumber: row.frozenNumber,

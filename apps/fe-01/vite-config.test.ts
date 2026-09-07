@@ -16,7 +16,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // only ever run on one of the two machines. The stub is the whole point of the
 // mock; `defineConfig` stays the real one.
 const loadEnv = vi.hoisted(() =>
-  vi.fn<[mode: string, envDir: string, prefix: string], Record<string, string>>(),
+  vi.fn<(mode: string, envDir: string, prefix: string) => Record<string, string>>(),
 );
 
 vi.mock('vite', async (importOriginal) => ({
@@ -150,7 +150,7 @@ describe('vite dev server proxy', () => {
   it('refuses to serve with an env that names no backend, and says how to seed one', () => {
     loadEnv.mockReturnValue({});
 
-    expect(() => config({ command: 'serve', mode: 'development' })).toThrowError(
+    expect(() => config({ command: 'serve', mode: 'development' })).toThrow(
       /apps\/fe-01\/\.env must set VITE_BE_URL and VITE_GW_URL; got VITE_BE_URL=\(unset\) VITE_GW_URL=\(unset\)\..*bun run dev:setup/s,
     );
   });
@@ -158,7 +158,7 @@ describe('vite dev server proxy', () => {
   it('refuses a half-set env too, naming the half that is missing', () => {
     loadEnv.mockReturnValue({ VITE_BE_URL: BE_URL });
 
-    expect(() => config({ command: 'serve', mode: 'development' })).toThrowError(
+    expect(() => config({ command: 'serve', mode: 'development' })).toThrow(
       new RegExp(`VITE_BE_URL=${BE_URL} VITE_GW_URL=\\(unset\\)`),
     );
   });
@@ -222,16 +222,21 @@ describe('the app and the run resolve the same modules', () => {
 describe('the built chunks', () => {
   const chunkOf = (id: string): string | undefined => {
     const build = config({ command: 'build', mode: 'production' });
-    const output = build.build?.rollupOptions?.output;
+    const output = build.build?.rolldownOptions?.output;
     if (output === undefined || Array.isArray(output)) {
-      throw new Error('the build config has no single rollup output to assert on');
+      throw new Error('the build config has no single rolldown output to assert on');
     }
-    const { manualChunks } = output;
-    if (typeof manualChunks !== 'function') {
-      throw new Error('manualChunks is not the function this test is about');
+    const splitting = output.codeSplitting;
+    if (typeof splitting !== 'object' || splitting.groups?.length !== 1) {
+      throw new Error('one code-splitting group is what this test is about');
     }
-    // Rollup hands the hook a second argument this rule never reads.
-    return manualChunks(id, undefined as never) as string | undefined;
+    const [vendor] = splitting.groups;
+    if (!(vendor.test instanceof RegExp) || typeof vendor.name !== 'string') {
+      throw new Error('the group is expected to name a chunk and test module ids with a RegExp');
+    }
+    // Rolldown applies a RegExp `test` to the module id, which is what the
+    // old `manualChunks` function did by hand.
+    return vendor.test.test(id) ? vendor.name : undefined;
   };
 
   it('puts React and the router in vendor', () => {

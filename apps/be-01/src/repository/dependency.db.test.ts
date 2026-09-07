@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { projectRow } from '../testing/project-fixture';
 import { workItemRow } from '../testing/work-item-fixture';
+import { messagesOf } from './constraint';
 import type { Drizzle } from './db';
 import { openDrizzle } from './db';
 import { DependencyRepository } from './dependency';
@@ -223,7 +224,15 @@ describe('DependencyRepository', () => {
     // declared — `db.ts` asserts the pragma, and this is what that buys.
     const a = await addWorkItem('Strip');
 
-    expect(repo.add(edge(a, crypto.randomUUID()), wrote())).rejects.toThrow(/FOREIGN KEY/i);
+    // Read down the `cause` chain: drizzle 1.0.0-rc.4 wraps SQLite's refusal
+    // in a `DrizzleQueryError` whose own message names the statement, not the
+    // constraint — a `rejects.toThrow(/FOREIGN KEY/)` on the outer error was
+    // watched failing on `Received message: "Failed query: insert into
+    // \"dependency\" …"` (2026-09-06).
+    const refusal = await repo
+      .add(edge(a, crypto.randomUUID()), wrote())
+      .catch((err: unknown) => err);
+    expect(messagesOf(refusal).join('\n')).toMatch(/FOREIGN KEY/i);
   });
 });
 

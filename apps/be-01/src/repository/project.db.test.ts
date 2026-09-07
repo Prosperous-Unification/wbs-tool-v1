@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { projectRow } from '../testing/project-fixture';
+import { messagesOf } from './constraint';
 import { openDatabase, openDrizzle } from './db';
 import type { NewProject, Project, Step, WriteStamp } from './index';
 import { STEP_POSITION_STEP } from './index';
@@ -82,7 +83,10 @@ async function rejection(promise: Promise<unknown>): Promise<string> {
     await promise;
     return '(resolved without throwing)';
   } catch (err) {
-    return String(err);
+    // The whole `cause` chain, because drizzle 1.0.0-rc.4 wraps SQLite's
+    // refusal in a `DrizzleQueryError` whose own message names the statement
+    // and not the constraint; see `messagesOf`.
+    return messagesOf(err).join('\n') || String(err);
   }
 }
 

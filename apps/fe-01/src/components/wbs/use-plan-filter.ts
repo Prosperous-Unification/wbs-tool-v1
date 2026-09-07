@@ -150,8 +150,6 @@ export function usePlanFilter({
   mismatchByRow,
   effectiveTags,
   priorityBands,
-  ownedServicesByTeam,
-  teamsByPerson,
   query,
   facets,
   teams,
@@ -167,8 +165,6 @@ export function usePlanFilter({
   mismatchByRow: Map<string, { unownedServices: string[]; outsideAssignees: string[] }>;
   effectiveTags: Map<string, EffectiveTags>;
   priorityBands: PriorityBandView[];
-  ownedServicesByTeam: Map<string, string[]>;
-  teamsByPerson: Map<string, string[]>;
   query: string;
   facets: Omit<FilterCriteria, 'query'>;
   teams: TeamView[];
@@ -300,15 +296,13 @@ export function usePlanFilter({
       effectiveTeams,
       effectiveTags,
       effectiveServices,
-      // The directory's two maps, and they are the reason this list grew: the
-      // three readings above are all derived from `flat`, but the ownership map
-      // and the memberships come from the directory read, which reloads on its
-      // own. Left out, a team given a service in the directory would leave every
-      // marker on screen answering the map as it was at the last tree fetch.
-      ownedServicesByTeam,
-      teamsByPerson,
-      // Carries both maps' dependencies of its own; listed because the two
-      // booleans above are read out of it and not recomputed here.
+      // The two booleans above are read out of this map and not recomputed
+      // here, and it is how the directory reaches this list: the three
+      // readings above all derive from `flat`, but service ownership and team
+      // membership come from the directory read, which reloads on its own, and
+      // `mismatchByRow` is rebuilt from both. A team given a service in the
+      // directory therefore re-answers every marker on screen instead of
+      // leaving it at the map as it was at the last tree fetch.
       mismatchByRow,
       priorityBands,
       steps,

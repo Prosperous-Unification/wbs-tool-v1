@@ -813,7 +813,6 @@ test('rejects mixed internal and user policies before mounting an erased endpoin
 
 test('refuses every nonempty undeclared request body without calling the handler', async () => {
   const { body: declaredBody, ...withoutBody } = echoShape;
-  void declaredBody;
   const shape = defineEndpointShape(withoutBody);
   let calls = 0;
   const app = appFor([
