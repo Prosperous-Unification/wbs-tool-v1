@@ -74,12 +74,17 @@
  * was overstated and TASK-323 had to narrow it in place:
  *
  * - It covers the events the workflow subscribes to, and only those:
- *   `pull_request`, `push` to `main` and `workflow_dispatch`. The boundary is
- *   chosen per event rather than inferred, so a multi-commit push is compared
- *   against what `main` held before it and not against its own penultimate
- *   commit. **`merge_group` is NOT subscribed**, so a merge queue would not run
- *   it — peer review found that claim overstated here and it is narrowed rather
- *   than deleted, because the gap is real and unfixed.
+ *   `pull_request`, `push` to `main`, `merge_group` and `workflow_dispatch`. The
+ *   boundary is chosen per event rather than inferred, so a multi-commit push is
+ *   compared against what `main` held before it and not against its own
+ *   penultimate commit, and a queued merge is compared against
+ *   `merge_group.base_sha` — the target tip plus the entries ahead of it —
+ *   rather than against `main`, which would re-attribute an earlier entry's
+ *   fixture edits to this change. `merge_group` was the gap this paragraph used
+ *   to name; TASK-351 closed it. The subscription is preparatory and honest
+ *   about being so: measured 2026-09-08 this repository has no rulesets and no
+ *   protection on `main`, so no queue can form and the trigger fires never. It
+ *   is here so that enabling one later cannot silently drop the check.
  * - It does NOT prove the bump was made *because* of the semantic change. A
  *   version increase in the same change for an unrelated reason satisfies it.
  *   That is not a cache-safety hole — the corpus lands under a new version and

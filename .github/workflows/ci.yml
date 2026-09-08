@@ -36,6 +36,25 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Subscribed BEFORE a merge queue exists, on purpose. Measured 2026-09-08:
+  # `GET /repos/…/rulesets` is `[]` and `GET /branches/main/protection` is 404,
+  # so no queue can form here today and this trigger fires never. That is the
+  # point — a merge queue is enabled in the settings UI in one click, and an
+  # unsubscribed workflow is not "skipped" in the queue's checks, it is simply
+  # absent, so the day someone turns it on is the day this gate silently stops
+  # covering the merges that matter most. The `merge_group` arm of
+  # `Corpus version lint` and the `concurrency` exemption below land with this
+  # line and are not separable from it: the step's `*)` arm exits 1 on an event
+  # it has no boundary rule for, so subscribing alone would make every queue
+  # entry red. (TASK-351 I2.)
+  #
+  # `types` is named rather than left to default, on GitHub's own advice for
+  # this event: `checks_requested` is the only activity type Actions supports
+  # today, the default is "all of them", and the webhook payload already
+  # documents a second one (`destroyed`). Naming the one we mean is what stops a
+  # future activity type from silently starting gate runs nobody asked for.
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
     # `Corpus version lint` compares two commits, and a manual run has neither a
     # push boundary nor a `base_ref`. Rather than let it guess one — every guess
@@ -61,9 +80,21 @@ on:
 #
 # The cost of this change is CI minutes on `main` when merges land close
 # together, which is the cheaper side of the trade by a wide margin.
+#
+# A merge-queue run is exempt for the SAME reason `main` is, and the predicate
+# had to be widened rather than left alone: a `merge_group` event's ref is
+# `refs/heads/gh-readonly-queue/main/pr-<n>-<sha>`, which is `!= 'refs/heads/main'`,
+# so the old expression answered `true` for it. Stated at the strength it is
+# actually known: the group key is `github.ref` and a queue entry's ref is
+# unique to it, so no collision is *measured* today — this closes a latent
+# hazard, not an observed loss. It is worth one expression anyway, because a
+# queue verdict is the least reproducible kind there is. The branch behind a
+# cancelled PR run is still there to push to again; the ref behind a cancelled
+# queue run is deleted when the entry leaves the queue, and the commit it was
+# proving is by then either merged or dropped.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.event_name != 'merge_group' }}
 
 permissions:
   contents: read
@@ -259,27 +290,81 @@ jobs:
       # because every one of them is event-derived text a contributor can shape
       # — `github.base_ref` is the pull request's target branch in this
       # repository, and `inputs.base_ref` is whatever the dispatcher typed.
+      # Two boundary repairs from the same review (TASK-351):
+      #
+      # I3 — a pull request compares against `github.event.pull_request.base.sha`,
+      # the IMMUTABLE commit the merge was computed from, not against
+      # `origin/$PR_BASE_REF`, which is a branch name and moves. A rerun after
+      # the base branch is force-pushed would otherwise compare the same
+      # synthetic merge commit against a different merge base and report a
+      # result the branch never earned. The named ref is kept as a fallback for
+      # the one case the event payload cannot cover, and the fallback says so
+      # rather than being silent about which boundary it used.
+      #
+      # I4 — every `git` call that consumes one of these values terminates its
+      # option parsing with `--`. Quoting already stopped command injection, but
+      # a value beginning with `-` was still read as a flag, which produces a
+      # false red rather than a refusal. `--` costs nothing and is not a
+      # judgement call.
+      #
+      # I2 — `merge_group` compares against `github.event.merge_group.base_sha`
+      # for the same reason I3 gave for pull requests: it is immutable, and it
+      # is the commit the queued change is genuinely measured against. It is NOT
+      # `origin/main`. A merge group's base is the target branch tip PLUS every
+      # entry queued ahead of this one, so whenever the queue holds more than
+      # one change, `main` is BEHIND the group base and comparing against it
+      # re-attributes the earlier entry's fixture edits to this one — a false
+      # red on a change that touched no corpus, which is the exact class of
+      # wrong-subject verdict this whole item exists to remove.
       - name: Corpus version lint
         env:
           EVENT_NAME: ${{ github.event_name }}
           PR_BASE_REF: ${{ github.base_ref }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PUSH_BEFORE: ${{ github.event.before }}
+          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           DISPATCH_BASE_REF: ${{ inputs.base_ref }}
         run: |
           set -euo pipefail
           case "$EVENT_NAME" in
             pull_request)
-              base="$(git merge-base "origin/$PR_BASE_REF" HEAD)"
+              if [ -n "$PR_BASE_SHA" ]; then
+                # `fetch-depth: 0` puts it in the checkout; fetch it explicitly
+                # if a shallower checkout ever lands here, and fail closed if it
+                # cannot be had rather than falling back silently.
+                git cat-file -e "$PR_BASE_SHA^{commit}" 2>/dev/null \
+                  || git fetch --no-tags origin "$PR_BASE_SHA"
+                base="$(git merge-base -- "$PR_BASE_SHA" HEAD)"
+              else
+                echo "pull_request carried no base.sha; falling back to the mutable origin/$PR_BASE_REF" >&2
+                base="$(git merge-base -- "origin/$PR_BASE_REF" HEAD)"
+              fi
               ;;
             push)
               base="$PUSH_BEFORE"
+              ;;
+            merge_group)
+              if [ -z "$MERGE_GROUP_BASE_SHA" ]; then
+                echo "merge_group carried no base_sha: this check compares two commits" >&2
+                exit 1
+              fi
+              # Same fail-closed shape as the pull_request arm: if the base is
+              # not in the checkout, fetch it by name and let the fetch fail
+              # loudly rather than substituting a boundary nobody asked for.
+              git cat-file -e "$MERGE_GROUP_BASE_SHA^{commit}" 2>/dev/null \
+                || git fetch --no-tags origin "$MERGE_GROUP_BASE_SHA"
+              # `merge-base` rather than the sha bare. Under a merge group the
+              # head is built directly on the base, so today the two agree and
+              # this is a no-op; it stays correct if that construction ever
+              # changes, and it is the same form the other three arms use.
+              base="$(git merge-base -- "$MERGE_GROUP_BASE_SHA" HEAD)"
               ;;
             workflow_dispatch)
               if [ -z "$DISPATCH_BASE_REF" ]; then
                 echo "workflow_dispatch needs a base_ref input: this check compares two commits" >&2
                 exit 1
               fi
-              base="$(git merge-base "$DISPATCH_BASE_REF" HEAD)"
+              base="$(git merge-base -- "$DISPATCH_BASE_REF" HEAD)"
               ;;
             *)
               echo "corpus-version-lint has no boundary rule for event $EVENT_NAME" >&2

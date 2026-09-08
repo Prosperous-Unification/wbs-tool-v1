@@ -46,6 +46,23 @@ Re-run 2026-09-08 against `main` @ `d2e14214`, over the file set the change decl
 The whole-workspace gate is slice 6's, on a frozen tree. Nothing outside `apps/be-01`
 changed in this slice.
 
+## Slice 5 — the conformance kits
+
+| Command                                                                           | When       | Result                                                 |
+| --------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------ |
+| `bun test` in `apps/be-01`                                                        | 2026-09-08 | **2035 pass, 2 skip, 0 fail**, 20,062 assertions, 118s |
+| `bunx tsc --build --force apps/be-01/tsconfig.json`, `bunx eslint apps/be-01/src` | 2026-09-08 | clean                                                  |
+
+Two checks that could not fail, both caught while writing this slice and both recorded because
+the shape recurs:
+
+1. `report.unknown` was computed where `sourceConformance` **returns**, which is before
+   `bun:test` has run a single `describe` body — so it read every allowlist entry as unknown,
+   including ones matched moments later. It is a function now, read when it is called.
+2. That assertion then stood **behind** the skipped-vs-allowlist equality, which fails on the
+   same fault first. A check standing behind a check that catches the same fault is a check
+   that cannot fail; it is asserted first now, and was then watched failing on its own line.
+
 ## Slice 4 — what a broken reference means
 
 | Check                                                       | Fault injected                                                                                                    | Test                                                                                                  | Observed                                                                                                                                        |

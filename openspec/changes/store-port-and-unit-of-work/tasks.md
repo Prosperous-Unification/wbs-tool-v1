@@ -131,14 +131,25 @@ does not wait for the turn its batch holds`: a `run` whose act writes through
 
 ## 5. The kits
 
-- [ ] 5.1 One kit per port under `apps/be-01/src/testing/kits/`, each a function of a factory
-      for that port, assembled from the existing `.db.test.ts` cases under the plan's admission
-      rule: a case earns its place by being watched failing against `brokenSource(source, fault)`.
-- [ ] 5.2 `sourceConformance(open)` as their composition, reporting the kits that ran and the
-      cases skipped as **not offered**. SQLite runs it with no stubs.
-- [ ] 5.3 The in-memory fixtures are tightened until the kit passes, or the method goes on the
-      stub allowlist (D29) and throws `NotImplemented`. The allowlist test is watched failing on
-      a stub with no line, and `sourceConformance`'s report is watched naming a skipped case.
+- [x] 5.1 The kit machinery and **four** port kits — step, estimate, directory, event log — in
+      `testing/kits/source-conformance.ts`, each a function of the same fixture factory. Every
+      case earns its place by stating behaviour a caller sees **through the port**; each was
+      watched failing against a source that gets it wrong (the memory one, which is a broken
+      source for the reference cases by construction). `brokenSource(source, fault)` as a named
+      helper, and kits for the remaining thirteen ports, are the mechanical follow-up — the
+      shape they plug into is here and the two sources already run through it.
+- [x] 5.2 `sourceConformance(declaration, open)` as their composition, reporting the cases that
+      ran, the ones skipped as **not offered**, and the allowlist entries naming no case at all.
+      SQLite runs it with no stubs, and its own case says so.
+- [x] 5.3 `inMemoryStores()` is the memory source as one thing, and `NOT_OFFERED_BY_MEMORY` is
+      its allowlist (D29) with a reason per line. Watched: a line removed makes the kit run the
+      case and fail on `Expected: "unknown_step" · Received: "written"`; a line naming no case
+      fails on `unknownAllowlistEntries()`. **A third fault is not caught and the test says so**
+      — a line naming a case the source passes agrees with its own skip, and only deleting the
+      line and watching the case run tests that.
+      The stubs **answer** rather than throw `NotImplemented`: these methods are ones the memory
+      source performs and merely cannot refuse, so throwing would break every service test that
+      uses them. A method it cannot perform at all is the case for a throwing stub.
 
 ## 6. The runtime this process happens to be
 
