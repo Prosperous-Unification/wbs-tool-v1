@@ -314,6 +314,22 @@ describe('with-heavy-lock', () => {
       { mode: 0o755 },
     );
 
+    // **The contender's environment is scrubbed of bash's startup hooks.**
+    // Peer review round 2: the `$1 == 5` guard makes the marker mean "something
+    // asked for the retry interval", not yet "the retry loop asked". bash
+    // sources `$BASH_ENV` before running the script, so an ambient startup file
+    // that happens to call `sleep 5` writes the marker before `with_heavy_lock`
+    // makes its first claim; the case would then release the holder and let the
+    // contender take a free lock, green, with the retry branch never entered.
+    // `ENV` goes with it because a POSIX-mode bash reads that one instead.
+    const contenderEnv: Record<string, string | undefined> = {
+      ...process.env,
+      HEAVY_LOCK_WAIT_SECONDS: '30',
+      PATH: `${shim}:${process.env['PATH'] ?? ''}`,
+    };
+    delete contenderEnv['BASH_ENV'];
+    delete contenderEnv['ENV'];
+
     const queued = Bun.spawn(
       [
         'bash',
@@ -328,11 +344,7 @@ describe('with-heavy-lock', () => {
         'exit 0',
       ],
       {
-        env: {
-          ...process.env,
-          HEAVY_LOCK_WAIT_SECONDS: '30',
-          PATH: `${shim}:${process.env['PATH'] ?? ''}`,
-        },
+        env: contenderEnv,
       },
     );
 
