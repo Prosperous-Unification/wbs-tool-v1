@@ -111,12 +111,27 @@ describe('the CI corpus-version-lint boundary', () => {
     );
   });
 
-  test('keys main per commit, because cancel-in-progress does not protect a queued run', () => {
-    // TASK-386. `cancel-in-progress: false` governs the RUNNING member of a
-    // group; GitHub holds at most one PENDING member beside it and evicts that
-    // one when a third run enters. Measured on `main` 2026-09-08: f64ceea4,
-    // 564af749, be5eedc5 and 6ddba437 all `cancelled` with zero jobs while
-    // 5bb095a5 held the group. A group of one commit has nothing to evict.
+  test('keys main per run, because one commit is entered by more than one run', () => {
+    // TASK-386, then TASK-395. `cancel-in-progress: false` governs the RUNNING
+    // member of a group; GitHub holds at most one PENDING member beside it and
+    // evicts that one when a third run enters. Measured on `main` 2026-09-08:
+    // f64ceea4, 564af749, be5eedc5 and 6ddba437 all `cancelled` with zero jobs
+    // while 5bb095a5 held the group.
+    //
+    // TASK-386 keyed by `github.sha`, which is one group per COMMIT and not per
+    // RUN. `GITHUB_SHA` for `workflow_dispatch` is the tip of the selected ref,
+    // so a manual dispatch against main at commit S joins S's push run and any
+    // re-run of it; a force-push back to S collides the same way. Those runs
+    // are NOT interchangeable — `Corpus version lint` reads DISPATCH_BASE_REF
+    // on a dispatch and PUSH_BEFORE on a push, so they check different
+    // boundaries and the evicted member is a verdict nothing else produces.
+    // They are therefore separated rather than deduplicated.
+    //
+    // `github.run_id` is ADDED, not substituted for the sha. Keying on run_id
+    // alone would be the same key by behaviour, but its failure mode is worse:
+    // an empty render there collapses main into the single shared group and
+    // silently reopens TASK-386, while here it degrades only to TASK-386's own
+    // per-commit key. The sha also keeps the group legible in the Actions UI.
     //
     // Proof, watched on h2puni 2026-09-08: returned `group` to its pre-fix
     // `ci-${{ github.ref }}` and only this case failed; then set it to
@@ -124,14 +139,22 @@ describe('the CI corpus-version-lint boundary', () => {
     // that would stop pull-request runs superseding each other — and only this
     // case failed again. Both mutants move this one assertion rather than two
     // different ones, which is the point of asserting a whole string: a
-    // `toContain('github.sha')` would have passed the second.
+    // `toContain('github.sha')` would have passed the second, and a
+    // `toContain('github.run_id')` would pass a key that dropped the sha.
+    //
+    // That `github.run_id` renders non-empty and per-run distinct in the
+    // WORKFLOW-level concurrency context is behaviour, not assumption: one
+    // commit pushed to `probe/t395-a|b|c` at 2026-09-08T02:54:49Z reached three
+    // concurrent verdicts under this key while TASK-386's key, fed the very
+    // same three pushes, evicted the middle entrant. An echo inside a job would
+    // have proved only the job context.
     //
     // Rendering both arms in a real run (`probe/t386-expr`, 2026-09-08T01:46Z)
     // gave `ci-refs/heads/…-<sha>` matched and `ci-refs/heads/…` unmatched — no
     // stray `false`, no trailing dash — which is why the `|| ''` is safe to
     // leave implicit here.
     expect(readWorkflow().concurrency?.group).toBe(
-      "ci-${{ github.ref }}${{ github.ref == 'refs/heads/main' && format('-{0}', github.sha) || '' }}",
+      "ci-${{ github.ref }}${{ github.ref == 'refs/heads/main' && format('-{0}-{1}', github.sha, github.run_id) || '' }}",
     );
   });
 });

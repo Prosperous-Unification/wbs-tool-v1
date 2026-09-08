@@ -152,16 +152,38 @@ on:
 # reached GitHub QUEUES the surplus instead of cancelling it — that verdict is
 # delayed, never lost, which is the whole point.
 #
-# Known and NOT closed by this key: two runs of the SAME commit still share a
-# group, because the suffix carries no event or run identity. A
-# `workflow_dispatch` on `main` at commit S joins `ci-refs/heads/main-S` with S's
-# push run, and those two are not interchangeable — a dispatch supplies its own
-# `base_ref` while the push run compares `github.event.before`. Three same-SHA
-# entrants therefore still evict the middle one. TASK-386 peer review I1
-# (`queue/reviews/t386-r1-sol.txt`, openai/gpt-5.6-sol); filed as its own task
-# because keying on run identity instead has to be PROVED to render inside
-# `concurrency:` rather than assumed, and this change is already a strict
-# improvement without it.
+# The `github.run_id` half is TASK-395, and it is what makes the key per-RUN
+# rather than per-COMMIT. TASK-386 stopped at the sha, and one commit is entered
+# by more than one run: `GITHUB_SHA` for `workflow_dispatch` is the tip of the
+# selected ref, so a manual dispatch on `main` at commit S joined
+# `ci-refs/heads/main-S` with S's push run and with any re-run of it, and a
+# force-push back to S collided the same way. Those runs are not
+# interchangeable — a dispatch supplies its own `base_ref` while the push run
+# compares `github.event.before`, so `Corpus version lint` checks a different
+# boundary in each and the evicted member is a verdict nothing else produces.
+# They are separated, not deduplicated, for exactly that reason.
+#
+# run_id is ADDED to the sha rather than replacing it. Keying on run_id alone
+# behaves identically while everything works, but fails far worse: if run_id
+# ever renders empty at the workflow level, that key collapses every `main` run
+# into the one shared group and silently reopens TASK-386, whereas this one
+# degrades no further than TASK-386's own per-commit key. The sha also keeps the
+# group readable in the Actions UI.
+#
+# That run_id does render — non-empty and distinct per run — in the
+# WORKFLOW-level `concurrency:` context is measured, not assumed, because an
+# echo inside a job would only prove the job context. One commit
+# (`f925a3f6`) pushed to `probe/t395-a|b|c` at 2026-09-08T02:54:49Z ran, under
+# this key, as three OVERLAPPING runs that all reached a verdict: 34181692131,
+# 34181693807 and 34181694261, executing 02:54:52–02:56:35, 02:54:53–02:56:36
+# and 02:54:54–02:56:37, all `success`. The same three pushes under TASK-386's
+# sha-only key shared one group: 34181692093 `success`, 34181693813 `cancelled`
+# with zero jobs — the evicted middle entrant — and 34181694263 held until
+# 34181692093 finished at 02:56:34Z and only then succeeding, at 02:58:20Z. The
+# control's third member is the point: it was serialised, not lost, so the
+# candidate's three overlapping verdicts cannot be explained by dispatch
+# entrants simply never queueing against each other.
+# TASK-386 peer review I1, `queue/reviews/t386-r1-sol.txt`, openai/gpt-5.6-sol.
 #
 # Overlapping runs are safe here for a reason that was checked rather than
 # assumed: this workflow has no deploy job. `gate` and `pixels_shard` read the
@@ -176,7 +198,7 @@ on:
 # `main` it is now redundant, and that redundancy is the backstop if this key
 # ever regresses.
 concurrency:
-  group: ci-${{ github.ref }}${{ github.ref == 'refs/heads/main' && format('-{0}', github.sha) || '' }}
+  group: ci-${{ github.ref }}${{ github.ref == 'refs/heads/main' && format('-{0}-{1}', github.sha, github.run_id) || '' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.event_name != 'merge_group' }}
 
 permissions:
