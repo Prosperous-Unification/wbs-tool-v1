@@ -1,6 +1,29 @@
 import { createContext, type ReactNode, useContext } from 'react';
 
 const StartSentenceContext = createContext<string | null | undefined>(undefined);
+const FilterReadingContext = createContext<{ filtering: boolean; matched: boolean } | undefined>(
+  undefined,
+);
+
+/** Supplies the two filter readings only Number and Name render. */
+export function FilterReadingProvider({
+  filtering,
+  matched,
+  children,
+}: {
+  filtering: boolean;
+  matched: boolean;
+  children: ReactNode;
+}) {
+  return <FilterReadingContext value={{ filtering, matched }}>{children}</FilterReadingContext>;
+}
+
+/** Reads the filter state supplied at a filter-sensitive cell boundary. */
+export function useFilterReading(): { filtering: boolean; matched: boolean } {
+  const reading = useContext(FilterReadingContext);
+  if (reading === undefined) throw new Error('Filter-sensitive cell rendered without its reading');
+  return reading;
+}
 
 /** Supplies the Gantt-derived Start sentence to the one cell that renders it. */
 export function StartSentenceProvider({

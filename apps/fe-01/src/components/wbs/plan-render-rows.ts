@@ -50,10 +50,8 @@ export interface PlanRowReadings {
   externalSystems: ExternalSystemView[];
   assigneeEntries: PickableEntry[];
   estimateReadings: ReadonlyMap<string, EstimateReadings>;
-  filtering: boolean;
   hasSchedule: boolean;
   finish: PrintedDay;
-  matched: boolean;
   nonOwnerNote: string | null;
   priorityBands: PriorityBandView[];
   serviceLabel: ServiceLabel;

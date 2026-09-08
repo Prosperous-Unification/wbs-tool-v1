@@ -107,6 +107,18 @@ async function cellRenderCalls(page: Page, rows: number) {
   }
 }
 
+test('a broad Find renders no more than its two filter-sensitive cells per row', async ({
+  page,
+}) => {
+  const rows = 100;
+  const seeded = await seedRenderingPlan(page, { rows, steps: 2, density: 'sparse' });
+  await page.goto('/');
+  await expect(page.locator('[data-grid] tbody tr[data-row-id]')).toHaveCount(rows);
+  await expect(page.locator(`[data-name-input="${seeded.ids[0]}"]`)).toHaveValue('Row 0000');
+
+  expect(await cellRenderCalls(page, rows)).toBeLessThanOrEqual(rows * 2);
+});
+
 test.use({
   actionTimeout: 120_000,
   navigationTimeout: 120_000,

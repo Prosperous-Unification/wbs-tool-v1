@@ -1,4 +1,4 @@
-import { type Cell as TableCell, flexRender, useTable } from '@tanstack/react-table';
+import { type Cell as TableCell, flexRender, type Header, useTable } from '@tanstack/react-table';
 import {
   type ComponentProps,
   memo,
@@ -32,7 +32,7 @@ import {
   readStartSentence,
   startCardId,
 } from './plan-cell-props';
-import { StartSentenceProvider } from './plan-cell-reading-context';
+import { FilterReadingProvider, StartSentenceProvider } from './plan-cell-reading-context';
 import { usePlanChartInput, usePlanSchedule } from './plan-chart-input';
 import { PLAN_TABLE_FEATURES, type PlanTableFeatures } from './plan-columns/column';
 import { createPlanColumns } from './plan-columns/columns';
@@ -48,7 +48,9 @@ import { rememberGanttDayPx, rememberGanttLabels } from './remembered-layout';
 import {
   CELL,
   flexibleCellStyle,
+  type FrameLayout,
   frameLayout,
+  type FrameLayoutState,
   GANTT_DOCK_SLACK,
   pinnedCellStyle,
   POPOVER_ROW_LAYER,
@@ -274,6 +276,8 @@ interface PlanCellContentProps {
   expandable: boolean;
   expanded: boolean;
   startSentence: string | null;
+  filtering: boolean;
+  matched: boolean;
 }
 
 /**
@@ -282,25 +286,152 @@ interface PlanCellContentProps {
  * TanStack rebuilds its Cell wrappers with the table model. The rendered
  * component must therefore compare the row value it actually receives rather
  * than Cell identity; expansion is separate because Number renders it from the
- * model rather than from {@link PlanRenderRow}.
+ * model rather than from {@link PlanRenderRow}. Filter readings travel beside
+ * that row, not inside it, because only Number and Name render them.
+ *
+ * Proof: putting `filtering` and `matched` back on every `PlanRowReadings`
+ * rebuilt every row for one broad Find; Chromium's production counter failed
+ * `a broad Find renders no more than its two filter-sensitive cells per row`
+ * on `Expected: <= 200, Received: 3000`. Watched 2026-09-08.
  */
-function PlanCellContentView({ cell, startSentence }: PlanCellContentProps) {
+function PlanCellContentView({ cell, startSentence, filtering, matched }: PlanCellContentProps) {
   const content = flexRender(cell.column.columnDef.cell, cell.getContext());
-  return cell.column.id === 'start' ? (
-    <StartSentenceProvider sentence={startSentence}>{content}</StartSentenceProvider>
-  ) : (
-    content
+  if (cell.column.id === 'start') {
+    return <StartSentenceProvider sentence={startSentence}>{content}</StartSentenceProvider>;
+  }
+  if (cell.column.id === 'name' || cell.column.id === 'number') {
+    return (
+      <FilterReadingProvider filtering={filtering} matched={matched}>
+        {content}
+      </FilterReadingProvider>
+    );
+  }
+  return content;
+}
+
+const PlanCellContent = memo(PlanCellContentView, samePlanCellContent);
+
+function samePlanCellContent(before: PlanCellContentProps, after: PlanCellContentProps): boolean {
+  return (
+    before.cell.column.id === after.cell.column.id &&
+    before.cell.row.original === after.cell.row.original &&
+    (after.cell.column.id !== 'number' ||
+      (before.expandable === after.expandable &&
+        before.expanded === after.expanded &&
+        (!after.expandable || before.filtering === after.filtering))) &&
+    (after.cell.column.id !== 'name' || before.matched === after.matched) &&
+    (after.cell.column.id !== 'start' || before.startSentence === after.startSentence)
   );
 }
 
-const PlanCellContent = memo(
-  PlanCellContentView,
+interface PlanTableCellProps extends PlanCellContentProps {
+  cards: CellCards;
+  frameState: FrameLayoutState;
+  layout: FrameLayout;
+  armed: boolean;
+  attributes: ComponentProps<'td'>;
+}
+
+/** A complete body cell whose render cost belongs only to its explicit readings. */
+function PlanTableCellView({
+  cards,
+  cell,
+  frameState,
+  layout,
+  armed,
+  attributes,
+  ...content
+}: PlanTableCellProps) {
+  const columnId = cell.column.id;
+  const sentence = columnId === 'start' ? content.startSentence : null;
+  return (
+    <PlanCell
+      cards={cards}
+      cell={cellKey(cell.row.original.id, columnId)}
+      describedBy={sentence === null ? undefined : startCardId(cell.row.original.id)}
+      raiseWhenOpen={columnId === 'name'}
+      {...attributes}
+      data-column={columnId}
+      style={{
+        ...CELL,
+        ...(opensAPopover(columnId) ? { overflow: 'visible' as const } : {}),
+        ...(sentence !== null ? { cursor: 'help' as const } : {}),
+        ...flexibleCellStyle(columnId, frameState),
+        ...pinnedCellStyle(layout, columnId, 'body'),
+        ...(armed ? { background: ARMED_TINT } : {}),
+      }}
+    >
+      <PlanCellContent cell={cell} {...content} />
+    </PlanCell>
+  );
+}
+
+const PlanTableCell = memo(
+  PlanTableCellView,
   (before, after) =>
-    before.cell.column.id === after.cell.column.id &&
-    before.cell.row.original === after.cell.row.original &&
-    before.expandable === after.expandable &&
-    before.expanded === after.expanded &&
-    before.startSentence === after.startSentence,
+    before.cards === after.cards &&
+    before.frameState === after.frameState &&
+    before.layout === after.layout &&
+    before.armed === after.armed &&
+    samePlanCellContent(before, after),
+);
+
+interface PlanHeaderCellProps {
+  header: Header<PlanTableFeatures, PlanRenderRow>;
+  frameState: FrameLayoutState;
+  layout: FrameLayout;
+  hasProjectStartDate: boolean;
+  projectId: string;
+  resizeHandle: (columnId: string, heading: unknown) => ReactNode;
+}
+
+/**
+ * A heading whose layout work reruns only when the column frame changes.
+ *
+ * `resizeHandle` is deliberately absent from the comparator: its closure changes
+ * with the table render, while the behavior it closes over changes only with the
+ * project or frame readings compared below. Keeping it out is what makes a Find
+ * leave invariant headings still.
+ */
+function PlanHeaderCellView({
+  header,
+  frameState,
+  layout,
+  hasProjectStartDate,
+  resizeHandle,
+}: PlanHeaderCellProps) {
+  const columnId = header.column.id;
+  return (
+    <th
+      scope="col"
+      data-column={columnId}
+      aria-label={header.column.columnDef.meta?.spokenHeading}
+      data-hint={hintFor(columnId, { hasProjectStartDate })}
+      style={{
+        ...CELL,
+        ...STICKY_HEADER_CELL,
+        ...flexibleCellStyle(columnId, frameState),
+        ...pinnedCellStyle(layout, columnId, 'header'),
+      }}
+    >
+      {flexRender(header.column.columnDef.header, header.getContext())}
+      {resizeHandle(
+        columnId,
+        header.column.columnDef.meta?.spokenHeading ?? header.column.columnDef.header,
+      )}
+    </th>
+  );
+}
+
+const PlanHeaderCell = memo(
+  PlanHeaderCellView,
+  (before, after) =>
+    before.header.column.id === after.header.column.id &&
+    before.header.column.columnDef === after.header.column.columnDef &&
+    before.frameState === after.frameState &&
+    before.layout === after.layout &&
+    before.projectId === after.projectId &&
+    before.hasProjectStartDate === after.hasProjectStartDate,
 );
 
 /**
@@ -1004,10 +1135,8 @@ export function WbsTable({
         editingNotBefore: editingNotBefore === row.id,
         externalSystems,
         estimateReadings,
-        filtering,
         hasSchedule: hasSchedule(),
         finish: span.finish,
-        matched: search.matchIds.has(row.id),
         nonOwnerNote: nonOwnerNoteOf(row),
         priorityBands,
         serviceLabel: effectiveServiceLabelOf(row),
@@ -1038,7 +1167,6 @@ export function WbsTable({
     effectiveTeamLabelOf,
     estimateValue,
     externalSystems,
-    filtering,
     hasSchedule,
     hiddenColumnIds,
     mention,
@@ -1047,7 +1175,6 @@ export function WbsTable({
     openMenuRowId,
     people,
     priorityBands,
-    search.matchIds,
     services,
     spanOf,
     startDate,
@@ -1308,7 +1435,14 @@ export function WbsTable({
   // state, so every column the table has is a shown one and the visibility
   // feature is not among `PLAN_TABLE_FEATURES`. Same for `getAllCells` on the
   // rows below.
-  const leafColumnIds = table.getAllLeafColumns().map((column) => column.id);
+  const leafColumnIds = useMemo(
+    () =>
+      columns.map((visibleColumn) => {
+        if (visibleColumn.id === undefined) throw new Error('a visible plan column has no id');
+        return visibleColumn.id;
+      }),
+    [columns],
+  );
 
   /**
    * Every width this render declares, resolved once.
@@ -1321,7 +1455,7 @@ export function WbsTable({
    * and take the focus and the half-typed value with it (LLM_README landmine
    * #1).
    */
-  const layout = frameLayout(leafColumnIds, frameState);
+  const layout = useMemo(() => frameLayout(leafColumnIds, frameState), [frameState, leafColumnIds]);
 
   /**
    * What the headings' hints may bend for, in one object beside the layout's.
@@ -1875,59 +2009,15 @@ export function WbsTable({
                 {table.getHeaderGroups().map((group) => (
                   <tr key={group.id}>
                     {group.headers.map((header) => (
-                      <th
+                      <PlanHeaderCell
                         key={header.id}
-                        scope="col"
-                        // Which column this cell is, on the cell itself. Nothing in
-                        // the app reads it: the browser layout gate does
-                        // (`e2e/layout.spec.ts`), and a measured rectangle with no
-                        // name attached is a failure that says two numbers
-                        // disagreed without saying which column moved.
-                        data-column={header.column.id}
-                        // The word, where the heading under it is a mark; see
-                        // {@link ColumnMeta.spokenHeading}. Undefined for every
-                        // other column, which renders no attribute at all.
-                        aria-label={header.column.columnDef.meta?.spokenHeading}
-                        // What this column does to the plan (`column-hints.ts`).
-                        // On the `<th>` and not on the heading inside it, for
-                        // the reason the `aria-label` is: the cell is what the
-                        // reader is resting on, and a `title` on an inner
-                        // `<span>` covers the word and none of the padding
-                        // around it. The two headings that carry their own
-                        // `title` after this — the step's fold button and the
-                        // resize handle — describe a *control*, not a column,
-                        // and the fold button opens with this same sentence so
-                        // that hovering it still teaches the column.
-                        data-hint={hintFor(header.column.id, hintState)}
-                        style={{
-                          ...CELL,
-                          ...STICKY_HEADER_CELL,
-                          ...flexibleCellStyle(header.column.id, frameState),
-                          ...pinnedCellStyle(layout, header.column.id, 'header'),
-                        }}
-                      >
-                        {flexRender(header.column.columnDef.header, header.getContext())}
-                        {/*
-                        The grab handle, on the trailing edge of every column
-                        the layout declared a width for and on no other. The one
-                        column that resolves without a width is the flexible
-                        one, and it has nothing to be dragged to: it is the
-                        remainder above its floor, and asking for its declared
-                        width is already an error.
-
-                        Rendered here rather than in the column definition,
-                        which is the rule the whole seam is built around: a
-                        definition that changed with a width remounts every cell
-                        in the table (landmine #1). The `<th>` is
-                        `position: sticky` through `STICKY_HEADER_CELL`, which
-                        is what the absolute strip is positioned against.
-                      */}
-                        {resizeHandleFor(
-                          header.column.id,
-                          header.column.columnDef.meta?.spokenHeading ??
-                            header.column.columnDef.header,
-                        )}
-                      </th>
+                        header={header}
+                        frameState={frameState}
+                        layout={layout}
+                        hasProjectStartDate={hintState.hasProjectStartDate}
+                        projectId={projectId}
+                        resizeHandle={resizeHandleFor}
+                      />
                     ))}
                   </tr>
                 ))}
@@ -1982,52 +2072,29 @@ export function WbsTable({
                       const sentence =
                         cell.column.id === 'start' ? startSentence(row.original) : null;
                       return (
-                        <PlanCell
+                        <PlanTableCell
                           key={cell.id}
                           cards={cellCards}
-                          cell={cellKey(row.original.id, cell.column.id)}
-                          describedBy={sentence === null ? undefined : startCardId(row.original.id)}
-                          raiseWhenOpen={cell.column.id === 'name'}
-                          // See the `th` above: the layout gate measures these boxes
-                          // and has to be able to name the one that moved.
-                          data-column={cell.column.id}
-                          // The dependency light's own cell-level reading, on the
-                          // cell. See {@link dependsCellHoverProps}: it is the
-                          // whole `<td>` and not a wrapper inside it, because the
-                          // gesture the spec names is "the pointer is in this
-                          // cell" and a wrapper stands inside the padding.
-                          {...(cell.column.id === 'depends'
-                            ? dependsCellHoverProps(row.original)
-                            : {})}
-                          {...(cell.column.id === 'start'
-                            ? startCellProps(row.original, sentence)
-                            : {})}
-                          style={{
-                            ...CELL,
-                            // The exception to the cell clip. See
-                            // {@link opensAPopover}: a popover's containing block is
-                            // the wrapper span *inside* this `<td>`, so this `<td>`
-                            // clips it unless it is told not to.
-                            ...(opensAPopover(cell.column.id)
-                              ? { overflow: 'visible' as const }
+                          cell={cell}
+                          frameState={frameState}
+                          layout={layout}
+                          armed={armedDelete?.rowId === row.original.id}
+                          attributes={{
+                            // The dependency light's handlers belong to the whole
+                            // `<td>`, not the wrapper inside its padding.
+                            ...(cell.column.id === 'depends'
+                              ? dependsCellHoverProps(row.original)
                               : {}),
-                            ...(sentence !== null ? { cursor: 'help' as const } : {}),
-                            ...flexibleCellStyle(cell.column.id, frameState),
-                            ...pinnedCellStyle(layout, cell.column.id, 'body'),
-                            // After the pinned background, so the warning is visible
-                            // on the three columns that hold the left edge too.
-                            ...(armedDelete?.rowId === row.original.id
-                              ? { background: ARMED_TINT }
+                            ...(cell.column.id === 'start'
+                              ? startCellProps(row.original, sentence)
                               : {}),
                           }}
-                        >
-                          <PlanCellContent
-                            cell={cell}
-                            expandable={row.getCanExpand()}
-                            expanded={row.getIsExpanded()}
-                            startSentence={sentence}
-                          />
-                        </PlanCell>
+                          expandable={row.getCanExpand()}
+                          expanded={row.getIsExpanded()}
+                          startSentence={sentence}
+                          filtering={filtering}
+                          matched={search.matchIds.has(row.id)}
+                        />
                       );
                     })}
                   </PlanRow>

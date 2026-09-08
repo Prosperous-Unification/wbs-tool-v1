@@ -16,12 +16,10 @@ const hasDom = typeof document !== 'undefined';
 const itDom = hasDom ? it : it.skip;
 
 /**
- * How many `<td>`/`<th>` renders the table has performed, counted through
- * {@link flexibleCellStyle} — every body cell and heading computes its flexible
- * width exactly once per render, so this divided by `(rows + 1) × columns` is
- * how many times the whole table rendered. That is the denominator this file
- * needs: "once per row" is a claim about a render, and a jsdom action costs
- * however many renders it costs.
+ * How many `<td>`/`<th>` render boundaries performed their layout work,
+ * counted through {@link flexibleCellStyle}. Heading styles are resolved only
+ * when layout changes; body cells have their own memo boundary, so this
+ * detects an unrelated body cell escaping it.
  */
 const cellStyleCalls = vi.hoisted(() => ({ count: 0 }));
 
@@ -121,6 +119,26 @@ const click = (name: string) => {
 };
 
 describe('what one row costs per render', () => {
+  itDom('a broad Find rerenders only the cells whose filter reading changed', async () => {
+    const api = fakeApi();
+    for (const name of ['Road', 'River', 'Rock']) {
+      await api.createWorkItem('p1', { parentId: null, afterId: null, name });
+    }
+    render(<WbsTable projectId="p1" api={api} />);
+    await screen.findByLabelText('Name of 030');
+
+    cellStyleCalls.count = 0;
+    nameCellRenders.count = 0;
+    fireEvent.change(screen.getByLabelText('Find'), { target: { value: 'R' } });
+
+    expect(screen.getAllByRole('row')).toHaveLength(4);
+    expect(nameCellRenders.count).toBeGreaterThan(0);
+    expect(nameCellRenders.count).toBeLessThanOrEqual(6);
+    // React's deferred development pass can render the three Name cells twice.
+    // No other body cell may reach its style work.
+    expect(cellStyleCalls.count).toBeLessThanOrEqual(6);
+  });
+
   itDom('keeps explicit unchanged cells behind their stable component boundary', async () => {
     // Proof: replacing `memo(PlanCellContentView, ...)` with the view itself
     // failed below on `expected 4 to be +0`: all four Name cells rendered for
@@ -137,7 +155,7 @@ describe('what one row costs per render', () => {
     cellStyleCalls.count = 0;
     click('Freeze #');
 
-    expect(cellStyleCalls.count).toBeGreaterThan(0);
+    expect(cellStyleCalls.count).toBe(0);
     expect(nameCellRenders.count).toBe(0);
   });
 
@@ -197,10 +215,8 @@ describe('what one row costs per render', () => {
     // the assertion is a rate and not a pinned number.
     click('Freeze #');
 
-    const renders = cellStyleCalls.count / ((rows + 1) * columns);
-    expect(Number.isInteger(renders)).toBe(true);
-    expect(renders).toBeGreaterThan(0);
-    expect(startSentenceCalls.count).toBe(renders * rows);
+    expect(cellStyleCalls.count).toBe(0);
+    expect(startSentenceCalls.count).toBe(rows);
     // The row projection is unchanged, so its already explicit span is not
     // rebuilt for this toolbar-only render. The Start sentence still reads it
     // once per row from that projection because its Gantt floor is filled
@@ -262,7 +278,7 @@ describe('what one row costs per render', () => {
     cellStyleCalls.count = 0;
     click('Freeze #');
 
-    expect(cellStyleCalls.count).toBeGreaterThan(0);
+    expect(cellStyleCalls.count).toBe(0);
     expect(indexBuilds.rowsById).toBe(0);
     expect(indexBuilds.assignedSteps).toBe(0);
     expect(indexBuilds.byId).toBe(0);

@@ -1,6 +1,6 @@
 import { type ExpandedState } from '@tanstack/react-table';
 import type * as React from 'react';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import {
   clampedGanttHeight,
@@ -692,14 +692,18 @@ export function usePlanLayout({
    * narrower because the one row with a day on it was collapsed away would
    * change width under a reader who was only scrolling.
    */
-  const frameState: FrameLayoutState = {
-    hasAnyNotBefore: flat.some((row) => row.startNoEarlierThan !== null),
-    // The reader's own answer, which outranks whatever the fact above resolves
-    // to. Built here rather than passed to each consumer, so the `<colgroup>`,
-    // both minimums and the pinned offsets cannot be answers to two different
-    // questions.
-    columnWidthOverrides: widthOverrides,
-  };
+  const hasAnyNotBefore = flat.some((row) => row.startNoEarlierThan !== null);
+  const frameState = useMemo<FrameLayoutState>(
+    () => ({
+      hasAnyNotBefore,
+      // The reader's own answer, which outranks whatever the fact above resolves
+      // to. Built here rather than passed to each consumer, so the `<colgroup>`,
+      // both minimums and the pinned offsets cannot be answers to two different
+      // questions.
+      columnWidthOverrides: widthOverrides,
+    }),
+    [hasAnyNotBefore, widthOverrides],
+  );
 
   /** What the resize handles on the heading row do with the widths they work out. */
   const resizeColumn: ColumnResize = {

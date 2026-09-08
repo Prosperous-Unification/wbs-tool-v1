@@ -113,7 +113,11 @@ export function usePlanFilterState({ projectId }: { projectId: string }) {
   const commitQuery = useCallback(
     (owner: string, nextQuery: string) => {
       if (owner !== projectId) return;
-      setOwnedQuery({ projectId: owner, query: nextQuery });
+      setOwnedQuery((current) =>
+        current.projectId === owner && current.query === nextQuery
+          ? current
+          : { projectId: owner, query: nextQuery },
+      );
     },
     [projectId],
   );

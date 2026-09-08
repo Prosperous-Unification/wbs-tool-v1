@@ -123,6 +123,47 @@ failed launch is dependency setup evidence, not a test failure.
 
 Optimization, structural/latency gates, full workspace/Chromium gates and independent review remain pending. The original12 experiments are now36 separate opt-in phase cases that intentionally skip in normal browser gates; future acceptance tests must run normally. The two1000/8 Gantt phases are bounded stress failures as recorded above, not complete evidence files. In-app browser inspection unavailable as recorded above.
 
+## 3.2 — filter-sensitive cell rendering, 2026-09-08
+
+Filter state no longer sits in every `PlanRowReadings`. Number and Name receive it through an
+explicit cell provider, and a complete body-cell boundary now owns `<td>` attributes, layout and
+content. Its comparator varies filter readings only for those two columns, and only asks Number
+about filtering when that row can expand. Header layout and `FrameLayoutState` identities are
+stable until their actual inputs change. A broad query that preserves all rows therefore performs
+layout work only for Name on these flat fixtures; selective queries still replace the shown row
+set normally.
+
+The jsdom negative first failed on **60** layout calls for three rows. The finished five-case
+render-cost suite passed in4.76s. After the final complete-cell and heading boundaries, the
+broader filter/keyboard/cell/read-write group passed **314 tests** in two focused runs: **168**
+in45.28s and **146** in77.71s. Chromium's production precise-coverage counter measured **200**
+`flexibleCellStyle` calls for100 unchanged rows, down from the intermediate430 (Name, Number and
+headings) and the measured pre-optimization3,030 for this15-column fixture.
+
+A normal, non-opt-in Chromium gate now seeds100 rows and requires at most two filter-sensitive
+cell calls per row. Its final run passed in10.3s after restoration. The optimized limited latency rerun
+(Chromium153, Linux7.0.11, i7-12800HX,1400×900, UTC/en-US, no throttle, trace off) separately
+recorded:
+
+| Sample | Ready paint ms | Broad input/filter ms | Selective input/filter ms |
+| ------ | -------------: | --------------------: | ------------------------: |
+| cold   |        1,973.5 |          21.0 / 296.9 |               18.8 / 51.7 |
+| warm   |        1,676.3 |          16.6 / 162.8 |               19.3 / 52.0 |
+
+All are beneath the published10s ready,250ms input-paint and5s filter-completion ceilings. This
+is one cold and one warm development-stack checkpoint, not a variance or production claim.
+
+### Failure proof table
+
+| Check                                                          | Injected fault                                                                       | Observed failure                             |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------ | -------------------------------------------- |
+| Broad unchanged rows render no more than two filter cells each | Put `filtering` and `matched` back into the parent-wide `PlanRowReadings` projection | Chromium: `Expected: <= 200, Received: 3000` |
+
+The fault was removed before the10.1s restored run. The host-specific heavy-lock wrapper was
+unavailable because `/home/puni1/.cache` does not exist on this machine; all browser runs instead
+used an owned stack at `E2E_PORT_SHIFT=2500`. Vite's socket-close `EPIPE` diagnostics appeared
+after measured pages closed; tests and required requests completed.
+
 ## 3.1 — urgent Find ownership and deferred criteria, 2026-09-08
 
 `PlanToolbar` now owns the text visible in Find. `useDeferredValue` publishes a lower-priority

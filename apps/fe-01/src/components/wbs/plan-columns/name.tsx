@@ -5,6 +5,7 @@ import { HoverPreview } from '../hover-preview';
 import { renderName } from '../inline-markdown';
 import { composeNameCell } from '../name-notes';
 import { MATCH_TINT } from '../plan-cell-props';
+import { useFilterReading } from '../plan-cell-reading-context';
 import type { PlanLive } from '../plan-live';
 import { hierarchyIndentFor, numberIndentFor } from '../table-frame';
 import { column } from './column';
@@ -34,7 +35,8 @@ export function createNameColumn({ live }: { live: PlanLive }) {
       // a matched parent` failed — the second because it is the mark that
       // says the parent is the hit and the subtree is not. Watched,
       // 2026-08-06.
-      const { matched } = row.original.readings;
+      // eslint-disable-next-line react-hooks/rules-of-hooks
+      const { matched } = useFilterReading();
       const nameCell = cellKey(row.original.id, 'name');
       const hovered = cardOpen;
       return (

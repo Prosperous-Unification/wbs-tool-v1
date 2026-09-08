@@ -14,7 +14,7 @@
 ## 3. Isolate Find work
 
 - [x] 3.1 Separate urgent query input from deferred criteria/filter computation without stale project answers; cover facets, saved views and peer updates.
-- [ ] 3.2 Prove broad-query unchanged rows avoid all-cell rerenders; restore parent query state and observe production Chromium count failure. Remeasure input and filter completion separately.
+- [x] 3.2 Prove broad-query unchanged rows avoid all-cell rerenders; restore parent query state and observe production Chromium count failure. Remeasure input and filter completion separately.
 
 ## 4. Bound mounted cells
 
