@@ -5,11 +5,11 @@ import {
   type TokenVerifier,
   type WbsScope,
 } from '@wbs/auth';
+import type { PasswordHasher, TokenCodec } from '@wbs/core';
+import { type Clock, clockOf } from '@wbs/core';
 import { errors } from 'jose';
 
 import type { OidcIdentityStore, User, UserStore } from '../repository';
-import { type Clock, clockOf } from './clock';
-import type { PasswordHasher, TokenCodec } from './runtime-ports';
 
 export const TOKEN_TTL_SECONDS = 12 * 60 * 60;
 

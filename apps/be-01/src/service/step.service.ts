@@ -1,3 +1,5 @@
+import { type Clock, clockOf } from '@wbs/core';
+
 import type { ProjectStore, Step, StepStore, StepUsageRows } from '../repository';
 // Imported from the module that owns the rule rather than through the barrel:
 // the transaction in that file is the other caller, and the two must not drift
@@ -7,7 +9,6 @@ import { stepIsInUse } from '../repository/step';
 import { type AssumedAssigneeFlip, assumedAssigneeFlips } from './assumed-assignee';
 import type { Broadcaster } from './broadcast';
 import { cleanName } from './clean-name';
-import { type Clock, clockOf } from './clock';
 import { canEdit } from './project.service';
 
 export interface StepServiceOptions {

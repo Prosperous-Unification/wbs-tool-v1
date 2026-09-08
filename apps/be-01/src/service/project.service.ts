@@ -1,3 +1,4 @@
+import { type Clock, clockOf } from '@wbs/core';
 import { DEFAULT_ESTIMATE_RULE, isIsoDate, PertWeights } from '@wbs/domain';
 import { type } from '@wbs/validation';
 
@@ -11,7 +12,6 @@ import type {
 } from '../repository';
 import { STEP_POSITION_STEP } from '../repository';
 import type { Broadcaster } from './broadcast';
-import { type Clock, clockOf } from './clock';
 import type { OptimizerAvailability } from './optimizer-wiring';
 
 /**

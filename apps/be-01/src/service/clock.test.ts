@@ -1,11 +1,15 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { clockOf } from '@wbs/core';
 import { describe, expect, it } from 'bun:test';
 
-import { clockOf } from './clock';
-
-/** Where the services live, relative to this file. */
+/**
+ * Where the services live — this file's own folder, which is the point: what it
+ * refuses is a **service** growing a clock back, and `Clock` itself is in
+ * `@wbs/core` now. A copy of this test moved next to the clock would scan a
+ * folder with no services in it and pass forever.
+ */
 const FOLDER = import.meta.dir;
 
 /**
@@ -57,7 +61,6 @@ describe('one clock', () => {
 
   it('is the only place a stamp is built', () => {
     const stamping = serviceSources()
-      .filter((file) => file.name !== 'clock.ts')
       .filter((file) => file.text.includes('stampFor(actorId: string): WriteStamp'))
       .map((file) => file.name);
 

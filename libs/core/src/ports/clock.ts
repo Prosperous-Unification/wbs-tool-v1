@@ -1,4 +1,4 @@
-import type { WriteStamp } from '../repository';
+import type { WriteStamp } from './write-stamp';
 
 /**
  * The two things a write needs that no request carries: the instant it happens

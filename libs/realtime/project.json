@@ -3,7 +3,7 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/realtime/src",
   "projectType": "library",
-  "tags": ["scope:shared", "type:realtime", "runtime:browser"],
+  "tags": ["scope:shared", "type:realtime", "runtime:browser", "ring:adapter"],
   "targets": {
     "lint": {
       "executor": "nx:run-commands",

@@ -20,6 +20,22 @@ const nxRules = {
       enforceBuildableLibDependency: true,
       allow: [],
       depConstraints: [
+        // The rings, and the direction the whole ports-and-adapters split is
+        // for: a domain lib may reach nothing but another domain lib, an
+        // application lib may reach the domain and its peers, and an adapter
+        // may reach anything because reaching for the world is what an adapter
+        // is. `@nx/enforce-module-boundaries` matches on tags, so a project
+        // carrying no `ring:` is not constrained by any of these — which is why
+        // `workspace-targets.test.ts` fails on one.
+        { sourceTag: 'ring:domain', onlyDependOnLibsWithTags: ['ring:domain'] },
+        {
+          sourceTag: 'ring:application',
+          onlyDependOnLibsWithTags: ['ring:domain', 'ring:application'],
+        },
+        {
+          sourceTag: 'ring:adapter',
+          onlyDependOnLibsWithTags: ['ring:domain', 'ring:application', 'ring:adapter'],
+        },
         { sourceTag: 'scope:app', onlyDependOnLibsWithTags: ['scope:shared'] },
         { sourceTag: 'scope:shared', onlyDependOnLibsWithTags: ['scope:shared'] },
         { sourceTag: 'scope:infra', onlyDependOnLibsWithTags: ['scope:shared', 'scope:infra'] },
@@ -432,6 +448,27 @@ export default [
     rules: {
       '@typescript-eslint/no-non-null-assertion': 'off',
       '@typescript-eslint/no-explicit-any': 'off',
+    },
+  },
+
+  /**
+   * A test composes what it is testing, and a fixture is what it composes with.
+   *
+   * The **ring** constraint is off for test files and for `testing/` fixtures,
+   * and nothing else is: the runtime constraints still apply, so a browser
+   * project's test still cannot pull in a Bun-only lib. Without this a domain
+   * or application project could not have a test that builds the adapter it is
+   * being tested over — which is the one composition that proves the port is a
+   * port rather than a name (plan §2, "Test files are exempt").
+   *
+   * The exemption stops at the production file beside them: §3.5 #13 and #15
+   * are the two negatives that say so, and both are watched in this change's
+   * `verify.md`.
+   */
+  {
+    files: ['**/*.{test,spec}.{ts,tsx}', '**/testing/**/*.{ts,tsx}'],
+    rules: {
+      '@nx/enforce-module-boundaries': 'off',
     },
   },
 

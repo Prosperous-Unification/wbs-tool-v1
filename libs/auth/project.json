@@ -3,7 +3,7 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/auth/src",
   "projectType": "library",
-  "tags": ["scope:shared", "type:auth", "runtime:bun"],
+  "tags": ["scope:shared", "type:auth", "runtime:bun", "ring:adapter"],
   "targets": {
     "lint": {
       "executor": "nx:run-commands",

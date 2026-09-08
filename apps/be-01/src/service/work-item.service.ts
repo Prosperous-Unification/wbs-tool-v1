@@ -1,3 +1,4 @@
+import { type Clock, clockOf } from '@wbs/core';
 import {
   addWorkdays,
   deadlineOffsetOf,
@@ -71,7 +72,6 @@ import type {
 import { MEASURE_METRICS } from '../repository/schema';
 import { assumedAssignee } from './assumed-assignee';
 import type { Broadcaster } from './broadcast';
-import { type Clock, clockOf } from './clock';
 import {
   type CompensatingCommand,
   quoteName,

@@ -1,3 +1,5 @@
+import { type Clock, clockOf } from '@wbs/core';
+
 import type {
   DirectoryRemoved,
   DirectoryStore,
@@ -23,7 +25,6 @@ import type {
 import { PERSON_KINDS } from '../repository/schema';
 import type { Broadcaster } from './broadcast';
 import { cleanName } from './clean-name';
-import { type Clock, clockOf } from './clock';
 import {
   type DirectoryUsage,
   directoryUsageOfPerson,

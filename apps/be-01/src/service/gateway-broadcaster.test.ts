@@ -1,8 +1,8 @@
+import { clockOf } from '@wbs/core';
 import { describe, expect, it } from 'bun:test';
 
 import { inMemoryEventLog } from '../testing/replay-fixture';
 import { type ProjectEvent, subscriptionFor } from './broadcast';
-import { clockOf } from './clock';
 import { GatewayBroadcaster } from './gateway-broadcaster';
 import { type PushClient, PushFailed } from './push-client';
 import { ReplayBuffer } from './replay-buffer';

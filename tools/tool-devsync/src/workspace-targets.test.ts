@@ -350,3 +350,54 @@ describe('the deploy contract', () => {
     expect(files.map((file) => file.path)).toContain(CONTRACT);
   });
 });
+
+/**
+ * A dependency rule the linter cannot find on a project is a rule that never
+ * fires for that project.
+ *
+ * `@nx/enforce-module-boundaries` matches on tags, so a project carrying no
+ * `ring:` tag is not constrained by any ring rule — it is simply not in the
+ * question. That is the shape of every "check that cannot fail" in this
+ * repository's ledger, moved up a level: the config looks like a rule and the
+ * project it should have governed is invisible to it. Two tags rather than
+ * none is the same fault wearing the other hat, because the first matching
+ * `depConstraints` entry wins and which one that is depends on the order they
+ * happen to be written in.
+ *
+ * Walked rather than listed, in the shape of the typecheck test above: a
+ * project added tomorrow with no ring fails here rather than being quietly
+ * exempt from the direction the whole extraction exists to enforce.
+ */
+describe('every project says which ring, scope and runtime it is', () => {
+  const AXES = ['scope:', 'ring:', 'runtime:'] as const;
+
+  it('carries exactly one tag on each axis', async () => {
+    // Proof: `ring:adapter` removed from `libs/observability/project.json`,
+    // watched failing on `Expected: [] · Received: [ "observability: no ring:" ]`;
+    // a second `ring:domain` added beside it, on
+    // `[ "observability: two ring: tags" ]`. Watched 2026-09-08.
+    const wrong: string[] = [];
+    for (const { dir, config } of await projectsOnDisk()) {
+      const name = config.name ?? dir;
+      for (const axis of AXES) {
+        const held = (config.tags ?? []).filter((tag) => tag.startsWith(axis));
+        if (held.length === 0) wrong.push(`${name}: no ${axis}`);
+        if (held.length > 1) wrong.push(`${name}: two ${axis} tags`);
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it('puts every tool in the adapter ring', async () => {
+    // A tool calls adapters and nothing calls a tool, so `ring:adapter` is the
+    // only honest answer for one — and a tool tagged `ring:domain` would be
+    // allowed to import nothing at all, which reads as a working constraint
+    // until somebody adds an import.
+    const wrong: string[] = [];
+    for (const { dir, config } of await projectsOnDisk()) {
+      if (!dir.startsWith('tools/')) continue;
+      if (!(config.tags ?? []).includes('ring:adapter')) wrong.push(config.name ?? dir);
+    }
+    expect(wrong).toEqual([]);
+  });
+});

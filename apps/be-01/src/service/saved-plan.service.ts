@@ -1,3 +1,4 @@
+import type { Digest } from '@wbs/core';
 import {
   canonicalisePlanInput,
   diffPlans,
@@ -22,7 +23,6 @@ import type {
 } from '../repository/saved-plan';
 import { bodyByteLength } from '../repository/saved-plan';
 import type { PlanInputReads, SavedPlanCaptureRepository } from '../repository/saved-plan-capture';
-import type { Digest } from './runtime-ports';
 import { defaultSavedPlanName } from './saved-plan-default-name';
 import { planInputRowsOf } from './saved-plan-input';
 import type { SavedPlanIntegrityRefusal } from './saved-plan-integrity';

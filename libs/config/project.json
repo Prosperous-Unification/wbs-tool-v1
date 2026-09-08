@@ -3,7 +3,7 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/config/src",
   "projectType": "library",
-  "tags": ["scope:shared", "type:config", "runtime:bun"],
+  "tags": ["scope:shared", "type:config", "runtime:bun", "ring:adapter"],
   "targets": {
     "lint": {
       "executor": "nx:run-commands",

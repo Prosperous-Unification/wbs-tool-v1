@@ -3,7 +3,7 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/validation/src",
   "projectType": "library",
-  "tags": ["scope:shared", "type:validation", "runtime:isomorphic"],
+  "tags": ["scope:shared", "type:validation", "runtime:isomorphic", "ring:domain"],
   "targets": {
     "lint": {
       "executor": "nx:run-commands",

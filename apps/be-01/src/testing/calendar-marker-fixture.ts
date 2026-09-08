@@ -1,3 +1,5 @@
+import type { Clock } from '@wbs/core';
+
 import type {
   CalendarMarker,
   CalendarMarkerStore,
@@ -6,7 +8,6 @@ import type {
 } from '../repository';
 import type { Broadcaster } from '../service/broadcast';
 import { CalendarMarkerService } from '../service/calendar-marker.service';
-import type { Clock } from '../service/clock';
 import { inMemoryProjects } from './project-fixture';
 
 /**

@@ -1,8 +1,7 @@
 import { createHash } from 'node:crypto';
 
+import type { Digest, PasswordHasher, SessionClaims, TokenCodec } from '@wbs/core';
 import { errors, type JWTPayload, jwtVerify, SignJWT } from 'jose';
-
-import type { Digest, PasswordHasher, SessionClaims, TokenCodec } from '../service/runtime-ports';
 
 /**
  * Argon2id through `Bun.password` — the only implementation this process has,

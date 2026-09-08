@@ -1,3 +1,4 @@
+import { type Clock, clockOf } from '@wbs/core';
 import { contractVersionOf } from '@wbs/domain';
 import type { Logger } from '@wbs/observability';
 import { systemTimers } from '@wbs/runtime-portable';
@@ -27,7 +28,6 @@ import { AuthService, type AuthServiceOptions } from './service/auth.service';
 import type { Broadcaster } from './service/broadcast';
 import { CalendarMarkerService } from './service/calendar-marker.service';
 import { CapacityService } from './service/capacity.service';
-import { type Clock, clockOf } from './service/clock';
 import { DirectoryService } from './service/directory.service';
 import { GatewayBroadcaster } from './service/gateway-broadcaster';
 import { HistoryService } from './service/history.service';

@@ -1,6 +1,7 @@
+import { type Clock, clockOf } from '@wbs/core';
+
 import type { CapacityStore, ProjectStore, TeamCapacity } from '../repository';
 import type { Broadcaster } from './broadcast';
-import { type Clock, clockOf } from './clock';
 import { canEdit } from './project.service';
 
 export interface CapacityServiceOptions {

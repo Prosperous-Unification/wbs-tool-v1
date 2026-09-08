@@ -209,6 +209,7 @@ export const RESTART_PATHS: readonly string[] = [
   'libs/auth/project.json',
   'libs/config/project.json',
   'libs/contracts/project.json',
+  'libs/core/project.json',
   'libs/domain/project.json',
   'libs/observability/project.json',
   'libs/realtime/project.json',

@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { clockOf } from '@wbs/core';
 import type { ScheduleInput } from '@wbs/domain/canonical-schedule-input';
 import { scheduleInputHash } from '@wbs/domain/canonical-schedule-input';
 import { afterEach, describe, expect, it } from 'bun:test';
@@ -16,7 +17,6 @@ import { storeOptimizedOutcome } from '../repository/optimized-schedule-cache';
 import { ProjectRepository } from '../repository/project';
 import { optimizedScheduleCache, solverQueue, solverSlot } from '../repository/schema';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
-import { clockOf } from './clock';
 import {
   OptimizationCoordinator,
   type ReservedSolverChild,

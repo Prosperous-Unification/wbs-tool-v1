@@ -3,7 +3,7 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "tools/tool-dagger/src",
   "projectType": "library",
-  "tags": ["scope:infra", "type:scripts", "runtime:bun"],
+  "tags": ["scope:infra", "type:scripts", "runtime:bun", "ring:adapter"],
   "targets": {
     "build-be": {
       "executor": "nx:run-commands",

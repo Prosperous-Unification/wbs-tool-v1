@@ -3,7 +3,7 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "apps/mcp-01/src",
   "projectType": "application",
-  "tags": ["scope:app", "type:app", "runtime:bun"],
+  "tags": ["scope:app", "type:app", "runtime:bun", "ring:adapter"],
   "targets": {
     "serve": {
       "executor": "nx:run-commands",

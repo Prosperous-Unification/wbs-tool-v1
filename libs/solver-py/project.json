@@ -3,7 +3,7 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/solver-py/src",
   "projectType": "library",
-  "tags": ["scope:lib", "type:lib", "runtime:python"],
+  "tags": ["scope:lib", "type:lib", "runtime:python", "ring:adapter"],
   "targets": {
     "test": {
       "executor": "nx:run-commands",

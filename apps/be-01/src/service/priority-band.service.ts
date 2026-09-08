@@ -1,8 +1,8 @@
+import { type Clock, clockOf } from '@wbs/core';
 import type { PriorityBand } from '@wbs/domain';
 
 import type { PriorityBandStore, ProjectStore } from '../repository';
 import type { Broadcaster } from './broadcast';
-import { type Clock, clockOf } from './clock';
 import { canEdit } from './project.service';
 
 export interface PriorityBandServiceOptions {

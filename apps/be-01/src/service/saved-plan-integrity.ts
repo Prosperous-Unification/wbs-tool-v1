@@ -1,6 +1,5 @@
+import type { Digest } from '@wbs/core';
 import type { PlanInputNormaliseFailure } from '@wbs/domain';
-
-import type { Digest } from './runtime-ports';
 
 /** Which of a saved plan's two sides a refusal is about. */
 export type SavedPlanBodyKind = 'input' | 'schedule';

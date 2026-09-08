@@ -3,7 +3,7 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "apps/fe-01/src",
   "projectType": "application",
-  "tags": ["scope:app", "type:app", "runtime:browser"],
+  "tags": ["scope:app", "type:app", "runtime:browser", "ring:adapter"],
   "targets": {
     "serve": {
       "executor": "nx:run-commands",

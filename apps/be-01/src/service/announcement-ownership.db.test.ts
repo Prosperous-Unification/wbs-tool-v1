@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { clockOf } from '@wbs/core';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { openDrizzle } from '../repository/db';
@@ -10,7 +11,6 @@ import { runMigrations } from '../repository/migrate';
 import { sqliteUnitOfWork } from '../repository/sqlite-unit-of-work';
 import { buildStores, servicesOver } from '../services';
 import type { Broadcaster, ProjectEvent } from './broadcast';
-import { clockOf } from './clock';
 import { optimizerWiring } from './optimizer-wiring';
 import type { PlanCommand } from './plan-command';
 import { PlanCommandRunner } from './plan-commands';
