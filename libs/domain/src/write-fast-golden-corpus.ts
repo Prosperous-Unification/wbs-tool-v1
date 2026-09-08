@@ -1,6 +1,5 @@
-import { writeFileSync } from 'node:fs';
-
 import { computeFastGoldenCorpus } from './fast-golden-corpus';
+import { writeGoldenCorpusFile } from './write-golden-corpus-file';
 
 /**
  * Rewrites `libs/domain/fixtures/fast-golden-corpus.json` from this tree.
@@ -30,13 +29,16 @@ import { computeFastGoldenCorpus } from './fast-golden-corpus';
  * read the diff.
  *
  *   bun libs/domain/src/write-fast-golden-corpus.ts
- *   bunx prettier --write libs/domain/fixtures/fast-golden-corpus.json
  *
- * **Both lines, and the second is not optional.** `JSON.stringify(…, 2)` breaks
- * a single-element array across three lines where `prettier` keeps it on one,
- * so the generated file and the checked-in file differ in exactly two places —
- * the `capacityPredecessorIds` of the two capacity-bound slices — and the
- * format check, not the corpus, is what would go red.
+ * **One line, and the second one is gone rather than moved.** This used to tell
+ * you to follow it with `bunx prettier --write` on the fixture, because
+ * `JSON.stringify(…, 2)` breaks a single-element array across three lines where
+ * prettier keeps it on one — the `capacityPredecessorIds` of the two
+ * capacity-bound slices — and `Format` is the gate's FIRST step, so forgetting
+ * it skipped every check the regeneration existed to satisfy. TASK-356 moved
+ * that rule into {@link writeGoldenCorpusFile}, which formats with the repo's
+ * own resolved prettier config. An instruction left here as well would be a
+ * second source of one rule, which is what this whole task is about.
  *
  * **Proved against the fixture already in the tree**, which is the only control
  * that means anything here: on h2puni at `5955aaf3`, with Fast unchanged, this
@@ -47,5 +49,4 @@ import { computeFastGoldenCorpus } from './fast-golden-corpus';
  * every future regeneration carrying an unknown amount of its own formatting.
  */
 const target = new URL('../fixtures/fast-golden-corpus.json', import.meta.url);
-writeFileSync(target, `${JSON.stringify(computeFastGoldenCorpus(), null, 2)}\n`);
-process.stdout.write(`wrote ${target.pathname}\n`);
+process.stdout.write(`wrote ${await writeGoldenCorpusFile(target, computeFastGoldenCorpus())}\n`);

@@ -1,6 +1,5 @@
-import { writeFileSync } from 'node:fs';
-
 import { computeQuantumGoldenCorpus } from './solver-quantum-golden-corpus';
+import { writeGoldenCorpusFile } from './write-golden-corpus-file';
 
 /**
  * Rewrites `libs/domain/fixtures/solver-quantum-golden-corpus.json` from this
@@ -26,12 +25,16 @@ import { computeQuantumGoldenCorpus } from './solver-quantum-golden-corpus';
  * read the diff.
  *
  *   bun libs/domain/src/write-solver-quantum-golden-corpus.ts
- *   bunx prettier --write libs/domain/fixtures/solver-quantum-golden-corpus.json
  *
- * **Both lines.** `JSON.stringify(…, 2)` and `prettier` do not agree about
- * every shape, and the format check — not the corpus — is what would go red on
- * the difference. The Fast writer's header records that trap concretely.
+ * **One line.** This used to require a `bunx prettier --write` after it, because
+ * `JSON.stringify(…, 2)` and prettier do not agree about every shape and the
+ * format check — not the corpus — went red on the difference. TASK-356 moved
+ * that rule into {@link writeGoldenCorpusFile}. This fixture never actually
+ * failed the check, but only because its content happened to contain no short
+ * array whose shape moved; the writer had the same defect as Fast's and is fixed
+ * with it rather than left to fail later.
  */
 const target = new URL('../fixtures/solver-quantum-golden-corpus.json', import.meta.url);
-writeFileSync(target, `${JSON.stringify(computeQuantumGoldenCorpus(), null, 2)}\n`);
-process.stdout.write(`wrote ${target.pathname}\n`);
+process.stdout.write(
+  `wrote ${await writeGoldenCorpusFile(target, computeQuantumGoldenCorpus())}\n`,
+);
