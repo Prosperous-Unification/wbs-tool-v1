@@ -1200,7 +1200,7 @@ describe('what a full-scope read puts on the wire', () => {
    */
   it('spends the same nine on an optimized project, and again on the same client', async () => {
     const optimized = JSON.parse(TREE('p1', [])) as Record<string, unknown>;
-    optimized.optimization = {
+    optimized['optimization'] = {
       enabled: true,
       engine: 'optimized',
       objective: 'pri',
