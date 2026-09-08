@@ -184,13 +184,24 @@ describe('with-heavy-lock', () => {
       'bash',
       '-c',
       `while [[ ! -e ${JSON.stringify(release)} ]]; do sleep 0.05; done`,
-    ]);
+    ],
+    // Captured because the readiness wait below is the one place this case can
+    // fail without saying why. `heavy-lock-lib.sh` names every refusal path in
+    // its own stderr, so a holder that never claims has already explained
+    // itself — this stops that explanation being discarded.
+    { stderr: 'pipe' });
 
     // **Holder readiness, observed.** `claim_heavy_lock` does `mkdir` and *then*
     // writes its pid, so the lock directory exists for an instant before the
     // holder file has contents. Waiting on the directory would re-introduce the
     // race this case exists to remove, so wait for a non-empty `holder`.
-    await until(() => readIfPresent(join(lock, 'holder')).trim() !== '');
+    try {
+      await until(() => readIfPresent(join(lock, 'holder')).trim() !== '');
+    } catch (cause) {
+      holder.kill();
+      const said = await new Response(holder.stderr as ReadableStream).text();
+      throw new Error(`holder never claimed ${lock}; it said: ${said || '(nothing)'}`, { cause });
+    }
 
     // **The retry, observed.** `heavy-lock-lib.sh` retries with a bare `sleep 5`,
     // and `sleep` is not a bash builtin, so bash resolves it through `PATH`. A
