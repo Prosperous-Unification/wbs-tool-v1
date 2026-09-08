@@ -314,21 +314,29 @@ describe('with-heavy-lock', () => {
       { mode: 0o755 },
     );
 
-    // **The contender's environment is scrubbed of bash's startup hooks.**
-    // Peer review round 2: the `$1 == 5` guard makes the marker mean "something
-    // asked for the retry interval", not yet "the retry loop asked". bash
-    // sources `$BASH_ENV` before running the script, so an ambient startup file
-    // that happens to call `sleep 5` writes the marker before `with_heavy_lock`
-    // makes its first claim; the case would then release the holder and let the
-    // contender take a free lock, green, with the retry branch never entered.
-    // `ENV` goes with it because a POSIX-mode bash reads that one instead.
-    const contenderEnv: Record<string, string | undefined> = {
-      ...process.env,
-      HEAVY_LOCK_WAIT_SECONDS: '30',
+    // **The contender's environment is built from an allowlist, not inherited.**
+    //
+    // This started as `...process.env` and lost two rounds of peer review to the
+    // same shape of finding: bash reads things out of its environment before it
+    // runs the command it was given, and every one of them can call `sleep 5`
+    // and write the retry marker before `with_heavy_lock` makes its first
+    // claim. Round 2 named `BASH_ENV`, the startup file bash sources for a
+    // non-interactive shell. Round 3 named exported functions: a `BASH_FUNC_x%%`
+    // entry is imported as a shell function, so an ambient `dirname` that calls
+    // `sleep 5` fires while the wrapper is still computing the lock's parent.
+    // Both make the case pass on a lock nobody held.
+    //
+    // Subtracting the routes one at a time is a losing game — each round found
+    // another one, and the next reader inherits whatever bash adds later. The
+    // contender is a `bash -c` running one library function, so it is named
+    // exhaustively instead: the shim's `PATH`, the wait budget the case is
+    // about, and `HOME` because tooling under it expects one. Nothing else
+    // reaches it, so nothing else can write the marker.
+    const contenderEnv: Record<string, string> = {
       PATH: `${shim}:${process.env['PATH'] ?? ''}`,
+      HEAVY_LOCK_WAIT_SECONDS: '30',
+      HOME: process.env['HOME'] ?? root,
     };
-    delete contenderEnv['BASH_ENV'];
-    delete contenderEnv['ENV'];
 
     const queued = Bun.spawn(
       [
