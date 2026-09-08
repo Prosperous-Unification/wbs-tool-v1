@@ -282,95 +282,23 @@ jobs:
       # `corpus-version-lint.ts` for why it is a script here rather than a case
       # in the suite.
       #
-      # THE BOUNDARY IS CHOSEN HERE, never inferred by the script. `HEAD^` is
-      # the first parent, which is right for one merge commit and wrong for a
-      # multi-commit push: a push whose last commit is unrelated would compare
-      # against the commit that regenerated the fixture and see nothing. Every
-      # value is passed through `env` rather than interpolated into the shell,
-      # because every one of them is event-derived text a contributor can shape
-      # — `github.base_ref` is the pull request's target branch in this
-      # repository, and `inputs.base_ref` is whatever the dispatcher typed.
-      # Two boundary repairs from the same review (TASK-351):
-      #
-      # I3 — a pull request compares against `github.event.pull_request.base.sha`,
-      # the IMMUTABLE commit the merge was computed from, not against
-      # `origin/$PR_BASE_REF`, which is a branch name and moves. A rerun after
-      # the base branch is force-pushed would otherwise compare the same
-      # synthetic merge commit against a different merge base and report a
-      # result the branch never earned. The named ref is kept as a fallback for
-      # the one case the event payload cannot cover, and the fallback says so
-      # rather than being silent about which boundary it used.
-      #
-      # I4 — every `git` call that consumes one of these values terminates its
-      # option parsing with `--`. Quoting already stopped command injection, but
-      # a value beginning with `-` was still read as a flag, which produces a
-      # false red rather than a refusal. `--` costs nothing and is not a
-      # judgement call.
-      #
-      # I2 — `merge_group` compares against `github.event.merge_group.base_sha`
-      # for the same reason I3 gave for pull requests: it is immutable, and it
-      # is the commit the queued change is genuinely measured against. It is NOT
-      # `origin/main`. A merge group's base is the target branch tip PLUS every
-      # entry queued ahead of this one, so whenever the queue holds more than
-      # one change, `main` is BEHIND the group base and comparing against it
-      # re-attributes the earlier entry's fixture edits to this one — a false
-      # red on a change that touched no corpus, which is the exact class of
-      # wrong-subject verdict this whole item exists to remove.
+      # The event-specific boundary is selected by the executable below. Pull
+      # requests and merge groups use their immutable payload SHA; a missing or
+      # unreadable trusted SHA is a refusal, never a mutable-ref fallback. Push
+      # and manual-dispatch boundaries retain their distinct contracts. The
+      # selector's tests drive its production entry through real Git histories,
+      # while `corpus-lint-workflow.test.ts` holds the selector's supported
+      # events to this workflow's subscriptions.
       - name: Corpus version lint
         env:
           EVENT_NAME: ${{ github.event_name }}
-          PR_BASE_REF: ${{ github.base_ref }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PUSH_BEFORE: ${{ github.event.before }}
           MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           DISPATCH_BASE_REF: ${{ inputs.base_ref }}
         run: |
           set -euo pipefail
-          case "$EVENT_NAME" in
-            pull_request)
-              if [ -n "$PR_BASE_SHA" ]; then
-                # `fetch-depth: 0` puts it in the checkout; fetch it explicitly
-                # if a shallower checkout ever lands here, and fail closed if it
-                # cannot be had rather than falling back silently.
-                git cat-file -e "$PR_BASE_SHA^{commit}" 2>/dev/null \
-                  || git fetch --no-tags origin "$PR_BASE_SHA"
-                base="$(git merge-base -- "$PR_BASE_SHA" HEAD)"
-              else
-                echo "pull_request carried no base.sha; falling back to the mutable origin/$PR_BASE_REF" >&2
-                base="$(git merge-base -- "origin/$PR_BASE_REF" HEAD)"
-              fi
-              ;;
-            push)
-              base="$PUSH_BEFORE"
-              ;;
-            merge_group)
-              if [ -z "$MERGE_GROUP_BASE_SHA" ]; then
-                echo "merge_group carried no base_sha: this check compares two commits" >&2
-                exit 1
-              fi
-              # Same fail-closed shape as the pull_request arm: if the base is
-              # not in the checkout, fetch it by name and let the fetch fail
-              # loudly rather than substituting a boundary nobody asked for.
-              git cat-file -e "$MERGE_GROUP_BASE_SHA^{commit}" 2>/dev/null \
-                || git fetch --no-tags origin "$MERGE_GROUP_BASE_SHA"
-              # `merge-base` rather than the sha bare. Under a merge group the
-              # head is built directly on the base, so today the two agree and
-              # this is a no-op; it stays correct if that construction ever
-              # changes, and it is the same form the other three arms use.
-              base="$(git merge-base -- "$MERGE_GROUP_BASE_SHA" HEAD)"
-              ;;
-            workflow_dispatch)
-              if [ -z "$DISPATCH_BASE_REF" ]; then
-                echo "workflow_dispatch needs a base_ref input: this check compares two commits" >&2
-                exit 1
-              fi
-              base="$(git merge-base -- "$DISPATCH_BASE_REF" HEAD)"
-              ;;
-            *)
-              echo "corpus-version-lint has no boundary rule for event $EVENT_NAME" >&2
-              exit 1
-              ;;
-          esac
+          base="$(bun run tools/tool-git-hooks/src/hooks/corpus-version-base.ts)"
           bun run tools/tool-git-hooks/src/hooks/corpus-version-lint.ts "$base" HEAD
 
       # The scope and version are both explicit on purpose. `bunx openspec`
