@@ -91,3 +91,36 @@ Two findings were **left as they are, with reasons**:
 The review also noted `use-column-set.ts` importing `COLUMN_LABELS` from `./plan-toolbar` — a
 hook taking vocabulary from a component module. Not a cycle, and not changed here: moving the
 label table to `table-frame` beside `hideableColumnIds` is a rename with its own blast radius.
+
+## Final gate reconciliation and receiving handoff, 2026-09-08
+
+The extraction from `281144a9` reached `main` as content in the long-lived
+`refactor/planned-project` squash, PR #287 at `cbad68af`. Two later merged-state revisions that
+still contained that extraction have complete historical CI records:
+
+- run `34148109854` at `a0c7cada` — `gate`, both pixel shards and the pixel aggregate passed;
+- run `34149386984` at `7aa61b09` — `gate`, both pixel shards and the pixel aggregate passed.
+
+These are historical descendant runs, not checks on this archive branch or current `main`. The
+review corrections merged later in PR #331 at `7b0dce4b`; that revision's four pixel shards and
+aggregate passed, while its workspace gate failed in the unrelated Directory suite at
+`directory-page.test.tsx:868`. Current `main` at `153c830a` passed run `34267818294`: the
+workspace gate, four pixel shards and pixel aggregate all succeeded. This current-tree result
+predates the archive-only changes in this packet.
+
+The receiving interfaces are explicit:
+
+- **R1 `plan-refresh`** receives `usePlanRead`/`usePlanReadState` and the rule that a refresh may
+  update a peer row without replacing an unrelated editor node, typed value or selection. Its
+  tasks 5.2, 5.4 and 5.5b remain open; this handoff supplies ownership and historical evidence,
+  not the missing real-browser peer/marker scenario.
+- **R10 `measured-rendering`** received `PlanLiveValues`/`PlanLive`, `PlanRow`, the pointed store
+  and the structural column boundary. It kept the column factory memo on exactly `steps`,
+  `unfoldedSteps` and `hiddenColumnIds`, moved display readings to explicit row inputs, and proved
+  editor identity through viewport eviction. It merged in PR #353 at `f66f73e8`; its own
+  `verify.md` owns those new measurements and gates.
+
+For later work the invariant is therefore unchanged in meaning: only the three structural
+inputs may replace column/cell definitions; committed peer readings repaint through explicit row
+inputs; event capabilities stay behind `PlanLive`; and an active unrelated editor keeps its node,
+draft, focus and selection. This completes W4-4's handoff without borrowing R1 or R10 evidence.
