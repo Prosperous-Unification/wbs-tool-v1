@@ -55,6 +55,12 @@ fi
 # before its pass: without that, a project that dies before writing replaces
 # nothing, and yesterday's numbers are published under today's date next to
 # freshly measured ones, with a successful exit. Peer review, 2026-09-08.
+#
+# The completion marker goes first, before any measuring: cleared after the loop
+# it survives an interrupt, so a sweep killed part-way through leaves the
+# previous sweep's marker sitting next to half-replaced XML, claiming a
+# completion that did not happen. Peer review of 5d7b901a.
+rm -f "$out/sweep.done"
 failed=()
 for pj in "${projects[@]}"; do
   name=$(printf '%s' "$pj" | tr '/' '-')
@@ -74,7 +80,6 @@ for pj in "${projects[@]}"; do
   [ -s "$out/$name.xml" ] || failed+=("$pj (rc=$rc, no XML; see $out/$name.log)")
 done
 
-rm -f "$out/sweep.done"
 if [ "${#failed[@]}" -gt 0 ]; then
   printf 'sweep incomplete, report NOT written:\n' >&2
   printf '  %s\n' "${failed[@]}" >&2
