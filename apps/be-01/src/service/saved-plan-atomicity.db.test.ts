@@ -18,6 +18,7 @@ import { SavedPlanCaptureRepository } from '../repository/saved-plan-capture';
 import { savedPlan, savedPlanBody } from '../repository/schema';
 import { UserRepository } from '../repository/user';
 import { WorkItemRepository } from '../repository/work-item';
+import { nodeDigest } from '../runtime/bun-runtime';
 import { projectRow } from '../testing/project-fixture';
 import { SavedPlanService } from './saved-plan.service';
 import { planInputRowsOf } from './saved-plan-input';
@@ -208,6 +209,7 @@ describe('SavedPlanService.save is atomic', () => {
       const before = await livePlanBytes();
       const faulting = faultingAt(path, boundary);
       const service = new SavedPlanService({
+        digest: nodeDigest,
         capture: capture(),
         plans: new SavedPlanRepository({ openConnection: faulting.open }),
         newId: () => PLAN_ID,

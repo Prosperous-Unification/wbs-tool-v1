@@ -22,6 +22,7 @@ import { StepMeasureRepository } from './repository/step-measure';
 import { StepProgressRepository } from './repository/step-progress';
 import { UserRepository } from './repository/user';
 import { SubtreeRepository, WorkItemRepository } from './repository/work-item';
+import { bunPasswordHasher, joseTokenCodec, systemInterval } from './runtime/bun-runtime';
 import { AuthService, type AuthServiceOptions } from './service/auth.service';
 import type { Broadcaster } from './service/broadcast';
 import { CalendarMarkerService } from './service/calendar-marker.service';
@@ -384,7 +385,10 @@ export function buildServices(opts: ServicesOptions): BeServices {
       clock,
       users: userStore,
       identities: userStore,
-      jwtKey: opts.jwtKey,
+      // The runtime this process happens to be, handed over at the root rather
+      // than reached for in the service (D10).
+      tokens: joseTokenCodec(opts.jwtKey),
+      passwords: bunPasswordHasher,
       oidc: opts.oidc,
       passwordSessions: opts.passwordSessions,
       localIdentity: opts.localIdentity,
@@ -414,6 +418,8 @@ export function buildServices(opts: ServicesOptions): BeServices {
       planEvents: planEventStore,
       planEventRetentionDays: PLAN_EVENT_RETENTION_DAYS,
       intervalMs: RETENTION_INTERVAL_MS,
+      // This process's own timers, handed over rather than reached for (D10).
+      ...systemInterval,
       onSweep: (removed) => {
         if (removed.eventLog > 0) {
           opts.logger.info({ removed: removed.eventLog }, 'event log pruned');

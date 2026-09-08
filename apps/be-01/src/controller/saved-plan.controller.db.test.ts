@@ -11,6 +11,7 @@ import { runMigrations } from '../repository/migrate';
 import { ProjectRepository } from '../repository/project';
 import type { SavedPlanWrite } from '../repository/saved-plan';
 import { UserRepository } from '../repository/user';
+import { bunPasswordHasher, joseTokenCodec } from '../runtime/bun-runtime';
 import { type AuthenticatedUser, AuthService } from '../service/auth.service';
 import { AnnouncementCollector } from '../service/broadcast';
 import { ProjectService } from '../service/project.service';
@@ -96,7 +97,8 @@ describe('the saved-plan routes', () => {
       appOrigin: 'http://localhost',
       auth: new AuthService({
         users: new UserRepository(connection.db, OPEN),
-        jwtKey: TEST_JWT_KEY,
+        tokens: joseTokenCodec(TEST_JWT_KEY),
+        passwords: bunPasswordHasher,
       }),
       // The same recorder the rest of this app is built on, not a second one:
       // `ProjectServiceOptions.broadcast` is required (project.service.ts), and

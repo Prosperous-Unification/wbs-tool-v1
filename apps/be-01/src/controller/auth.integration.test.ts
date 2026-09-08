@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import { jwtVerify, SignJWT } from 'jose';
 
 import { buildApp } from '../app';
+import { bunPasswordHasher, joseTokenCodec } from '../runtime/bun-runtime';
 import { AuthService } from '../service/auth.service';
 import { LoginThrottle } from '../service/login-throttle';
 import { inMemoryUsers, TEST_JWT_KEY, testAuthService } from '../testing/auth-fixture';
@@ -125,7 +126,8 @@ describe('GET /api/auth/me', () => {
     const local = new AuthService({
       users,
       identities: users,
-      jwtKey: TEST_JWT_KEY,
+      tokens: joseTokenCodec(TEST_JWT_KEY),
+      passwords: bunPasswordHasher,
       localIdentity: {
         id: 'local-dev',
         username: 'local-dev',
@@ -298,11 +300,14 @@ function heldLogins(maxConcurrentLogins?: number, now?: () => number) {
     });
   const auth = new AuthService({
     users,
-    jwtKey: TEST_JWT_KEY,
-    verifyPassword: () =>
-      new Promise<boolean>((resolve, reject) => {
-        pending.push({ resolve, reject });
-      }),
+    tokens: joseTokenCodec(TEST_JWT_KEY),
+    passwords: {
+      ...bunPasswordHasher,
+      verify: () =>
+        new Promise<boolean>((resolve, reject) => {
+          pending.push({ resolve, reject });
+        }),
+    },
   });
   const throttle = new LoginThrottle({ now, maxConcurrent: maxConcurrentLogins ?? 8 });
   const application = now === undefined ? app(auth, maxConcurrentLogins) : null;

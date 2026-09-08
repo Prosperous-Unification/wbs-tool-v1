@@ -20,6 +20,7 @@ import { StepMeasureRepository } from '../repository/step-measure';
 import { StepProgressRepository } from '../repository/step-progress';
 import { UserRepository } from '../repository/user';
 import { SubtreeRepository, WorkItemRepository } from '../repository/work-item';
+import { bunPasswordHasher, joseTokenCodec } from '../runtime/bun-runtime';
 import { AuthService } from '../service/auth.service';
 import { AnnouncementCollector } from '../service/broadcast';
 import { DirectoryService } from '../service/directory.service';
@@ -108,7 +109,11 @@ beforeEach(async () => {
   broadcast = recordingBroadcaster();
   const announcements = broadcast;
 
-  auth = new AuthService({ users: new UserRepository(db, OPEN), jwtKey: TEST_JWT_KEY });
+  auth = new AuthService({
+    users: new UserRepository(db, OPEN),
+    tokens: joseTokenCodec(TEST_JWT_KEY),
+    passwords: bunPasswordHasher,
+  });
   // One graph for the routes and the batch alike — these stores hold no turn,
   // so there is nothing for a second graph to keep apart, and a batch given its
   // own would write into stores nothing here reads.

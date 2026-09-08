@@ -46,6 +46,19 @@ Re-run 2026-09-08 against `main` @ `d2e14214`, over the file set the change decl
 The whole-workspace gate is slice 6's, on a frozen tree. Nothing outside `apps/be-01`
 changed in this slice.
 
+## Slice 6 — the runtime a process happens to be
+
+| Command                                                         | When       | Result                                                 |
+| --------------------------------------------------------------- | ---------- | ------------------------------------------------------ |
+| `bun test` in `apps/be-01`                                      | 2026-09-08 | **2035 pass, 2 skip, 0 fail**, 20,062 assertions, 120s |
+| `bun run test:unit`                                             | 2026-09-08 | 7 tasks green                                          |
+| `bunx nx run be-01:lint --skip-nx-cache`, `tsc --build --force` | 2026-09-08 | clean                                                  |
+
+`Digest` is asynchronous because a browser's `crypto.subtle.digest` is. That is not a
+detail: it made the saved plan's **read** path async as well as its write path, and both had
+to move together — a port whose two callers disagree about whether hashing can be awaited is
+a port only one runtime can implement.
+
 ## Slice 5 — the conformance kits
 
 | Command                                                                           | When       | Result                                                 |

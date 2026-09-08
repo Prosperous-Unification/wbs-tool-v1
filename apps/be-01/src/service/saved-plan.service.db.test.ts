@@ -19,6 +19,7 @@ import { SavedPlanCaptureRepository } from '../repository/saved-plan-capture';
 import { savedPlan, savedPlanBody } from '../repository/schema';
 import { UserRepository } from '../repository/user';
 import { WorkItemRepository } from '../repository/work-item';
+import { nodeDigest } from '../runtime/bun-runtime';
 import { projectRow } from '../testing/project-fixture';
 import { SavedPlanService } from './saved-plan.service';
 
@@ -93,6 +94,7 @@ describe('SavedPlanService.save', () => {
 
   const service = (): SavedPlanService =>
     new SavedPlanService({
+      digest: nodeDigest,
       capture: new SavedPlanCaptureRepository({ openConnection: () => openConnection(path) }),
       plans: new SavedPlanRepository({ openConnection: () => openConnection(path) }),
       newId: () => 'sp-1',
@@ -253,6 +255,7 @@ describe('SavedPlanService.save', () => {
 
   it('refuses on the body limit before opening the write transaction', async () => {
     const refusing = new SavedPlanService({
+      digest: nodeDigest,
       capture: new SavedPlanCaptureRepository({ openConnection: () => openConnection(path) }),
       plans: new SavedPlanRepository({ openConnection: () => openConnection(path) }),
       newId: () => 'sp-1',
@@ -278,6 +281,7 @@ describe('SavedPlanService.save', () => {
     // The same save, the same bytes, one number moved. Without it, the refusal
     // above would also pass against a service that hard-codes a small bound.
     const admitting = new SavedPlanService({
+      digest: nodeDigest,
       capture: new SavedPlanCaptureRepository({ openConnection: () => openConnection(path) }),
       plans: new SavedPlanRepository({ openConnection: () => openConnection(path) }),
       newId: () => 'sp-1',
@@ -308,6 +312,7 @@ describe('SavedPlanService.save', () => {
     let issued = 0;
     const capped = (mostPlansPerProject: number): SavedPlanService =>
       new SavedPlanService({
+        digest: nodeDigest,
         capture: new SavedPlanCaptureRepository({ openConnection: () => openConnection(path) }),
         plans: new SavedPlanRepository({ openConnection: () => openConnection(path) }),
         // Distinct per save: two records is the state under test, and a reused

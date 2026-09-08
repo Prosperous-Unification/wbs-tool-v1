@@ -19,6 +19,7 @@ import { SavedPlanCaptureRepository } from '../repository/saved-plan-capture';
 import { planEvent, savedPlan, savedPlanBody } from '../repository/schema';
 import { UserRepository } from '../repository/user';
 import { WorkItemRepository } from '../repository/work-item';
+import { nodeDigest } from '../runtime/bun-runtime';
 import { projectRow } from '../testing/project-fixture';
 import { SavedPlanService } from './saved-plan.service';
 import { bodySha256, UnknownSavedPlanBodyVersionError } from './saved-plan-integrity';
@@ -128,6 +129,7 @@ describe('reading a saved plan back', () => {
   /** The service under test, with a scheduler that records every call. */
   const service = (id = 'sp-1') =>
     new SavedPlanService({
+      digest: nodeDigest,
       capture: new SavedPlanCaptureRepository({ openConnection: () => openConnection(path) }),
       plans: new SavedPlanRepository({ openConnection: () => openConnection(path) }),
       newId: () => id,
@@ -308,7 +310,7 @@ describe('reading a saved plan back', () => {
           createdBy: 'Ada Lovelace',
           createdById: null,
           createdAt: OPENED_AT,
-          input: { schemaVersion: 1, bytes, sha256: bodySha256(bytes) },
+          input: { schemaVersion: 1, bytes, sha256: await bodySha256(nodeDigest, bytes) },
           schedule: { present: false, absentReason },
         },
         () => Promise.resolve(null),
@@ -407,13 +409,13 @@ describe('reading a saved plan back', () => {
     const headers = await reader.db.select().from(savedPlan);
     // Trusting the stored column: the two disagree, which is the fault 5.1b
     // catches.
-    expect(bodySha256(flipped.bytes)).not.toBe(headers[0].inputSha256);
+    expect(await bodySha256(nodeDigest, flipped.bytes)).not.toBe(headers[0].inputSha256);
     const beforeRepair = await service().read('sp-1');
     if (beforeRepair.outcome !== 'corrupt') throw new Error('expected a hash refusal');
     expect(beforeRepair.refusal.reason).toBe('body_hash_mismatch');
 
     reader.db.run(
-      `UPDATE saved_plan SET input_sha256 = '${bodySha256(flipped.bytes)}' WHERE id = 'sp-1'`,
+      `UPDATE saved_plan SET input_sha256 = '${await bodySha256(nodeDigest, flipped.bytes)}' WHERE id = 'sp-1'`,
     );
     const repaired = await service().read('sp-1');
     if (repaired.outcome !== 'corrupt') throw new Error('a restated hash laundered the record');

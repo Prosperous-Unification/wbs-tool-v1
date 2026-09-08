@@ -26,6 +26,7 @@ import { SavedPlanCaptureRepository } from '../repository/saved-plan-capture';
 import { savedPlan } from '../repository/schema';
 import { UserRepository } from '../repository/user';
 import { WorkItemRepository } from '../repository/work-item';
+import { nodeDigest } from '../runtime/bun-runtime';
 import { projectRow } from '../testing/project-fixture';
 import { SavedPlanService } from './saved-plan.service';
 import { schedulePlanInput } from './saved-plan-schedule';
@@ -138,6 +139,7 @@ describe('projecting the live plan as a comparison side', () => {
     schedule: (reads: PlanInputReads) => Schedule = schedulePlanInput,
   ): SavedPlanService =>
     new SavedPlanService({
+      digest: nodeDigest,
       capture: new SavedPlanCaptureRepository({ openConnection: counting }),
       plans: new SavedPlanRepository({ openConnection: () => openConnection(path) }),
       newId: () => id,

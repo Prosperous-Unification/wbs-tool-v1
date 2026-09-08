@@ -14,6 +14,7 @@ import { runMigrations } from '../repository/migrate';
 import { ProjectRepository } from '../repository/project';
 import { UserRepository } from '../repository/user';
 import { WorkItemRepository } from '../repository/work-item';
+import { bunPasswordHasher, joseTokenCodec } from '../runtime/bun-runtime';
 import { AuthService } from '../service/auth.service';
 import { CalendarMarkerService } from '../service/calendar-marker.service';
 import { clockOf } from '../service/clock';
@@ -151,7 +152,11 @@ describe('the calendar-marker routes', () => {
     });
     const projects = new ProjectRepository(db, OPEN);
 
-    auth = new AuthService({ users: new UserRepository(db, OPEN), jwtKey: TEST_JWT_KEY });
+    auth = new AuthService({
+      users: new UserRepository(db, OPEN),
+      tokens: joseTokenCodec(TEST_JWT_KEY),
+      passwords: bunPasswordHasher,
+    });
     app = buildApp({
       appOrigin: 'http://localhost',
       auth,

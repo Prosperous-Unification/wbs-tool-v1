@@ -172,7 +172,10 @@ export interface SavedPlanPrincipals {
  * come through this function and neither counts for itself.
  */
 export function bodyByteLength(bytes: string): number {
-  return Buffer.byteLength(bytes, 'utf8');
+  // `TextEncoder` rather than `Buffer.byteLength`: the answer is identical and
+  // one of the two exists in every runtime (D10). Node's `Buffer` was the last
+  // thing in this file that only Bun and Node have.
+  return new TextEncoder().encode(bytes).length;
 }
 
 /**

@@ -19,6 +19,7 @@ import { StepMeasureRepository } from '../repository/step-measure';
 import { StepProgressRepository } from '../repository/step-progress';
 import { UserRepository } from '../repository/user';
 import { SubtreeRepository, WorkItemRepository } from '../repository/work-item';
+import { bunPasswordHasher, joseTokenCodec } from '../runtime/bun-runtime';
 import { AuthService } from '../service/auth.service';
 import { ProjectService } from '../service/project.service';
 import { StepService } from '../service/step.service';
@@ -103,7 +104,11 @@ beforeEach(() => {
     appOrigin: 'http://localhost',
     savedPlans: testSavedPlanService(),
     history: testHistoryService(),
-    auth: new AuthService({ users: new UserRepository(db, OPEN), jwtKey: TEST_JWT_KEY }),
+    auth: new AuthService({
+      users: new UserRepository(db, OPEN),
+      tokens: joseTokenCodec(TEST_JWT_KEY),
+      passwords: bunPasswordHasher,
+    }),
     ...writing,
     replay: testReplay().replay,
     probeDatabase: () => 'ok',

@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 import {
   canonicalisePlanInput,
   diffPlans,
@@ -24,6 +22,7 @@ import type {
 } from '../repository/saved-plan';
 import { bodyByteLength } from '../repository/saved-plan';
 import type { PlanInputReads, SavedPlanCaptureRepository } from '../repository/saved-plan-capture';
+import type { Digest } from './runtime-ports';
 import { defaultSavedPlanName } from './saved-plan-default-name';
 import { planInputRowsOf } from './saved-plan-input';
 import type { SavedPlanIntegrityRefusal } from './saved-plan-integrity';
@@ -285,6 +284,14 @@ export function mayTouchSavedPlan(principals: SavedPlanPrincipals, actorId: stri
 }
 
 export interface SavedPlanServiceOptions {
+  /**
+   * How a body's hash is taken and re-taken.
+   *
+   * Required, with no default: the hash a reader recomputes has to be the one
+   * the writer took, and a service that reached for `node:crypto` would be
+   * saying which runtime it is (D10).
+   */
+  readonly digest: Digest;
   readonly capture: SavedPlanCaptureRepository;
   readonly plans: SavedPlanRepository;
   /** The saved plan's id. Injected so a test can name the row it then reads. */
@@ -334,12 +341,12 @@ interface ScheduleAttempt {
  * of the same value. Every `JSON.stringify` in this feature is upstream of this
  * function; nothing re-serializes after the digest is taken.
  */
-function bodyWrite(bytes: string, schemaVersion: number): SavedPlanBodyWrite {
-  return {
-    schemaVersion,
-    bytes,
-    sha256: createHash('sha256').update(bytes, 'utf8').digest('hex'),
-  };
+async function bodyWrite(
+  digest: Digest,
+  bytes: string,
+  schemaVersion: number,
+): Promise<SavedPlanBodyWrite> {
+  return { schemaVersion, bytes, sha256: await digest.sha256(bytes) };
 }
 
 /**
@@ -384,7 +391,7 @@ export class SavedPlanService {
   async read(savedPlanId: string): Promise<SavedPlanReadOutcome> {
     const stored = await this.opts.plans.readOf(savedPlanId);
     if (stored === null) return { outcome: 'not_found' };
-    return readOfStored(stored);
+    return await readOfStored(this.opts.digest, stored);
   }
 
   /**
@@ -664,8 +671,12 @@ export class SavedPlanService {
     // side: the version stored beside the bytes is the version those bytes
     // carry, not a constant that happened to agree with them.
     const canonical = canonicalisePlanInput(planInputRowsOf(attempt.reads));
-    const input = bodyWrite(serialiseCanonicalPlanInput(canonical), canonical.schemaVersion);
-    const schedule = scheduleWrite(attempt, input.sha256);
+    const input = await bodyWrite(
+      this.opts.digest,
+      serialiseCanonicalPlanInput(canonical),
+      canonical.schemaVersion,
+    );
+    const schedule = await scheduleWrite(this.opts.digest, attempt, input.sha256);
 
     const early = bodyBytesRefusal(
       {
@@ -784,7 +795,10 @@ function planSideOfRead(plan: SavedPlanRead): PlanSide {
   };
 }
 
-function readOfStored(stored: StoredSavedPlan): SavedPlanReadOutcome {
+async function readOfStored(
+  digest: Digest,
+  stored: StoredSavedPlan,
+): Promise<SavedPlanReadOutcome> {
   const header = stored.header;
   // Task 5.5, and **before** the hash check on purpose: a body this reader
   // cannot parse is unreadable whether or not its bytes are intact, and
@@ -795,13 +809,19 @@ function readOfStored(stored: StoredSavedPlan): SavedPlanReadOutcome {
     header.inputSchemaVersion,
     SUPPORTED_INPUT_BODY_VERSIONS,
   );
-  const inputRefusal = verifyBody(header.id, 'input', stored.bodies.input, header.inputSha256);
+  const inputRefusal = await verifyBody(
+    digest,
+    header.id,
+    'input',
+    stored.bodies.input,
+    header.inputSha256,
+  );
   if (inputRefusal !== null) return { outcome: 'corrupt', refusal: inputRefusal };
   // Narrowed by the check above rather than asserted: `verifyBody` returns a
   // `body_missing` refusal for null, so reaching here means the bytes are there.
   const inputBytes = stored.bodies.input ?? '';
 
-  const schedule = scheduleOfStored(stored);
+  const schedule = await scheduleOfStored(digest, stored);
   if (schedule.outcome === 'corrupt') return schedule;
 
   return {
@@ -823,11 +843,13 @@ function readOfStored(stored: StoredSavedPlan): SavedPlanReadOutcome {
 }
 
 /** The schedule half of {@link readOfStored}, verified the same way. */
-function scheduleOfStored(
+async function scheduleOfStored(
+  digest: Digest,
   stored: StoredSavedPlan,
-):
+): Promise<
   | { outcome: 'ok'; schedule: SavedPlanReadSchedule }
-  | { outcome: 'corrupt'; refusal: SavedPlanIntegrityRefusal } {
+  | { outcome: 'corrupt'; refusal: SavedPlanIntegrityRefusal }
+> {
   const header = stored.header;
   if (
     header.scheduleSha256 === null ||
@@ -851,7 +873,13 @@ function scheduleOfStored(
     header.scheduleSchemaVersion,
     SUPPORTED_SCHEDULE_BODY_VERSIONS,
   );
-  const refusal = verifyBody(header.id, 'schedule', stored.bodies.schedule, header.scheduleSha256);
+  const refusal = await verifyBody(
+    digest,
+    header.id,
+    'schedule',
+    stored.bodies.schedule,
+    header.scheduleSha256,
+  );
   if (refusal !== null) return { outcome: 'corrupt', refusal };
   // Task 5.2, and it runs **after** the byte check rather than instead of it:
   // the two answer different questions — whether the schedule body is the one
@@ -887,7 +915,11 @@ function scheduleOfStored(
  * that these dates were computed from these rows and refuse to render them
  * against an input that did not produce them.
  */
-function scheduleWrite(attempt: ScheduleAttempt, inputSha256: string): SavedPlanScheduleWrite {
+async function scheduleWrite(
+  digest: Digest,
+  attempt: ScheduleAttempt,
+  inputSha256: string,
+): Promise<SavedPlanScheduleWrite> {
   if (!attempt.schedule.present) {
     return { present: false, absentReason: attempt.schedule.absentReason };
   }
@@ -896,7 +928,7 @@ function scheduleWrite(attempt: ScheduleAttempt, inputSha256: string): SavedPlan
   const built = buildScheduleBody(attempt.schedule.planned, attempt.reads.project.startDate);
   return {
     present: true,
-    body: bodyWrite(serialiseScheduleBody(built), built.version),
+    body: await bodyWrite(digest, serialiseScheduleBody(built), built.version),
     inputSha256,
     algorithmId: built.algorithmId,
   };

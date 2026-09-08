@@ -30,8 +30,23 @@ export interface RetentionTimerOptions {
    * identical to a healthy one from outside.
    */
   onError: (err: unknown) => void;
-  setInterval?: (fn: () => void, ms: number) => unknown;
-  clearInterval?: (handle: unknown) => void;
+  /**
+   * How this runtime repeats work, and how it stops repeating it.
+   *
+   * **Required, with no default.** `setInterval` was reached for here, which
+   * made "the process has a timer loop" a fact about this class rather than
+   * about the root that built it — and a runtime without one would have had no
+   * way to be told. The handle is opaque to callers by design: only this
+   * pairing of the two knows where it came from.
+   *
+   * Proof that the requirement is a real one and not a comment: `systemInterval`
+   * removed from `buildServices`' `RetentionTimer` options failed
+   * `nx run be-01:typecheck` on `Type … is missing the following properties
+   * from type 'RetentionTimerOptions': setInterval, clearInterval`, at the line
+   * that builds it. Watched 2026-09-08.
+   */
+  setInterval: (fn: () => void, ms: number) => unknown;
+  clearInterval: (handle: unknown) => void;
   /** The clock the history's cutoff is measured from. Injected so a test can name a day. */
   now?: () => number;
 }
@@ -58,14 +73,8 @@ export class RetentionTimer {
 
   constructor(private readonly opts: RetentionTimerOptions) {
     this.now = opts.now ?? (() => Date.now());
-    this.set = opts.setInterval ?? ((fn, ms) => setInterval(fn, ms));
-    // The handle is opaque to callers by design — only this pairing of
-    // `setInterval` and `clearInterval` knows where it came from.
-    this.clear =
-      opts.clearInterval ??
-      ((handle) => {
-        clearInterval(handle as ReturnType<typeof setInterval>);
-      });
+    this.set = opts.setInterval;
+    this.clear = opts.clearInterval;
   }
 
   /**

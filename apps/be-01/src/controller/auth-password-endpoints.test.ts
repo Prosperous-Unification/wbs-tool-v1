@@ -1,6 +1,7 @@
 import { expect, spyOn, test } from 'bun:test';
 
 import type { User } from '../repository';
+import { bunPasswordHasher, joseTokenCodec } from '../runtime/bun-runtime';
 import { AuthService } from '../service/auth.service';
 import { LoginThrottle } from '../service/login-throttle';
 import { inMemoryUsers, TEST_JWT_KEY, testAuthService } from '../testing/auth-fixture';
@@ -126,8 +127,8 @@ test('OIDC password success keeps the token in the hardened access cookie', asyn
   const auth = new AuthService({
     users,
     identities: users,
-    jwtKey: TEST_JWT_KEY,
-    verifyPassword: () => Promise.resolve(true),
+    tokens: joseTokenCodec(TEST_JWT_KEY),
+    passwords: { ...bunPasswordHasher, verify: () => Promise.resolve(true) },
   });
   await users.create(
     {

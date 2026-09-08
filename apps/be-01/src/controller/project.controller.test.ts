@@ -1,6 +1,7 @@
 import { describe, expect, it, spyOn } from 'bun:test';
 
 import { buildApp } from '../app';
+import { bunPasswordHasher, joseTokenCodec } from '../runtime/bun-runtime';
 import { AuthService } from '../service/auth.service';
 import { clockOf } from '../service/clock';
 import type {
@@ -45,7 +46,8 @@ function buildHarness(
     ? new AuthService({
         users,
         identities: users,
-        jwtKey: TEST_JWT_KEY,
+        tokens: joseTokenCodec(TEST_JWT_KEY),
+        passwords: bunPasswordHasher,
         localIdentity: { id: 'write-only', username: 'write-only', scopes: ['write'] },
       })
     : testAuthService(users);

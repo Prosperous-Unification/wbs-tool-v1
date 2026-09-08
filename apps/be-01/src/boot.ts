@@ -11,6 +11,7 @@ import { runMigrations } from './repository/migrate';
 import { SavedPlanRepository } from './repository/saved-plan';
 import { SavedPlanCaptureRepository } from './repository/saved-plan-capture';
 import { UserRepository } from './repository/user';
+import { nodeDigest } from './runtime/bun-runtime';
 import type { AuthenticatedUser } from './service/auth.service';
 import { SavedPlanService } from './service/saved-plan.service';
 import { type BeServices, buildServices, type OptimizerRuntime } from './services';
@@ -115,6 +116,7 @@ export function bootBe01(opts: BootOptions): RunningBe {
     // live one, and the rename and the delete refuse to wait for the write
     // lock. A path is what they take, and `boot.ts` is where the path is.
     savedPlans: new SavedPlanService({
+      digest: nodeDigest,
       capture: new SavedPlanCaptureRepository({
         openConnection: () => openConnection(opts.dbPath),
       }),

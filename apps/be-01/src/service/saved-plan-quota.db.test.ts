@@ -17,6 +17,7 @@ import { SavedPlanCaptureRepository } from '../repository/saved-plan-capture';
 import { savedPlan, savedPlanBody } from '../repository/schema';
 import { UserRepository } from '../repository/user';
 import { WorkItemRepository } from '../repository/work-item';
+import { nodeDigest } from '../runtime/bun-runtime';
 import { projectRow } from '../testing/project-fixture';
 import { SavedPlanService } from './saved-plan.service';
 import type { SavedPlanQuota } from './saved-plan-quota';
@@ -107,6 +108,7 @@ describe('SavedPlanService.save refuses each limit before writing anything', () 
     issued += 1;
     const n = issued;
     return new SavedPlanService({
+      digest: nodeDigest,
       capture: new SavedPlanCaptureRepository({ openConnection: () => openConnection(path) }),
       plans: new SavedPlanRepository({ openConnection: () => openConnection(path) }),
       newId: () => 'sp-' + String(n),

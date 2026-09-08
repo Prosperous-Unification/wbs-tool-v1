@@ -12,6 +12,7 @@ import { runMigrations } from '../repository/migrate';
 import { PriorityBandRepository } from '../repository/priority-band';
 import { ProjectRepository } from '../repository/project';
 import { UserRepository } from '../repository/user';
+import { bunPasswordHasher, joseTokenCodec } from '../runtime/bun-runtime';
 import { AuthService } from '../service/auth.service';
 import { PriorityBandService } from '../service/priority-band.service';
 import { ProjectService } from '../service/project.service';
@@ -91,7 +92,11 @@ describe('setPriorityBands on POST /api/projects/:id/commands', () => {
     const projectStore = new ProjectRepository(db, OPEN);
     bands = new PriorityBandRepository(db, OPEN);
     broadcast = recordingBroadcaster();
-    const auth = new AuthService({ users: new UserRepository(db, OPEN), jwtKey: TEST_JWT_KEY });
+    const auth = new AuthService({
+      users: new UserRepository(db, OPEN),
+      tokens: joseTokenCodec(TEST_JWT_KEY),
+      passwords: bunPasswordHasher,
+    });
     const writing = {
       projects: new ProjectService({ projects: projectStore, broadcast: recordingBroadcaster() }),
       directory: testDirectoryService(),

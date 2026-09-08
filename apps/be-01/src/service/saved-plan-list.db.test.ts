@@ -15,6 +15,7 @@ import { SavedPlanCaptureRepository } from '../repository/saved-plan-capture';
 import { savedPlan } from '../repository/schema';
 import { UserRepository } from '../repository/user';
 import { WorkItemRepository } from '../repository/work-item';
+import { nodeDigest } from '../runtime/bun-runtime';
 import { projectRow } from '../testing/project-fixture';
 import { SavedPlanService } from './saved-plan.service';
 
@@ -87,6 +88,7 @@ describe("listing a project's saved plans", () => {
   /** The service, minting the id and the instant this save is stamped with. */
   const service = (id: string, at: number) =>
     new SavedPlanService({
+      digest: nodeDigest,
       capture: new SavedPlanCaptureRepository({ openConnection: () => openConnection(path) }),
       plans: new SavedPlanRepository({ openConnection: () => openConnection(path) }),
       newId: () => id,

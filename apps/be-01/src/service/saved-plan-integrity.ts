@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto';
-
 import type { PlanInputNormaliseFailure } from '@wbs/domain';
+
+import type { Digest } from './runtime-ports';
 
 /** Which of a saved plan's two sides a refusal is about. */
 export type SavedPlanBodyKind = 'input' | 'schedule';
@@ -80,12 +80,16 @@ export type SavedPlanIntegrityRefusal =
 /**
  * SHA-256 over a body's stored bytes, in the one encoding the writer used.
  *
- * `utf8` is named here for the same reason `bodyByteLength` names it: a digest
- * taken over a different encoding of the same string is a different digest, and
- * a reader that guessed would refuse every plan ever written.
+ * The encoding is the **adapter's** to name, and both of them name `utf8` for
+ * the reason `bodyByteLength` does: a digest taken over a different encoding of
+ * the same string is a different digest, and a reader that guessed would refuse
+ * every plan ever written.
+ *
+ * Asynchronous because the port is, and the port is because a browser's
+ * `crypto.subtle.digest` is — see {@link Digest}.
  */
-export function bodySha256(bytes: string): string {
-  return createHash('sha256').update(bytes, 'utf8').digest('hex');
+export function bodySha256(digest: Digest, bytes: string): Promise<string> {
+  return digest.sha256(bytes);
 }
 
 /**
@@ -102,14 +106,15 @@ export function bodySha256(bytes: string): string {
  * distinguishable at the source and folding them would report a hash fault for
  * a row that a cascade deleted.
  */
-export function verifyBody(
+export async function verifyBody(
+  digest: Digest,
   savedPlanId: string,
   body: SavedPlanBodyKind,
   bytes: string | null,
   stored: string,
-): SavedPlanIntegrityRefusal | null {
+): Promise<SavedPlanIntegrityRefusal | null> {
   if (bytes === null) return { reason: 'body_missing', savedPlanId, body };
-  const recomputed = bodySha256(bytes);
+  const recomputed = await bodySha256(digest, bytes);
   if (recomputed === stored) return null;
   return { reason: 'body_hash_mismatch', savedPlanId, body, stored, recomputed };
 }

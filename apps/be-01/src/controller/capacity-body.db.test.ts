@@ -20,6 +20,7 @@ import { StepMeasureRepository } from '../repository/step-measure';
 import { StepProgressRepository } from '../repository/step-progress';
 import { UserRepository } from '../repository/user';
 import { SubtreeRepository, WorkItemRepository } from '../repository/work-item';
+import { bunPasswordHasher, joseTokenCodec } from '../runtime/bun-runtime';
 import { AuthService } from '../service/auth.service';
 import { CapacityService } from '../service/capacity.service';
 import { DirectoryService } from '../service/directory.service';
@@ -73,7 +74,11 @@ describe('setCapacity on POST /api/projects/:id/commands', () => {
     capacityStore = new CapacityRepository(db, OPEN);
     const workItems = new WorkItemRepository(db, OPEN);
     broadcast = recordingBroadcaster();
-    const auth = new AuthService({ users: new UserRepository(db, OPEN), jwtKey: TEST_JWT_KEY });
+    const auth = new AuthService({
+      users: new UserRepository(db, OPEN),
+      tokens: joseTokenCodec(TEST_JWT_KEY),
+      passwords: bunPasswordHasher,
+    });
 
     const writing = {
       projects: new ProjectService({ projects: projectStore, broadcast: recordingBroadcaster() }),

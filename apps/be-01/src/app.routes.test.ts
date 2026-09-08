@@ -11,6 +11,7 @@ import { describe, expect, it, spyOn } from 'bun:test';
 
 import type { AppOptions } from './app';
 import { buildApp, mountedEndpoints } from './app';
+import { bunPasswordHasher, joseTokenCodec } from './runtime/bun-runtime';
 import { AuthService } from './service/auth.service';
 import { inMemoryUsers, TEST_JWT_KEY, testAuthService } from './testing/auth-fixture';
 import { testCalendarMarkerService } from './testing/calendar-marker-fixture';
@@ -276,7 +277,8 @@ async function reachabilityOptions(
   const auth = new AuthService({
     users,
     identities: users,
-    jwtKey: TEST_JWT_KEY,
+    tokens: joseTokenCodec(TEST_JWT_KEY),
+    passwords: bunPasswordHasher,
     localIdentity: {
       id: 'route-owner',
       username: 'route-owner',

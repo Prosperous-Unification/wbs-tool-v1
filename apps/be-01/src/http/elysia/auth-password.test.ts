@@ -1,6 +1,7 @@
 import { expect, spyOn, test } from 'bun:test';
 
 import { authPasswordEndpoints } from '../../controller/auth-password-endpoints';
+import { bunPasswordHasher, joseTokenCodec } from '../../runtime/bun-runtime';
 import { AuthService } from '../../service/auth.service';
 import { LoginThrottle } from '../../service/login-throttle';
 import { inMemoryUsers, TEST_JWT_KEY, testAuthService } from '../../testing/auth-fixture';
@@ -187,8 +188,8 @@ test('mounted OIDC password login emits an empty token and one hardened access c
   );
   const auth = new AuthService({
     users,
-    jwtKey: TEST_JWT_KEY,
-    verifyPassword: () => Promise.resolve(true),
+    tokens: joseTokenCodec(TEST_JWT_KEY),
+    passwords: { ...bunPasswordHasher, verify: () => Promise.resolve(true) },
   });
   const response = await mounted(auth, { passwordLoginEnabled: true }).handle(
     loginRequest('claire', 'correct-password'),
@@ -256,8 +257,8 @@ test('mounted login retains urlencoded credential admission', async () => {
   );
   const auth = new AuthService({
     users,
-    jwtKey: TEST_JWT_KEY,
-    verifyPassword: () => Promise.resolve(true),
+    tokens: joseTokenCodec(TEST_JWT_KEY),
+    passwords: { ...bunPasswordHasher, verify: () => Promise.resolve(true) },
   });
   const response = await mounted(auth).handle(
     new Request('https://backend.example/api/auth/login', {
@@ -284,11 +285,14 @@ function heldLogins(maxConcurrent = 8) {
     Promise.resolve({ id: username, username, passwordHash: 'stored-hash', createdAt: 1 });
   const auth = new AuthService({
     users,
-    jwtKey: TEST_JWT_KEY,
-    verifyPassword: () =>
-      new Promise<boolean>((resolve, reject) => {
-        pending.push({ resolve, reject });
-      }),
+    tokens: joseTokenCodec(TEST_JWT_KEY),
+    passwords: {
+      ...bunPasswordHasher,
+      verify: () =>
+        new Promise<boolean>((resolve, reject) => {
+          pending.push({ resolve, reject });
+        }),
+    },
   });
   const app = mounted(auth, undefined, maxConcurrent);
   const requests: Promise<Response>[] = [];

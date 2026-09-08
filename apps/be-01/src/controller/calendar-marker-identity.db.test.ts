@@ -21,6 +21,7 @@ import { StepMeasureRepository } from '../repository/step-measure';
 import { StepProgressRepository } from '../repository/step-progress';
 import { UserRepository } from '../repository/user';
 import { SubtreeRepository, WorkItemRepository } from '../repository/work-item';
+import { bunPasswordHasher, joseTokenCodec } from '../runtime/bun-runtime';
 import { AuthService } from '../service/auth.service';
 import { CalendarMarkerService } from '../service/calendar-marker.service';
 import { clockOf } from '../service/clock';
@@ -168,7 +169,11 @@ describe('the schedule identity guarantee', () => {
     app = buildApp({
       ...writing,
       appOrigin: 'http://localhost',
-      auth: new AuthService({ users: new UserRepository(db, OPEN), jwtKey: TEST_JWT_KEY }),
+      auth: new AuthService({
+        users: new UserRepository(db, OPEN),
+        tokens: joseTokenCodec(TEST_JWT_KEY),
+        passwords: bunPasswordHasher,
+      }),
       savedPlans: testSavedPlanService(),
       history: testHistoryService(),
       replay: testReplay().replay,

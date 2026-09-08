@@ -153,10 +153,18 @@ does not wait for the turn its batch holds`: a `run` whose act writes through
 
 ## 6. The runtime this process happens to be
 
-- [ ] 6.1 `PasswordHasher`, `TokenCodec`, `Digest`, `Timers`, `PushTransport` as ports with their
-      Bun adapters built in `boot.ts`. Every global default is removed at the same time — a
-      service constructed without its port must fail `tsc`, watched.
-- [ ] 6.2 `Buffer.byteLength` in `saved-plan.ts` becomes `TextEncoder`.
-- [ ] 6.3 Whole-workspace gate on a frozen tree, recorded in `verify.md` with its command,
+- [x] 6.1 `PasswordHasher`, `TokenCodec` and `Digest` in `service/runtime-ports.ts`, their Bun
+      adapters in `runtime/bun-runtime.ts`, and the composition root hands them over.
+      `PushTransport` and the deadline `Timers` were already injected; what was **not** was
+      `RetentionTimer`'s `setInterval`/`clearInterval` pair, which is required now. Two
+      requirements watched as `tsc` failures rather than asserted in prose:
+      `passwords?:` → `Object is possibly 'undefined'` at both call sites; `systemInterval`
+      dropped from `buildServices` → `is missing the following properties … setInterval,
+clearInterval`.
+      `Digest` is asynchronous because a browser's `crypto.subtle.digest` is, so the saved
+      plan's write **and** read hashing move together — `bodyWrite`, `bodySha256`, `verifyBody`,
+      `readOfStored` and `scheduleWrite` are all `async` now, and twelve suites await them.
+- [x] 6.2 `Buffer.byteLength` in `saved-plan.ts` becomes `TextEncoder`.
+- [x] 6.3 Whole-workspace gate on a frozen tree, recorded in `verify.md` with its command,
       duration and counts. The browser gate is not this change's oracle — no fe-01 file moves —
       but `nx run-many -t test lint typecheck build` is.

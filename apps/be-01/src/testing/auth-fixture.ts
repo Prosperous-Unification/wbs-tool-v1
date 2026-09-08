@@ -1,6 +1,7 @@
 import type { OidcIdentityOptions, TokenVerifier } from '@wbs/auth';
 
 import type { OidcIdentityStore, User, UserStore, WriteStamp } from '../repository';
+import { bunPasswordHasher, joseTokenCodec } from '../runtime/bun-runtime';
 import { AuthService } from '../service/auth.service';
 
 /**
@@ -92,7 +93,11 @@ export function testAuthService(
   return new AuthService({
     users,
     identities: users,
-    jwtKey: TEST_JWT_KEY,
+    // The real adapters over the test key: a fake codec would make every token
+    // in these suites a string this deployment cannot read, and a fake hasher
+    // would make `register` a claim about nothing.
+    tokens: joseTokenCodec(TEST_JWT_KEY),
+    passwords: bunPasswordHasher,
     oidc,
     passwordSessions: oidc !== undefined,
   });

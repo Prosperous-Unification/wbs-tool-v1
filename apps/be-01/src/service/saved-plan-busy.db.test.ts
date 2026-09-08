@@ -17,6 +17,7 @@ import { SavedPlanCaptureRepository } from '../repository/saved-plan-capture';
 import { savedPlan, workItem } from '../repository/schema';
 import { UserRepository } from '../repository/user';
 import { WorkItemRepository } from '../repository/work-item';
+import { nodeDigest } from '../runtime/bun-runtime';
 import { projectRow } from '../testing/project-fixture';
 import { SavedPlanService } from './saved-plan.service';
 
@@ -99,6 +100,7 @@ describe('SavedPlanService.save answers snapshot_busy without holding up an edit
 
   const service = (): SavedPlanService =>
     new SavedPlanService({
+      digest: nodeDigest,
       capture: new SavedPlanCaptureRepository({ openConnection: () => openConnection(path) }),
       plans: new SavedPlanRepository({ openConnection: () => openConnection(path) }),
       newId: () => 'sp-mine',

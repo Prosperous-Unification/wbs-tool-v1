@@ -19,6 +19,7 @@ import { savedPlan, savedPlanBody } from '../repository/schema';
 import { StepRepository } from '../repository/step';
 import { UserRepository } from '../repository/user';
 import { WorkItemRepository } from '../repository/work-item';
+import { nodeDigest } from '../runtime/bun-runtime';
 import { projectRow } from '../testing/project-fixture';
 import { SavedPlanService } from './saved-plan.service';
 
@@ -104,6 +105,7 @@ describe('a saved plan does not move when the live plan does', () => {
 
   const save = (id = 'sp-1') =>
     new SavedPlanService({
+      digest: nodeDigest,
       capture: new SavedPlanCaptureRepository({ openConnection: () => openConnection(path) }),
       plans: new SavedPlanRepository({ openConnection: () => openConnection(path) }),
       newId: () => id,

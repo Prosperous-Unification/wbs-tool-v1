@@ -4,6 +4,7 @@ import { expect, spyOn, test } from 'bun:test';
 import { Elysia } from 'elysia';
 import { jwtVerify, SignJWT } from 'jose';
 
+import { bunPasswordHasher, joseTokenCodec } from '../../runtime/bun-runtime';
 import { AuthService } from '../../service/auth.service';
 import { inMemoryUsers, TEST_JWT_KEY, testAuthService } from '../../testing/auth-fixture';
 import { bind } from '../endpoint';
@@ -258,7 +259,8 @@ test('preserves an explicitly composed local identity without credentials', asyn
   const auth = new AuthService({
     users,
     identities: users,
-    jwtKey: TEST_JWT_KEY,
+    tokens: joseTokenCodec(TEST_JWT_KEY),
+    passwords: bunPasswordHasher,
     localIdentity: { id: 'local-account', username: 'local', scopes: ['read', 'write'] },
   });
   const reply = await userApp(auth, 'write-scope').handle(request());

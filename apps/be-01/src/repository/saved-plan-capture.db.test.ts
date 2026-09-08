@@ -7,6 +7,7 @@ import type { Database } from 'bun:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { eq, sql } from 'drizzle-orm';
 
+import { nodeDigest } from '../runtime/bun-runtime';
 import { planInputRowsOf } from '../service/saved-plan-input';
 import { bodySha256 } from '../service/saved-plan-integrity';
 import { projectRow } from '../testing/project-fixture';
@@ -233,7 +234,8 @@ describe('capturing a project’s plan input', () => {
     const hashNow = async (): Promise<string> => {
       const reads = await capture().readPlanInput('p1');
       expect(reads).not.toBeNull();
-      return bodySha256(
+      return await bodySha256(
+        nodeDigest,
         serialiseCanonicalPlanInput(canonicalisePlanInput(planInputRowsOf(reads!))),
       );
     };

@@ -1,6 +1,6 @@
 # Planned refactoring execution
 
-**State as of 2026-09-07, `main` @ `3e17fb01`.** This file is the one queue for the two plans;
+**State as of 2026-09-08, `main` @ `f64ceea4`.** This file is the one queue for the two plans;
 the plans themselves stay normative for _what_ and _why_:
 [refactoring plan](../2026-09-02-refactoring-plan.md) (W0–W4, §67 R1–R10) and
 [ports-and-adapters plan](../2026-09-05-ports-and-adapters-plan.md) (Waves 0–3, namespacing).
@@ -51,10 +51,16 @@ Nothing below has an owning task in the external queue (`backlog/tasks/task-NNN 
 - [ ] **Archive the nine R-slice changes** whose tasks are complete or gate-only
       (`opsx:archive`, syncing each delta spec into `openspec/specs/`). Only
       `http-endpoint-port` has been archived.
-- [ ] **Ports Wave 2 `store-port-and-unit-of-work`** — not started; no change directory, no
-      `libs/core` or `store-sqlite`. Plan §3.2, §3.4, §4. Wave 0's collision check runs again first.
+- [x] **Ports Wave 2 `store-port-and-unit-of-work`** — **done, 2026-09-08**, in six merged
+      slices; see [What Wave 2 landed](#what-wave-2-landed) below. The change is
+      `openspec/changes/store-port-and-unit-of-work`; its `verify.md` carries the failure-proof
+      table and the three checks-that-could-not-fail this wave caught. Nothing moved into
+      `libs/` — that is Wave 3, and this wave's non-goal.
 - [ ] **Ports Wave 3 `core-lib-extraction`** — not started; `libs/` has `runtime-portable` and no
-      `core` or `conformance`. Plan §3.3, §3.5.
+      `core` or `conformance`. Plan §3.3, §3.5. Wave 2 left it more moveable than it found it:
+      the ports are declared (`repository/index.ts`, `service/{unit-of-work,runtime-ports}.ts`),
+      the composition is two functions (`buildStores`, `servicesOver`), and the kits are already
+      a file of their own under `testing/kits/`.
 - [ ] **`repo-namespacing`** (D18/D19) — not started; after Wave 3.
 - [ ] **W4-3's registry proper** in `libs/contracts` — its own OpenSpec change; depends on
       verifying Elysia's Standard Schema → JSON Schema export (handoff §58).
@@ -64,6 +70,32 @@ Nothing below has an owning task in the external queue (`backlog/tasks/task-NNN 
 - [ ] **W1-6 e2e seeding**; **W3-10 OIDC store adoption** — each refused pending its own change.
 - [ ] **`plan-json-import`** — approved artifacts, no implementation
       ([`collisions.md`](collisions.md)); Dany's.
+
+## What Wave 2 landed
+
+| Slice                   | PR   | What                                                                   |
+| ----------------------- | ---- | ---------------------------------------------------------------------- |
+| artifacts + Wave 0 gate | #317 | the collision gate re-run at `d2e14214`                                |
+| 1 the `Gate` port       | #319 | every write takes a turn; the batch's own admitted graph               |
+| 2 the unit of work      | #320 | `run(act)` with `Decision`/`afterRollback`; `OuterTransaction` deleted |
+| 3 the collector         | #321 | `AnnouncementCollector` per batch; `AsyncLocalStorage` gone            |
+| 3b ports and history    | #323 | `EventLogStore`, `TransactionalStores`/`HistoryStores`, case (j)       |
+| 4 references            | #324 | a broken reference is named by the store it broke in                   |
+| 5 the kits              | #326 | `sourceConformance` over two sources, and the D29 allowlist            |
+| 6 the runtime           | #327 | `PasswordHasher`, `TokenCodec`, `Digest`, and the last global default  |
+
+**The intent was a live production gap and it is closed.** ADR 0007 said every be-01 write
+waits behind the write lock while a batch is open; only the batch and publication took it, so a
+route write landing inside an open batch was rolled back by somebody else's refusal while its
+caller was told it worked. Watched on `main` before the fix existed:
+`Expected to contain: "Wiring" · Received: [ "Dev", "QA" ]`.
+
+**Deliberately out, by the Wave 0 gate:** the `Scheduler` port, `engine_unavailable` and
+`scheduleInputHash`'s move — `dual-optimized-scheduler` still holds unchecked slices on
+`SCHEDULER_CONTRACT_VERSION` and the drain seams. They are the next change after it lands. Also
+out: kits for the thirteen ports beyond step/estimate/directory/event-log, and
+`brokenSource(source, fault)` as a named helper; the shape they plug into is merged and both
+sources already run through it.
 
 ## Integration policy
 
