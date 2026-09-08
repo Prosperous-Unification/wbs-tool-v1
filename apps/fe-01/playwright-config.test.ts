@@ -96,22 +96,26 @@ describe('the browser gate’s port shift', () => {
    *
    * TASK-405 measured every `apps/fe-01` case against vitest's 5000ms default.
    * This one is the tightest in the app by a wide gap — 2813 / 2799 / 2649 /
-   * 2485ms across four runs on h2puni at load ~8-9, against 350ms for the next
-   * slowest case in this file — and it is tight for a reason that cannot be
-   * split away: one `bun --eval` that loads be-01's config and app fixture
-   * cold. Unlike the four-mount case that opened that task, there is no
-   * smaller shape to cut this into.
+   * 2485 / 2881ms across five runs on h2puni at load ~8-9, against 350ms for
+   * the next slowest case in this file — and it is tight for a reason that
+   * cannot be split away: one `bun --eval` that loads be-01's config and app
+   * fixture cold. Unlike the four-mount case that opened that task, there is
+   * no smaller shape to cut this into.
    *
    * The two budgets are ordered deliberately. Before this, the probe's own
    * 10000ms guard sat inside a case vitest killed at 5000ms, so the guard
-   * could never fire and a hung probe reported `Test timed out in 5000ms`,
-   * naming nothing. With the case budget above the probe budget, the probe
-   * fails first and says which command ran out.
+   * could never surface first: a hung probe reported `Test timed out in
+   * 5000ms` and named nothing. (`execFileSync` is synchronous, so vitest could
+   * not actually interrupt it either — watched 2026-09-08, that arm reported
+   * 5000ms after burning 9852ms of runner wall clock.) With the case budget
+   * above the probe budget, the probe reports first and says which command ran
+   * out: `spawnSync bun ETIMEDOUT`.
    *
    * This does not reopen TASK-405's decision to keep the 5000ms default
-   * project-wide (`notes/decisions.md`, 2026-09-08). That decision is about a
-   * global `testTimeout`; this is the per-case fallback the task's own
-   * criterion allows, taken here because splitting is not available.
+   * project-wide (recorded in the queue workspace's `notes/decisions.md`,
+   * 2026-09-08, not in this repo). That decision is about a global
+   * `testTimeout`; this is the per-case fallback the task's own criterion
+   * allows, taken here because splitting is not available.
    */
   const PROBE_TIMEOUT_MS = 10_000;
   const PROBE_CASE_TIMEOUT_MS = 15_000;
