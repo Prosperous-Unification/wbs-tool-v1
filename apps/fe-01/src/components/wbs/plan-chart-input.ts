@@ -13,7 +13,7 @@ import {
 } from './gantt-geometry';
 import type { PlanTableFeatures } from './plan-columns/column';
 import { showDay } from './plan-number-format';
-import { printedDay } from './short-date';
+import { spanOfRow } from './plan-span';
 import type { ChartRead } from './use-plan-read';
 import { type TreeRow } from './wbs-rows';
 
@@ -253,21 +253,6 @@ export function usePlanSchedule({ scheduleError }: { scheduleError: 'cycle' | nu
    * of that sentence in the card renderer is one edit away from disagreeing
    * with the columns.
    */
-  const spanOf = useCallback(
-    (row: TreeRow) => {
-      // One `today` for both ends of one row, so a render that straddles
-      // midnight cannot print a start off this year and a finish off the next.
-      const today = new Date();
-      return {
-        start: printedDay(row.dates?.startsOn ?? null, today, () =>
-          showSchedule(row.schedule.earliestStart),
-        ),
-        finish: printedDay(row.dates?.endsOn ?? null, today, () =>
-          showSchedule(row.schedule.earliestFinish),
-        ),
-      };
-    },
-    [showSchedule],
-  );
+  const spanOf = useCallback((row: TreeRow) => spanOfRow(row, showSchedule), [showSchedule]);
   return { hasSchedule, showSchedule, spanOf };
 }

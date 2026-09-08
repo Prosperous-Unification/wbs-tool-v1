@@ -5,6 +5,7 @@ import { DEV, fakeProjectApi as fakeApi } from '@/testing/fake-project-api';
 
 import type * as PlanCellPropsModule from './plan-cell-props';
 import type * as PlanIndexesModule from './plan-indexes';
+import type * as PlanSpanModule from './plan-span';
 import type * as TableFrameModule from './table-frame';
 import { WbsTable } from './wbs-table';
 
@@ -26,6 +27,9 @@ const cellStyleCalls = vi.hoisted(() => ({ count: 0 }));
 /** How many times the Start sentence was worked out from scratch. */
 const startSentenceCalls = vi.hoisted(() => ({ count: 0 }));
 
+/** How many times one row's two printed days were worked out. */
+const spanCalls = vi.hoisted(() => ({ count: 0 }));
+
 /** How many times each index over the whole plan was rebuilt. */
 const indexBuilds = vi.hoisted(() => ({ rowsById: 0, assignedSteps: 0, byId: 0 }));
 
@@ -36,6 +40,17 @@ vi.mock('./table-frame', async (importOriginal) => {
     flexibleCellStyle: (...args: Parameters<typeof real.flexibleCellStyle>) => {
       cellStyleCalls.count += 1;
       return real.flexibleCellStyle(...args);
+    },
+  };
+});
+
+vi.mock('./plan-span', async (importOriginal) => {
+  const real = await importOriginal<typeof PlanSpanModule>();
+  return {
+    ...real,
+    spanOfRow: (...args: Parameters<typeof real.spanOfRow>) => {
+      spanCalls.count += 1;
+      return real.spanOfRow(...args);
     },
   };
 });
@@ -74,6 +89,7 @@ beforeEach(() => {
   localStorage.clear();
   cellStyleCalls.count = 0;
   startSentenceCalls.count = 0;
+  spanCalls.count = 0;
   indexBuilds.rowsById = 0;
   indexBuilds.assignedSteps = 0;
   indexBuilds.byId = 0;
@@ -113,6 +129,7 @@ describe('what one row costs per render', () => {
 
     cellStyleCalls.count = 0;
     startSentenceCalls.count = 0;
+    spanCalls.count = 0;
     // Any gesture that renders the table. How many renders it costs is not this
     // case's business — it is read back below rather than assumed, which is why
     // the assertion is a rate and not a pinned number.
@@ -122,6 +139,12 @@ describe('what one row costs per render', () => {
     expect(Number.isInteger(renders)).toBe(true);
     expect(renders).toBeGreaterThan(0);
     expect(startSentenceCalls.count).toBe(renders * rows);
+    // And the span under it, which the Start cell, the Finish cell and that
+    // sentence each used to ask for separately.
+    //
+    // Proof: `spanOfOnce`'s `spanByRow` lookup bypassed, this failed on
+    // `expected 9 to be 3`. Watched 2026-09-08.
+    expect(spanCalls.count).toBe(renders * rows);
   });
 
   itDom('rebuilds no index over the plan for a gesture that changes no row', async () => {

@@ -864,11 +864,32 @@ export function WbsTable({
    * this line: the chart projection replaces that map further down the render,
    * and all three readers run after it.
    */
+  /**
+   * One row's two printed days, worked out once however many readers ask.
+   *
+   * Three do, per row, per render: the Start cell, the Finish cell, and the
+   * sentence below. Each call allocated a `Date` and two `printedDay`s. The
+   * same per-render `Map` bargain as the sentence — including its `today`,
+   * which is now one moment per row per render rather than one per reader,
+   * which is the consistency {@link spanOfRow} was reaching for anyway.
+   *
+   * The chart is handed the unmemoised `spanOf`: it lays out in a `useMemo` of
+   * its own and may render on a commit this map was not rebuilt for.
+   */
+  const spanByRow = new Map<string, ReturnType<typeof spanOf>>();
+  const spanOfOnce = (row: TreeRow): ReturnType<typeof spanOf> => {
+    const known = spanByRow.get(row.id);
+    if (known !== undefined) return known;
+    const span = spanOf(row);
+    spanByRow.set(row.id, span);
+    return span;
+  };
+
   const saidByRow = new Map<string, string | null>();
   const startSentence = (row: TreeRow): string | null => {
     const known = saidByRow.get(row.id);
     if (known !== undefined) return known;
-    const said = readStartSentence(row, spanOf, startFloor.current);
+    const said = readStartSentence(row, spanOfOnce, startFloor.current);
     saidByRow.set(row.id, said);
     return said;
   };
@@ -965,7 +986,7 @@ export function WbsTable({
     assignTo,
     createPersonFor,
     toggleStep,
-    spanOf,
+    spanOf: spanOfOnce,
     assigneeOn,
     anyAssigneeOn,
     nonOwnerNoteOf,

@@ -229,3 +229,34 @@ and the counting seam for its negative does not exist yet. Named so the next sli
 to find it again. The three `effective*LabelOf` readings are called once per row and allocate two
 arrays each; that is a per-row cost 2.2's explicit render inputs are meant to own, not another
 memo.
+
+## 2.2, fourth part — one row, one span, 2026-09-08
+
+The last of the repeated per-row readings named in the inventory. `spanOf(row)` was worked out
+three times per row per render — the Start cell, the Finish cell and the Start sentence — and
+each call allocated a `Date` and two `printedDay`s.
+
+`spanOfRow(row, showSchedule)` is a pure function in `plan-span.ts` now, `usePlanSchedule`'s
+`spanOf` calls it, and `WbsTable` holds the same kind of per-render `Map` in front of it that the
+sentence already had. The chart keeps the **unmemoised** `spanOf`: it lays out in a `useMemo` of
+its own and may render on a commit this map was not rebuilt for. One side effect is a small
+consistency gain — `today` is now one moment per row per render rather than one per reader.
+
+The module is not decoration. `spanOfRow` first lived beside `usePlanSchedule` in
+`plan-chart-input.ts`, and the check was watched failing on `expected +0 to be 3`: `vi.mock`
+replaces a module's exports for its **importers**, so the hook's call to a function declared in
+its own file was invisible. That is the third time this session; it is now a rule for this
+change — **a pure function that has to be counted lives in a module of its own.**
+
+### Failure proof table
+
+| Check                                                                 | Injected fault                | Observed failure     |
+| --------------------------------------------------------------------- | ----------------------------- | -------------------- |
+| `works the Start sentence out once per row, however many readers ask` | `spanByRow`'s lookup bypassed | `expected 9 to be 3` |
+
+### What 2.2 still owes
+
+Its headline, and only its headline: explicit per-row render inputs and stable cell component
+identities. Every repeated reading the inventory named is now one per row per render or one per
+tree read; what is left is the contract change itself, which is where the `columns`-memo landmine
+and the `live` ref actually get replaced.
