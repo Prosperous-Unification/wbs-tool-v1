@@ -46,6 +46,17 @@ Re-run 2026-09-08 against `main` @ `d2e14214`, over the file set the change decl
 The whole-workspace gate is slice 6's, on a frozen tree. Nothing outside `apps/be-01`
 changed in this slice.
 
+## Slice 4 — what a broken reference means
+
+| Check                                                       | Fault injected                                                                                                    | Test                                                                                                  | Observed                                                                                                                                        |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| a foreign key that is not the step's is thrown, not refused | the step re-read in `writingStep` bypassed (`rows.length > 0 && false`), so every foreign key reads as the step's | `estimate.db.test.ts` › `answers unknown_step for a step that has gone, and throws for anything else` | **Failed**: `Expected promise that rejects · Received promise that resolved` — an absent **work item** answered to the caller as an absent step |
+
+| Command                                                                           | When       | Result                                           |
+| --------------------------------------------------------------------------------- | ---------- | ------------------------------------------------ |
+| `bun test` in `apps/be-01`                                                        | 2026-09-08 | **2009 pass, 1 skip, 0 fail**, 20,013 assertions |
+| `bunx tsc --build --force apps/be-01/tsconfig.json`, `bunx eslint apps/be-01/src` | 2026-09-08 | clean                                            |
+
 ## Slice 3b — the event log, the store composition, and the history outside the batch
 
 | Command                                             | When       | Result                                                 |

@@ -49,6 +49,7 @@ import {
   workItemType,
   workItemWorkItemType,
 } from './schema';
+import { writingStep } from './step-reference';
 import { WORK_ITEM_COLUMNS } from './work-item';
 
 /** Nothing points at it: the empty usage, with both halves present as the spec requires. */
@@ -1404,37 +1405,49 @@ export class DirectoryRepository implements DirectoryStore {
     personId: string | null,
     stamp: WriteStamp,
   ): Promise<AssignmentWritten> {
-    return await this.gate.enter(async () => {
-      await Promise.resolve();
-      return this.db.transaction((tx) => {
-        if (personId !== null) {
-          const held = tx
-            .select({ id: person.id })
-            .from(person)
-            .where(eq(person.id, personId))
-            .all();
-          if (held.length === 0) return { ok: false, reason: 'unknown_person' };
-        }
-        if (personId === null) {
-          // `and(...)`, not `&&`: the JS operator would evaluate to the second
-          // condition alone and delete every step's assignment on this work item.
-          tx.delete(assignment)
-            .where(and(eq(assignment.workItemId, workItemId), eq(assignment.stepId, stepId)))
-            .run();
-        } else {
-          tx.insert(assignment)
-            .values({ workItemId, stepId, personId, ...auditOnCreate(stamp) })
-            // The pair is the primary key, so reassigning is an update rather
-            // than a constraint violation.
-            .onConflictDoUpdate({
-              target: [assignment.workItemId, assignment.stepId],
-              set: { personId, ...auditOnUpdate(stamp) },
-            })
-            .run();
-        }
-        bumpWorkItems(tx, [workItemId], stamp);
-        return { ok: true };
-      });
-    });
+    // The step's own refusal comes back from {@link writingStep} rather than
+    // from a check in front of the write: the person is read inside the
+    // transaction below because a person can go between a check and a write,
+    // and the step is exactly the same race. What tells the two apart
+    // afterwards is which row is missing, which is what that helper re-reads
+    // (D6). Collected into a variable rather than returned through the helper
+    // because the helper's answer is about the **step** alone.
+    let refusal: AssignmentWritten = { ok: true };
+    const written = await writingStep(this.db, stepId, () =>
+      this.gate.enter(async () => {
+        await Promise.resolve();
+        refusal = this.db.transaction((tx) => {
+          if (personId !== null) {
+            const held = tx
+              .select({ id: person.id })
+              .from(person)
+              .where(eq(person.id, personId))
+              .all();
+            if (held.length === 0) return { ok: false, reason: 'unknown_person' } as const;
+          }
+          if (personId === null) {
+            // `and(...)`, not `&&`: the JS operator would evaluate to the second
+            // condition alone and delete every step's assignment on this work item.
+            tx.delete(assignment)
+              .where(and(eq(assignment.workItemId, workItemId), eq(assignment.stepId, stepId)))
+              .run();
+          } else {
+            tx.insert(assignment)
+              .values({ workItemId, stepId, personId, ...auditOnCreate(stamp) })
+              // The pair is the primary key, so reassigning is an update rather
+              // than a constraint violation.
+              .onConflictDoUpdate({
+                target: [assignment.workItemId, assignment.stepId],
+                set: { personId, ...auditOnUpdate(stamp) },
+              })
+              .run();
+          }
+          bumpWorkItems(tx, [workItemId], stamp);
+          return { ok: true } as const;
+        });
+      }),
+    );
+    if (written === 'unknown_step') return { ok: false, reason: 'unknown_step' };
+    return refusal;
   }
 }

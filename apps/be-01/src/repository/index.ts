@@ -855,7 +855,8 @@ export type WorkItemPatched =
  * person removed in the gap makes the insert answer a raw constraint failure —
  * a 500 for a request whose only fault is being out of date.
  */
-export type AssignmentWritten = { ok: true } | { ok: false; reason: 'unknown_person' };
+export type AssignmentWritten =
+  { ok: true } | { ok: false; reason: 'unknown_person' | 'unknown_step' };
 
 /** A position write the caller has already worked out, applied with whatever prompted it. */
 export interface Repositioned {
@@ -923,10 +924,28 @@ export interface StoredEstimate {
   pessimistic: number;
 }
 
+/**
+ * What a write that names a step answers when the step is not there.
+ *
+ * The **store**'s answer rather than a driver error for the service to
+ * classify (D6, `docs/2026-09-05-ports-and-adapters-plan.md` §3.2). SQLite says
+ * `FOREIGN KEY constraint failed` and names no column, so only the store — the
+ * one thing that knows which references it just wrote — can say which of them
+ * was the missing one. A service that read the driver's message would be
+ * reading SQLite's, and a second source would have to produce that message to
+ * be understood.
+ *
+ * `unknown_step` and nothing else: a foreign key that failed over a work item
+ * or a person that has gone is still an unknown, and is still thrown. A step
+ * removed while a client had it on screen is an ordinary race a caller can act
+ * on; the others are invariants nothing should be able to break.
+ */
+export type StepWriteOutcome = 'written' | 'unknown_step';
+
 export interface EstimateStore {
   listByProject(projectId: string): Promise<StoredEstimate[]>;
   /** Writes one work item's estimate for one step, replacing any earlier one. */
-  set(estimate: StoredEstimate, stamp: WriteStamp): Promise<void>;
+  set(estimate: StoredEstimate, stamp: WriteStamp): Promise<StepWriteOutcome>;
   /**
    * Takes away one work item's estimate for one step, leaving every other
    * step on that work item and that step on every other work item alone.
@@ -982,7 +1001,7 @@ export interface ActualStore {
   /** Every actual in the project, in step order within each work item. */
   listByProject(projectId: string): Promise<StoredActual[]>;
   /** Writes one work item's actual for one step, replacing any earlier one. */
-  set(actual: StoredActual, stamp: WriteStamp): Promise<void>;
+  set(actual: StoredActual, stamp: WriteStamp): Promise<StepWriteOutcome>;
   /**
    * Takes away one work item's actual for one step, leaving every other step on
    * that work item and that step on every other work item alone.
@@ -1041,7 +1060,7 @@ export interface StepProgressStore {
   /** Every stated step on every work item in the project, in step order within each. */
   listByProject(projectId: string): Promise<StoredProgress[]>;
   /** States one work item's step, replacing whatever it said before. */
-  set(progress: StoredProgress, stamp: WriteStamp): Promise<void>;
+  set(progress: StoredProgress, stamp: WriteStamp): Promise<StepWriteOutcome>;
   /**
    * Takes the statement back, leaving every other step on that work item and
    * that step on every other work item alone.
@@ -1115,7 +1134,7 @@ export interface MeasureStore {
    * Writes one work item's figure in one metric for one step, replacing any
    * earlier one in that metric and leaving the pair's other metrics alone.
    */
-  set(measure: StoredMeasure, stamp: WriteStamp): Promise<void>;
+  set(measure: StoredMeasure, stamp: WriteStamp): Promise<StepWriteOutcome>;
   /**
    * Takes away one work item's figure in one metric for one step, leaving every
    * other metric on that pair, every other step on that work item and that step

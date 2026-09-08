@@ -483,7 +483,7 @@ describe('a step removed between the check and the write', () => {
       moveAll: (from, to, stamp) => estimates.moveAll(from, to, stamp),
       async set(toSet, stamp) {
         await stepStore.remove(projectId, qaId, true, wrote());
-        await estimates.set(toSet, stamp);
+        return await estimates.set(toSet, stamp);
       },
     };
     const vanishingToo: DirectoryStore = directoryWith(directory, {

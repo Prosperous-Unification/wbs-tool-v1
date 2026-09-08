@@ -4,9 +4,10 @@ import type { SQLiteBunDatabase } from 'drizzle-orm/bun-sqlite';
 import { auditOnCreate, auditOnUpdate } from './audit';
 import { rowsChanged } from './changes';
 import type { Gate } from './gate';
-import type { MeasureStore, StoredMeasure, WriteStamp } from './index';
+import type { MeasureStore, StepWriteOutcome, StoredMeasure, WriteStamp } from './index';
 import { bumpWorkItems } from './revision';
 import { type MeasureMetric, step, stepMeasure, workItem } from './schema';
+import { writingStep } from './step-reference';
 
 /**
  * A measure is a **satellite** of the work item it is for, exactly as an
@@ -90,18 +91,20 @@ export class StepMeasureRepository implements MeasureStore {
    * column says when this number was typed, and a corrected figure was typed
    * today.
    */
-  async set(toSet: StoredMeasure, stamp: WriteStamp): Promise<void> {
-    await this.gate.enter(async () => {
-      await Promise.resolve();
-      this.db.transaction((tx) => {
-        tx.insert(stepMeasure)
-          .values({ ...toSet, ...auditOnCreate(stamp) })
-          .onConflictDoUpdate({
-            target: [stepMeasure.workItemId, stepMeasure.stepId, stepMeasure.metric],
-            set: { value: toSet.value, recordedAt: toSet.recordedAt, ...auditOnUpdate(stamp) },
-          })
-          .run();
-        bumpWorkItems(tx, [toSet.workItemId], stamp);
+  async set(toSet: StoredMeasure, stamp: WriteStamp): Promise<StepWriteOutcome> {
+    return await writingStep(this.db, toSet.stepId, async () => {
+      await this.gate.enter(async () => {
+        await Promise.resolve();
+        this.db.transaction((tx) => {
+          tx.insert(stepMeasure)
+            .values({ ...toSet, ...auditOnCreate(stamp) })
+            .onConflictDoUpdate({
+              target: [stepMeasure.workItemId, stepMeasure.stepId, stepMeasure.metric],
+              set: { value: toSet.value, recordedAt: toSet.recordedAt, ...auditOnUpdate(stamp) },
+            })
+            .run();
+          bumpWorkItems(tx, [toSet.workItemId], stamp);
+        });
       });
     });
   }

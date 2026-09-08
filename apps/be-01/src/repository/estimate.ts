@@ -3,9 +3,10 @@ import type { SQLiteBunDatabase } from 'drizzle-orm/bun-sqlite';
 
 import { auditOnCreate, auditOnUpdate } from './audit';
 import type { Gate } from './gate';
-import type { EstimateStore, StoredEstimate, WriteStamp } from './index';
+import type { EstimateStore, StepWriteOutcome, StoredEstimate, WriteStamp } from './index';
 import { bumpWorkItems } from './revision';
 import { estimate, step, workItem } from './schema';
+import { writingStep } from './step-reference';
 
 /**
  * An estimate is a **satellite** of the work item it is for: it has no identity
@@ -83,23 +84,25 @@ export class EstimateRepository implements EstimateStore {
     );
   }
 
-  async set(toSet: StoredEstimate, stamp: WriteStamp): Promise<void> {
-    await this.gate.enter(async () => {
-      await Promise.resolve();
-      this.db.transaction((tx) => {
-        tx.insert(estimate)
-          .values({ ...toSet, ...auditOnCreate(stamp) })
-          .onConflictDoUpdate({
-            target: [estimate.workItemId, estimate.stepId],
-            set: {
-              optimistic: toSet.optimistic,
-              realistic: toSet.realistic,
-              pessimistic: toSet.pessimistic,
-              ...auditOnUpdate(stamp),
-            },
-          })
-          .run();
-        bumpWorkItems(tx, [toSet.workItemId], stamp);
+  async set(toSet: StoredEstimate, stamp: WriteStamp): Promise<StepWriteOutcome> {
+    return await writingStep(this.db, toSet.stepId, async () => {
+      await this.gate.enter(async () => {
+        await Promise.resolve();
+        this.db.transaction((tx) => {
+          tx.insert(estimate)
+            .values({ ...toSet, ...auditOnCreate(stamp) })
+            .onConflictDoUpdate({
+              target: [estimate.workItemId, estimate.stepId],
+              set: {
+                optimistic: toSet.optimistic,
+                realistic: toSet.realistic,
+                pessimistic: toSet.pessimistic,
+                ...auditOnUpdate(stamp),
+              },
+            })
+            .run();
+          bumpWorkItems(tx, [toSet.workItemId], stamp);
+        });
       });
     });
   }

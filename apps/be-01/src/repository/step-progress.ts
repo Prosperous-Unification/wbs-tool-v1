@@ -4,9 +4,10 @@ import type { SQLiteBunDatabase } from 'drizzle-orm/bun-sqlite';
 import { auditOnCreate, auditOnUpdate } from './audit';
 import { rowsChanged } from './changes';
 import type { Gate } from './gate';
-import type { StepProgressStore, StoredProgress, WriteStamp } from './index';
+import type { StepProgressStore, StepWriteOutcome, StoredProgress, WriteStamp } from './index';
 import { bumpWorkItems } from './revision';
 import { step, stepProgress, workItem } from './schema';
+import { writingStep } from './step-reference';
 
 /**
  * A stated step is a **satellite** of the work item it is on, exactly as an
@@ -74,18 +75,20 @@ export class StepProgressRepository implements StepProgressStore {
    * a step that has just gone from in progress to done was said to be done
    * today.
    */
-  async set(toSet: StoredProgress, stamp: WriteStamp): Promise<void> {
-    await this.gate.enter(async () => {
-      await Promise.resolve();
-      this.db.transaction((tx) => {
-        tx.insert(stepProgress)
-          .values({ ...toSet, ...auditOnCreate(stamp) })
-          .onConflictDoUpdate({
-            target: [stepProgress.workItemId, stepProgress.stepId],
-            set: { state: toSet.state, statedAt: toSet.statedAt, ...auditOnUpdate(stamp) },
-          })
-          .run();
-        bumpWorkItems(tx, [toSet.workItemId], stamp);
+  async set(toSet: StoredProgress, stamp: WriteStamp): Promise<StepWriteOutcome> {
+    return await writingStep(this.db, toSet.stepId, async () => {
+      await this.gate.enter(async () => {
+        await Promise.resolve();
+        this.db.transaction((tx) => {
+          tx.insert(stepProgress)
+            .values({ ...toSet, ...auditOnCreate(stamp) })
+            .onConflictDoUpdate({
+              target: [stepProgress.workItemId, stepProgress.stepId],
+              set: { state: toSet.state, statedAt: toSet.statedAt, ...auditOnUpdate(stamp) },
+            })
+            .run();
+          bumpWorkItems(tx, [toSet.workItemId], stamp);
+        });
       });
     });
   }

@@ -4,9 +4,10 @@ import type { SQLiteBunDatabase } from 'drizzle-orm/bun-sqlite';
 import { auditOnCreate, auditOnUpdate } from './audit';
 import { rowsChanged } from './changes';
 import type { Gate } from './gate';
-import type { ActualStore, StoredActual, WriteStamp } from './index';
+import type { ActualStore, StepWriteOutcome, StoredActual, WriteStamp } from './index';
 import { bumpWorkItems } from './revision';
 import { actual, step, workItem } from './schema';
+import { writingStep } from './step-reference';
 
 /**
  * An actual is a **satellite** of the work item it is for, exactly as an
@@ -73,18 +74,20 @@ export class ActualRepository implements ActualStore {
    * from the row being overwritten: the column says when this number was typed,
    * and a corrected figure was typed today.
    */
-  async set(toSet: StoredActual, stamp: WriteStamp): Promise<void> {
-    await this.gate.enter(async () => {
-      await Promise.resolve();
-      this.db.transaction((tx) => {
-        tx.insert(actual)
-          .values({ ...toSet, ...auditOnCreate(stamp) })
-          .onConflictDoUpdate({
-            target: [actual.workItemId, actual.stepId],
-            set: { days: toSet.days, recordedAt: toSet.recordedAt, ...auditOnUpdate(stamp) },
-          })
-          .run();
-        bumpWorkItems(tx, [toSet.workItemId], stamp);
+  async set(toSet: StoredActual, stamp: WriteStamp): Promise<StepWriteOutcome> {
+    return await writingStep(this.db, toSet.stepId, async () => {
+      await this.gate.enter(async () => {
+        await Promise.resolve();
+        this.db.transaction((tx) => {
+          tx.insert(actual)
+            .values({ ...toSet, ...auditOnCreate(stamp) })
+            .onConflictDoUpdate({
+              target: [actual.workItemId, actual.stepId],
+              set: { days: toSet.days, recordedAt: toSet.recordedAt, ...auditOnUpdate(stamp) },
+            })
+            .run();
+          bumpWorkItems(tx, [toSet.workItemId], stamp);
+        });
       });
     });
   }

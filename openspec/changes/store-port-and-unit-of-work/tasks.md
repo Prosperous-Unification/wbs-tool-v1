@@ -117,12 +117,17 @@ does not wait for the turn its batch holds`: a `run` whose act writes through
 
 ## 4. What a broken reference means, said by the method it happened in
 
-- [ ] 4.1 Each store method that can trip a foreign key answers its own modeled outcome —
-      `unknown_step`, `unknown_person`, … — rather than handing the service a driver error to
-      classify. D6's negative: a foreign-key failure on a **person** while the step exists
-      throws; the step deleted answers `unknown_step`.
-- [ ] 4.2 `isForeignKeyViolation` leaves `service/`. It stays in `repository/constraint.ts`
-      where the driver's error is, and the grep that proves no service imports it is the check.
+- [x] 4.1 Each store method that can trip a foreign key answers its own modeled outcome:
+      `StepWriteOutcome` on the four `set`s that name a step, and `unknown_step` joins
+      `AssignmentWritten`'s refusals. The classification is one helper, `writingStep`, which
+      re-reads the step **after** the failure — read first and the step could go between the
+      check and the write, which is the race the refusal exists for.
+      **The memory fixtures answer `'written'` always** and say why: they enforce no references
+      at all, so they cannot tell a step that has gone from one that never existed. That is
+      D29's lag on a named method, and slice 5 either tightens them or puts them on the
+      allowlist.
+- [x] 4.2 `isForeignKeyViolation` leaves `service/` — `WorkItemService.writeNamingStep` is
+      deleted with it. It stays in `repository/constraint.ts` where the driver's error is.
 
 ## 5. The kits
 

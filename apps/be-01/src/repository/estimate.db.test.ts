@@ -33,6 +33,9 @@ let sandId: string;
  */
 const wrote = (): WriteStamp => ({ at: 1, by: ownerId });
 
+/** A plausible trio; the figures are not the subject of the reference cases. */
+const DAYS = { optimistic: 1, realistic: 2, pessimistic: 3 };
+
 const insertItem = async (
   workItems: WorkItemRepository,
   id: string,
@@ -245,5 +248,36 @@ describe('EstimateRepository', () => {
     expect(held).toHaveLength(20);
     expect(statements).toHaveLength(1);
     expect(statements[0]).not.toContain('in (');
+  });
+});
+
+/**
+ * D6: a reference-specific outcome, said by the method it happened in.
+ *
+ * SQLite answers `FOREIGN KEY constraint failed` and names no column, so a
+ * caller cannot tell a step that has gone from a work item that has. The store
+ * can: it re-reads the step it just named, and only when that row is missing is
+ * the refusal the step's. Anything else is an invariant nothing should have
+ * been able to break, and is thrown.
+ */
+describe('what a broken reference means', () => {
+  it('answers unknown_step for a step that has gone, and throws for anything else', async () => {
+    // The step is gone, the work item is there: the modeled outcome.
+    expect(await repo.set({ workItemId: stripId, stepId: 'no-such-step', ...DAYS }, wrote())).toBe(
+      'unknown_step',
+    );
+
+    // The work item is gone, the step is there: an unknown, and thrown.
+    // Proof: the step re-read in `writingStep` bypassed (`rows.length > 0 &&
+    // false`), so every foreign key reads as the step's — this case failed on
+    // `Expected promise that rejects · Received promise that resolved` — an
+    // absent **work item** reported to the caller as an absent step, and
+    // nothing thrown at all. Watched 2026-09-08. The message asserted on is
+    // drizzle's wrapper rather than SQLite's own `FOREIGN KEY constraint
+    // failed`, which it carries as the cause; what the case is about is that
+    // this reaches the caller as a fault rather than as a refusal.
+    const orphaned = repo.set({ workItemId: 'no-such-work-item', stepId: devId, ...DAYS }, wrote());
+    expect(orphaned).rejects.toThrow(/insert into "estimate"/);
+    await orphaned.catch(() => undefined);
   });
 });

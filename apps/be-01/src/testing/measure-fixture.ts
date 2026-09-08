@@ -32,7 +32,11 @@ export function inMemoryMeasures(
           ),
       );
       rows.push(toSet);
-      return Promise.resolve();
+      // `'written'`, always: these fixtures enforce no references at all, so
+      // they cannot tell a step that has gone from one that never existed. That
+      // is the memory source lagging the SQLite one on a named method (D29),
+      // and slice 5 is where it goes on the allowlist or is tightened.
+      return Promise.resolve('written' as const);
     },
     remove(workItemId, stepId, metric, stamp) {
       stampsSeen.push(stamp);

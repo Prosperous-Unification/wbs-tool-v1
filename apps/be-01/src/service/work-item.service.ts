@@ -68,7 +68,6 @@ import type {
   WorkItemStore,
   WriteStamp,
 } from '../repository';
-import { isForeignKeyViolation } from '../repository/constraint';
 import { MEASURE_METRICS } from '../repository/schema';
 import { assumedAssignee } from './assumed-assignee';
 import type { Broadcaster } from './broadcast';
@@ -2182,10 +2181,7 @@ export class WorkItemService {
       (await this.opts.directory.assignmentsFor(id)).find((each) => each.stepId === stepId)
         ?.personId ?? null;
     const stamp = this.clock.stampFor(actorId);
-    const assigned = await this.writeNamingStep(workItem.projectId, stepId, () =>
-      this.opts.directory.assign(id, stepId, personId, stamp),
-    );
-    if (assigned === null) return { ok: false, reason: 'unknown_step' };
+    const assigned = await this.opts.directory.assign(id, stepId, personId, stamp);
     if (!assigned.ok) return { ok: false, reason: assigned.reason };
     await this.announceTree(workItem.projectId);
     await this.record(
@@ -2879,10 +2875,8 @@ export class WorkItemService {
       return { ok: false, reason: 'unknown_step' };
     const before = await this.storedTrio(workItem.projectId, id, stepId);
     const stamp = this.clock.stampFor(actorId);
-    const written = await this.writeNamingStep(workItem.projectId, stepId, () =>
-      this.opts.estimates.set({ workItemId: id, stepId, ...days }, stamp),
-    );
-    if (written === null) return { ok: false, reason: 'unknown_step' };
+    const written = await this.opts.estimates.set({ workItemId: id, stepId, ...days }, stamp);
+    if (written === 'unknown_step') return { ok: false, reason: 'unknown_step' };
     await this.announceTree(workItem.projectId);
     await this.record(
       workItem.projectId,
@@ -2987,13 +2981,14 @@ export class WorkItemService {
       return { ok: false, reason: 'unknown_step' };
     const before = await this.storedActual(workItem.projectId, id, stepId);
     const stamp = this.clock.stampFor(actorId);
-    const written = await this.writeNamingStep(workItem.projectId, stepId, () =>
-      // `recordedAt` off the act's own stamp: the day this was recorded and the
-      // day the row was written are the same day, and reading the clock twice
-      // would let them differ.
-      this.opts.actuals.set({ workItemId: id, stepId, days, recordedAt: stamp.at }, stamp),
+    // `recordedAt` off the act's own stamp: the day this was recorded and the
+    // day the row was written are the same day, and reading the clock twice
+    // would let them differ.
+    const written = await this.opts.actuals.set(
+      { workItemId: id, stepId, days, recordedAt: stamp.at },
+      stamp,
     );
-    if (written === null) return { ok: false, reason: 'unknown_step' };
+    if (written === 'unknown_step') return { ok: false, reason: 'unknown_step' };
     await this.announceTree(workItem.projectId);
     await this.record(
       workItem.projectId,
@@ -3100,14 +3095,12 @@ export class WorkItemService {
       return { ok: false, reason: 'unknown_step' };
     const before = await this.storedMeasure(workItem.projectId, id, stepId, metric);
     const stamp = this.clock.stampFor(actorId);
-    const written = await this.writeNamingStep(workItem.projectId, stepId, () =>
-      // `recordedAt` off the act's own stamp — {@link setActual}'s reading.
-      this.opts.measures.set(
-        { workItemId: id, stepId, metric, value, recordedAt: stamp.at },
-        stamp,
-      ),
+    // `recordedAt` off the act's own stamp — {@link setActual}'s reading.
+    const written = await this.opts.measures.set(
+      { workItemId: id, stepId, metric, value, recordedAt: stamp.at },
+      stamp,
     );
-    if (written === null) return { ok: false, reason: 'unknown_step' };
+    if (written === 'unknown_step') return { ok: false, reason: 'unknown_step' };
     await this.announceTree(workItem.projectId);
     await this.record(
       workItem.projectId,
@@ -3218,12 +3211,13 @@ export class WorkItemService {
       return { ok: false, reason: 'unknown_step' };
     const before = await this.storedProgress(workItem.projectId, id, stepId);
     const stamp = this.clock.stampFor(actorId);
-    const written = await this.writeNamingStep(workItem.projectId, stepId, () =>
-      // `statedAt` off the act's own stamp — {@link setActual}'s reading of
-      // `recordedAt`, in this method's tense.
-      this.opts.progress.set({ workItemId: id, stepId, state, statedAt: stamp.at }, stamp),
+    // `statedAt` off the act's own stamp — {@link setActual}'s reading of
+    // `recordedAt`, in this method's tense.
+    const written = await this.opts.progress.set(
+      { workItemId: id, stepId, state, statedAt: stamp.at },
+      stamp,
     );
-    if (written === null) return { ok: false, reason: 'unknown_step' };
+    if (written === 'unknown_step') return { ok: false, reason: 'unknown_step' };
     await this.announceTree(workItem.projectId);
     await this.record(
       workItem.projectId,
@@ -3627,17 +3621,15 @@ export class WorkItemService {
         if (!(await this.holdsStep(projectId, command.stepId))) {
           return { ok: false, detail: 'that step is no longer in this project.' };
         }
-        const restored = await this.writeNamingStep(projectId, command.stepId, () =>
-          this.opts.estimates.set(
-            {
-              workItemId: command.workItemId,
-              stepId: command.stepId,
-              ...command.days,
-            },
-            stamp,
-          ),
+        const restored = await this.opts.estimates.set(
+          {
+            workItemId: command.workItemId,
+            stepId: command.stepId,
+            ...command.days,
+          },
+          stamp,
         );
-        if (restored === null)
+        if (restored === 'unknown_step')
           return { ok: false, detail: 'that step is no longer in this project.' };
         return { ok: true, detail: null };
       }
@@ -3655,23 +3647,21 @@ export class WorkItemService {
         if (!(await this.holdsStep(projectId, command.stepId))) {
           return { ok: false, detail: 'that step is no longer in this project.' };
         }
-        const restored = await this.writeNamingStep(projectId, command.stepId, () =>
-          this.opts.actuals.set(
-            {
-              workItemId: command.workItemId,
-              stepId: command.stepId,
-              days: command.days,
-              // Now, not the instant the row carried. An undo is somebody
-              // recording the number again, and this column says when it was
-              // recorded — see the `set_actual` command in `compensating.ts`.
-              // "Now" is the undo's own stamp, so the row's recorded day and its
-              // audit columns cannot disagree.
-              recordedAt: stamp.at,
-            },
-            stamp,
-          ),
+        const restored = await this.opts.actuals.set(
+          {
+            workItemId: command.workItemId,
+            stepId: command.stepId,
+            days: command.days,
+            // Now, not the instant the row carried. An undo is somebody
+            // recording the number again, and this column says when it was
+            // recorded — see the `set_actual` command in `compensating.ts`.
+            // "Now" is the undo's own stamp, so the row's recorded day and its
+            // audit columns cannot disagree.
+            recordedAt: stamp.at,
+          },
+          stamp,
         );
-        if (restored === null)
+        if (restored === 'unknown_step')
           return { ok: false, detail: 'that step is no longer in this project.' };
         return { ok: true, detail: null };
       }
@@ -3689,21 +3679,19 @@ export class WorkItemService {
         if (!(await this.holdsStep(projectId, command.stepId))) {
           return { ok: false, detail: 'that step is no longer in this project.' };
         }
-        const restored = await this.writeNamingStep(projectId, command.stepId, () =>
-          this.opts.measures.set(
-            {
-              workItemId: command.workItemId,
-              stepId: command.stepId,
-              metric: command.metric,
-              value: command.value,
-              // Now, not the instant the row carried — `set_actual`'s reading of
-              // `recordedAt`, and the same one `compensating.ts` states.
-              recordedAt: stamp.at,
-            },
-            stamp,
-          ),
+        const restored = await this.opts.measures.set(
+          {
+            workItemId: command.workItemId,
+            stepId: command.stepId,
+            metric: command.metric,
+            value: command.value,
+            // Now, not the instant the row carried — `set_actual`'s reading of
+            // `recordedAt`, and the same one `compensating.ts` states.
+            recordedAt: stamp.at,
+          },
+          stamp,
         );
-        if (restored === null)
+        if (restored === 'unknown_step')
           return { ok: false, detail: 'that step is no longer in this project.' };
         return { ok: true, detail: null };
       }
@@ -3721,21 +3709,19 @@ export class WorkItemService {
         if (!(await this.holdsStep(projectId, command.stepId))) {
           return { ok: false, detail: 'that step is no longer in this project.' };
         }
-        const restored = await this.writeNamingStep(projectId, command.stepId, () =>
-          this.opts.progress.set(
-            {
-              workItemId: command.workItemId,
-              stepId: command.stepId,
-              state: command.state,
-              // Now, not the instant the row carried. An undo is somebody saying
-              // it again, and this column says when it was said — the same
-              // reading `set_actual` takes of `recordedAt`.
-              statedAt: stamp.at,
-            },
-            stamp,
-          ),
+        const restored = await this.opts.progress.set(
+          {
+            workItemId: command.workItemId,
+            stepId: command.stepId,
+            state: command.state,
+            // Now, not the instant the row carried. An undo is somebody saying
+            // it again, and this column says when it was said — the same
+            // reading `set_actual` takes of `recordedAt`.
+            statedAt: stamp.at,
+          },
+          stamp,
         );
-        if (restored === null)
+        if (restored === 'unknown_step')
           return { ok: false, detail: 'that step is no longer in this project.' };
         return { ok: true, detail: null };
       }
@@ -3747,10 +3733,13 @@ export class WorkItemService {
           return { ok: false, detail: 'that step is no longer in this project.' };
         }
         {
-          const reassigned = await this.writeNamingStep(projectId, command.stepId, () =>
-            this.opts.directory.assign(command.workItemId, command.stepId, command.personId, stamp),
+          const reassigned = await this.opts.directory.assign(
+            command.workItemId,
+            command.stepId,
+            command.personId,
+            stamp,
           );
-          if (reassigned === null) {
+          if (!reassigned.ok && reassigned.reason === 'unknown_step') {
             return { ok: false, detail: 'that step is no longer in this project.' };
           }
           // The person was removed after the command ran. Undo never
@@ -4147,43 +4136,6 @@ export class WorkItemService {
         createdAt: stamp.at,
       },
     );
-  }
-
-  /**
-   * Runs a write that names a step, answering `null` when the step went between
-   * the check above it and the statement itself, and otherwise whatever the
-   * write answered.
-   *
-   * {@link WorkItemService.holdsStep} narrows the window and does not close it:
-   * a removal can commit between that read and this write, and `estimate` and
-   * `assignment` both reference `step.id` by foreign key. Left alone that is a
-   * 500 for a caller whose only fault is being a moment out of date, which R5
-   * calls a modeled condition wearing an invariant's clothes.
-   *
-   * The translation is deliberately narrow. SQLite's message names no column,
-   * so the step is re-read before the refusal is believed: a foreign key that
-   * failed over a work item or a person that has gone is still unknown, and
-   * still thrown.
-   *
-   * Proof: with the `catch` removed, `refuses the estimate rather than
-   * answering with the foreign key` and `refuses the assignee the same way`
-   * both fail with `SQLiteError: FOREIGN KEY constraint failed`; with the
-   * `holdsStep` re-read dropped, `still throws a foreign key that is not about
-   * the step` fails, an absent person reported as an absent step. Watched
-   * 2026-08-09.
-   */
-  private async writeNamingStep<T>(
-    projectId: string,
-    stepId: string,
-    write: () => Promise<T>,
-  ): Promise<T | null> {
-    try {
-      return await write();
-    } catch (err) {
-      if (!isForeignKeyViolation(err)) throw err;
-      if (await this.holdsStep(projectId, stepId)) throw err;
-      return null;
-    }
   }
 
   /**
