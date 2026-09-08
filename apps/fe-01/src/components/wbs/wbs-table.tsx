@@ -12,6 +12,7 @@ import {
 
 import { Button } from '@/components/ui/button';
 
+import { type CellCards, createCellCards, useCardOpenOn } from './cell-card-store';
 import { type ColumnHintState, hintFor } from './column-hints';
 import { createDepLights, type DepLights } from './dep-light-store';
 import { type DropZone, zoneFor } from './drag-drop';
@@ -22,7 +23,12 @@ import { appliedGanttHeight, DAY_PX, GanttPanel } from './gantt-panel';
 import { KeyboardCheatSheet } from './keyboard-cheat-sheet';
 import { OptimizationIndicator } from './optimization-indicator';
 import { PlanCards } from './plan-cards';
-import { createPlanCellProps, opensAPopover, readStartSentence } from './plan-cell-props';
+import {
+  createPlanCellProps,
+  opensAPopover,
+  readStartSentence,
+  startCardId,
+} from './plan-cell-props';
 import { usePlanChartInput, usePlanSchedule } from './plan-chart-input';
 import { PLAN_TABLE_FEATURES } from './plan-columns/column';
 import { createPlanColumns } from './plan-columns/columns';
@@ -206,6 +212,61 @@ function PlanRow({
   );
 }
 
+/** What {@link PlanCell} needs beyond the `<td>` attributes it passes on. */
+interface PlanCellProps extends ComponentProps<'td'> {
+  cards: CellCards;
+  /** This cell's key, the one the store is asked about. */
+  cell: string;
+  /** The card this `<td>` points `aria-describedby` at while it is open. */
+  describedBy?: string;
+  /** Whether an open card here has to be lifted over the pinned layer. */
+  raiseWhenOpen?: boolean;
+}
+
+/**
+ * One plan cell's `<td>`: the attributes {@link WbsTable} works out, plus the
+ * two that depend on whether **this** cell's hover card is open.
+ *
+ * A component of its own so a card can open without the table rendering, which
+ * is {@link PlanRow}'s bargain one level down. The two readings that live here
+ * were the last things holding `openCard` in the composition: the Start cell's
+ * `aria-describedby`, and the Name cell's lift over the pinned layer. The cells
+ * inside subscribe for themselves ({@link useCardOpenOn}) and are handed in as
+ * `children`, so a card opening three rows away re-renders neither this shell
+ * nor them.
+ *
+ * The lift is last in the style order, so it wins over the pinned layer it is
+ * raising. A pinned cell is sticky *with a z-index*, which makes it a stacking
+ * context — so the preview hanging off this one is trapped inside it and the
+ * next row's pinned Name cell paints over it, whatever the preview's own
+ * z-index says. The Name column is the only cell in the table that is both
+ * pinned and holds a popover.
+ *
+ * Proof of that one: found in a browser rather than reasoned about — `4px below
+ * the name cell is <textarea> in the name column, not the preview`, on h2puni
+ * 2026-08-08, with `opensAPopover` and every other rule already correct.
+ */
+function PlanCell({
+  cards,
+  cell,
+  describedBy,
+  raiseWhenOpen = false,
+  style,
+  children,
+  ...attributes
+}: PlanCellProps) {
+  const carded = useCardOpenOn(cards, cell);
+  return (
+    <td
+      {...attributes}
+      aria-describedby={carded && describedBy !== undefined ? describedBy : undefined}
+      style={carded && raiseWhenOpen ? { ...style, zIndex: POPOVER_ROW_LAYER } : style}
+    >
+      {children}
+    </td>
+  );
+}
+
 /**
  * The work breakdown: one grid that is a table and a nested list at once.
  *
@@ -302,52 +363,24 @@ export function WbsTable({
   const { drafts, setDrafts, mention, setMention, foldedBox, foldedAtFocus } =
     useEstimateDraftState();
   /**
-   * The one cell whose hover card is open, as a {@link cellKey}, or null.
+   * Which cell's hover card is on screen, and who says so.
    *
-   * One state for every surface that opens a card — the Name cell's notes
-   * marker, a folded step's figure, the depends chips — rather than one state
-   * each, and that is what makes "one card at a time" true by construction
-   * rather than by three pieces of code remembering to close each other.
+   * One store for every surface that opens a card — the Name cell's notes
+   * marker, a folded step's figure, the depends chips, the Start day, the links
+   * — rather than one state each, and that is what makes "one card at a time"
+   * true by construction rather than by five pieces of code remembering to
+   * close each other. Keyed by cell and not by row, because a row has several,
+   * and by the `rowId::columnId` the keyboard grid already spells cells with.
    *
-   * Keyed by cell rather than by row because a row has several of them, and by
-   * the `rowId::columnId` the keyboard grid already names cells with, so this
-   * file holds one spelling of "which cell".
-   *
-   * Read through {@link live} inside `columns`, never closed over: the memo's
-   * dependencies are the three {@link PlanLiveValues} names — `steps`,
-   * `unfoldedSteps`, `hiddenColumnIds` — and a dependency that changed on every
-   * mouse move would remount every cell in the table as the pointer crossed it.
+   * **Two `useState`s at the top of this component until R10**, and the address
+   * was the whole of the cost: the cells read their live state through
+   * `live.current` and rely on every parent render reaching every cell, so one
+   * pointer move onto a cardable cell re-rendered every row and the whole Gantt
+   * to draw one card. See {@link createCellCards} — this is W2-7's cell half,
+   * deferred out of W4-4 in writing and named there as R10's.
    */
-  const [hoveredCell, setHoveredCell] = useState<string | null>(null);
-  /**
-   * The one cell whose card is open because it has the **focus**, as a
-   * {@link cellKey}, or null.
-   *
-   * A second state rather than a second writer of {@link hoveredCell}, and round
-   * 4's finding 9 is why. The two are set and cleared by gestures that do not
-   * take turns: a pointer wandering across any other cardable cell and off it
-   * again ran the hover's guarded clear, and the still-focused cell was left
-   * with no card and no reason to fire a focus event ever again — a description
-   * that vanishes because a mouse went past.
-   *
-   * Not settled against a refreshed tree the way `hoveredCell` is, deliberately:
-   * a card that belongs to the focus should follow the focus, and the browser
-   * moves that with its element whatever the tree did. A row deleted while its
-   * box was focused leaves a key here that no rendered cell can ever match
-   * again, which shows nothing and is replaced by the next focus.
-   */
-  const [focusedCell, setFocusedCell] = useState<string | null>(null);
-  /**
-   * The one cell whose card is on screen: the pointer's while it is on
-   * something, and the focus's when it is not.
-   *
-   * Derived rather than stored, which is what keeps "one card at a time" true by
-   * construction now that two gestures can open one. The pointer wins because it
-   * is the deliberate act of the moment — a reader who moves the mouse onto a
-   * cell is asking about that cell — and the focus is still where they left it
-   * when they move away again.
-   */
-  const openCard = hoveredCell ?? focusedCell;
+  const cellCards = useRef(createCellCards()).current;
+
   /**
    * Where every row sat as of the last tree read, by {@link placementsOf}.
    *
@@ -540,7 +573,7 @@ export function WbsTable({
     setWorkItems,
     treeReadProject,
     rowPlacements,
-    setHoveredCell,
+    cellCards,
     setChartRead,
     setStack,
     setTeamCapacities,
@@ -949,9 +982,7 @@ export function WbsTable({
     closeMention,
     leaveFoldedCell,
     mentionOptions,
-    openCard,
-    setHoveredCell,
-    setFocusedCell,
+    cellCards,
     setNotBefore,
     setNotBeforeReason,
     setDeadline,
@@ -1111,9 +1142,8 @@ export function WbsTable({
     dependenciesOf,
     depLights,
     depPicker,
-    setHoveredCell,
+    cellCards,
     startSentence,
-    openCard,
   });
   const { ganttPlan } = usePlanChartInput({
     shownRows,
@@ -1815,8 +1845,16 @@ export function WbsTable({
                     }}
                   >
                     {row.getAllCells().map((cell) => (
-                      <td
+                      <PlanCell
                         key={cell.id}
+                        cards={cellCards}
+                        cell={cellKey(row.original.id, cell.column.id)}
+                        describedBy={
+                          cell.column.id === 'start' && startSentence(row.original) !== null
+                            ? startCardId(row.original.id)
+                            : undefined
+                        }
+                        raiseWhenOpen={cell.column.id === 'name'}
                         // See the `th` above: the layout gate measures these boxes
                         // and has to be able to name the one that moved.
                         data-column={cell.column.id}
@@ -1843,22 +1881,6 @@ export function WbsTable({
                             : {}),
                           ...flexibleCellStyle(cell.column.id, frameState),
                           ...pinnedCellStyle(layout, cell.column.id, 'body'),
-                          // Last, so it wins over the pinned layer it is raising.
-                          // A pinned cell is sticky *with a z-index*, which makes
-                          // it a stacking context — so the preview hanging off
-                          // this one is trapped inside it and the next row's
-                          // pinned Name cell paints over it, whatever the
-                          // preview's own z-index says. The Name column is the
-                          // only cell in the table that is both pinned and holds a
-                          // popover, and this is the row it is open on.
-                          // Proof: found in a browser rather than reasoned about —
-                          // `4px below the name cell is <textarea> in the name
-                          // column, not the preview`, on h2puni 2026-08-08, with
-                          // `opensAPopover` and every other rule already correct.
-                          ...(cell.column.id === 'name' &&
-                          openCard === cellKey(row.original.id, 'name')
-                            ? { zIndex: POPOVER_ROW_LAYER }
-                            : {}),
                           // After the pinned background, so the warning is visible
                           // on the three columns that hold the left edge too.
                           ...(armedDelete?.rowId === row.original.id
@@ -1867,7 +1889,7 @@ export function WbsTable({
                         }}
                       >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </td>
+                      </PlanCell>
                     ))}
                   </PlanRow>
                 ))}

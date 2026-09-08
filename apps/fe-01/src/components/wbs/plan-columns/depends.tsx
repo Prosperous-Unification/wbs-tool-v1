@@ -1,3 +1,4 @@
+import { useCardOpenOn } from '../cell-card-store';
 import { PICKER_PANEL_STYLE } from '../creatable-picker';
 import { REFUSAL_SUFFIX } from '../dep-picker';
 import { DependsCard, dependsLine, entersThroughDependsCard } from '../depends-card';
@@ -18,6 +19,15 @@ export function createDependsColumn({ live }: { live: PlanLive }) {
     id: 'depends',
     header: 'Depends on',
     cell: ({ row }) => {
+      // A subscription and not a reading off `live`: this cell is a component
+      // ({@link flexRender} builds it with `createElement`), so it can be told
+      // about its own card without the table rendering. First, and
+      // unconditionally, because it is a hook.
+      // `flexRender` builds this with `React.createElement`, so it **is** a
+      // component and the hook below is legal; the rule reads the property
+      // name `cell` and cannot see the call site.
+      // eslint-disable-next-line react-hooks/rules-of-hooks
+      const cardOpen = useCardOpenOn(live.current.cellCards, cellKey(row.original.id, 'depends'));
       // From the tree (`dependenciesOf` walks `flat`), never from the
       // rows on screen: a collapsed or filtered-out dependency has no row
       // to light, and the card naming it is then the only place it is
@@ -52,7 +62,7 @@ export function createDependsColumn({ live }: { live: PlanLive }) {
       // are looking at. `picker`, not `open`: a picker with nothing to
       // offer is still a cell being typed in.
       const cardable = waitingFor.length > 0 && picker === null;
-      const carded = cardable && live.current.openCard === dependsCell;
+      const carded = cardable && cardOpen;
       // What the card says, for a reader with no pointer. This cell cannot
       // answer a focus with the card the way the folded step cell does —
       // the focus here already belongs to the picker, which opens on it and
@@ -765,7 +775,7 @@ export function createDependsColumn({ live }: { live: PlanLive }) {
                 live.current.depLights.updateHover((current) =>
                   current?.rowId === row.original.id ? null : current,
                 );
-                live.current.setHoveredCell((current) =>
+                live.current.cellCards.updateHovered((current) =>
                   current === dependsCell ? null : current,
                 );
               }}

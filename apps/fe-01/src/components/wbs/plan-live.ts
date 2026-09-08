@@ -11,6 +11,7 @@ import type {
 } from '@/lib/wbs-api';
 import { type ProjectApi } from '@/lib/wbs-api';
 
+import { type CellCards } from './cell-card-store';
 import { type PickerOption } from './creatable-picker';
 import { type DepLights } from './dep-light-store';
 import type { PickerEntry } from './dep-picker';
@@ -99,9 +100,16 @@ export interface PlanLiveValues {
   closeMention: () => void;
   leaveFoldedCell: () => void;
   mentionOptions: (row: TreeRow, stepId: string) => PickerOption[];
-  openCard: string | null;
-  setHoveredCell: React.Dispatch<React.SetStateAction<string | null>>;
-  setFocusedCell: React.Dispatch<React.SetStateAction<string | null>>;
+  /**
+   * Which cell's hover card is on screen, and the two writers that decide.
+   *
+   * A store rather than three values on this contract since R10: a card is a
+   * pointer reading, and a pointer reading held in {@link WbsTable}'s state
+   * re-rendered every cell in the table on every boundary the pointer crossed.
+   * A cell that draws a card subscribes with {@link useCardOpenOn}; nothing
+   * reads the open key off this object during a render.
+   */
+  cellCards: CellCards;
   setNotBefore: (id: string, day: string | null, reason?: string | null) => void;
   setNotBeforeReason: (id: string, typed: string) => void;
   setDeadline: (id: string, day: string | null) => void;

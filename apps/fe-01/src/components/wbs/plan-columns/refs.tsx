@@ -1,3 +1,4 @@
+import { useCardOpenOn } from '../cell-card-store';
 import { cellKey } from '../editable-grid';
 import { MARK_BOX_PX, markStyle, refMarksOf, refMarksSentence } from '../external-ref-marks';
 import { ExternalRefsCard } from '../external-refs-card';
@@ -25,10 +26,18 @@ export function createRefsColumn({ live }: { live: PlanLive }) {
       </span>
     ),
     cell: ({ row }) => {
+      // A subscription and not a reading off `live`: this cell is a component,
+      // so it can be told about its own card without the table rendering.
+      // First, and unconditionally, because it is a hook.
+      // `flexRender` builds this with `React.createElement`, so it **is** a
+      // component and the hook below is legal; the rule reads the property
+      // name `cell` and cannot see the call site.
+      // eslint-disable-next-line react-hooks/rules-of-hooks
+      const cardOpen = useCardOpenOn(live.current.cellCards, cellKey(row.original.id, 'refs'));
       // The vocabulary is a mutable reading under the PlanLive contract.
       const marks = refMarksOf(row.original.externalRefs, live.current.externalSystems);
       const refsCell = cellKey(row.original.id, 'refs');
-      const carded = marks.length > 0 && live.current.openCard === refsCell;
+      const carded = marks.length > 0 && cardOpen;
       const sentenceId = `refs-${row.original.id}`;
       return (
         <span
@@ -42,7 +51,9 @@ export function createRefsColumn({ live }: { live: PlanLive }) {
           onMouseLeave={() => {
             // The same-cell guard every surface here clears with: a leave
             // fires after the enter of whatever the pointer moved on to.
-            live.current.setHoveredCell((current) => (current === refsCell ? null : current));
+            live.current.cellCards.updateHovered((current) =>
+              current === refsCell ? null : current,
+            );
           }}
         >
           <button
@@ -55,7 +66,7 @@ export function createRefsColumn({ live }: { live: PlanLive }) {
             // announced about a cell that says nothing.
             aria-describedby={marks.length === 0 ? undefined : sentenceId}
             onMouseEnter={() => {
-              live.current.setHoveredCell(refsCell);
+              live.current.cellCards.updateHovered(() => refsCell);
             }}
             onClick={() => {
               live.current.setRefsEditing(row.original.id);

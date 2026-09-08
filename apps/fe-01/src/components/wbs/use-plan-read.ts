@@ -33,6 +33,7 @@ import {
   type StepView,
 } from '@/lib/wbs-api';
 
+import { type CellCards } from './cell-card-store';
 import type { FocusIntent } from './live-editing';
 import { type CommitOutcome, forgetRefusedDrafts } from './live-editing';
 import {
@@ -415,7 +416,7 @@ export function usePlanRead({
   setWorkItems,
   treeReadProject,
   rowPlacements,
-  setHoveredCell,
+  cellCards,
   setChartRead,
   setStack,
   setTeamCapacities,
@@ -445,7 +446,7 @@ export function usePlanRead({
   setWorkItems: React.Dispatch<React.SetStateAction<TreeRow[]>>;
   treeReadProject: React.RefObject<string | null>;
   rowPlacements: React.RefObject<ReadonlyMap<string, string>>;
-  setHoveredCell: React.Dispatch<React.SetStateAction<string | null>>;
+  cellCards: CellCards;
   setChartRead: React.Dispatch<React.SetStateAction<ChartRead>>;
   setStack: React.Dispatch<React.SetStateAction<{ undoable: boolean; redoable: boolean }>>;
   setTeamCapacities: React.Dispatch<React.SetStateAction<TeamCapacityView[]>>;
@@ -568,7 +569,7 @@ export function usePlanRead({
         const placements = placementsOf(drawn);
         const wasPlaced = rowPlacements.current;
         rowPlacements.current = placements;
-        setHoveredCell((open) => hoveredCellAfterRefresh(open, wasPlaced, placements));
+        cellCards.updateHovered((open) => hoveredCellAfterRefresh(open, wasPlaced, placements));
         // On the same read as the rows and behind the same generation check: a
         // superseded read must not leave its slices under another read's rows.
         // Proof: written as `setSlices((current) => current.length === 0 ?
@@ -624,7 +625,7 @@ export function usePlanRead({
       setChartRead,
       setEstimateMethod,
       setExternalSystems,
-      setHoveredCell,
+      cellCards,
       setPeople,
       setPriorityBands,
       setScheduleError,

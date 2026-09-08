@@ -1,5 +1,6 @@
 import { type StepView } from '@/lib/wbs-api';
 
+import { useCardOpenOn } from '../cell-card-store';
 import { CellInput } from '../cell-input';
 import { STEP_FINAL_HINT } from '../column-hints';
 import { CreatablePicker, PickerList, pickerOptionId } from '../creatable-picker';
@@ -72,6 +73,17 @@ export function createEstimatesColumns({
           </button>
         ),
         cell: ({ row }) => {
+          // A subscription and not a reading off `live`: this cell is a
+          // component, so it can be told about its own card without the table
+          // rendering. First, and unconditionally, because it is a hook.
+          // `flexRender` builds this with `React.createElement`, so it **is** a
+          // component and the hook below is legal; the rule reads the property
+          // name `cell` and cannot see the call site.
+          // eslint-disable-next-line react-hooks/rules-of-hooks
+          const cardOpen = useCardOpenOn(
+            live.current.cellCards,
+            cellKey(row.original.id, `${step.id}-final`),
+          );
           // A folded step must not be able to hide a complaint: a typed
           // trio that saves nothing stays visible as a mark on the figure
           // the fold leaves behind.
@@ -148,7 +160,7 @@ export function createEstimatesColumns({
           const mentioning =
             openMention?.rowId === row.original.id && openMention.stepId === step.id;
           const cardable = !unfolded && !mentioning;
-          const carded = cardable && live.current.openCard === finalCell;
+          const carded = cardable && cardOpen;
           // The card's own id, which the box below points
           // `aria-describedby` at while it is open — this cell's answer to
           // "a card only a pointer can open is data withheld from anybody
@@ -165,13 +177,15 @@ export function createEstimatesColumns({
                 // lives on the table and a write of it renders all of it.
                 // See the depends cell's own enter for the whole of it.
                 if (!cardable) return;
-                live.current.setHoveredCell(finalCell);
+                live.current.cellCards.updateHovered(() => finalCell);
               }}
               onMouseLeave={() => {
                 // The same-cell guard the Name cell's marker gives its
                 // reason for: a leave lands after the enter of whatever the
                 // pointer moved on to.
-                live.current.setHoveredCell((current) => (current === finalCell ? null : current));
+                live.current.cellCards.updateHovered((current) =>
+                  current === finalCell ? null : current,
+                );
               }}
               // No native `title` here or on the input below: the card is
               // this cell's one hint (CONTEXT.md, "Hover preview"), and a
@@ -191,7 +205,9 @@ export function createEstimatesColumns({
                 // The focus-opened card goes with the focus. Guarded like
                 // every other clear: a blur can land after the next cell has
                 // already taken the focus.
-                live.current.setFocusedCell((current) => (current === finalCell ? null : current));
+                live.current.cellCards.updateFocused((current) =>
+                  current === finalCell ? null : current,
+                );
               }}
               style={{
                 position: 'relative',
@@ -337,10 +353,10 @@ export function createEstimatesColumns({
                     // `opens the card on the focus too, and points the box
                     // at it` failed on `Unable to find an accessible element
                     // with the role "tooltip"`. Written back to
-                    // `setHoveredCell`, with `openCard` folded back to the
+                    // the hover's writer, with the open card folded back to the
                     // hover: `keeps the focused cell's card when the pointer
                     // visits another and leaves` failed the same way.
-                    live.current.setFocusedCell(finalCell);
+                    live.current.cellCards.updateFocused(() => finalCell);
                     e.currentTarget.select();
                   }}
                   style={{
