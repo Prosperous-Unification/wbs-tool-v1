@@ -15,6 +15,18 @@ export function indexRowsById(rows: readonly TreeRow[]): ReadonlyMap<string, Tre
   return byId;
 }
 
+/**
+ * Any directory vocabulary as a lookup by id.
+ *
+ * The label and assignee readings asked `teams.find(...)`, `services.find(...)`
+ * and `people.find(...)` **per row**, so naming a plan's labels was
+ * O(rows × directory) once per vocabulary. A directory changes when its own read
+ * lands, which is rarely, so the index is memoised on the list it indexes.
+ */
+export function indexById<T extends { id: string }>(items: readonly T[]): ReadonlyMap<string, T> {
+  return new Map(items.map((item) => [item.id, item]));
+}
+
 /** Which steps somebody on the plan is named for. */
 export interface AssignedSteps {
   /**

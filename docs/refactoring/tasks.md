@@ -42,9 +42,15 @@ ran its own.
 
 Nothing below has an owning task in the external queue (`backlog/tasks/task-NNN …`) unless named.
 
-- [ ] **R10 `measured-rendering`** — 2/17 tasks; work was started in `refactor/measured-rendering`
-      (last movement #301, 2026-09-07, docs and baselines only). Needs R1 (done) and W4-4 (done);
-      starts with the Chromium baseline in its `tasks.md` 1.2–1.4.
+- [ ] **R10 `measured-rendering`** — 3/17 tasks. Task **2.1 is done** (#335): the cells' 87-field
+      contract is written down in the change's `row-dependency-inventory.md`, and
+      `plan-row-dependencies.test.tsx` holds the peer-update/focus regressions 2.2 must not
+      break. Task **2.2 is part-done** — #338 trimmed the contract to 82 fields and made the
+      Start sentence one reading per row per render; #339 and #341 removed the two scans of the
+      whole plan and the three directory scans that ran once per cell. What 2.2 still owes is its
+      headline: explicit per-row render inputs and stable cell component identities, plus
+      `spanOf`'s three calls per row. The Chromium baseline (1.2–1.4) is still unrun and still
+      gates section 4.
 - [ ] **W4-4 tasks 3.4–3.5** — the independent review and coordinated full browser gate the
       change asked for before its `live` contract is handed to R1/R10. `main`'s green runs cover
       the gate; the review is unrecorded.
