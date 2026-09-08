@@ -372,9 +372,14 @@ exec ${process.execPath} build --target=bun --outdir=${out} "$1"
   *) exit 64;;
 esac`),
     );
+    // One append per observation, terminator included. Two of these run at once
+    // by design, and `O_APPEND` makes each write atomic but not a pair of them:
+    // with the record and its newline written separately, the other process
+    // lands in between and both observations arrive as one line. That is how
+    // this case read `cccc…:FIXEDbbbb…:BROKEN` in CI run 34169031212.
     await writeFile(
       fakeBun,
-      '#!/usr/bin/env bash\nset -eu\nif [ "$1" = --version ]; then echo 1.3.14; exit 0; fi\nprintf "%s:%s" "$2" "$(cat "$1")" >> "$POLL_OBSERVATIONS"\nprintf "\\n" >> "$POLL_OBSERVATIONS"\n',
+      '#!/usr/bin/env bash\nset -eu\nif [ "$1" = --version ]; then echo 1.3.14; exit 0; fi\nprintf "%s:%s\\n" "$2" "$(cat "$1")" >> "$POLL_OBSERVATIONS"\n',
     );
     await chmod(fakeGit, 0o755);
     await chmod(fakeBun, 0o755);
