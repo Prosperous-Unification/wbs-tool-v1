@@ -1,0 +1,624 @@
+{
+  "status": "complete",
+  "stage": "eight-steps-unfolded-right",
+  "metadata": {
+    "sourceHead": "067d9f2d9e97b724c442bdfa2ea36e3a86bf29d6",
+    "sourceStatus": " M apps/fe-01/e2e/rendering-baseline.spec.ts\n",
+    "fixtureSha256": "14ecabb8481d64a7ebe8d6546dd2166e0537438ec7fb4ec40a10853684bfddf2",
+    "fixtureFiles": [
+      "apps/fe-01/e2e/rendering-baseline.spec.ts",
+      "apps/fe-01/e2e/rendering-fixture.ts",
+      "apps/fe-01/e2e/rendering-evidence.ts"
+    ],
+    "phase": "gantt",
+    "measurementUse": "optimized-limited",
+    "startedAt": "2026-09-08T11:35:43.190Z",
+    "trace": "off",
+    "seeded": {
+      "rows": 1000,
+      "steps": 8,
+      "density": "dense",
+      "projectId": "08dc40f6-fd77-4326-987f-54d087757b2e",
+      "edges": 7964,
+      "setupMs": 121638
+    },
+    "browser": "153.0.8010.12",
+    "runtime": {
+      "platform": "linux",
+      "release": "7.0.11-76070011-generic",
+      "arch": "x64",
+      "cpu": "12th Gen Intel(R) Core(TM) i7-12800HX"
+    },
+    "viewport": {
+      "width": 1400,
+      "height": 900
+    },
+    "server": "warm Vite development/backend; fresh owned stack",
+    "throttle": "none"
+  },
+  "samples": [
+    {
+      "stage": "gantt-open",
+      "observation": {
+        "kind": "gantt-open",
+        "geometry": {
+          "mountedRows": 28,
+          "mountedCells": 448,
+          "intersectingRows": 16,
+          "intersectingCells": 240,
+          "headers": 21,
+          "width": 1368,
+          "height": 424,
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "columns": [
+            {
+              "id": "drag",
+              "width": 24
+            },
+            {
+              "id": "number",
+              "width": 105
+            },
+            {
+              "id": "name",
+              "width": 200
+            },
+            {
+              "id": "depends",
+              "width": 86
+            },
+            {
+              "id": "priority",
+              "width": 48
+            },
+            {
+              "id": "tag",
+              "width": 120
+            },
+            {
+              "id": "in-parallel",
+              "width": 32
+            },
+            {
+              "id": "a066ca92-e37b-4459-b027-67f1f027a040-final",
+              "width": 96
+            },
+            {
+              "id": "24524acd-55ae-4750-88be-ca6de435d173-final",
+              "width": 96
+            },
+            {
+              "id": "1298f437-12a4-484b-85cd-99b64596f375-final",
+              "width": 96
+            },
+            {
+              "id": "e75b99ec-20c4-4cdd-9822-d03cceed6e6c-final",
+              "width": 96
+            },
+            {
+              "id": "5028653b-5e84-4ba1-ad8a-1c8886702bbe-final",
+              "width": 96
+            },
+            {
+              "id": "1b94251d-cd24-4c31-8129-f0d122726d17-final",
+              "width": 96
+            },
+            {
+              "id": "43f67ced-30f2-4f11-ae92-f122576d691b-final",
+              "width": 96
+            },
+            {
+              "id": "f9bd40cf-d0bc-4e56-ba35-c1d83a5e0f02-final",
+              "width": 96
+            },
+            {
+              "id": "final-total",
+              "width": 52
+            },
+            {
+              "id": "not-before",
+              "width": 56
+            },
+            {
+              "id": "start",
+              "width": 98
+            },
+            {
+              "id": "finish",
+              "width": 98
+            },
+            {
+              "id": "float",
+              "width": 56
+            },
+            {
+              "id": "actions",
+              "width": 40
+            }
+          ],
+          "rowHeights": [26.1875, 26.1875, 26.1875]
+        },
+        "chart": 1000,
+        "labelGeometry": [
+          {
+            "top": 540,
+            "height": 28
+          },
+          {
+            "top": 568,
+            "height": 28
+          },
+          {
+            "top": 596,
+            "height": 28
+          }
+        ]
+      }
+    },
+    {
+      "stage": "eight-steps-unfolded-left",
+      "observation": {
+        "kind": "eight-steps-unfolded-left",
+        "geometry": {
+          "mountedRows": 28,
+          "mountedCells": 504,
+          "intersectingRows": 16,
+          "intersectingCells": 288,
+          "headers": 53,
+          "width": 1368,
+          "height": 424,
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "columns": [
+            {
+              "id": "drag",
+              "width": 24
+            },
+            {
+              "id": "number",
+              "width": 105
+            },
+            {
+              "id": "name",
+              "width": 200
+            },
+            {
+              "id": "depends",
+              "width": 86
+            },
+            {
+              "id": "priority",
+              "width": 48
+            },
+            {
+              "id": "tag",
+              "width": 120
+            },
+            {
+              "id": "in-parallel",
+              "width": 32
+            },
+            {
+              "id": "a066ca92-e37b-4459-b027-67f1f027a040-final",
+              "width": 96
+            },
+            {
+              "id": "a066ca92-e37b-4459-b027-67f1f027a040-optimistic",
+              "width": 44
+            },
+            {
+              "id": "a066ca92-e37b-4459-b027-67f1f027a040-realistic",
+              "width": 44
+            },
+            {
+              "id": "a066ca92-e37b-4459-b027-67f1f027a040-pessimistic",
+              "width": 44
+            },
+            {
+              "id": "a066ca92-e37b-4459-b027-67f1f027a040-assignee",
+              "width": 120
+            },
+            {
+              "id": "24524acd-55ae-4750-88be-ca6de435d173-final",
+              "width": 96
+            },
+            {
+              "id": "24524acd-55ae-4750-88be-ca6de435d173-optimistic",
+              "width": 44
+            },
+            {
+              "id": "24524acd-55ae-4750-88be-ca6de435d173-realistic",
+              "width": 44
+            },
+            {
+              "id": "24524acd-55ae-4750-88be-ca6de435d173-pessimistic",
+              "width": 44
+            },
+            {
+              "id": "24524acd-55ae-4750-88be-ca6de435d173-assignee",
+              "width": 120
+            },
+            {
+              "id": "1298f437-12a4-484b-85cd-99b64596f375-final",
+              "width": 96
+            },
+            {
+              "id": "1298f437-12a4-484b-85cd-99b64596f375-optimistic",
+              "width": 44
+            },
+            {
+              "id": "1298f437-12a4-484b-85cd-99b64596f375-realistic",
+              "width": 44
+            },
+            {
+              "id": "1298f437-12a4-484b-85cd-99b64596f375-pessimistic",
+              "width": 44
+            },
+            {
+              "id": "1298f437-12a4-484b-85cd-99b64596f375-assignee",
+              "width": 120
+            },
+            {
+              "id": "e75b99ec-20c4-4cdd-9822-d03cceed6e6c-final",
+              "width": 96
+            },
+            {
+              "id": "e75b99ec-20c4-4cdd-9822-d03cceed6e6c-optimistic",
+              "width": 44
+            },
+            {
+              "id": "e75b99ec-20c4-4cdd-9822-d03cceed6e6c-realistic",
+              "width": 44
+            },
+            {
+              "id": "e75b99ec-20c4-4cdd-9822-d03cceed6e6c-pessimistic",
+              "width": 44
+            },
+            {
+              "id": "e75b99ec-20c4-4cdd-9822-d03cceed6e6c-assignee",
+              "width": 120
+            },
+            {
+              "id": "5028653b-5e84-4ba1-ad8a-1c8886702bbe-final",
+              "width": 96
+            },
+            {
+              "id": "5028653b-5e84-4ba1-ad8a-1c8886702bbe-optimistic",
+              "width": 44
+            },
+            {
+              "id": "5028653b-5e84-4ba1-ad8a-1c8886702bbe-realistic",
+              "width": 44
+            },
+            {
+              "id": "5028653b-5e84-4ba1-ad8a-1c8886702bbe-pessimistic",
+              "width": 44
+            },
+            {
+              "id": "5028653b-5e84-4ba1-ad8a-1c8886702bbe-assignee",
+              "width": 120
+            },
+            {
+              "id": "1b94251d-cd24-4c31-8129-f0d122726d17-final",
+              "width": 96
+            },
+            {
+              "id": "1b94251d-cd24-4c31-8129-f0d122726d17-optimistic",
+              "width": 44
+            },
+            {
+              "id": "1b94251d-cd24-4c31-8129-f0d122726d17-realistic",
+              "width": 44
+            },
+            {
+              "id": "1b94251d-cd24-4c31-8129-f0d122726d17-pessimistic",
+              "width": 44
+            },
+            {
+              "id": "1b94251d-cd24-4c31-8129-f0d122726d17-assignee",
+              "width": 120
+            },
+            {
+              "id": "43f67ced-30f2-4f11-ae92-f122576d691b-final",
+              "width": 96
+            },
+            {
+              "id": "43f67ced-30f2-4f11-ae92-f122576d691b-optimistic",
+              "width": 44
+            },
+            {
+              "id": "43f67ced-30f2-4f11-ae92-f122576d691b-realistic",
+              "width": 44
+            },
+            {
+              "id": "43f67ced-30f2-4f11-ae92-f122576d691b-pessimistic",
+              "width": 44
+            },
+            {
+              "id": "43f67ced-30f2-4f11-ae92-f122576d691b-assignee",
+              "width": 120
+            },
+            {
+              "id": "f9bd40cf-d0bc-4e56-ba35-c1d83a5e0f02-final",
+              "width": 96
+            },
+            {
+              "id": "f9bd40cf-d0bc-4e56-ba35-c1d83a5e0f02-optimistic",
+              "width": 44
+            },
+            {
+              "id": "f9bd40cf-d0bc-4e56-ba35-c1d83a5e0f02-realistic",
+              "width": 44
+            },
+            {
+              "id": "f9bd40cf-d0bc-4e56-ba35-c1d83a5e0f02-pessimistic",
+              "width": 44
+            },
+            {
+              "id": "f9bd40cf-d0bc-4e56-ba35-c1d83a5e0f02-assignee",
+              "width": 120
+            },
+            {
+              "id": "final-total",
+              "width": 52
+            },
+            {
+              "id": "not-before",
+              "width": 56
+            },
+            {
+              "id": "start",
+              "width": 98
+            },
+            {
+              "id": "finish",
+              "width": 98
+            },
+            {
+              "id": "float",
+              "width": 56
+            },
+            {
+              "id": "actions",
+              "width": 40
+            }
+          ],
+          "rowHeights": [26.1875, 26.1875, 26.1875]
+        }
+      }
+    },
+    {
+      "stage": "eight-steps-unfolded-right",
+      "observation": {
+        "kind": "eight-steps-unfolded-right",
+        "geometry": {
+          "mountedRows": 28,
+          "mountedCells": 840,
+          "intersectingRows": 16,
+          "intersectingCells": 384,
+          "headers": 53,
+          "width": 1368,
+          "height": 424,
+          "scrollTop": 0,
+          "scrollLeft": 2431,
+          "columns": [
+            {
+              "id": "drag",
+              "width": 24
+            },
+            {
+              "id": "number",
+              "width": 105
+            },
+            {
+              "id": "name",
+              "width": 200
+            },
+            {
+              "id": "depends",
+              "width": 86
+            },
+            {
+              "id": "priority",
+              "width": 48
+            },
+            {
+              "id": "tag",
+              "width": 120
+            },
+            {
+              "id": "in-parallel",
+              "width": 32
+            },
+            {
+              "id": "a066ca92-e37b-4459-b027-67f1f027a040-final",
+              "width": 96
+            },
+            {
+              "id": "a066ca92-e37b-4459-b027-67f1f027a040-optimistic",
+              "width": 44
+            },
+            {
+              "id": "a066ca92-e37b-4459-b027-67f1f027a040-realistic",
+              "width": 44
+            },
+            {
+              "id": "a066ca92-e37b-4459-b027-67f1f027a040-pessimistic",
+              "width": 44
+            },
+            {
+              "id": "a066ca92-e37b-4459-b027-67f1f027a040-assignee",
+              "width": 120
+            },
+            {
+              "id": "24524acd-55ae-4750-88be-ca6de435d173-final",
+              "width": 96
+            },
+            {
+              "id": "24524acd-55ae-4750-88be-ca6de435d173-optimistic",
+              "width": 44
+            },
+            {
+              "id": "24524acd-55ae-4750-88be-ca6de435d173-realistic",
+              "width": 44
+            },
+            {
+              "id": "24524acd-55ae-4750-88be-ca6de435d173-pessimistic",
+              "width": 44
+            },
+            {
+              "id": "24524acd-55ae-4750-88be-ca6de435d173-assignee",
+              "width": 120
+            },
+            {
+              "id": "1298f437-12a4-484b-85cd-99b64596f375-final",
+              "width": 96
+            },
+            {
+              "id": "1298f437-12a4-484b-85cd-99b64596f375-optimistic",
+              "width": 44
+            },
+            {
+              "id": "1298f437-12a4-484b-85cd-99b64596f375-realistic",
+              "width": 44
+            },
+            {
+              "id": "1298f437-12a4-484b-85cd-99b64596f375-pessimistic",
+              "width": 44
+            },
+            {
+              "id": "1298f437-12a4-484b-85cd-99b64596f375-assignee",
+              "width": 120
+            },
+            {
+              "id": "e75b99ec-20c4-4cdd-9822-d03cceed6e6c-final",
+              "width": 96
+            },
+            {
+              "id": "e75b99ec-20c4-4cdd-9822-d03cceed6e6c-optimistic",
+              "width": 44
+            },
+            {
+              "id": "e75b99ec-20c4-4cdd-9822-d03cceed6e6c-realistic",
+              "width": 44
+            },
+            {
+              "id": "e75b99ec-20c4-4cdd-9822-d03cceed6e6c-pessimistic",
+              "width": 44
+            },
+            {
+              "id": "e75b99ec-20c4-4cdd-9822-d03cceed6e6c-assignee",
+              "width": 120
+            },
+            {
+              "id": "5028653b-5e84-4ba1-ad8a-1c8886702bbe-final",
+              "width": 96
+            },
+            {
+              "id": "5028653b-5e84-4ba1-ad8a-1c8886702bbe-optimistic",
+              "width": 44
+            },
+            {
+              "id": "5028653b-5e84-4ba1-ad8a-1c8886702bbe-realistic",
+              "width": 44
+            },
+            {
+              "id": "5028653b-5e84-4ba1-ad8a-1c8886702bbe-pessimistic",
+              "width": 44
+            },
+            {
+              "id": "5028653b-5e84-4ba1-ad8a-1c8886702bbe-assignee",
+              "width": 120
+            },
+            {
+              "id": "1b94251d-cd24-4c31-8129-f0d122726d17-final",
+              "width": 96
+            },
+            {
+              "id": "1b94251d-cd24-4c31-8129-f0d122726d17-optimistic",
+              "width": 44
+            },
+            {
+              "id": "1b94251d-cd24-4c31-8129-f0d122726d17-realistic",
+              "width": 44
+            },
+            {
+              "id": "1b94251d-cd24-4c31-8129-f0d122726d17-pessimistic",
+              "width": 44
+            },
+            {
+              "id": "1b94251d-cd24-4c31-8129-f0d122726d17-assignee",
+              "width": 120
+            },
+            {
+              "id": "43f67ced-30f2-4f11-ae92-f122576d691b-final",
+              "width": 96
+            },
+            {
+              "id": "43f67ced-30f2-4f11-ae92-f122576d691b-optimistic",
+              "width": 44
+            },
+            {
+              "id": "43f67ced-30f2-4f11-ae92-f122576d691b-realistic",
+              "width": 44
+            },
+            {
+              "id": "43f67ced-30f2-4f11-ae92-f122576d691b-pessimistic",
+              "width": 44
+            },
+            {
+              "id": "43f67ced-30f2-4f11-ae92-f122576d691b-assignee",
+              "width": 120
+            },
+            {
+              "id": "f9bd40cf-d0bc-4e56-ba35-c1d83a5e0f02-final",
+              "width": 96
+            },
+            {
+              "id": "f9bd40cf-d0bc-4e56-ba35-c1d83a5e0f02-optimistic",
+              "width": 44
+            },
+            {
+              "id": "f9bd40cf-d0bc-4e56-ba35-c1d83a5e0f02-realistic",
+              "width": 44
+            },
+            {
+              "id": "f9bd40cf-d0bc-4e56-ba35-c1d83a5e0f02-pessimistic",
+              "width": 44
+            },
+            {
+              "id": "f9bd40cf-d0bc-4e56-ba35-c1d83a5e0f02-assignee",
+              "width": 120
+            },
+            {
+              "id": "final-total",
+              "width": 52
+            },
+            {
+              "id": "not-before",
+              "width": 56
+            },
+            {
+              "id": "start",
+              "width": 98
+            },
+            {
+              "id": "finish",
+              "width": 98
+            },
+            {
+              "id": "float",
+              "width": 56
+            },
+            {
+              "id": "actions",
+              "width": 40
+            }
+          ],
+          "rowHeights": [26.1875, 26.1875, 26.1875]
+        }
+      }
+    }
+  ]
+}

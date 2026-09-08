@@ -1,0 +1,136 @@
+{
+  "status": "complete",
+  "stage": "gantt-open",
+  "metadata": {
+    "sourceHead": "067d9f2d9e97b724c442bdfa2ea36e3a86bf29d6",
+    "sourceStatus": " M apps/fe-01/e2e/rendering-baseline.spec.ts\n",
+    "fixtureSha256": "14ecabb8481d64a7ebe8d6546dd2166e0537438ec7fb4ec40a10853684bfddf2",
+    "fixtureFiles": [
+      "apps/fe-01/e2e/rendering-baseline.spec.ts",
+      "apps/fe-01/e2e/rendering-fixture.ts",
+      "apps/fe-01/e2e/rendering-evidence.ts"
+    ],
+    "phase": "gantt",
+    "measurementUse": "optimized-limited",
+    "startedAt": "2026-09-08T11:15:44.878Z",
+    "trace": "off",
+    "seeded": {
+      "rows": 100,
+      "steps": 2,
+      "density": "sparse",
+      "projectId": "baedfda0-e1e7-410e-b22c-b6cf78c68eb3",
+      "edges": 9,
+      "setupMs": 2643
+    },
+    "browser": "153.0.8010.12",
+    "runtime": {
+      "platform": "linux",
+      "release": "7.0.11-76070011-generic",
+      "arch": "x64",
+      "cpu": "12th Gen Intel(R) Core(TM) i7-12800HX"
+    },
+    "viewport": {
+      "width": 1400,
+      "height": 900
+    },
+    "server": "warm Vite development/backend; fresh owned stack",
+    "throttle": "none"
+  },
+  "samples": [
+    {
+      "stage": "gantt-open",
+      "observation": {
+        "kind": "gantt-open",
+        "geometry": {
+          "mountedRows": 28,
+          "mountedCells": 420,
+          "intersectingRows": 16,
+          "intersectingCells": 240,
+          "headers": 15,
+          "width": 1368,
+          "height": 424,
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "columns": [
+            {
+              "id": "drag",
+              "width": 24
+            },
+            {
+              "id": "number",
+              "width": 105
+            },
+            {
+              "id": "name",
+              "width": 361
+            },
+            {
+              "id": "depends",
+              "width": 86
+            },
+            {
+              "id": "priority",
+              "width": 48
+            },
+            {
+              "id": "tag",
+              "width": 120
+            },
+            {
+              "id": "in-parallel",
+              "width": 32
+            },
+            {
+              "id": "8242fc48-b69f-4bb7-bf9a-3e6ebb695c28-final",
+              "width": 96
+            },
+            {
+              "id": "8040e3a8-2dab-4daf-9a37-7c68af69bdbc-final",
+              "width": 96
+            },
+            {
+              "id": "final-total",
+              "width": 52
+            },
+            {
+              "id": "not-before",
+              "width": 56
+            },
+            {
+              "id": "start",
+              "width": 98
+            },
+            {
+              "id": "finish",
+              "width": 98
+            },
+            {
+              "id": "float",
+              "width": 56
+            },
+            {
+              "id": "actions",
+              "width": 40
+            }
+          ],
+          "rowHeights": [26.1875, 26.1875, 26.1875]
+        },
+        "chart": 100,
+        "labelGeometry": [
+          {
+            "top": 540,
+            "height": 28
+          },
+          {
+            "top": 568,
+            "height": 28
+          },
+          {
+            "top": 596,
+            "height": 28
+          }
+        ]
+      }
+    }
+  ]
+}

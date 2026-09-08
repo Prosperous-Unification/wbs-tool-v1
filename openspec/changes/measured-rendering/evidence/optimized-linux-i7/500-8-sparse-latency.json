@@ -1,0 +1,309 @@
+{
+  "status": "complete",
+  "stage": "warm-reload",
+  "metadata": {
+    "sourceHead": "067d9f2d9e97b724c442bdfa2ea36e3a86bf29d6",
+    "sourceStatus": " M apps/fe-01/e2e/rendering-baseline.spec.ts\n",
+    "fixtureSha256": "14ecabb8481d64a7ebe8d6546dd2166e0537438ec7fb4ec40a10853684bfddf2",
+    "fixtureFiles": [
+      "apps/fe-01/e2e/rendering-baseline.spec.ts",
+      "apps/fe-01/e2e/rendering-fixture.ts",
+      "apps/fe-01/e2e/rendering-evidence.ts"
+    ],
+    "phase": "latency",
+    "measurementUse": "optimized-limited",
+    "startedAt": "2026-09-08T11:18:41.522Z",
+    "trace": "off",
+    "seeded": {
+      "rows": 500,
+      "steps": 8,
+      "density": "sparse",
+      "projectId": "875c137d-d88e-4b4f-ba68-806c22e061a4",
+      "edges": 49,
+      "setupMs": 19030
+    },
+    "browser": "153.0.8010.12",
+    "runtime": {
+      "platform": "linux",
+      "release": "7.0.11-76070011-generic",
+      "arch": "x64",
+      "cpu": "12th Gen Intel(R) Core(TM) i7-12800HX"
+    },
+    "viewport": {
+      "width": 1400,
+      "height": 900
+    },
+    "server": "warm Vite development/backend; fresh owned stack",
+    "throttle": "none"
+  },
+  "samples": [
+    {
+      "stage": "cold-context",
+      "observation": {
+        "kind": "cold-context",
+        "contextIndex": 0,
+        "round": 0,
+        "readyPaintMs": 1605,
+        "treeResponseToPaintMs": 368,
+        "longTasks": [
+          {
+            "start": 179.40000009536743,
+            "duration": 845
+          },
+          {
+            "start": 1091.8000000715256,
+            "duration": 56
+          },
+          {
+            "start": 1293.1000000238419,
+            "duration": 300
+          },
+          {
+            "start": 1605.3000000715256,
+            "duration": 86
+          }
+        ],
+        "geometry": {
+          "mountedRows": 43,
+          "mountedCells": 688,
+          "intersectingRows": 30,
+          "intersectingCells": 450,
+          "headers": 21,
+          "width": 1368,
+          "height": 805,
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "columns": [
+            {
+              "id": "drag",
+              "width": 24
+            },
+            {
+              "id": "number",
+              "width": 105
+            },
+            {
+              "id": "name",
+              "width": 200
+            },
+            {
+              "id": "depends",
+              "width": 86
+            },
+            {
+              "id": "priority",
+              "width": 48
+            },
+            {
+              "id": "tag",
+              "width": 120
+            },
+            {
+              "id": "in-parallel",
+              "width": 32
+            },
+            {
+              "id": "4480bf2e-2271-42c4-9b9e-a277e96127c9-final",
+              "width": 96
+            },
+            {
+              "id": "e77dd6cd-3e45-46e6-9850-d40e5f7dd650-final",
+              "width": 96
+            },
+            {
+              "id": "8256a77b-0dfe-4320-9fdb-de0ac6df8748-final",
+              "width": 96
+            },
+            {
+              "id": "2e1b5db1-2fbe-4b67-8b0c-2a6569d55de0-final",
+              "width": 96
+            },
+            {
+              "id": "27616b4e-c848-48bc-8748-0678eb93e071-final",
+              "width": 96
+            },
+            {
+              "id": "c951206a-77e2-430e-a450-a028a9228efc-final",
+              "width": 96
+            },
+            {
+              "id": "5123020e-2fd3-452d-b324-846fec1f84a5-final",
+              "width": 96
+            },
+            {
+              "id": "5c1f0a06-0efa-443e-bb3d-8e86686bb916-final",
+              "width": 96
+            },
+            {
+              "id": "final-total",
+              "width": 52
+            },
+            {
+              "id": "not-before",
+              "width": 56
+            },
+            {
+              "id": "start",
+              "width": 98
+            },
+            {
+              "id": "finish",
+              "width": 98
+            },
+            {
+              "id": "float",
+              "width": 56
+            },
+            {
+              "id": "actions",
+              "width": 40
+            }
+          ],
+          "rowHeights": [26.1875, 26.1875, 26.1875]
+        },
+        "broad": {
+          "character": "R",
+          "inputPaintMs": 89.20000004768372,
+          "filterPaintMs": 96.39999997615814
+        },
+        "selective": {
+          "character": "z",
+          "inputPaintMs": 97.19999992847443,
+          "filterPaintMs": 181.79999995231628
+        }
+      }
+    },
+    {
+      "stage": "warm-reload",
+      "observation": {
+        "kind": "warm-reload",
+        "contextIndex": 0,
+        "round": 1,
+        "readyPaintMs": 1207.8000000715256,
+        "treeResponseToPaintMs": 342.7000000476837,
+        "longTasks": [
+          {
+            "start": 84,
+            "duration": 603
+          },
+          {
+            "start": 903.8000000715256,
+            "duration": 291
+          },
+          {
+            "start": 1209.2000000476837,
+            "duration": 180
+          }
+        ],
+        "geometry": {
+          "mountedRows": 43,
+          "mountedCells": 688,
+          "intersectingRows": 30,
+          "intersectingCells": 450,
+          "headers": 21,
+          "width": 1368,
+          "height": 805,
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "columns": [
+            {
+              "id": "drag",
+              "width": 24
+            },
+            {
+              "id": "number",
+              "width": 105
+            },
+            {
+              "id": "name",
+              "width": 200
+            },
+            {
+              "id": "depends",
+              "width": 86
+            },
+            {
+              "id": "priority",
+              "width": 48
+            },
+            {
+              "id": "tag",
+              "width": 120
+            },
+            {
+              "id": "in-parallel",
+              "width": 32
+            },
+            {
+              "id": "4480bf2e-2271-42c4-9b9e-a277e96127c9-final",
+              "width": 96
+            },
+            {
+              "id": "e77dd6cd-3e45-46e6-9850-d40e5f7dd650-final",
+              "width": 96
+            },
+            {
+              "id": "8256a77b-0dfe-4320-9fdb-de0ac6df8748-final",
+              "width": 96
+            },
+            {
+              "id": "2e1b5db1-2fbe-4b67-8b0c-2a6569d55de0-final",
+              "width": 96
+            },
+            {
+              "id": "27616b4e-c848-48bc-8748-0678eb93e071-final",
+              "width": 96
+            },
+            {
+              "id": "c951206a-77e2-430e-a450-a028a9228efc-final",
+              "width": 96
+            },
+            {
+              "id": "5123020e-2fd3-452d-b324-846fec1f84a5-final",
+              "width": 96
+            },
+            {
+              "id": "5c1f0a06-0efa-443e-bb3d-8e86686bb916-final",
+              "width": 96
+            },
+            {
+              "id": "final-total",
+              "width": 52
+            },
+            {
+              "id": "not-before",
+              "width": 56
+            },
+            {
+              "id": "start",
+              "width": 98
+            },
+            {
+              "id": "finish",
+              "width": 98
+            },
+            {
+              "id": "float",
+              "width": 56
+            },
+            {
+              "id": "actions",
+              "width": 40
+            }
+          ],
+          "rowHeights": [26.1875, 26.1875, 26.1875]
+        },
+        "broad": {
+          "character": "R",
+          "inputPaintMs": 77.10000002384186,
+          "filterPaintMs": 84.60000002384186
+        },
+        "selective": {
+          "character": "z",
+          "inputPaintMs": 87.5,
+          "filterPaintMs": 179.90000009536743
+        }
+      }
+    }
+  ]
+}

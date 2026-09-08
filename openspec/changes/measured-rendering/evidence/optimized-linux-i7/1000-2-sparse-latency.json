@@ -1,0 +1,265 @@
+{
+  "status": "complete",
+  "stage": "warm-reload",
+  "metadata": {
+    "sourceHead": "067d9f2d9e97b724c442bdfa2ea36e3a86bf29d6",
+    "sourceStatus": " M apps/fe-01/e2e/rendering-baseline.spec.ts\n",
+    "fixtureSha256": "14ecabb8481d64a7ebe8d6546dd2166e0537438ec7fb4ec40a10853684bfddf2",
+    "fixtureFiles": [
+      "apps/fe-01/e2e/rendering-baseline.spec.ts",
+      "apps/fe-01/e2e/rendering-fixture.ts",
+      "apps/fe-01/e2e/rendering-evidence.ts"
+    ],
+    "phase": "latency",
+    "measurementUse": "optimized-limited",
+    "startedAt": "2026-09-08T11:21:50.688Z",
+    "trace": "off",
+    "seeded": {
+      "rows": 1000,
+      "steps": 2,
+      "density": "sparse",
+      "projectId": "89df99e4-6f26-4e49-b729-b25d30bfbca7",
+      "edges": 99,
+      "setupMs": 13891
+    },
+    "browser": "153.0.8010.12",
+    "runtime": {
+      "platform": "linux",
+      "release": "7.0.11-76070011-generic",
+      "arch": "x64",
+      "cpu": "12th Gen Intel(R) Core(TM) i7-12800HX"
+    },
+    "viewport": {
+      "width": 1400,
+      "height": 900
+    },
+    "server": "warm Vite development/backend; fresh owned stack",
+    "throttle": "none"
+  },
+  "samples": [
+    {
+      "stage": "cold-context",
+      "observation": {
+        "kind": "cold-context",
+        "contextIndex": 0,
+        "round": 0,
+        "readyPaintMs": 1618.5999999046326,
+        "treeResponseToPaintMs": 313.09999990463257,
+        "longTasks": [
+          {
+            "start": 203.09999990463257,
+            "duration": 885
+          },
+          {
+            "start": 1155.3999999761581,
+            "duration": 57
+          },
+          {
+            "start": 1332.2999999523163,
+            "duration": 277
+          },
+          {
+            "start": 1618.8999999761581,
+            "duration": 86
+          }
+        ],
+        "geometry": {
+          "mountedRows": 43,
+          "mountedCells": 645,
+          "intersectingRows": 30,
+          "intersectingCells": 450,
+          "headers": 15,
+          "width": 1368,
+          "height": 805,
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "columns": [
+            {
+              "id": "drag",
+              "width": 24
+            },
+            {
+              "id": "number",
+              "width": 105
+            },
+            {
+              "id": "name",
+              "width": 361
+            },
+            {
+              "id": "depends",
+              "width": 86
+            },
+            {
+              "id": "priority",
+              "width": 48
+            },
+            {
+              "id": "tag",
+              "width": 120
+            },
+            {
+              "id": "in-parallel",
+              "width": 32
+            },
+            {
+              "id": "b968f8d7-4456-49e1-ac79-e26eace0c6cc-final",
+              "width": 96
+            },
+            {
+              "id": "de2ef2f6-983d-4ca4-a580-1e68cda0da6f-final",
+              "width": 96
+            },
+            {
+              "id": "final-total",
+              "width": 52
+            },
+            {
+              "id": "not-before",
+              "width": 56
+            },
+            {
+              "id": "start",
+              "width": 98
+            },
+            {
+              "id": "finish",
+              "width": 98
+            },
+            {
+              "id": "float",
+              "width": 56
+            },
+            {
+              "id": "actions",
+              "width": 40
+            }
+          ],
+          "rowHeights": [26.1875, 26.1875, 26.1875]
+        },
+        "broad": {
+          "character": "R",
+          "inputPaintMs": 98.5,
+          "filterPaintMs": 103.89999997615814
+        },
+        "selective": {
+          "character": "z",
+          "inputPaintMs": 82.79999995231628,
+          "filterPaintMs": 163.89999997615814
+        }
+      }
+    },
+    {
+      "stage": "warm-reload",
+      "observation": {
+        "kind": "warm-reload",
+        "contextIndex": 0,
+        "round": 1,
+        "readyPaintMs": 1206.3999999761581,
+        "treeResponseToPaintMs": 296.39999997615814,
+        "longTasks": [
+          {
+            "start": 102.20000004768372,
+            "duration": 637
+          },
+          {
+            "start": 930.2000000476837,
+            "duration": 266
+          },
+          {
+            "start": 1206.7999999523163,
+            "duration": 159
+          },
+          {
+            "start": 1409,
+            "duration": 63
+          }
+        ],
+        "geometry": {
+          "mountedRows": 43,
+          "mountedCells": 645,
+          "intersectingRows": 30,
+          "intersectingCells": 450,
+          "headers": 15,
+          "width": 1368,
+          "height": 805,
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "columns": [
+            {
+              "id": "drag",
+              "width": 24
+            },
+            {
+              "id": "number",
+              "width": 105
+            },
+            {
+              "id": "name",
+              "width": 361
+            },
+            {
+              "id": "depends",
+              "width": 86
+            },
+            {
+              "id": "priority",
+              "width": 48
+            },
+            {
+              "id": "tag",
+              "width": 120
+            },
+            {
+              "id": "in-parallel",
+              "width": 32
+            },
+            {
+              "id": "b968f8d7-4456-49e1-ac79-e26eace0c6cc-final",
+              "width": 96
+            },
+            {
+              "id": "de2ef2f6-983d-4ca4-a580-1e68cda0da6f-final",
+              "width": 96
+            },
+            {
+              "id": "final-total",
+              "width": 52
+            },
+            {
+              "id": "not-before",
+              "width": 56
+            },
+            {
+              "id": "start",
+              "width": 98
+            },
+            {
+              "id": "finish",
+              "width": 98
+            },
+            {
+              "id": "float",
+              "width": 56
+            },
+            {
+              "id": "actions",
+              "width": 40
+            }
+          ],
+          "rowHeights": [26.1875, 26.1875, 26.1875]
+        },
+        "broad": {
+          "character": "R",
+          "inputPaintMs": 21.299999952316284,
+          "filterPaintMs": 106.5
+        },
+        "selective": {
+          "character": "z",
+          "inputPaintMs": 121.79999995231628,
+          "filterPaintMs": 140.5
+        }
+      }
+    }
+  ]
+}

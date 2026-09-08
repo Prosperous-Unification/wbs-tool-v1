@@ -41,10 +41,12 @@ async function findSample(page: Page, character: string, rows: number) {
           };
           observed.renderingInput = observation;
           const observeFilter = () => {
+            const grid = document.querySelector('[data-grid]');
+            const mountedRows = grid?.querySelectorAll('tbody tr[data-row-id]') ?? [];
             if (
-              document.querySelectorAll('[data-grid] tbody tr[data-row-id]').length ===
-                expectedRows &&
-              document.querySelectorAll('[data-grid] [data-match="true"]').length === expectedRows
+              grid?.getAttribute('aria-rowcount') === String(expectedRows + 1) &&
+              mountedRows.length > 0 &&
+              grid.querySelectorAll('[data-match="true"]').length === mountedRows.length
             ) {
               requestAnimationFrame(() => {
                 observation.filtered = performance.now();
@@ -64,10 +66,14 @@ async function findSample(page: Page, character: string, rows: number) {
     character === 'z' ? 1 : rows,
   );
   await page.keyboard.type(character);
-  await expect(page.locator('[data-grid] tbody tr[data-row-id]')).toHaveCount(
-    character === 'z' ? 1 : rows,
+  await expect(page.locator('[data-grid]')).toHaveAttribute(
+    'aria-rowcount',
+    String((character === 'z' ? 1 : rows) + 1),
   );
   await painted(page);
+  await expect
+    .poll(() => page.evaluate(() => (window as ObservedWindow).renderingInput?.filtered ?? null))
+    .not.toBeNull();
   const observed = await page.evaluate(() => {
     const observation = (window as ObservedWindow).renderingInput;
     if (observation?.paint == null || observation.filtered === null)
@@ -449,8 +455,12 @@ test.describe('Chromium rendering baseline', () => {
                       });
                   }).observe({ type: 'longtask', buffered: true });
                   const ready = new MutationObserver(() => {
+                    const grid = document.querySelector('[data-grid]');
+                    // Proof: asking for rows + 2 here failed this production measurement at
+                    // `table readiness paint was not observed`.
                     if (
-                      document.querySelectorAll('[data-grid] tbody tr[data-row-id]').length !== rows
+                      grid?.getAttribute('aria-rowcount') !== String(rows + 1) ||
+                      grid.querySelector('tbody tr[data-row-id]') === null
                     )
                       return;
                     ready.disconnect();
@@ -466,10 +476,14 @@ test.describe('Chromium rendering baseline', () => {
                 const rounds = phase === 'latency' && contextIndex === 0 ? warmCount + 1 : 1;
                 for (let round = 0; round < rounds; round += 1) {
                   await measured.goto('/');
-                  await expect(measured.locator('[data-grid] tbody tr[data-row-id]')).toHaveCount(
-                    rows,
+                  await expect(measured.locator('[data-grid]')).toHaveAttribute(
+                    'aria-rowcount',
+                    String(rows + 1),
                     { timeout: 120_000 },
                   );
+                  await expect(
+                    measured.locator('[data-grid] tbody tr[data-row-id]').first(),
+                  ).toBeVisible();
                   await expect(
                     measured.locator(`[data-name-input="${seeded.ids[0]}"]`),
                   ).toHaveValue('Row 0000');
@@ -512,8 +526,9 @@ test.describe('Chromium rendering baseline', () => {
                 }
                 if (phase === 'gantt') {
                   await measured.getByLabel('Find', { exact: true }).fill('');
-                  await expect(measured.locator('[data-grid] tbody tr[data-row-id]')).toHaveCount(
-                    rows,
+                  await expect(measured.locator('[data-grid]')).toHaveAttribute(
+                    'aria-rowcount',
+                    String(rows + 1),
                   );
                   await measured.getByRole('button', { name: 'Gantt', exact: true }).click();
                   await expect(measured.getByLabel('Gantt chart', { exact: true })).toBeVisible();

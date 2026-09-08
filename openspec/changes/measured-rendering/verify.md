@@ -627,3 +627,48 @@ passing assertions.
 | ------------------------------------------------ | ------------------------------------ | ----------------------------------- |
 | folded cells stay within the independent budget  | render all100 shown rows             | `Expected: <= 1200, Received: 1500` |
 | an offscreen unfolded column is initially absent | mount every leaf column in every row | `Expected: 0, Received: 43`         |
+
+## 4.5 — optimized Chromium matrix, 2026-09-08
+
+The complete optimized Linux/i7 matrix is retained in `evidence/optimized-linux-i7/`: all36
+row/step/density/phase combinations, one cold-context and one warm-reload latency sample per
+configuration, one precise-coverage sample, and one Gantt sample. The run also included the five
+normal acceptance cases in this file: **41 passed in21.3minutes**. Every JSON says `complete`; a
+single slurped `jq -e` assertion over all36 files returned `true` for every budget.
+
+| Maximum across the optimized matrix  |  Observed |  Ceiling |
+| ------------------------------------ | --------: | -------: |
+| cold/warm ready paint                | 1,804.1ms | 10,000ms |
+| broad Find input paint               |   115.4ms |    250ms |
+| broad Find settled filter paint      |   229.9ms |  5,000ms |
+| broad Find `flexibleCellStyle` calls |        86 |    2,250 |
+| folded mounted cells                 |       688 |    1,200 |
+| eight-step unfolded mounted cells    |       840 |    2,250 |
+
+The retained same-host baseline has matching evidence for18 of those36 phase/configuration cases.
+Its maxima were61,873.1ms ready paint,15,940ms broad-input paint,42,042 cell-style calls,21,000
+folded cells and26,500 unfolded Gantt cells. Exact matched examples are more honest than an
+aggregate percentage: the1,000-row/two-step/dense latency case moved from61,873.1ms and15,940ms
+to1,659.7ms and98.8ms; its folded cells moved from15,000 to645. The1,000-row/eight-step/dense
+coverage pass moved from42,042 calls to86, and its latency mount moved from21,000 cells to688.
+
+This is a development-stack result, not a production percentile. Fixture setup remains excluded
+and is now the dominant cost (the1,000-row/eight-step/dense fixtures took118–122seconds each),
+while complete Gantt labels and SVG export intentionally remain proportional to logical plan size.
+The table trades full-DOM browser findability for logical accessibility metadata and explicit
+mount-on-navigation; the active editor is the only complete row allowed outside the viewport.
+The evidence records source head `067d9f2d` plus the measurement-spec-only dirty status and exact
+fixture hash `14ecabb8…`: the harness had to stop treating complete logical rows as mounted rows.
+
+### Failure proof table
+
+| Check                      | Injected fault                                       | Observed failure                         |
+| -------------------------- | ---------------------------------------------------- | ---------------------------------------- |
+| fixed-viewport cell budget | restore all100 shown rows                            | `Expected: <= 1200, Received: 1500`      |
+| logical readiness observer | wait for `rows + 2` instead of the grid's `rows + 1` | `table readiness paint was not observed` |
+
+The full-mount fault is the same production browser run recorded under4.1: it was performed after
+windowing landed and is the deliberate negative4.5 asks for, so it was not repeated merely to
+manufacture a second identical failure. The readiness proof guards the optimized harness change;
+the repaired100-row/two-step/sparse smoke then passed with cold and warm samples before the matrix
+was trusted.

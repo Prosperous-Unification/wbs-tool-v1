@@ -1,0 +1,48 @@
+{
+  "status": "complete",
+  "stage": "precise-coverage",
+  "metadata": {
+    "sourceHead": "067d9f2d9e97b724c442bdfa2ea36e3a86bf29d6",
+    "sourceStatus": " M apps/fe-01/e2e/rendering-baseline.spec.ts\n",
+    "fixtureSha256": "14ecabb8481d64a7ebe8d6546dd2166e0537438ec7fb4ec40a10853684bfddf2",
+    "fixtureFiles": [
+      "apps/fe-01/e2e/rendering-baseline.spec.ts",
+      "apps/fe-01/e2e/rendering-fixture.ts",
+      "apps/fe-01/e2e/rendering-evidence.ts"
+    ],
+    "phase": "coverage",
+    "measurementUse": "optimized-limited",
+    "startedAt": "2026-09-08T11:16:42.447Z",
+    "trace": "off",
+    "seeded": {
+      "rows": 100,
+      "steps": 8,
+      "density": "dense",
+      "projectId": "c3d815d4-e02b-4bab-810b-1cdb95c5f8c0",
+      "edges": 764,
+      "setupMs": 4484
+    },
+    "browser": "153.0.8010.12",
+    "runtime": {
+      "platform": "linux",
+      "release": "7.0.11-76070011-generic",
+      "arch": "x64",
+      "cpu": "12th Gen Intel(R) Core(TM) i7-12800HX"
+    },
+    "viewport": {
+      "width": 1400,
+      "height": 900
+    },
+    "server": "warm Vite development/backend; fresh owned stack",
+    "throttle": "none"
+  },
+  "samples": [
+    {
+      "stage": "precise-coverage",
+      "observation": {
+        "kind": "precise-coverage",
+        "broadFindCellStyleCalls": 86
+      }
+    }
+  ]
+}
