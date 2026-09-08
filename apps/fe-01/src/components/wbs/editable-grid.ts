@@ -136,16 +136,22 @@ export function cellIn(grid: HTMLElement, wanted: CellRef): CellElement | undefi
 }
 
 /**
- * Focuses the grid cell `delta` places from `from`, selecting its text the
- * way the browser's own Tab leaves a field. False at the grid's edge — the
- * caller then leaves the key to the browser rather than eating it.
+ * Focuses the logical cell `delta` places from `from`, selecting its text the
+ * way the browser's own Tab leaves a field. The supplied order chooses the
+ * destination; the DOM is consulted only to attach it. False at the grid's
+ * edge or while the destination is not mounted — the caller then leaves the
+ * key to the browser rather than eating it.
  */
-export function focusAdjacentCell(input: CellElement, from: CellRef, delta: 1 | -1): boolean {
+export function focusAdjacentCell(
+  input: CellElement,
+  cells: readonly CellRef[],
+  from: CellRef,
+  delta: 1 | -1,
+): boolean {
   const grid = gridOf(input);
   if (grid === null) return false;
-  const cells = editableGrid(grid);
   const at = cells.findIndex(
-    (g) => g.cell.rowId === from.rowId && g.cell.columnId === from.columnId,
+    (cell) => cell.rowId === from.rowId && cell.columnId === from.columnId,
   );
   if (at === -1) return false;
   // `.at(-1)` wraps to the far end, which would turn Shift+Tab in the first
@@ -155,6 +161,8 @@ export function focusAdjacentCell(input: CellElement, from: CellRef, delta: 1 | 
   // the focus jumped to the last cell of the table. Watched, 2026-08-07.
   const next = at + delta < 0 ? undefined : cells.at(at + delta);
   if (next === undefined) return false;
-  focusCellAt(next.input, 'all');
+  const target = cellIn(grid, next);
+  if (target === undefined) return false;
+  focusCellAt(target, 'all');
   return true;
 }

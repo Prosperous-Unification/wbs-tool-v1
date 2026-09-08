@@ -7,6 +7,7 @@ import { column } from './column';
 export function createTypeColumn({ live }: { live: PlanLive }) {
   return column.display({
     id: 'type',
+    meta: { isEditable: () => true },
     header: 'Types',
     cell: ({ row }) => {
       // The reference family's fourth cell, and the shortest of them,

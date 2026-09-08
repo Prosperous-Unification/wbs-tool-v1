@@ -7,6 +7,7 @@ import { column } from './column';
 export function createTeamColumn({ live }: { live: PlanLive }) {
   return column.display({
     id: 'team',
+    meta: { isEditable: () => true },
     header: 'Teams',
     cell: ({ row }) => {
       // A row with no label of its own still belongs to a team, wherever an

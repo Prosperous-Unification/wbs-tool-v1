@@ -123,6 +123,33 @@ failed launch is dependency setup evidence, not a test failure.
 
 Optimization, structural/latency gates, full workspace/Chromium gates and independent review remain pending. The original12 experiments are now36 separate opt-in phase cases that intentionally skip in normal browser gates; future acceptance tests must run normally. The two1000/8 Gantt phases are bounded stress failures as recorded above, not complete evidence files. In-app browser inspection unavailable as recorded above.
 
+## 2.3 — committed logical editable grid, 2026-09-08
+
+Every visible column now declares its row editability beside the control it renders. The full
+filtered and expanded TanStack row order and the structurally visible column order produce
+`CellRef`s independently of mounted inputs. `WbsTable` publishes that model in a layout effect,
+after React has committed the corresponding surface; Tab, arrows, command movement and next-row
+Name movement use it to choose a destination. `editable-grid.ts` now only attaches that chosen
+cell to committed DOM. Mobile cards keep their existing focus attachment and do not wire grid
+movement.
+
+The pure ragged-grid case first failed collection because `logical-grid.ts` did not exist, then
+passed. The complete keyboard suite plus the pure case passed: **96 tests**,53.89s. The existing
+filtered-row production case, `the arrows walk the rows a search left on screen`, passed alone in
+3.78s. FE source typecheck passed. Scoped ESLint and Prettier passed after removing an obsolete
+`editableGrid` import and formatting the migrated handler.
+
+### Failure proof table
+
+| Check                                               | Injected fault                                                | Observed failure                                                                        |
+| --------------------------------------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| A parent omits its non-rendered People-at-once cell | Declare that column editable for every row                    | `Shift+Tab steps over a parent’s read-only estimate boxes`: `expected true to be false` |
+| DOM cannot extend logical navigation order          | Restore Tab's destination list from `editableGrid(container)` | `a stray committed input cannot extend the logical grid`: `expected false to be true`   |
+
+Both faults were restored. The focused parent case and the complete keyboard suite were rerun
+green. The warnings were the repository's existing read-only dconf and React `act` diagnostics;
+neither run skipped a test.
+
 ## 2.2 — first explicit row-reading slice, 2026-09-08
 
 `PlanRenderRow` now attaches immutable per-render readings recursively to every TanStack row.

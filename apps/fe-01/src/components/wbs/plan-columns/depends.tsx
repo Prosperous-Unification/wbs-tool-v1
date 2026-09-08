@@ -17,6 +17,7 @@ import { column } from './column';
 export function createDependsColumn({ live }: { live: PlanLive }) {
   return column.display({
     id: 'depends',
+    meta: { isEditable: () => true },
     header: 'Depends on',
     cell: ({ row }) => {
       // A subscription and not a reading off `live`: this cell is a component

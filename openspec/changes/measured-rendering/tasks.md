@@ -9,7 +9,7 @@
 
 - [x] 2.1 Inventory every row/cell live dependency and add peer-update/focus regressions; omit an exact dependency and watch the displayed value fail while an unrelated editor remains active.
 - [x] 2.2 Move row construction behind explicit render inputs and stable cell component identities; preserve directory labels, draft/refusal/busy/selection and geometry dependencies.
-- [ ] 2.3 Introduce logical editable row/column navigation over the full filtered/expanded order while all rows still mount. Cover arrows, Tab wrapping, first/last rows, gaps, hidden/unfolded steps, create/duplicate focus and filter/collapse changes.
+- [x] 2.3 Introduce logical editable row/column navigation over the full filtered/expanded order while all rows still mount. Cover arrows, Tab wrapping, first/last rows, gaps, hidden/unfolded steps, create/duplicate focus and filter/collapse changes.
 
 ## 3. Isolate Find work
 

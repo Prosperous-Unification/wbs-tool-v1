@@ -8,7 +8,14 @@ import { column } from './column';
 export function createInParallelColumn({ live }: { live: PlanLive }) {
   return column.display({
     id: 'in-parallel',
-    meta: { spokenHeading: 'People at once' },
+    meta: {
+      // Proof: changed to `() => true`, `Shift+Tab steps over a parent’s
+      // read-only estimate boxes` failed on `expected true to be false`: the
+      // logical move named this parent cell, which has no input to attach.
+      // Watched 2026-09-08.
+      isEditable: (row) => row.subRows.length === 0,
+      spokenHeading: 'People at once',
+    },
     // A two-person mark, not `In parallel` and not `PAR`: the column is
     // 32px at a 10px all-caps header, in which even three letters wrap.
     // The `∥` it replaced read as "parallel" to a reader who had not

@@ -13,6 +13,7 @@ const DEADLINE_MARK_PX = 10;
 export function createDeadlineColumn({ live }: { live: PlanLive }) {
   return column.display({
     id: 'deadline',
+    meta: { isEditable: (row) => row.readings.startDate !== null },
     header: () => <span>Due</span>,
     cell: ({ row }) => {
       const day = row.original.deadline;

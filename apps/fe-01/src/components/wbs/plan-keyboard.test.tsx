@@ -792,6 +792,20 @@ describe('Tab moves between the fields, from every cell', () => {
     expect(tab(true)).toBe(true);
     expect(document.activeElement).toBe(first);
   });
+
+  itDom('a stray committed input cannot extend the logical grid', async () => {
+    await threeRoots();
+
+    const last = focusCaret('QA estimate for 030', 'end');
+    const grid = last.closest('[data-grid]');
+    if (!(grid instanceof HTMLElement)) throw new Error('the focused cell has no grid');
+    const stray = document.createElement('input');
+    stray.dataset['cell'] = 'stray::name';
+    grid.append(stray);
+
+    expect(tab()).toBe(true);
+    expect(document.activeElement).toBe(last);
+  });
 });
 
 describe('moving rows with alt and the arrows', () => {

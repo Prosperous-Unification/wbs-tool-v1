@@ -6,7 +6,6 @@ import { type Caret, type CellRef, commandMove, type Direction, nextCell } from 
 import {
   type CellElement,
   cellIn,
-  editableGrid,
   focusAdjacentCell,
   focusCellAt,
   gridOf,
@@ -200,6 +199,7 @@ export function usePlanKeyboard({
   deleteRow,
   commandInFlight,
   addSibling,
+  logicalCells,
 }: {
   outdent: (row: TreeRow, landOn?: string) => Promise<CommitOutcome>;
   indent: (row: TreeRow, landOn?: string) => Promise<CommitOutcome>;
@@ -214,6 +214,7 @@ export function usePlanKeyboard({
   deleteRow: (row: TreeRow) => Promise<CommitOutcome>;
   commandInFlight: React.RefObject<boolean>;
   addSibling: (after: TreeRow) => Promise<CommitOutcome>;
+  logicalCells: React.RefObject<readonly CellRef[]>;
 }) {
   /**
    * The Name cell's own keys: Tab and Backspace, and nothing else.
@@ -248,6 +249,7 @@ export function usePlanKeyboard({
         }
         const moved = focusAdjacentCell(
           input,
+          logicalCells.current,
           { rowId: row.id, columnId: 'name' },
           event.shiftKey ? -1 : 1,
         );
@@ -307,7 +309,7 @@ export function usePlanKeyboard({
         void removeEmptyRow(row);
       }
     },
-    [drafts, indent, outdent, removeEmptyRow],
+    [drafts, indent, logicalCells, outdent, removeEmptyRow],
   );
 
   /**
@@ -331,37 +333,45 @@ export function usePlanKeyboard({
    * and on into the next row` failed at the first cell that no longer moved.
    * Watched, 2026-08-07.
    */
-  const onTabKey = useCallback((event: React.KeyboardEvent, rowId: string, columnId: string) => {
-    if (event.key !== 'Tab') return;
-    const input = event.currentTarget;
-    // Skipped rather than thrown on a target that is not a cell, the same way
-    // the rest of the grid treats markup it did not write.
-    if (!isCellElement(input)) return;
-    const moved = focusAdjacentCell(input, { rowId, columnId }, event.shiftKey ? -1 : 1);
-    if (moved) event.preventDefault();
-  }, []);
+  const onTabKey = useCallback(
+    (event: React.KeyboardEvent, rowId: string, columnId: string) => {
+      if (event.key !== 'Tab') return;
+      const input = event.currentTarget;
+      // Skipped rather than thrown on a target that is not a cell, the same way
+      // the rest of the grid treats markup it did not write.
+      if (!isCellElement(input)) return;
+      const moved = focusAdjacentCell(
+        input,
+        // Proof: replaced with `editableGrid(container)`, `a stray committed
+        // input cannot extend the logical grid` failed on `expected false to
+        // be true`: Tab was taken and focused markup no column declared.
+        // Watched 2026-09-08.
+        logicalCells.current,
+        { rowId, columnId },
+        event.shiftKey ? -1 : 1,
+      );
+      if (moved) event.preventDefault();
+    },
+    [logicalCells],
+  );
 
   /**
    * Moves the focus between cells, or lets the browser have the key.
    *
-   * The grid is read from the table's own DOM at the moment the key arrives, not
-   * from a ref written during render. A ref written in render publishes rows
-   * that React may not have committed — or may abandon — and a key pressed in
-   * that window would look up a row the DOM does not have. Both reviewers found
-   * that; the committed DOM is the only thing that cannot be ahead of itself.
+   * The destination comes from the logical grid published by the last layout
+   * effect. It is not written during render: React may abandon that render,
+   * which would leave the model ahead of the DOM it must attach to.
    *
-   * `:not([readonly])` is what keeps focus off a parent's rolled-up figures.
-   * They are real numbers worth reading, and they are also numbers no keystroke
-   * can change, which is the same reason the derived number column is not here.
+   * Each column's `isEditable` predicate keeps focus off a parent's rolled-up
+   * figures. They are real numbers worth reading, and also numbers no
+   * keystroke can change.
    */
   const onArrowKey = useCallback(
     (event: React.KeyboardEvent<CellElement>, rowId: string, columnId: string) => {
       const container = gridOf(event.currentTarget);
       if (container === null) return;
-      const grid = editableGrid(container);
-
       const move = nextCell(
-        grid.map((g) => g.cell),
+        logicalCells.current,
         { rowId, columnId },
         event.key,
         caretOf(event.currentTarget),
@@ -374,16 +384,14 @@ export function usePlanKeyboard({
       );
       if (move === null) return;
 
-      const next = grid.find(
-        (g) => g.cell.rowId === move.to.rowId && g.cell.columnId === move.to.columnId,
-      )?.input;
+      const next = cellIn(container, move.to);
       if (next === undefined) return;
       // Only now, and only because the move is happening: an unconditional
       // `preventDefault` would take the caret keys away from every input.
       event.preventDefault();
       focusCellAt(next, move.caretAt === 'start' ? 0 : next.value.length);
     },
-    [],
+    [logicalCells],
   );
 
   /**
@@ -453,29 +461,21 @@ export function usePlanKeyboard({
    * Moves the focus to a cell by the chord's own grid walk, and says whether
    * there was one to move to.
    *
-   * The DOM's grid, read at the moment the key arrives, for the reason
-   * {@link onArrowKey} gives: a ref written during render can be ahead of what
-   * React has committed.
+   * The logical grid published by the last commit supplies the destination;
+   * the DOM is only where that destination is attached.
    */
   const moveByCommand = useCallback(
     (input: CellElement, from: CellRef, direction: Direction): boolean => {
       const container = gridOf(input);
       if (container === null) return false;
-      const grid = editableGrid(container);
-      const move = commandMove(
-        grid.map((g) => g.cell),
-        from,
-        direction,
-      );
+      const move = commandMove(logicalCells.current, from, direction);
       if (move === null) return false;
-      const next = grid.find(
-        (g) => g.cell.rowId === move.to.rowId && g.cell.columnId === move.to.columnId,
-      )?.input;
+      const next = cellIn(container, move.to);
       if (next === undefined) return false;
       focusCellAt(next, move.caretAt === 'start' ? 0 : next.value.length);
       return true;
     },
-    [],
+    [logicalCells],
   );
 
   /**
@@ -485,20 +485,20 @@ export function usePlanKeyboard({
    * means the next row **on screen**: a collapsed branch's children are not
    * cells, and Cmd+Enter must not land in one of them.
    */
-  const nextRowName = useCallback((input: CellElement, rowId: string): CellElement | undefined => {
-    const container = gridOf(input);
-    if (container === null) return undefined;
-    const grid = editableGrid(container);
-    const rowIds = [...new Set(grid.map((g) => g.cell.rowId))];
-    const at = rowIds.indexOf(rowId);
-    // `< 0` before the lookup, for `focusAdjacentCell`'s reason: `.at(-1)`
-    // would read the last row of the table as the one after this one.
-    if (at === -1) return undefined;
-    const next = rowIds.at(at + 1);
-    return next === undefined
-      ? undefined
-      : grid.find((g) => g.cell.rowId === next && g.cell.columnId === 'name')?.input;
-  }, []);
+  const nextRowName = useCallback(
+    (input: CellElement, rowId: string): CellElement | undefined => {
+      const container = gridOf(input);
+      if (container === null) return undefined;
+      const rowIds = [...new Set(logicalCells.current.map((cell) => cell.rowId))];
+      const at = rowIds.indexOf(rowId);
+      // `< 0` before the lookup, for `focusAdjacentCell`'s reason: `.at(-1)`
+      // would read the last row of the table as the one after this one.
+      if (at === -1) return undefined;
+      const next = rowIds.at(at + 1);
+      return next === undefined ? undefined : cellIn(container, { rowId: next, columnId: 'name' });
+    },
+    [logicalCells],
+  );
 
   /**
    * Ctrl+D: arm this row, or delete the one already armed.
@@ -950,11 +950,13 @@ export function usePlanKeyboardState() {
    *
    * An `HTMLElement` rather than an `HTMLTableElement` since `M mobile-cards`:
    * it holds the `<table>` at laptop width and {@link PlanCards}' list below the
-   * breakpoint. {@link editableGrid} and the rest of `editable-grid.ts` only ever
-   * ask it for `[data-cell]` descendants, so neither of them knows the
-   * difference.
+   * breakpoint. The attachment functions in `editable-grid.ts` only ask it
+   * for `[data-cell]` descendants, so none of them knows the difference.
    */
   const gridElement = useRef<HTMLElement | null>(null);
+
+  /** The editable cell order published only after its rows have committed. */
+  const logicalCells = useRef<readonly CellRef[]>([]);
   return {
     cheatSheetOpen,
     setCheatSheetOpen,
@@ -966,5 +968,6 @@ export function usePlanKeyboardState() {
     gapVisit,
     setGapVisit,
     gridElement,
+    logicalCells,
   };
 }

@@ -7,6 +7,7 @@ import { column } from './column';
 export function createTagColumn({ live }: { live: PlanLive }) {
   return column.display({
     id: 'tag',
+    meta: { isEditable: () => true },
     header: 'Tags',
     cell: ({ row }) => {
       // **Not** the reading the Team cell makes. A row with no tags of its

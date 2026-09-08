@@ -14,6 +14,7 @@ export function createServiceColumn({ live }: { live: PlanLive }) {
     // stored layouts to say the same thing. The header is the word a
     // reader sees, and since task 10.4 a row can carry several.
     id: 'service',
+    meta: { isEditable: () => true },
     header: 'Services',
     cell: ({ row }) => {
       // The **tags** cell's control since task 10.4, where 7.1 built the

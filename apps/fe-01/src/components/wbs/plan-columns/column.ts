@@ -52,6 +52,8 @@ declare module '@tanstack/table-core' {
     in out TData extends RowData,
     TValue extends CellData = CellData,
   > {
+    /** Whether this row contributes an editable cell to the committed keyboard grid. */
+    isEditable?: (row: TData) => boolean;
     spokenHeading?: string;
   }
   /* eslint-enable @typescript-eslint/no-unused-vars */

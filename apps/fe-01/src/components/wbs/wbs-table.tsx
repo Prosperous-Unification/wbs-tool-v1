@@ -5,6 +5,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -22,6 +23,7 @@ import { ExternalRefsModal } from './external-refs-modal';
 import { GanttFaultBoundary } from './gantt-fault';
 import { appliedGanttHeight, DAY_PX, GanttPanel } from './gantt-panel';
 import { KeyboardCheatSheet } from './keyboard-cheat-sheet';
+import { logicalGrid } from './logical-grid';
 import { OptimizationIndicator } from './optimization-indicator';
 import { PlanCards } from './plan-cards';
 import {
@@ -433,6 +435,7 @@ export function WbsTable({
     gapVisit,
     setGapVisit,
     gridElement,
+    logicalCells,
   } = usePlanKeyboardState();
   const {
     unfoldedSteps,
@@ -823,6 +826,7 @@ export function WbsTable({
     deleteRow,
     commandInFlight,
     addSibling,
+    logicalCells,
   });
   const { dependenciesOf, dependOn, depEntriesFor, pickDependency, moveDepHighlight } =
     usePlanDependencies({
@@ -1200,6 +1204,21 @@ export function WbsTable({
     () => rowModel.filter((row) => search.visibleIds.has(row.id)),
     [rowModel, search.visibleIds],
   );
+
+  const committedLogicalCells = useMemo(
+    () =>
+      logicalGrid(
+        shownRows.map((row) => row.original),
+        table.getAllLeafColumns().map((visibleColumn) => ({
+          id: visibleColumn.id,
+          isEditable: visibleColumn.columnDef.meta?.isEditable,
+        })),
+      ),
+    [shownRows, table],
+  );
+  useLayoutEffect(() => {
+    logicalCells.current = committedLogicalCells;
+  }, [committedLogicalCells, logicalCells]);
 
   // The rows a dependency hover lights were derived here, per render of the
   // table, until 2026-09-02: `dep-light-store.ts` owns that derivation and the

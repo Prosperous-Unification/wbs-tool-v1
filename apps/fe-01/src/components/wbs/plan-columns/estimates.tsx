@@ -50,6 +50,7 @@ export function createEstimatesColumns({
     return [
       column.display({
         id: `${step.id}-final`,
+        meta: { isEditable: (row) => !unfolded && !row.rolledUp },
         // The toggle lives on the column that never goes away, so nothing
         // jumps when the group opens: it extends to the right of this one.
         header: () => (
@@ -672,7 +673,7 @@ export function createEstimatesColumns({
                 // word of the `<th>`'s hint — which is why that one hint
                 // opens with the column's name and the other fourteen open
                 // with the effect (`column-hints.ts`).
-                meta: { spokenHeading: point },
+                meta: { isEditable: (row) => !row.rolledUp, spokenHeading: point },
                 header: () => <span>{point.slice(0, 1)}</span>,
                 cell: ({ row }) => {
                   const reading = estimateReading(row.original, step.id);
@@ -754,6 +755,7 @@ export function createEstimatesColumns({
             ),
             column.display({
               id: `${step.id}-assignee`,
+              meta: { isEditable: () => true },
               header: 'by',
               cell: ({ row }) => {
                 const reading = estimateReading(row.original, step.id);

@@ -13,6 +13,7 @@ import { column } from './column';
 export function createNameColumn({ live }: { live: PlanLive }) {
   return column.display({
     id: 'name',
+    meta: { isEditable: () => true },
     header: 'Name',
     cell: ({ row }) => {
       // A subscription and not a reading off `live`: this cell is a component,
