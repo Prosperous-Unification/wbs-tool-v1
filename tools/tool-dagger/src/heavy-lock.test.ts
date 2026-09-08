@@ -1,4 +1,4 @@
-import { mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -207,8 +207,15 @@ describe('with-heavy-lock', () => {
     } catch (cause) {
       holder.kill();
       const said = readIfPresent(holderErr).trim();
+      const listed = (dir: string): string => {
+        try {
+          return readdirSync(dir).join(',') || '(empty)';
+        } catch {
+          return '(absent)';
+        }
+      };
       throw new Error(
-        `holder never claimed ${lock} (exitCode ${holder.exitCode}); it said: ${said || '(nothing)'}`,
+        `holder never claimed ${lock} (exitCode ${holder.exitCode}); it said: ${said || '(nothing)'}; root has ${listed(root)}; lock has ${listed(lock)}`,
         { cause },
       );
     }
