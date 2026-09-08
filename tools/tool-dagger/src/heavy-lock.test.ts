@@ -173,35 +173,37 @@ describe('with-heavy-lock', () => {
     // itself the readiness wait timed out while the temp root held
     // `heavy.lock.d`, a live holder and a silent stderr.
     const lockDir = `${lock}.d`;
-    const holder = Bun.spawn([
-      'bash',
-      '-c',
-      'source "$1"; shift; with_heavy_lock "$@"',
-      'heavy-lock-holder',
-      LOCK_LIB,
-      lock,
-      '--',
-      // The holder waits on a FILE rather than a timer, and is released by this
-      // test creating it. A `sleep N` holder killed with SIGTERM is the obvious
-      // alternative and is wrong here: bash defers a trap until the running
-      // foreground command returns, so the wrapper's release trap would not fire
-      // until the sleep ended anyway. Waiting on a file lets the holder exit
-      // normally, which is what "when the holder releases it" means.
-      'bash',
-      '-c',
-      `while [[ ! -e ${JSON.stringify(release)} ]]; do sleep 0.05; done`,
-    ],
-    // Captured because the readiness wait below is the one place this case can
-    // fail without saying why. `heavy-lock-lib.sh` names every refusal path in
-    // its own stderr, so a holder that never claims has already explained
-    // itself — this stops that explanation being discarded.
-    //
-    // To a FILE rather than a pipe, deliberately. Reading a piped stream to its
-    // end waits for every writer to close it, and the wrapper's inner `bash`
-    // child outlives `holder.kill()` and keeps the pipe open — watched turning
-    // this case's 10s failure into a 20s timeout, a diagnostic that hung the
-    // case it was diagnosing.
-    { stderr: openSync(holderErr, 'w') });
+    const holder = Bun.spawn(
+      [
+        'bash',
+        '-c',
+        'source "$1"; shift; with_heavy_lock "$@"',
+        'heavy-lock-holder',
+        LOCK_LIB,
+        lock,
+        '--',
+        // The holder waits on a FILE rather than a timer, and is released by this
+        // test creating it. A `sleep N` holder killed with SIGTERM is the obvious
+        // alternative and is wrong here: bash defers a trap until the running
+        // foreground command returns, so the wrapper's release trap would not fire
+        // until the sleep ended anyway. Waiting on a file lets the holder exit
+        // normally, which is what "when the holder releases it" means.
+        'bash',
+        '-c',
+        `while [[ ! -e ${JSON.stringify(release)} ]]; do sleep 0.05; done`,
+      ],
+      // Captured because the readiness wait below is the one place this case can
+      // fail without saying why. `heavy-lock-lib.sh` names every refusal path in
+      // its own stderr, so a holder that never claims has already explained
+      // itself — this stops that explanation being discarded.
+      //
+      // To a FILE rather than a pipe, deliberately. Reading a piped stream to its
+      // end waits for every writer to close it, and the wrapper's inner `bash`
+      // child outlives `holder.kill()` and keeps the pipe open — watched turning
+      // this case's 10s failure into a 20s timeout, a diagnostic that hung the
+      // case it was diagnosing.
+      { stderr: openSync(holderErr, 'w') },
+    );
 
     // **Holder readiness, observed.** `claim_heavy_lock` does `mkdir` and *then*
     // writes its pid, so the lock directory exists for an instant before the
