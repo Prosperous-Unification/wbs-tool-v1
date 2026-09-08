@@ -77,3 +77,50 @@ failed launch is dependency setup evidence, not a test failure.
 ## Skipped / pending
 
 Seven matrix configurations, optimization, structural/latency gates, full workspace/Chromium gates and independent review remain pending. The original12 experiments are now36 separate opt-in phase cases that intentionally skip in normal browser gates; future acceptance tests must run normally. In-app browser inspection unavailable as recorded above.
+
+## 2.1 — the row and cell dependency inventory and its regressions, 2026-09-08
+
+Read at `4179515d`. The inventory is
+[`row-dependency-inventory.md`](row-dependency-inventory.md): all **87** `PlanLiveValues`
+fields, the seven kinds of dependency, which cell reads each one, whether it is per-row or
+table-wide, and whether its identity is stable. Counted rather than claimed:
+`awk '/^export interface PlanLiveValues/,/^}/' plan-live.ts | grep -cE '^  [a-zA-Z]+[?]?:'` → 87.
+
+Two findings the inventory records and this slice does **not** act on, because it makes no
+production change:
+
+- **Five fields no cell reads** — `projectId`, `showSchedule`, `waitsFor`, `setExternalRefsOf`
+  and `armedDelete`. Verified with `grep -rn "current\.<field>" plan-columns/ plan-cell-props.ts`,
+  which returns 0 lines for each. Three have a non-cell reader (the row shell, the refs modal,
+  the cards), one is internal to `spanOf`, and `projectId` has no reader at all. Task 2.2 owns
+  the removals, each with its own compiler proof.
+- **The Start sentence and the Depends list are read twice per render on two independent
+  paths** — the `<td>` props builder outside the column registry (`plan-cell-props.ts:82,105,117`
+  and `:217`) and the cell body (`depends.tsx:30`, `start.tsx:19`). Explicit render inputs have
+  to feed both.
+
+The regressions are `apps/fe-01/src/components/wbs/plan-row-dependencies.test.tsx`: four cases,
+each landing a **peer's** write through the subscription while this reader's Name editor on
+another row is open, focused and half-typed. The peer's value is asserted first and the untouched
+editor second — the other order is satisfied by the render before the answer arrives.
+`TZ=UTC bunx vitest run src/components/wbs/plan-row-dependencies.test.tsx`: **4 passed**, 8.4s.
+`bunx eslint` on the file and `bunx tsc --build --force apps/fe-01/tsconfig.json`: both clean.
+
+### Failure proof table
+
+The injected fault is the shape a missed row dependency has: `useTable`'s `data` handed a copy
+reused for as long as the row **count** holds, so the two-row setup still works and only the
+peer's edit is lost. The first form of it — the rows pinned from the first render — was watched
+**passing nothing**: it pinned the _empty_ tree, so the setup never found `Name of 010` and all
+four cases failed at the locator instead of at their assertion. A fault that takes the surface out
+of the test's reach is not evidence about the assertion, so it was replaced.
+
+| Case                                       | Injected fault                        | Observed failure                                               |
+| ------------------------------------------ | ------------------------------------- | -------------------------------------------------------------- |
+| a committed name reaches the peer's row    | rows reused while the row count holds | `expected '' to be 'Renamed by a peer'`                        |
+| a committed day, on both of its read paths | the same                              | `expected '—' to be '9 Sep'`                                   |
+| a committed estimate reaches the figure    | the same                              | `expected '' to be '2/3/10'`                                   |
+| a directory entry a peer created           | the same                              | `Unable to find role="button" and name "Remove Platform team"` |
+| a directory entry a peer created           | `teams` pinned to the first render    | the same failure — the cell reads both, and both are covered   |
+
+All faults were restored (`git diff` on `wbs-table.tsx` empty) and the four cases re-run green.
