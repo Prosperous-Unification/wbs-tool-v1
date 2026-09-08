@@ -16,10 +16,15 @@ import { describe, expect, test } from 'bun:test';
  * sides are edited in different parts of one long file, roughly 250 lines
  * apart, which is exactly far enough to move one and forget the other.
  *
+ * TASK-386 adds the sibling half: the group KEY, which decides whether a queued
+ * `main` run survives at all. It sits here rather than next to the lint because
+ * it is the same coupling — one `concurrency:` block, two keys that only work
+ * together, and `cancel-in-progress` alone reads as if it were sufficient.
+ *
  * These assertions read the real workflow, and each was made to fail on the real
  * fault before this file was committed — 2026-09-08 on h2puni, mutating a copy
- * of `ci.yml` one edit at a time and restoring between runs. Unmutated: 4 pass,
- * 14 expect() calls. Then:
+ * of `ci.yml` one edit at a time and restoring between runs. Unmutated: 5 pass,
+ * 16 expect() calls. Then:
  *   - `merge_group:` removed from `on:` → 2 fail. The subscription test prints
  *     `Received: [ "push", "pull_request", "workflow_dispatch" ]`, and the
  *     coupling test reports `boundary arms for no subscribed event` — the arm
@@ -29,8 +34,14 @@ import { describe, expect, test } from 'bun:test';
  *     empty-slice guard in the boundary test.
  *   - `cancel-in-progress` returned to exactly its pre-fix `github.ref !=
  *     'refs/heads/main'` → 1 fail, and only that one.
+ *   - `group` returned to its pre-TASK-386 `ci-${{ github.ref }}` → 1 fail, and
+ *     only the per-commit assertion.
+ *   - `group` set to `ci-${{ github.ref }}-${{ github.sha }}` unconditionally,
+ *     the plausible over-fix that would stop pull-request runs superseding each
+ *     other → 1 fail, the same one. A `toContain('github.sha')` check would have
+ *     passed this mutant, which is why the assertion is a whole string.
  * Each control moves a different assertion, which is what distinguishes them
- * from four restatements of one fact.
+ * from six restatements of one fact.
  */
 
 interface WorkflowStep {
