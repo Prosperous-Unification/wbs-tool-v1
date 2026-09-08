@@ -1,6 +1,6 @@
 import { cellKey } from '../editable-grid';
 import { HoverCard } from '../hover-card';
-import { readStartSentence, startCardId } from '../plan-cell-props';
+import { startCardId } from '../plan-cell-props';
 import type { PlanLive } from '../plan-live';
 import { rowWords } from '../work-item-words';
 import { column } from './column';
@@ -16,7 +16,7 @@ export function createStartColumn({ live }: { live: PlanLive }) {
     header: () => <span>Start</span>,
     cell: ({ row }) => {
       const start = live.current.spanOf(row.original).start;
-      const said = readStartSentence(row.original, live);
+      const said = live.current.startSentence(row.original);
       // The open card is a mutable reading under the PlanLive contract.
       const carded = said !== null && live.current.openCard === cellKey(row.original.id, 'start');
       return (

@@ -124,3 +124,36 @@ of the test's reach is not evidence about the assertion, so it was replaced.
 | a directory entry a peer created           | `teams` pinned to the first render    | the same failure — the cell reads both, and both are covered   |
 
 All faults were restored (`git diff` on `wbs-table.tsx` empty) and the four cases re-run green.
+
+## 2.2, first part — the contract loses what nobody reads, 2026-09-08
+
+Task 2.2 stays **open**: stable cell component identities and explicit per-row render inputs are
+not here. What is here is the two things 2.1's inventory found, so that the explicit inputs are
+written against a contract that says only what a cell actually reads.
+
+**Six fields left `PlanLiveValues`** — `projectId`, `showSchedule`, `waitsFor`,
+`setExternalRefsOf`, `armedDelete` and `startFloor`. The first five were read by no cell
+(`grep -rn "current\.<field>" plan-columns/ plan-cell-props.ts` → 0 lines each); three keep a
+non-cell reader as a local (the row shell, the refs modal, the cards), one was internal to
+`spanOf`, and `projectId` had no reader at all. `startFloor` had exactly one cell-side reader,
+`readStartSentence`, and loses it below. **87 fields → 82.** The contract is compiler-enforced,
+so a missed reader is a type error rather than a runtime `undefined`; `bunx tsc --build --force
+apps/fe-01/tsconfig.json` is clean and `nx run fe-01:test` is green over the whole table.
+
+**The Start sentence is worked out once per row per render.** Three readers asked for it — the
+`<td>`'s props (`startCellProps`), the `cursor: help` decided beside them, and the Start cell —
+and each call allocated a `Date` inside `spanOf` and walked the floor map. `readStartSentence` is
+a pure function of `(row, spanOf, startFloor)` now, `WbsTable` holds a per-render `Map` in front
+of it, and both the `<td>` builder and the cell read the one answer through
+`live.current.startSentence`.
+
+### Failure proof table
+
+| Check                                                                 | Injected fault                                   | Observed failure     |
+| --------------------------------------------------------------------- | ------------------------------------------------ | -------------------- |
+| `works the Start sentence out once per row, however many readers ask` | `saidByRow`'s lookup bypassed in `wbs-table.tsx` | `expected 9 to be 3` |
+
+The count is a **rate**, not a pin: the case reads the rows and columns off the DOM, divides the
+`flexibleCellStyle` calls by `(rows + 1) × columns` to learn how many renders the gesture actually
+cost, and asserts one sentence per row per render. A pinned number would have to be re-guessed
+every time a column is added, and would pass for the wrong reason the first time one was.
