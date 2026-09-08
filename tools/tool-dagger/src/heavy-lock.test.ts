@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -7,6 +7,27 @@ import { afterEach, describe, expect, it } from 'bun:test';
 const SCRIPT = join(import.meta.dir, '../../../bin/with-heavy-lock.sh');
 const LOCK_LIB = join(import.meta.dir, '../../../bin/heavy-lock-lib.sh');
 const roots: string[] = [];
+
+// A file that is not there yet reads as empty rather than throwing, because
+// every caller below is polling for it to appear.
+function readIfPresent(path: string): string {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+// Polls a condition instead of sleeping a guessed interval. The rejection is
+// what keeps a broken run honest: a case that stops observing what it waited for
+// is a case that has to say so, rather than continuing on an assumption.
+async function until(ready: () => boolean, timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!ready()) {
+    if (Date.now() >= deadline) throw new Error(`condition not observed within ${timeoutMs}ms`);
+    await Bun.sleep(10);
+  }
+}
 
 // **Every contender states its own wait budget rather than inheriting one.**
 //
@@ -136,6 +157,16 @@ describe('with-heavy-lock', () => {
     // an error, it is a queue. Nothing covered this, so the refusal case
     // silently became the queueing case under the gate recipe and the only
     // symptom was a timeout.
+    //
+    // **Every step below is a synchronisation point, and that is the whole
+    // point of the case.** It used to sleep 300ms for the holder and then assert
+    // that a synchronous contender took longer than four seconds. Both halves of
+    // that were inference: on a loaded runner the holder can still be unstarted
+    // at 300ms, in which case the contender takes a free lock and exits 0 in
+    // milliseconds — a false red; and if subprocess startup alone were delayed
+    // past four seconds, both assertions would hold **without the retry branch
+    // ever running** — a false green that asserts nothing about queueing.
+    const release = join(root, 'release');
     const holder = Bun.spawn([
       'bash',
       '-c',
@@ -144,28 +175,80 @@ describe('with-heavy-lock', () => {
       LOCK_LIB,
       lock,
       '--',
-      'sleep',
-      '1',
+      // The holder waits on a FILE rather than a timer, and is released by this
+      // test creating it. A `sleep N` holder killed with SIGTERM is the obvious
+      // alternative and is wrong here: bash defers a trap until the running
+      // foreground command returns, so the wrapper's release trap would not fire
+      // until the sleep ended anyway. Waiting on a file lets the holder exit
+      // normally, which is what "when the holder releases it" means.
+      'bash',
+      '-c',
+      'while [[ ! -e $1 ]]; do sleep 0.05; done',
+      'heavy-lock-holder-payload',
+      release,
     ]);
-    await Bun.sleep(300);
 
-    const started = Date.now();
-    // 30, not 6: the retry interval in `heavy-lock-lib.sh` is a fixed 5-second
-    // sleep, so the first retry lands at ~5s and a budget only just above it
-    // would turn a slow runner into a red.
-    const queued = runWithTestLock(lock, '30');
-    const elapsedMs = Date.now() - started;
+    // **Holder readiness, observed.** `claim_heavy_lock` does `mkdir` and *then*
+    // writes its pid, so the lock directory exists for an instant before the
+    // holder file has contents. Waiting on the directory would re-introduce the
+    // race this case exists to remove, so wait for a non-empty `holder`.
+    await until(() => readIfPresent(join(lock, 'holder')).trim() !== '');
+
+    // **The retry, observed.** `heavy-lock-lib.sh` retries with a bare `sleep 5`,
+    // and `sleep` is not a bash builtin, so bash resolves it through `PATH`. A
+    // `PATH` shim that records each call is therefore direct evidence the
+    // contender entered the retry branch — the thing a wall-clock floor can
+    // never establish — and it removes the five-second wait that made this the
+    // slowest case in the file.
+    //
+    // The shim is on the CONTENDER's `PATH` only. The holder's own payload calls
+    // `sleep` too, so a shared shim would collapse the holder's wait, releasing
+    // the lock before the contender ever contended — exactly the false green
+    // this case is meant to kill.
+    const shim = mkdtempSync(join(tmpdir(), 'wbs-heavy-lock-shim-'));
+    roots.push(shim);
+    const retries = join(root, 'retries');
+    writeFileSync(
+      join(shim, 'sleep'),
+      // Records the retry, then sleeps a short REAL interval. Returning
+      // immediately would leave the wrapper spinning `mkdir` hot until the
+      // holder releases; 50ms keeps the case fast without a busy loop.
+      `#!/usr/bin/env bash\nprintf 'retry\\n' >>${JSON.stringify(retries)}\nexec /bin/sleep 0.05\n`,
+      { mode: 0o755 },
+    );
+
+    const queued = Bun.spawn(
+      [
+        'bash',
+        '-c',
+        'source "$1"; shift; with_heavy_lock "$@"',
+        'with-heavy-lock-test',
+        LOCK_LIB,
+        lock,
+        '--',
+        'bash',
+        '-c',
+        'exit 0',
+      ],
+      {
+        env: {
+          ...process.env,
+          HEAVY_LOCK_WAIT_SECONDS: '30',
+          PATH: `${shim}:${process.env['PATH'] ?? ''}`,
+        },
+      },
+    );
+
+    await until(() => readIfPresent(retries) !== '');
+    // Only now is the lock released, so the contender provably took it from a
+    // held state rather than finding it free.
+    writeFileSync(release, '');
     await holder.exited;
 
-    // Both halves are the assertion, and the second is a floor on the CALL, not
-    // a proof of contention. Exit 0 alone would also pass if the holder had
-    // already died before the claim — the run this case would otherwise silently
-    // degrade into — and >4s is inconsistent with the refusal path, which returns
-    // in milliseconds. What it does not do is establish that the contender
-    // reached the retry branch, because holder readiness is a `Bun.sleep(300)`
-    // guess rather than a synchronisation point. TASK-378 replaces both with an
-    // observed retry.
-    expect(queued.exitCode).toBe(0);
-    expect(elapsedMs).toBeGreaterThan(4000);
+    expect(await queued.exited).toBe(0);
+    // Proof: with the contender pointed at a free lock it never enters the retry
+    // branch and this file is never written, so the observation is what carries
+    // the claim rather than elapsed time.
+    expect(readIfPresent(retries)).toContain('retry');
   }, 20_000);
 });
