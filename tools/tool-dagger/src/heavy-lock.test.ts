@@ -136,6 +136,10 @@ describe('with-heavy-lock', () => {
     expect(run.exitCode).toBe(0);
   });
 
+  // Budget stated, not defaulted (TASK-415). Measured 2016ms on h2puni at
+  // load 7-9, a 2.5x margin on the 5000ms default -- and
+  // TASK-288 timed out on exactly this case; dfe395fd fixed inheritance, not the margin.
+  // The rule is 5x the measured floor, rounded up to the next second.
   it('refuses immediately with exit 75 while another heavy operation owns the lock', async () => {
     const root = mkdtempSync(join(tmpdir(), 'wbs-heavy-lock-'));
     roots.push(root);
@@ -168,7 +172,7 @@ describe('with-heavy-lock', () => {
     // Proof: this reaches the production wrapper and distinguishes contention
     // from command failure by its dedicated conflict exit code.
     expect(refused.exitCode).toBe(75);
-  });
+  }, 11000);
 
   it('queues for the wait budget instead of refusing, and takes the lock when the holder releases it', async () => {
     const root = mkdtempSync(join(tmpdir(), 'wbs-heavy-lock-'));

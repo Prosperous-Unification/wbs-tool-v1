@@ -116,6 +116,10 @@ describe('dev MCP deployment probe', () => {
     expect(result.output).toContain('MCP exposure not expected');
   });
 
+  // Budget stated, not defaulted (TASK-415). Measured 2122ms on h2puni at
+  // load 7-9, a 2.4x margin on the 5000ms default -- and
+  // its own probe deadline is 3s, so 5000ms left 1.7x for everything around it.
+  // The rule is 5x the measured floor, rounded up to the next second.
   it('retries the semantic probe within the deployment restart deadline', async () => {
     const server = metadataServer('correct', 'correct', 1);
     const result = await runProbe(`http://127.0.0.1:${String(server.port)}`, {
@@ -123,7 +127,7 @@ describe('dev MCP deployment probe', () => {
     });
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain('MCP discovery and challenge');
-  });
+  }, 11000);
 
   it('rejects authorization metadata that weakens public-client PKCE', async () => {
     const server = metadataServer('correct', 'correct', 0, 'wrong');

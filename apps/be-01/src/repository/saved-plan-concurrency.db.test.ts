@@ -141,6 +141,10 @@ describe('a save that meets a held write lock is refused, not queued behind it',
     expect(await headerIds()).toEqual(['sp-other']);
   });
 
+  // Budget stated, not defaulted (TASK-415). Measured 1647ms on h2puni at
+  // load 7-9, a 3.0x margin on the 5000ms default -- and
+  // a real second process must commit before this one is allowed to proceed.
+  // The rule is 5x the measured floor, rounded up to the next second.
   it('writes normally once the other process has committed, on a fresh attempt', async () => {
     const { finished } = await otherProcessHoldsTheLock('sp-other');
     expect(await finished).toBe(0);
@@ -152,5 +156,5 @@ describe('a save that meets a held write lock is refused, not queued behind it',
       outcome: 'written',
     });
     expect(await headerIds()).toEqual(['sp-mine', 'sp-other']);
-  });
+  }, 9000);
 });

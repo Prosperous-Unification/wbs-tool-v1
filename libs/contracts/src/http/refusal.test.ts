@@ -143,6 +143,10 @@ export function refusalTypeCases() {
   expectTypeOf<Refusal>({ code: 'not-retryable', state: 'future' });
 }
 
+// Budget stated, not defaulted (TASK-415). Measured 1952ms on h2puni at
+// load 7-9, a 2.6x margin on the 5000ms default -- and
+// it spawns tsc, so its duration tracks host load rather than the assertion.
+// The rule is 5x the measured floor, rounded up to the next second.
 test('the compiler enforces closed refusal codes, detail variants and command context', () => {
   const checked = Bun.spawnSync({
     cmd: [
@@ -171,7 +175,7 @@ test('the compiler enforces closed refusal codes, detail variants and command co
     '',
   );
   expect(checked.exitCode).toBe(0);
-});
+}, 10000);
 
 export function deadlineRefusalTypes() {
   const valid = {
