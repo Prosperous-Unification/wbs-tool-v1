@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -167,6 +167,7 @@ describe('with-heavy-lock', () => {
     // past four seconds, both assertions would hold **without the retry branch
     // ever running** — a false green that asserts nothing about queueing.
     const release = join(root, 'release');
+    const holderErr = join(root, 'holder.err');
     const holder = Bun.spawn([
       'bash',
       '-c',
@@ -189,7 +190,13 @@ describe('with-heavy-lock', () => {
     // fail without saying why. `heavy-lock-lib.sh` names every refusal path in
     // its own stderr, so a holder that never claims has already explained
     // itself — this stops that explanation being discarded.
-    { stderr: 'pipe' });
+    //
+    // To a FILE rather than a pipe, deliberately. Reading a piped stream to its
+    // end waits for every writer to close it, and the wrapper's inner `bash`
+    // child outlives `holder.kill()` and keeps the pipe open — watched turning
+    // this case's 10s failure into a 20s timeout, a diagnostic that hung the
+    // case it was diagnosing.
+    { stderr: openSync(holderErr, 'w') });
 
     // **Holder readiness, observed.** `claim_heavy_lock` does `mkdir` and *then*
     // writes its pid, so the lock directory exists for an instant before the
@@ -199,8 +206,11 @@ describe('with-heavy-lock', () => {
       await until(() => readIfPresent(join(lock, 'holder')).trim() !== '');
     } catch (cause) {
       holder.kill();
-      const said = await new Response(holder.stderr as ReadableStream).text();
-      throw new Error(`holder never claimed ${lock}; it said: ${said || '(nothing)'}`, { cause });
+      const said = readIfPresent(holderErr).trim();
+      throw new Error(
+        `holder never claimed ${lock} (exitCode ${holder.exitCode}); it said: ${said || '(nothing)'}`,
+        { cause },
+      );
     }
 
     // **The retry, observed.** `heavy-lock-lib.sh` retries with a bare `sleep 5`,
