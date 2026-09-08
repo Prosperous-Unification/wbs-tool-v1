@@ -7,6 +7,7 @@ import { type StepView } from '@/lib/wbs-api';
 import type { PlanTableFeatures } from './plan-columns/column';
 import { type PlanExport, planFileName, planToCsv, planToMarkdown } from './plan-export';
 import { planToMermaid, planToMermaidDocument } from './plan-mermaid';
+import { type PlanRenderRow } from './plan-render-rows';
 import { type Toast } from './toasts';
 import { type FilterCriteria, type FilterLabels, filterWords } from './tree-search';
 import type { ChartRead } from './use-plan-read';
@@ -292,7 +293,7 @@ export function usePlanOnScreenExport({
   filterLabels,
 }: {
   planForExport: () => PlanExport;
-  shownRows: Row<PlanTableFeatures, TreeRow>[];
+  shownRows: Row<PlanTableFeatures, PlanRenderRow>[];
   flat: TreeRow[];
   criteria: FilterCriteria;
   filterLabels: FilterLabels;

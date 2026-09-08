@@ -18,6 +18,7 @@ import type { PlanTableFeatures } from './plan-columns/column';
 import type { EstimateGaps } from './plan-completeness';
 import { describeGaps } from './plan-completeness';
 import { isSectionMode, SECTION_MODES } from './plan-mermaid';
+import { type PlanRenderRow } from './plan-render-rows';
 import type { PlanRenderer } from './plan-renderer';
 import { TAKES_THE_FOCUS } from './plan-toolbar-sheet';
 import { ProjectSettingsModal } from './project-settings-modal';
@@ -624,7 +625,7 @@ export function PlanToolbar({
   setStoredHiddenColumns: React.Dispatch<React.SetStateAction<readonly string[]>>;
   offeredColumns: { id: string; label: string }[];
   toggleColumn: (columnId: string) => void;
-  shownRows: Row<PlanTableFeatures, TreeRow>[];
+  shownRows: Row<PlanTableFeatures, PlanRenderRow>[];
   search: TreeNarrowing;
   gaps: EstimateGaps;
   walkToNextGap: () => void;

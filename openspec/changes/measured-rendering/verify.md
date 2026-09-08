@@ -123,6 +123,27 @@ failed launch is dependency setup evidence, not a test failure.
 
 Optimization, structural/latency gates, full workspace/Chromium gates and independent review remain pending. The original12 experiments are now36 separate opt-in phase cases that intentionally skip in normal browser gates; future acceptance tests must run normally. The two1000/8 Gantt phases are bounded stress failures as recorded above, not complete evidence files. In-app browser inspection unavailable as recorded above.
 
+## 2.2 — first explicit row-reading slice, 2026-09-08
+
+`PlanRenderRow` now attaches immutable per-render readings recursively to every TanStack row.
+The End and Slack cells take the printed finish and schedule-presence value from that row rather
+than from the mutable `PlanLive` ref; chart input, on-screen export and toolbar contracts name the
+richer row type. Event capabilities remain behind `PlanLive`. Task2.2 remains open until every
+render-time cell dependency and stable component identity has moved.
+
+The projection test first failed collection because `plan-render-rows` did not exist, then passed.
+The first assertion incorrectly required parent-before-child evaluation and failed on
+`expected [ 'child', 'root' ] to deeply equal [ 'root', 'child' ]`; evaluation order is not part
+of the contract, so the test now checks the one-reading-per-row set and the preserved tree.
+
+The production negative cached each explicit Finish by row id, omitting the date dependency while
+leaving the two-row surface reachable. `a committed schedule reading reaches the peer’s End cell`
+then failed at its intended assertion on `Expected element to have text content: 10 Sep / Received:
+0 ?`; the stale cache was removed and the five peer/focus cases plus the projection and render-cost
+cases passed (**9 tests**,9.96s). FE source typecheck passed. Scoped ESLint passed after its
+import-sort fix; scoped Prettier passed. Full frontend/browser/workspace gates are deferred until
+the complete2.2 slice.
+
 ## 2.1 — the row and cell dependency inventory and its regressions, 2026-09-08
 
 Read at `4179515d`. The inventory is

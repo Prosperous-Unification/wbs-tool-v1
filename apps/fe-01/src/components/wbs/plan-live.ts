@@ -60,7 +60,6 @@ export interface PlanLiveValues {
   setDropHint: React.Dispatch<React.SetStateAction<{ rowId: string; zone: DropZone } | null>>;
   dependenciesOf: (ids: readonly string[]) => { id: string; number: string; name: string }[];
   dependOn: (successorId: string, typed: string) => void;
-  hasSchedule: () => boolean;
   depPicker: { rowId: string; typed: string; highlightId: string | null } | null;
   setDepPicker: React.Dispatch<
     React.SetStateAction<{ rowId: string; typed: string; highlightId: string | null } | null>

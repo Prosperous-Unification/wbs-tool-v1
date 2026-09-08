@@ -13,6 +13,7 @@ import {
 } from './gantt-geometry';
 import type { PlanTableFeatures } from './plan-columns/column';
 import { showDay } from './plan-number-format';
+import { type PlanRenderRow } from './plan-render-rows';
 import { spanOfRow } from './plan-span';
 import type { ChartRead } from './use-plan-read';
 import { type TreeRow } from './wbs-rows';
@@ -38,7 +39,7 @@ export function usePlanChartInput({
   priorityBands,
   startFloor,
 }: {
-  shownRows: Row<PlanTableFeatures, TreeRow>[];
+  shownRows: Row<PlanTableFeatures, PlanRenderRow>[];
   startDate: string | null;
   effectiveTeamLabelOf: (row: TreeRow) => ServiceTeamLabel;
   effectiveTagLabelOf: (row: TreeRow) => TagLabel;

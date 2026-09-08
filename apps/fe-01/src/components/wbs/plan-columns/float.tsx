@@ -1,9 +1,8 @@
-import type { PlanLive } from '../plan-live';
 import { showDay } from '../plan-number-format';
 import { column } from './column';
 
-/** Builds the float column family against the stable live cell contract. */
-export function createFloatColumn({ live }: { live: PlanLive }) {
+/** Builds the float column from the immutable reading attached to each row. */
+export function createFloatColumn() {
   return column.display({
     id: 'float',
     header: () => <span>Slack</span>,
@@ -14,7 +13,7 @@ export function createFloatColumn({ live }: { live: PlanLive }) {
       // One word, not the `— critical` it was: the column is 56px and the
       // tag has to fit inside it, which the dash and the space did not.
       // `plan-export.ts` has printed the bare word since it was written.
-      if (!live.current.hasSchedule()) {
+      if (!row.original.readings.hasSchedule) {
         return (
           <span
             data-float

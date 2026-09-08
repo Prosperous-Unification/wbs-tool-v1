@@ -179,6 +179,27 @@ describe('a peer’s edit and the editor that is open while it lands', () => {
     stillTyping(typing, 'Strip the old wir');
   });
 
+  itDom('a committed schedule reading reaches the peer’s End cell', async () => {
+    // Proof: caching each row's explicit `finish` by id — omitting its date
+    // dependency while leaving the row mounted — failed below on `Expected
+    // element to have text content: 10 Sep / Received: 0 ?`. Watched
+    // 2026-09-08.
+    showEveryColumn();
+    const { api, peerWrites } = await twoRowsAndAPeer();
+    const typing = halfTypeTheName('Strip the old wir');
+    const peerRow = screen.getByLabelText('Name of 020').closest('tr');
+    if (peerRow === null) throw new Error('row 020 has no table row');
+
+    await peerWrites(() => api.setStartDate('p1', '2026-09-10'));
+
+    await waitFor(() => {
+      expect(peerRow.querySelector('[data-finish]')).toHaveTextContent(
+        shortIsoDate('2026-09-10', new Date()),
+      );
+    });
+    stillTyping(typing, 'Strip the old wir');
+  });
+
   itDom('a directory entry a peer created reaches the peer’s row', async () => {
     // Two faults, because this cell reads two things: the row's own `teamIds`
     // and the directory the name comes out of. The reused-rows fault above and

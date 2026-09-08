@@ -35,6 +35,7 @@ import { createPlanColumns } from './plan-columns/columns';
 import { usePlanExportActions, usePlanOnScreenExport } from './plan-export-actions';
 import type { PlanLiveValues } from './plan-live';
 import { showDay } from './plan-number-format';
+import { attachRowReadings } from './plan-render-rows';
 import { useRendererForViewport } from './plan-renderer';
 import { PlanToolbar } from './plan-toolbar';
 import { PlanToolbarSheet } from './plan-toolbar-sheet';
@@ -927,6 +928,11 @@ export function WbsTable({
     return said;
   };
 
+  const rowsWithReadings = attachRowReadings(workItems, (row) => ({
+    hasSchedule: hasSchedule(),
+    finish: spanOfOnce(row).finish,
+  }));
+
   /**
    * The current cell values, built once.
    *
@@ -961,7 +967,6 @@ export function WbsTable({
     setDropHint,
     dependenciesOf,
     dependOn,
-    hasSchedule,
     depPicker,
     setDepPicker,
     depLights,
@@ -1039,7 +1044,7 @@ export function WbsTable({
 
   const table = useTable({
     features: PLAN_TABLE_FEATURES,
-    data: workItems,
+    data: rowsWithReadings,
     columns,
     // While a search is on, the expansion in force is the search's overlay:
     // every kept row open, so a hit inside a branch this reader had closed is
