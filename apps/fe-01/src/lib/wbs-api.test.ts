@@ -1247,9 +1247,11 @@ describe('what a full-scope read puts on the wire', () => {
 
     expect([...requests].sort()).toEqual([...FULL_SCOPE_PUTS_ON_THE_WIRE].sort());
 
-    // Cleared rather than summed, so the second refresh is measured on its own:
-    // a guard that fires only from the second tree read onward would otherwise
-    // read as eighteen against eighteen and pass.
+    // Cleared rather than summed, so the second refresh is measured on its own.
+    // Summing would still go red under a second-read-only guard — nineteen
+    // actual against eighteen expected — so this is about the failure being
+    // readable, not about catching it at all: an aggregate mismatch names
+    // neither pass, while a cleared log points at the refresh that grew.
     requests = [];
     const second = await fullScope();
 
