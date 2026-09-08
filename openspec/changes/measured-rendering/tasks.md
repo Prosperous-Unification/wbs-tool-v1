@@ -21,7 +21,7 @@
 - [x] 4.1 Introduce viewport row/column ranges, measured variable heights and explicit overscan; count mounted cells independently of implementation ranges.
 - [x] 4.2 Pin the active editor across scrolling with same node/text/selection and commit/Escape/refusal behavior; logical navigation mounts offscreen targets before focusing.
 - [x] 4.3 Preserve scroll anchoring, pinned columns, logical striping, accessible row count/index, drag destinations/autoscroll and mobile card behavior.
-- [ ] 4.4 Preserve Gantt logical order,28px label/bar alignment, hover correspondence and whole-chart SVG export; test height/width changes near window boundaries.
+- [x] 4.4 Preserve Gantt logical order,28px label/bar alignment, hover correspondence and whole-chart SVG export; test height/width changes near window boundaries.
 - [ ] 4.5 Restore full mounting at fixed viewport and watch the cell budget fail; remeasure the complete matrix and document trade-offs.
 
 ## 5. Integrate and review

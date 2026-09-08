@@ -13,6 +13,7 @@ import {
 import { DEFAULT_SECTION_MODE, type SectionMode } from './plan-mermaid';
 import type { PlanRenderer } from './plan-renderer';
 import { linkPlanScroll } from './plan-scroll-link';
+import type { ViewportEntry } from './plan-viewport';
 import {
   forgetGanttDayPx,
   forgetGanttHeight,
@@ -541,6 +542,7 @@ export function usePlanLayoutEffects({
   chartRead,
   ganttColumn,
   setGanttRoomPx,
+  rendererRows,
 }: {
   frameRef: React.RefObject<HTMLDivElement | null>;
   ganttOpen: boolean;
@@ -548,6 +550,7 @@ export function usePlanLayoutEffects({
   chartRead: ChartRead;
   ganttColumn: React.RefObject<HTMLElement | null>;
   setGanttRoomPx: React.Dispatch<React.SetStateAction<number | null>>;
+  rendererRows: readonly ViewportEntry[];
 }) {
   /**
    * Holds the plan's two faces on one row while both are on screen.
@@ -586,8 +589,13 @@ export function usePlanLayoutEffects({
     // `chartRead` below, so a read that lands or clears a circle brings a new
     // `generation` with it.
     if (panel.querySelector('[data-gantt-axis]') === null) return;
-    return linkPlanScroll(frame, panel);
-  }, [ganttOpen, renderer, chartRead.generation, frameRef]);
+    // The renderer's complete measured row order is the table face. Its DOM
+    // contains only a viewport slice, whose nth node is not logical row n.
+    // Proof: omitting rendererRows, `a windowed table and the complete Gantt
+    // stay on the same logical row` failed on `Expected: 53 · Received: 0`.
+    // Watched in Chromium, 2026-09-08.
+    return linkPlanScroll(frame, panel, rendererRows);
+  }, [ganttOpen, renderer, chartRead.generation, frameRef, rendererRows]);
 
   /**
    * Keeps {@link ganttRoomPx} on what the column really has, so a remembered

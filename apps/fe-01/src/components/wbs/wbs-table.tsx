@@ -777,7 +777,6 @@ export function WbsTable({
    * `[data-table-frame]`, and so does the browser gate.
    */
   const frameRef = useRef<HTMLDivElement | null>(null);
-  usePlanLayoutEffects({ frameRef, ganttOpen, renderer, chartRead, ganttColumn, setGanttRoomPx });
   const { refreshOrMarkStale, run, stepStack, runMarkerWrite } = usePlanRead({
     setDrafts,
     projectId,
@@ -1541,6 +1540,15 @@ export function WbsTable({
     columns: viewportColumns,
     pinnedCells,
     enabled: renderer === 'table',
+  });
+  usePlanLayoutEffects({
+    frameRef,
+    ganttOpen,
+    renderer,
+    chartRead,
+    ganttColumn,
+    setGanttRoomPx,
+    rendererRows: viewport.rowLayout,
   });
   const mountedRows = viewport.rows.entries.map((entry) => ({
     entry,

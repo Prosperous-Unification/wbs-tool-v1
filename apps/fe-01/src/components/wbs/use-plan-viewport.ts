@@ -2,8 +2,10 @@ import { type RefObject, useCallback, useLayoutEffect, useMemo, useRef, useState
 
 import type { CellRef } from './cell-navigation';
 import {
+  placeRows,
   type ViewportColumn,
   viewportColumns,
+  type ViewportEntry,
   viewportRows,
   type ViewportSlice,
 } from './plan-viewport';
@@ -27,6 +29,7 @@ interface FrameViewport {
 
 interface PlanViewport {
   rows: ViewportSlice;
+  rowLayout: readonly ViewportEntry[];
   columns: ViewportSlice;
   attachRow: (rowId: string, node: HTMLTableRowElement | null) => void;
 }
@@ -192,6 +195,10 @@ export function usePlanViewport({
       }),
     [frame, heights, pinnedCells, rowIds],
   );
+  const rowLayout = useMemo(
+    () => placeRows(rowIds, heights, ESTIMATED_ROW_HEIGHT_PX),
+    [heights, rowIds],
+  );
   const visibleColumns = useMemo(
     () =>
       viewportColumns({
@@ -205,5 +212,5 @@ export function usePlanViewport({
       }),
     [columns, frame.measured, frame.scrollLeft, frame.widthPx, pinnedCells],
   );
-  return { rows, columns: visibleColumns, attachRow };
+  return { rows, rowLayout, columns: visibleColumns, attachRow };
 }

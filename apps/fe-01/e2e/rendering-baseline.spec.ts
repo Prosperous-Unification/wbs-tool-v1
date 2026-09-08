@@ -283,6 +283,86 @@ test('a row drag at the frame edge reaches an initially unmounted destination', 
   await expect(destination).toHaveAttribute('data-drop', 'into');
 });
 
+test('a windowed table and the complete Gantt stay on the same logical row', async ({ page }) => {
+  const seeded = await seedRenderingPlan(page, { rows: 100, steps: 2, density: 'sparse' });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Gantt', exact: true }).click();
+  const labels = page.locator('[data-gantt-label]');
+  await expect(labels).toHaveCount(100);
+  await painted(page);
+  const frame = page.locator('[data-table-frame]');
+  const panel = page.locator('[data-gantt-panel]');
+
+  const firstShown = async (surface: 'table' | 'gantt') =>
+    page.evaluate((asked) => {
+      const port = document.querySelector<HTMLElement>(
+        asked === 'table' ? '[data-table-frame]' : '[data-gantt-panel]',
+      );
+      const heading = document.querySelector<HTMLElement>(
+        asked === 'table' ? '[data-grid] thead th' : '[data-gantt-axis]',
+      );
+      if (port === null || heading === null) throw new Error(`${asked} face is absent`);
+      const selector = asked === 'table' ? 'tr[data-row-id]' : '[data-gantt-label]';
+      const row = [...port.querySelectorAll<HTMLElement>(selector)].find(
+        (candidate) =>
+          candidate.getBoundingClientRect().bottom > heading.getBoundingClientRect().bottom + 1,
+      );
+      if (row === undefined) throw new Error(`${asked} face shows no row`);
+      return asked === 'table' ? row.dataset['rowId'] : row.dataset['ganttLabel'];
+    }, surface);
+
+  await frame.evaluate((node) => {
+    node.scrollTop = 50 * 28;
+  });
+  await painted(page);
+  const tableFromFrame = await firstShown('table');
+  const tableIndex = seeded.ids.indexOf(tableFromFrame ?? '');
+  await expect
+    .poll(async () => seeded.ids.indexOf((await firstShown('gantt')) ?? ''))
+    .toBe(tableIndex);
+  expect(tableIndex).toBeGreaterThan(40);
+
+  await panel.evaluate((node) => {
+    node.scrollTop = 70 * 28;
+  });
+  await painted(page);
+  const ganttIndex = seeded.ids.indexOf((await firstShown('gantt')) ?? '');
+  await expect
+    .poll(async () => seeded.ids.indexOf((await firstShown('table')) ?? ''))
+    .toBe(ganttIndex);
+
+  const alignedId = seeded.ids[ganttIndex];
+  const alignedLabel = page.locator(`[data-gantt-label="${alignedId}"]`);
+  await alignedLabel.hover();
+  await expect(page.locator(`tr[data-row-id="${alignedId}"]`)).toHaveAttribute(
+    'data-row-lit',
+    'true',
+  );
+  const label = await labels.nth(ganttIndex).boundingBox();
+  const following = await labels.nth(ganttIndex + 1).boundingBox();
+  if (label === null || following === null)
+    throw new Error('aligned Gantt labels have no geometry');
+  expect(Math.abs(following.y - label.y - 28)).toBeLessThanOrEqual(1);
+
+  await page.setViewportSize({ width: 1200, height: 800 });
+  await painted(page);
+  await frame.evaluate((node) => {
+    node.scrollTop = 60 * 28;
+  });
+  await painted(page);
+  const tableAfterResize = seeded.ids.indexOf((await firstShown('table')) ?? '');
+  await expect
+    .poll(async () => seeded.ids.indexOf((await firstShown('gantt')) ?? ''))
+    .toBe(tableAfterResize);
+
+  const saving = page.waitForEvent('download');
+  await page.locator('[data-gantt-svg-download]').click();
+  const saved = await saving;
+  const file = await readFile(await saved.path(), 'utf8');
+  expect(file).toContain('Row 0000');
+  expect(file).toContain('Row 0099 z');
+});
+
 test.use({
   actionTimeout: 120_000,
   navigationTimeout: 120_000,

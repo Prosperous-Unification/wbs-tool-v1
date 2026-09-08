@@ -207,6 +207,31 @@ behavior; the fixture actually numbers its first row0010. The selector now ident
 row handle, and the recorded fault comes only from the intended missing autoscroll path. All faults
 were removed before the restored runs.
 
+## 4.4 — complete Gantt against a windowed table, 2026-09-08
+
+The scroll link now receives the viewport's complete logical row placement rather than enumerating
+the table's mounted `<tr>` nodes. Table-to-chart and chart-to-table movement therefore address the
+same logical index while the table remains windowed and the chart retains all100 labels. The
+acceptance case crosses two mid-plan window boundaries in opposite directions, repeats after both
+viewport dimensions change, measures the chart's28px row step, follows a label hover back to the
+corresponding mounted table row, and downloads an SVG containing both the first and last logical
+names.
+
+The completed acceptance case passed in5.5s. The existing standalone-SVG geometry case and
+keyboard-follow surface case passed2/2 in17.5s. The pure viewport and scroll-link suites passed27/27
+in0.68s. FE typecheck and scoped ESLint passed. The initial bottom-edge version of the test was
+correctly discarded: the chart and table have different viewport heights, so one can reach a later
+first row at its maximum than the other can reproduce. Reachable mid-plan offsets now isolate the
+link's logical-row contract.
+
+### Failure proof table
+
+| Check                                          | Injected fault                                                  | Observed failure                                          |
+| ---------------------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------- |
+| A windowed table links by complete logical row | Omit the complete placement and restore mounted-DOM enumeration | table index53, Gantt index0: `Expected: 53 · Received: 0` |
+
+The fault was removed before the restored browser run.
+
 ## 3.2 — filter-sensitive cell rendering, 2026-09-08
 
 Filter state no longer sits in every `PlanRowReadings`. Number and Name receive it through an

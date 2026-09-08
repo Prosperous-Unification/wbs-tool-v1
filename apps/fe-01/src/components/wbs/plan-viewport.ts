@@ -40,6 +40,21 @@ function intersecting(entries: readonly ViewportEntry[], startPx: number, endPx:
   return entries.filter((entry) => entry.startPx < endPx && entry.startPx + entry.sizePx > startPx);
 }
 
+/** Places every logical row from measured heights and the declared initial estimate. */
+export function placeRows(
+  rowIds: readonly string[],
+  heights: ReadonlyMap<string, number>,
+  estimatedHeight: number,
+): ViewportEntry[] {
+  let startPx = 0;
+  return rowIds.map((id, index) => {
+    const sizePx = heights.get(id) ?? estimatedHeight;
+    const entry = { id, index, startPx, sizePx };
+    startPx += sizePx;
+    return entry;
+  });
+}
+
 /**
  * Resolves the mounted row interval from measured heights and one explicit estimate.
  * Unmeasured rows are a modeled state; malformed measurements are not.
@@ -53,14 +68,9 @@ export function viewportRows({
   overscanPx,
   pinnedIds,
 }: RowViewportInput): ViewportSlice {
-  let startPx = 0;
-  const all = rowIds.map((id, index) => {
-    const measured = heights.get(id);
-    const sizePx = measured ?? estimatedHeight;
-    const entry = { id, index, startPx, sizePx };
-    startPx += sizePx;
-    return entry;
-  });
+  const all = placeRows(rowIds, heights, estimatedHeight);
+  const totalPx = all.at(-1)?.startPx ?? 0;
+  const lastSizePx = all.at(-1)?.sizePx ?? 0;
   const windowed = new Set(
     intersecting(
       all,
@@ -76,9 +86,10 @@ export function viewportRows({
   const last = entries.at(-1);
   return {
     beforePx: first?.startPx ?? 0,
-    afterPx: last === undefined ? startPx : startPx - last.startPx - last.sizePx,
+    afterPx:
+      last === undefined ? totalPx + lastSizePx : totalPx + lastSizePx - last.startPx - last.sizePx,
     entries,
-    totalPx: startPx,
+    totalPx: totalPx + lastSizePx,
   };
 }
 

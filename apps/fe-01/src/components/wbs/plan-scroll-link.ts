@@ -190,11 +190,24 @@ export function alignmentMove(driver: PlanFace, follower: PlanFace): number | nu
  * seen — measuring from the box's own top instead would silently hide the first
  * row under the heading it could not find. R5: unknown is not OK.
  */
-export function rendererFace(frame: HTMLElement): PlanFace {
+export function rendererFace(
+  frame: HTMLElement,
+  logicalRows?: readonly { id: string; startPx: number; sizePx: number }[],
+): PlanFace {
   const heading = frame.querySelector('thead th');
   if (heading === null) {
     throw new Error('the plan frame has no heading cell to measure its content top from');
   }
+  if (logicalRows !== undefined)
+    return {
+      contentTop: heading.getBoundingClientRect().bottom,
+      count: logicalRows.length,
+      at: (index) => {
+        const row = logicalRows[index];
+        const top = heading.getBoundingClientRect().bottom + row.startPx - frame.scrollTop;
+        return { id: row.id, top, bottom: top + row.sizePx };
+      },
+    };
   const rows = frame.querySelectorAll('tbody tr[data-row-id]');
   return {
     contentTop: heading.getBoundingClientRect().bottom,
@@ -261,7 +274,11 @@ export function panelFace(panel: HTMLElement): PlanFace {
  * a write that will not echo, and a face pinned at its end is left alone until
  * its driver comes back to it.
  */
-export function linkPlanScroll(frame: HTMLElement, panel: HTMLElement): () => void {
+export function linkPlanScroll(
+  frame: HTMLElement,
+  panel: HTMLElement,
+  logicalRows?: readonly { id: string; startPx: number; sizePx: number }[],
+): () => void {
   /** The face whose next scroll event this module caused, if any. */
   let echo: HTMLElement | null = null;
 
@@ -271,7 +288,7 @@ export function linkPlanScroll(frame: HTMLElement, panel: HTMLElement): () => vo
       return;
     }
     const readFace = (port: HTMLElement) =>
-      port === frame ? rendererFace(frame) : panelFace(panel);
+      port === frame ? rendererFace(frame, logicalRows) : panelFace(panel);
     const move = alignmentMove(readFace(driverPort), readFace(followerPort));
     if (move === null) return;
     const before = followerPort.scrollTop;
