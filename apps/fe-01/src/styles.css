@@ -644,7 +644,7 @@
    * The body: banded, and a touch stronger under the pointer. Subtler than the
    * chart's banding on purpose — there is text in every cell here.
    */
-  [data-grid] tbody tr:nth-child(even) {
+  [data-grid] tbody tr[data-row-parity='even'] {
     --cell-bg: var(--grid-band);
   }
 
@@ -702,7 +702,9 @@
    */
   [data-grid]
     tbody
-    tr:not([data-dep-lit]):not([data-row-lit]):not([data-drop='into']):nth-child(even):hover {
+    tr:not([data-dep-lit]):not([data-row-lit]):not(
+      [data-drop='into']
+    )[data-row-parity='even']:hover {
     --cell-bg: var(--grid-band-hover);
   }
 

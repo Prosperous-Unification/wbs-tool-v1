@@ -18,7 +18,7 @@
 
 ## 4. Bound mounted cells
 
-- [ ] 4.1 Introduce viewport row/column ranges, measured variable heights and explicit overscan; count mounted cells independently of implementation ranges.
+- [x] 4.1 Introduce viewport row/column ranges, measured variable heights and explicit overscan; count mounted cells independently of implementation ranges.
 - [ ] 4.2 Pin the active editor across scrolling with same node/text/selection and commit/Escape/refusal behavior; logical navigation mounts offscreen targets before focusing.
 - [ ] 4.3 Preserve scroll anchoring, pinned columns, logical striping, accessible row count/index, drag destinations/autoscroll and mobile card behavior.
 - [ ] 4.4 Preserve Gantt logical order,28px label/bar alignment, hover correspondence and whole-chart SVG export; test height/width changes near window boundaries.

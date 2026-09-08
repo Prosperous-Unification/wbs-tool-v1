@@ -515,3 +515,33 @@ apps/fe-01/playwright.config.ts apps/fe-01/e2e/hover-cards.spec.ts`, under
   container because its Linux path is `/home/puni1/.cache`, which does not exist for user `df`;
   the same lock library's explicit-path seam provided the mutex. Vite logged closed-page WebSocket
   proxy `EPIPE`s between passing cases; no assertion failed.
+
+## 4.1 — measured viewport intervals, 2026-09-08
+
+`usePlanViewport` owns the table frame's scroll rectangle,300px vertical and256px horizontal
+overscan, and a measured height map. Rows begin at the baseline's26.1875px and replace it with
+their attached `<tr>` height through one `ResizeObserver`. Spacer rows retain the complete vertical
+extent. Scrolling columns retain all four pinned identity columns; contiguous omitted runs become
+`colSpan` spacers against the unchanged complete `<colgroup>`, so native table width and sticky
+offsets still have one source.
+
+The interval module first failed collection because `plan-viewport.ts` did not exist, then passed
+**3 tests** covering a variable-height row interval, the unmeasured estimate and a horizontally
+scrolled interval with pinned columns. Column windowing stays dormant where no real frame geometry
+exists, so jsdom keeps its full deterministic table; the keyboard/cell/read-write group passed
+**247 tests** in88.19s and the layout/filter/render-cost/interval group passed **143 tests** in
+49.59s. `fe-01:typecheck` passed through Nx's documented in-process sandbox fallback.
+
+Two normal Chromium cases count actual `[data-column]` cells through `renderingGeometry`, not the
+interval's answer. The100-row folded case traversed from first to last row within the1,200-cell
+ceiling; the100-row eight-step case unfolded all groups, observed Actions absent at the left edge,
+scrolled right until they mounted, and stayed within2,250 cells at both edges. The restored pair
+passed in19.1s. Vite emitted the existing closed-page WebSocket `EPIPE`/`ECONNRESET` noise after
+passing assertions.
+
+### Failure proof table
+
+| Check                                            | Injected fault                       | Observed failure                    |
+| ------------------------------------------------ | ------------------------------------ | ----------------------------------- |
+| folded cells stay within the independent budget  | render all100 shown rows             | `Expected: <= 1200, Received: 1500` |
+| an offscreen unfolded column is initially absent | mount every leaf column in every row | `Expected: 0, Received: 43`         |

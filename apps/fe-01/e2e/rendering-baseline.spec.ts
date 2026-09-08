@@ -22,7 +22,7 @@ type ObservedWindow = Window & {
 async function findSample(page: Page, character: string, rows: number) {
   const field = page.getByLabel('Find', { exact: true });
   await field.fill('');
-  await expect(page.locator('[data-grid] tbody tr[data-row-id]')).toHaveCount(rows);
+  await expect(page.locator('[data-grid] tbody tr[data-row-id]').first()).toBeVisible();
   await painted(page);
   await field.focus();
   await page.evaluate(
@@ -82,10 +82,10 @@ async function findSample(page: Page, character: string, rows: number) {
 }
 
 /** Chromium's actual production function counts, in a separate instrumented pass. */
-async function cellRenderCalls(page: Page, rows: number) {
+async function cellRenderCalls(page: Page) {
   const field = page.getByLabel('Find', { exact: true });
   await field.fill('');
-  await expect(page.locator('[data-grid] tbody tr[data-row-id]')).toHaveCount(rows);
+  await expect(page.locator('[data-grid] tbody tr[data-row-id]').first()).toBeVisible();
   await painted(page);
   const session = await page.context().newCDPSession(page);
   await session.send('Profiler.enable');
@@ -113,10 +113,37 @@ test('a broad Find renders no more than its two filter-sensitive cells per row',
   const rows = 100;
   const seeded = await seedRenderingPlan(page, { rows, steps: 2, density: 'sparse' });
   await page.goto('/');
-  await expect(page.locator('[data-grid] tbody tr[data-row-id]')).toHaveCount(rows);
   await expect(page.locator(`[data-name-input="${seeded.ids[0]}"]`)).toHaveValue('Row 0000');
+  await expect
+    .poll(async () => (await renderingGeometry(page)).mountedCells)
+    .toBeLessThanOrEqual(1200);
+  await page.locator('[data-table-frame]').evaluate((frame) => {
+    frame.scrollTop = frame.scrollHeight;
+  });
+  await expect(page.locator(`[data-name-input="${seeded.ids[rows - 1]}"]`)).toHaveValue(
+    'Row 0099 z',
+  );
+  expect((await renderingGeometry(page)).mountedCells).toBeLessThanOrEqual(1200);
 
-  expect(await cellRenderCalls(page, rows)).toBeLessThanOrEqual(rows * 2);
+  expect(await cellRenderCalls(page)).toBeLessThanOrEqual(rows * 2);
+});
+
+test('an unfolded plan mounts only its viewport columns', async ({ page }) => {
+  await seedRenderingPlan(page, { rows: 100, steps: 8, density: 'sparse' });
+  await page.goto('/');
+  const unfold = page.getByRole('button', { name: /^Unfold .* estimates$/ });
+  await expect(unfold).toHaveCount(8);
+  for (let index = 0; index < 8; index += 1) await unfold.first().click();
+
+  const actions = page.locator('[data-grid] tbody td[data-column="actions"]');
+  expect(await actions.count()).toBe(0);
+  expect((await renderingGeometry(page)).mountedCells).toBeLessThanOrEqual(2250);
+
+  await page.locator('[data-table-frame]').evaluate((frame) => {
+    frame.scrollLeft = frame.scrollWidth;
+  });
+  await expect(actions.first()).toBeVisible();
+  expect((await renderingGeometry(page)).mountedCells).toBeLessThanOrEqual(2250);
 });
 
 test.use({
@@ -263,7 +290,7 @@ test.describe('Chromium rendering baseline', () => {
                   }
                 }
                 if (phase === 'coverage') {
-                  const calls = await cellRenderCalls(measured, rows);
+                  const calls = await cellRenderCalls(measured);
                   await record({ kind: 'precise-coverage', broadFindCellStyleCalls: calls });
                 }
                 if (phase === 'gantt') {

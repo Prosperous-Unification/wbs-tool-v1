@@ -47,6 +47,7 @@ import { createPointedRows, type PointedRows } from './pointed-row-store';
 import { rememberGanttDayPx, rememberGanttLabels } from './remembered-layout';
 import {
   CELL,
+  FLEXIBLE_CAP,
   flexibleCellStyle,
   type FrameLayout,
   frameLayout,
@@ -93,12 +94,16 @@ import {
   usePlanStructure,
   usePlanStructureEffects,
 } from './use-plan-structure';
+import { usePlanViewport } from './use-plan-viewport';
 import { usePlanAssignments, usePlanLabels, useReferenceSets } from './use-reference-sets';
 import { type TreeRow } from './wbs-rows';
 
 /** What {@link PlanRow} needs beyond the cells it is handed. */
 interface PlanRowProps {
   rowId: string;
+  /** Zero-based position in the complete filtered and expanded row order. */
+  rowIndex: number;
+  attach: (rowId: string, node: HTMLTableRowElement | null) => void;
   frozen: boolean;
   /**
    * Where this row's **dependency** light is read from.
@@ -145,7 +150,7 @@ interface PlanRowProps {
  * `data-row-lit` says this is the **pointed row**, whichever face pointed it:
  * a bar or a row's line on the chart, a bar's focus, or the pointer resting on
  * this row here. Writing it on the hovered row itself makes
- * `tr:not([data-row-lit])…:nth-child(even):hover` unmatchable — deliberately,
+ * `tr:not([data-row-lit])…[data-row-parity='even']:hover` unmatchable — deliberately,
  * since `pointed-row-one-ink`: one ink for the row you are asking about, and
  * the alternating stripe left to say only which row is which at rest (Dany,
  * 2026-09-01: "highlighted row is colored independently of which odd or even
@@ -167,6 +172,8 @@ interface PlanRowProps {
  */
 function PlanRow({
   rowId,
+  rowIndex,
+  attach,
   frozen,
   depLights,
   armed,
@@ -179,8 +186,17 @@ function PlanRow({
 }: PlanRowProps) {
   const lit = useSyncExternalStore(pointed.subscribe, () => pointed.pointedAt() === rowId);
   const depLit = useSyncExternalStore(depLights.subscribe, () => depLights.isLit(rowId));
+  const attachThisRow = useCallback(
+    (node: HTMLTableRowElement | null) => {
+      attach(rowId, node);
+    },
+    [attach, rowId],
+  );
   return (
     <tr
+      ref={attachThisRow}
+      aria-rowindex={rowIndex + 2}
+      data-row-parity={rowIndex % 2 === 0 ? 'odd' : 'even'}
       // The row's identity, on the row — the handle the browser proofs find a
       // dependency's `<tr>` by (precedent: `data-armed`, `data-drop`), and the
       // shell's own subscription key. Nothing else in the app reads it.
@@ -213,6 +229,36 @@ function PlanRow({
     >
       {children}
     </tr>
+  );
+}
+
+/** Preserves the unmounted rows' measured scroll extent without pretending to be a data row. */
+function ViewportRowSpacer({
+  position,
+  heightPx,
+  columnCount,
+}: {
+  position: 'before' | 'after';
+  heightPx: number;
+  columnCount: number;
+}) {
+  if (heightPx === 0) return null;
+  return (
+    <tr aria-hidden="true" data-viewport-spacer={position}>
+      <td colSpan={columnCount} style={{ border: 0, height: heightPx, padding: 0 }} />
+    </tr>
+  );
+}
+
+/** Holds omitted columns against the complete `<colgroup>` without mounting a plan cell. */
+function ViewportColumnSpacer({ columnCount }: { columnCount: number }) {
+  return (
+    <td
+      aria-hidden="true"
+      data-viewport-column-spacer
+      colSpan={columnCount}
+      style={{ ...CELL, padding: 0 }}
+    />
   );
 }
 
@@ -1331,6 +1377,7 @@ export function WbsTable({
     () => rowModel.filter((row) => search.visibleIds.has(row.id)),
     [rowModel, search.visibleIds],
   );
+  const shownRowIds = useMemo(() => shownRows.map((row) => row.original.id), [shownRows]);
 
   const committedLogicalCells = useMemo(
     () =>
@@ -1456,6 +1503,29 @@ export function WbsTable({
    * #1).
    */
   const layout = useMemo(() => frameLayout(leafColumnIds, frameState), [frameState, leafColumnIds]);
+  const viewportColumns = useMemo(
+    () =>
+      layout.columns.map((column) => ({
+        id: column.id,
+        widthPx: column.width ?? FLEXIBLE_CAP,
+        pinned: layout.pinned.has(column.id),
+      })),
+    [layout],
+  );
+  const viewport = usePlanViewport({
+    frameRef,
+    rowIds: shownRowIds,
+    columns: viewportColumns,
+    enabled: renderer === 'table',
+  });
+  const mountedRows = viewport.rows.entries.map((entry) => ({
+    index: entry.index,
+    row: shownRows[entry.index],
+  }));
+  // Proof: replacing this set with every leaf id made `an unfolded plan mounts only its
+  // viewport columns` fail on `Expected: 0, Received: 43` for the offscreen Actions cells.
+  // Watched in Chromium, 2026-09-08.
+  const mountedColumnIds = new Set(viewport.columns.entries.map((entry) => entry.id));
 
   /**
    * What the headings' hints may bend for, in one object beside the layout's.
@@ -1951,6 +2021,7 @@ export function WbsTable({
           */}
             <table
               data-grid
+              aria-rowcount={shownRows.length + 1}
               // A callback rather than the ref object itself: `gridElement` holds
               // an `HTMLElement` since `M mobile-cards` — a `<table>` here and a
               // list of cards below the breakpoint — and React will not hand a
@@ -2023,10 +2094,17 @@ export function WbsTable({
                 ))}
               </thead>
               <tbody>
-                {shownRows.map((row) => (
+                <ViewportRowSpacer
+                  position="before"
+                  heightPx={viewport.rows.beforePx}
+                  columnCount={leafColumnIds.length}
+                />
+                {mountedRows.map(({ row, index }) => (
                   <PlanRow
                     key={row.id}
                     rowId={row.original.id}
+                    rowIndex={index}
+                    attach={viewport.attachRow}
                     frozen={row.original.frozenNumber !== null}
                     depLights={depLights}
                     armed={armedDelete?.rowId === row.original.id}
@@ -2068,10 +2146,26 @@ export function WbsTable({
                       );
                     }}
                   >
-                    {row.getAllCells().map((cell) => {
+                    {row.getAllCells().flatMap((cell, columnIndex, rowCells) => {
+                      if (!mountedColumnIds.has(cell.column.id)) {
+                        const previous = rowCells[columnIndex - 1];
+                        if (columnIndex > 0 && !mountedColumnIds.has(previous.column.id)) return [];
+                        let columnCount = 1;
+                        while (
+                          columnIndex + columnCount < rowCells.length &&
+                          !mountedColumnIds.has(rowCells[columnIndex + columnCount].column.id)
+                        )
+                          columnCount += 1;
+                        return [
+                          <ViewportColumnSpacer
+                            key={`columns-${String(columnIndex)}`}
+                            columnCount={columnCount}
+                          />,
+                        ];
+                      }
                       const sentence =
                         cell.column.id === 'start' ? startSentence(row.original) : null;
-                      return (
+                      return [
                         <PlanTableCell
                           key={cell.id}
                           cards={cellCards}
@@ -2094,11 +2188,16 @@ export function WbsTable({
                           startSentence={sentence}
                           filtering={filtering}
                           matched={search.matchIds.has(row.id)}
-                        />
-                      );
+                        />,
+                      ];
                     })}
                   </PlanRow>
                 ))}
+                <ViewportRowSpacer
+                  position="after"
+                  heightPx={viewport.rows.afterPx}
+                  columnCount={leafColumnIds.length}
+                />
               </tbody>
             </table>
           </div>
