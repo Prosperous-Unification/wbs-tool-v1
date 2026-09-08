@@ -150,6 +150,35 @@ failed launch is dependency setup evidence, not a test failure.
 
 Optimization, structural/latency gates, full workspace/Chromium gates and independent review remain pending. The original12 experiments are now36 separate opt-in phase cases that intentionally skip in normal browser gates; future acceptance tests must run normally. The two1000/8 Gantt phases are bounded stress failures as recorded above, not complete evidence files. In-app browser inspection unavailable as recorded above.
 
+## 4.2 — active cells and offscreen navigation, 2026-09-08
+
+The viewport now retains the focused cell's row and column outside both ordinary windows. The
+same textarea/input node, its half-typed value, focus and selection survive programmatic scrolling
+from one end of a100-row plan to the other and across an eight-step unfolded plan. Existing live
+field behavior remains on that same node, so commit, Escape and refused-draft ownership do not gain
+a virtualization-specific copy. A requested logical destination is pinned first, then focused only
+after the committed grid contains it; Tab, arrows, command movement, Cmd+Enter and structural
+focus intents all use that attachment boundary.
+
+The first keyboard negative was vacuous because Playwright's `focus()` scrolled the last overscan
+row into view, mounting its successor before the key arrived. The proof now calls DOM
+`focus({preventScroll:true})`, checks the target is still absent, and only then presses Ctrl+J.
+The two normal Chromium acceptance cases passed together in22.2s. The viewport pure suite passed
+5/5 in0.58s, and the keyboard/live-editing group passed251/251 in56.65s. FE typecheck and scoped
+ESLint passed; full gates remain Task5 work. Read-only dconf diagnostics and Vite WebSocket EPIPEs
+after page closure were the only warnings.
+
+### Failure proof table
+
+| Check                                          | Injected fault                                          | Observed failure                                                |
+| ---------------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------- |
+| Active row survives vertical eviction          | Remove the focused cell from pinned cells               | `Expected: "Row 0000 half-typed" · Error: element(s) not found` |
+| Active column preserves node identity          | Remove the focused cell from pinned cells               | `Expected: true · Received: false`                              |
+| Command movement crosses an unmounted boundary | Return false when the logical target is absent from DOM | `Expected: focused · Error: element(s) not found`               |
+| A pinned column is not also omitted space      | Count a pinned offscreen column in the omitted width    | `afterPx: expected 100, received 200`                           |
+
+All faults were removed before the restored browser and unit runs.
+
 ## 3.2 — filter-sensitive cell rendering, 2026-09-08
 
 Filter state no longer sits in every `PlanRowReadings`. Number and Name receive it through an

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { type ProjectApi } from '@/lib/wbs-api';
 
 import { type DropRefusal, type DropZone, planMove } from './drag-drop';
+import type { CellAttacher } from './editable-grid';
 import type { FocusIntent } from './live-editing';
 import { type CommitOutcome, unsent } from './live-editing';
 import { normalizeNewlines, splitNameCell } from './name-notes';
@@ -25,6 +26,7 @@ export function usePlanStructureEffects({
   workItems,
   focusIntent,
   gridElement,
+  attachCell,
 }: {
   setDragging: React.Dispatch<React.SetStateAction<string | null>>;
   pushToast: (toast: Toast) => void;
@@ -32,6 +34,7 @@ export function usePlanStructureEffects({
   workItems: TreeRow[];
   focusIntent: React.RefObject<FocusIntent>;
   gridElement: React.RefObject<HTMLElement | null>;
+  attachCell: React.RefObject<CellAttacher>;
 }) {
   /**
    * A drag does not survive the tree changing underneath it.
@@ -74,8 +77,8 @@ export function usePlanStructureEffects({
   // {@link FocusIntent.land}. It fires on the tree because that is the render
   // that can have brought the row the intent names into the DOM.
   useEffect(() => {
-    focusIntent.current.land(gridElement.current);
-  }, [focusIntent, gridElement, workItems]);
+    focusIntent.current.land(gridElement.current, attachCell.current);
+  }, [attachCell, focusIntent, gridElement, workItems]);
   return {};
 }
 

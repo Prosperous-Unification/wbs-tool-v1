@@ -1,5 +1,6 @@
 import { type RefObject, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
+import type { CellRef } from './cell-navigation';
 import {
   type ViewportColumn,
   viewportColumns,
@@ -44,11 +45,13 @@ export function usePlanViewport({
   frameRef,
   rowIds,
   columns,
+  pinnedCells,
   enabled,
 }: {
   frameRef: RefObject<HTMLDivElement | null>;
   rowIds: readonly string[];
   columns: readonly ViewportColumn[];
+  pinnedCells: readonly CellRef[];
   enabled: boolean;
 }): PlanViewport {
   const [frame, setFrame] = useState<FrameViewport>(() => ({
@@ -154,8 +157,9 @@ export function usePlanViewport({
         scrollTop: frame.scrollTop,
         viewportHeight: frame.heightPx,
         overscanPx: ROW_OVERSCAN_PX,
+        pinnedIds: new Set(pinnedCells.map((cell) => cell.rowId)),
       }),
-    [frame, heights, rowIds],
+    [frame, heights, pinnedCells, rowIds],
   );
   const visibleColumns = useMemo(
     () =>
@@ -166,8 +170,9 @@ export function usePlanViewport({
           ? frame.widthPx
           : columns.reduce((widthPx, column) => widthPx + column.widthPx, 0),
         overscanPx: COLUMN_OVERSCAN_PX,
+        pinnedIds: new Set(pinnedCells.map((cell) => cell.columnId)),
       }),
-    [columns, frame.measured, frame.scrollLeft, frame.widthPx],
+    [columns, frame.measured, frame.scrollLeft, frame.widthPx, pinnedCells],
   );
   return { rows, columns: visibleColumns, attachRow };
 }

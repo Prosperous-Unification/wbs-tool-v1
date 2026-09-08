@@ -1,5 +1,12 @@
 import type { CellRef } from './cell-navigation';
-import { aListIsOpenIn, type CellElement, cellIn, cellKey, focusedCellKey } from './editable-grid';
+import {
+  aListIsOpenIn,
+  type CellAttacher,
+  type CellElement,
+  cellIn,
+  cellKey,
+  focusedCellKey,
+} from './editable-grid';
 
 /**
  * What became of an edit a cell sent.
@@ -582,7 +589,7 @@ export class FocusIntent {
    * clearing on that render would drop the focus on the floor rather than
    * carrying it to the tree that arrives next.
    */
-  land(grid: HTMLElement | null): void {
+  land(grid: HTMLElement | null, attach?: CellAttacher): void {
     const wanted = this.wanted;
     if (wanted === null || grid === null) return;
     // Cancelled rather than left pending: the reader has moved on, so this
@@ -595,7 +602,10 @@ export class FocusIntent {
       return;
     }
     const arrived = cellIn(grid, wanted);
-    if (arrived === undefined) return;
+    if (arrived === undefined) {
+      if (attach?.(wanted, 'focus') === true) this.wanted = null;
+      return;
+    }
     this.wanted = null;
     // Proof: left as a lookup that focuses nothing, both `lands in the same
     // column…` tests failed with the focus on the body. That is only visible

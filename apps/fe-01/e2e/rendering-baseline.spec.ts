@@ -117,15 +117,53 @@ test('a broad Find renders no more than its two filter-sensitive cells per row',
   await expect
     .poll(async () => (await renderingGeometry(page)).mountedCells)
     .toBeLessThanOrEqual(1200);
+  const firstName = page.locator(`[data-name-input="${seeded.ids[0]}"]`);
+  await firstName.focus();
+  await firstName.press('End');
+  await firstName.pressSequentially(' half-typed');
+  const nameNode = await firstName.evaluateHandle((node) => node);
+  const selection = await firstName.evaluate((node) => {
+    if (!(node instanceof HTMLTextAreaElement)) throw new Error('Name cell is not a textarea');
+    return { start: node.selectionStart, end: node.selectionEnd };
+  });
   await page.locator('[data-table-frame]').evaluate((frame) => {
     frame.scrollTop = frame.scrollHeight;
   });
+  expect(await firstName.evaluate((node, before) => node === before, nameNode)).toBe(true);
+  await expect(firstName).toBeFocused();
+  await expect(firstName).toHaveValue('Row 0000 half-typed');
+  expect(
+    await firstName.evaluate((node) => {
+      if (!(node instanceof HTMLTextAreaElement)) throw new Error('Name cell is not a textarea');
+      return { start: node.selectionStart, end: node.selectionEnd };
+    }),
+  ).toEqual(selection);
   await expect(page.locator(`[data-name-input="${seeded.ids[rows - 1]}"]`)).toHaveValue(
     'Row 0099 z',
   );
   expect((await renderingGeometry(page)).mountedCells).toBeLessThanOrEqual(1200);
+  await page.reload();
+  await expect(firstName).toHaveValue('Row 0000');
 
   expect(await cellRenderCalls(page)).toBeLessThanOrEqual(rows * 2);
+
+  const mountedRows = page.locator('[data-grid] tbody tr[data-row-id]');
+  const lastMountedId = await mountedRows.last().getAttribute('data-row-id');
+  if (lastMountedId === null) throw new Error('the last mounted row has no logical id');
+  const lastMountedIndex = seeded.ids.indexOf(lastMountedId);
+  if (lastMountedIndex < 0) throw new Error('the last mounted row is absent from the seeded plan');
+  if (lastMountedIndex >= seeded.ids.length - 1)
+    throw new Error('the initial row window reaches the end of the plan');
+  const nextId = seeded.ids[lastMountedIndex + 1];
+  const nextName = page.locator(`[data-name-input="${nextId}"]`);
+  expect(await nextName.count()).toBe(0);
+  await page.locator(`[data-name-input="${lastMountedId}"]`).evaluate((node) => {
+    if (!(node instanceof HTMLElement)) throw new Error('the source cell cannot take focus');
+    node.focus({ preventScroll: true });
+  });
+  expect(await nextName.count()).toBe(0);
+  await page.keyboard.press('Control+j');
+  await expect(nextName).toBeFocused();
 });
 
 test('an unfolded plan mounts only its viewport columns', async ({ page }) => {
@@ -139,10 +177,20 @@ test('an unfolded plan mounts only its viewport columns', async ({ page }) => {
   expect(await actions.count()).toBe(0);
   expect((await renderingGeometry(page)).mountedCells).toBeLessThanOrEqual(2250);
 
+  const estimate = page.locator('[data-grid] input[data-cell$="-optimistic"]').first();
+  await estimate.focus();
+  await estimate.press('End');
+  await estimate.pressSequentially('7');
+  const estimateNode = await estimate.evaluateHandle((node) => node);
+  const estimateValue = await estimate.inputValue();
+
   await page.locator('[data-table-frame]').evaluate((frame) => {
     frame.scrollLeft = frame.scrollWidth;
   });
   await expect(actions.first()).toBeVisible();
+  expect(await estimate.evaluate((node, before) => node === before, estimateNode)).toBe(true);
+  await expect(estimate).toBeFocused();
+  await expect(estimate).toHaveValue(estimateValue);
   expect((await renderingGeometry(page)).mountedCells).toBeLessThanOrEqual(2250);
 });
 

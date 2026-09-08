@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { type Caret, type CellRef, commandMove, type Direction, nextCell } from './cell-navigation';
 import {
+  type CellAttacher,
   type CellElement,
   cellIn,
   focusAdjacentCell,
@@ -200,6 +201,7 @@ export function usePlanKeyboard({
   commandInFlight,
   addSibling,
   logicalCells,
+  attachCell,
 }: {
   outdent: (row: TreeRow, landOn?: string) => Promise<CommitOutcome>;
   indent: (row: TreeRow, landOn?: string) => Promise<CommitOutcome>;
@@ -215,6 +217,7 @@ export function usePlanKeyboard({
   commandInFlight: React.RefObject<boolean>;
   addSibling: (after: TreeRow) => Promise<CommitOutcome>;
   logicalCells: React.RefObject<readonly CellRef[]>;
+  attachCell: React.RefObject<CellAttacher>;
 }) {
   /**
    * The Name cell's own keys: Tab and Backspace, and nothing else.
@@ -252,6 +255,7 @@ export function usePlanKeyboard({
           logicalCells.current,
           { rowId: row.id, columnId: 'name' },
           event.shiftKey ? -1 : 1,
+          attachCell.current,
         );
         if (moved) event.preventDefault();
         return;
@@ -309,7 +313,7 @@ export function usePlanKeyboard({
         void removeEmptyRow(row);
       }
     },
-    [drafts, indent, logicalCells, outdent, removeEmptyRow],
+    [attachCell, drafts, indent, logicalCells, outdent, removeEmptyRow],
   );
 
   /**
@@ -349,10 +353,11 @@ export function usePlanKeyboard({
         logicalCells.current,
         { rowId, columnId },
         event.shiftKey ? -1 : 1,
+        attachCell.current,
       );
       if (moved) event.preventDefault();
     },
-    [logicalCells],
+    [attachCell, logicalCells],
   );
 
   /**
@@ -385,13 +390,17 @@ export function usePlanKeyboard({
       if (move === null) return;
 
       const next = cellIn(container, move.to);
-      if (next === undefined) return;
+      if (
+        next === undefined &&
+        !attachCell.current(move.to, move.caretAt === 'start' ? 'start' : 'end')
+      )
+        return;
       // Only now, and only because the move is happening: an unconditional
       // `preventDefault` would take the caret keys away from every input.
       event.preventDefault();
-      focusCellAt(next, move.caretAt === 'start' ? 0 : next.value.length);
+      if (next !== undefined) focusCellAt(next, move.caretAt === 'start' ? 0 : next.value.length);
     },
-    [logicalCells],
+    [attachCell, logicalCells],
   );
 
   /**
@@ -471,11 +480,18 @@ export function usePlanKeyboard({
       const move = commandMove(logicalCells.current, from, direction);
       if (move === null) return false;
       const next = cellIn(container, move.to);
-      if (next === undefined) return false;
+      // An offscreen logical destination is a real move; ask the renderer to
+      // attach it before landing instead of treating absence from the DOM as
+      // the edge of the plan. Proof: returning false here, `a broad Find
+      // renders no more than its two filter-sensitive cells per row` failed on
+      // `Expected: focused · Error: element(s) not found`. Watched in Chromium,
+      // 2026-09-08.
+      if (next === undefined)
+        return attachCell.current(move.to, move.caretAt === 'start' ? 'start' : 'end');
       focusCellAt(next, move.caretAt === 'start' ? 0 : next.value.length);
       return true;
     },
-    [logicalCells],
+    [attachCell, logicalCells],
   );
 
   /**
@@ -486,7 +502,7 @@ export function usePlanKeyboard({
    * cells, and Cmd+Enter must not land in one of them.
    */
   const nextRowName = useCallback(
-    (input: CellElement, rowId: string): CellElement | undefined => {
+    (input: CellElement, rowId: string): CellRef | undefined => {
       const container = gridOf(input);
       if (container === null) return undefined;
       const rowIds = [...new Set(logicalCells.current.map((cell) => cell.rowId))];
@@ -495,7 +511,7 @@ export function usePlanKeyboard({
       // would read the last row of the table as the one after this one.
       if (at === -1) return undefined;
       const next = rowIds.at(at + 1);
-      return next === undefined ? undefined : cellIn(container, { rowId: next, columnId: 'name' });
+      return next === undefined ? undefined : { rowId: next, columnId: 'name' };
     },
     [logicalCells],
   );
@@ -631,7 +647,7 @@ export function usePlanKeyboard({
           if (command === 'next-or-create' && landsOn !== undefined) {
             // Selected on arrival, the way every other keyboard move into a
             // cell in this table leaves it.
-            focusCellAt(landsOn, 'all');
+            attachCell.current(landsOn, 'all');
             return;
           }
           await addSibling(row);
@@ -640,7 +656,15 @@ export function usePlanKeyboard({
         }
       })();
     },
-    [addSibling, armOrDeleteRow, commandInFlight, disarmDelete, moveByCommand, nextRowName],
+    [
+      addSibling,
+      armOrDeleteRow,
+      attachCell,
+      commandInFlight,
+      disarmDelete,
+      moveByCommand,
+      nextRowName,
+    ],
   );
   return { onKeyDown, onTabKey, onArrowKey, onAltMove, onCommandKey };
 }
@@ -957,6 +981,7 @@ export function usePlanKeyboardState() {
 
   /** The editable cell order published only after its rows have committed. */
   const logicalCells = useRef<readonly CellRef[]>([]);
+  const attachCell = useRef<CellAttacher>(() => false);
   return {
     cheatSheetOpen,
     setCheatSheetOpen,
@@ -969,5 +994,6 @@ export function usePlanKeyboardState() {
     setGapVisit,
     gridElement,
     logicalCells,
+    attachCell,
   };
 }

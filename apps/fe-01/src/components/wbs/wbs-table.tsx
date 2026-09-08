@@ -15,10 +15,11 @@ import {
 import { Button } from '@/components/ui/button';
 
 import { type CellCards, createCellCards, useCardOpenOn } from './cell-card-store';
+import type { CellRef } from './cell-navigation';
 import { type ColumnHintState, hintFor } from './column-hints';
 import { createDepLights, type DepLights } from './dep-light-store';
 import { type DropZone, zoneFor } from './drag-drop';
-import { cellKey } from './editable-grid';
+import { cellIn, cellKey, type CellLanding, cellRefOf, focusCellAt } from './editable-grid';
 import { ExternalRefsModal } from './external-refs-modal';
 import { GanttFaultBoundary } from './gantt-fault';
 import { appliedGanttHeight, DAY_PX, GanttPanel } from './gantt-panel';
@@ -238,7 +239,7 @@ function ViewportRowSpacer({
   heightPx,
   columnCount,
 }: {
-  position: 'before' | 'after';
+  position: 'before' | 'between' | 'after';
   heightPx: number;
   columnCount: number;
 }) {
@@ -593,6 +594,11 @@ export function WbsTable({
    * deferred out of W4-4 in writing and named there as R10's.
    */
   const cellCards = useRef(createCellCards()).current;
+  const [activeCell, setActiveCell] = useState<CellRef | null>(null);
+  const [requestedFocus, setRequestedFocus] = useState<{
+    cell: CellRef;
+    landing: CellLanding;
+  } | null>(null);
 
   /**
    * Where every row sat as of the last tree read, by {@link placementsOf}.
@@ -613,6 +619,7 @@ export function WbsTable({
     setGapVisit,
     gridElement,
     logicalCells,
+    attachCell,
   } = usePlanKeyboardState();
   const {
     unfoldedSteps,
@@ -818,6 +825,7 @@ export function WbsTable({
     workItems,
     focusIntent,
     gridElement,
+    attachCell,
   });
 
   /** Every row in the order the table renders them, ignoring collapse. */
@@ -1004,6 +1012,7 @@ export function WbsTable({
     commandInFlight,
     addSibling,
     logicalCells,
+    attachCell,
   });
   const { dependenciesOf, dependOn, depEntriesFor, pickDependency, moveDepHighlight } =
     usePlanDependencies({
@@ -1512,20 +1521,93 @@ export function WbsTable({
       })),
     [layout],
   );
+  const pinnedCells = useMemo(
+    () =>
+      // The focused cell is part of the viewport even after both its row and
+      // column leave the ordinary windows. Its DOM node owns the only live
+      // half-typed value and caret; remounting an equivalent box loses both.
+      // Proof: activeCell removed here, the row case failed on `Expected: "Row
+      // 0000 half-typed" · Error: element(s) not found`, and `an unfolded plan
+      // mounts only its viewport columns` failed its node identity on
+      // `Expected: true · Received: false`. Watched in Chromium, 2026-09-08.
+      [activeCell, requestedFocus?.cell].filter(
+        (cell): cell is CellRef => cell !== null && cell !== undefined,
+      ),
+    [activeCell, requestedFocus],
+  );
   const viewport = usePlanViewport({
     frameRef,
     rowIds: shownRowIds,
     columns: viewportColumns,
+    pinnedCells,
     enabled: renderer === 'table',
   });
   const mountedRows = viewport.rows.entries.map((entry) => ({
-    index: entry.index,
+    entry,
     row: shownRows[entry.index],
   }));
   // Proof: replacing this set with every leaf id made `an unfolded plan mounts only its
   // viewport columns` fail on `Expected: 0, Received: 43` for the offscreen Actions cells.
   // Watched in Chromium, 2026-09-08.
   const mountedColumnIds = new Set(viewport.columns.entries.map((entry) => entry.id));
+
+  const requestCellAttachment = useCallback(
+    (cell: CellRef, landing: CellLanding): boolean => {
+      const grid = gridElement.current;
+      if (grid === null) return false;
+      const attached = cellIn(grid, cell);
+      if (attached !== undefined) {
+        if (landing === 'focus') attached.focus();
+        else
+          focusCellAt(
+            attached,
+            landing === 'all' ? 'all' : landing === 'start' ? 0 : attached.value.length,
+          );
+        return true;
+      }
+      setRequestedFocus((current) =>
+        current?.cell.rowId === cell.rowId &&
+        current.cell.columnId === cell.columnId &&
+        current.landing === landing
+          ? current
+          : { cell, landing },
+      );
+      return true;
+    },
+    [gridElement],
+  );
+  useLayoutEffect(() => {
+    attachCell.current = requestCellAttachment;
+  }, [attachCell, requestCellAttachment]);
+  useLayoutEffect(() => {
+    if (requestedFocus === null) return;
+    if (
+      !committedLogicalCells.some(
+        (cell) =>
+          cell.rowId === requestedFocus.cell.rowId &&
+          cell.columnId === requestedFocus.cell.columnId,
+      )
+    ) {
+      setRequestedFocus(null);
+      return;
+    }
+    const grid = gridElement.current;
+    if (grid === null) return;
+    const attached = cellIn(grid, requestedFocus.cell);
+    if (attached === undefined) return;
+    attached.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    if (requestedFocus.landing === 'focus') attached.focus();
+    else
+      focusCellAt(
+        attached,
+        requestedFocus.landing === 'all'
+          ? 'all'
+          : requestedFocus.landing === 'start'
+            ? 0
+            : attached.value.length,
+      );
+    setRequestedFocus(null);
+  }, [committedLogicalCells, gridElement, requestedFocus, viewport]);
 
   /**
    * What the headings' hints may bend for, in one object beside the layout's.
@@ -2029,6 +2111,13 @@ export function WbsTable({
               ref={(node) => {
                 gridElement.current = node;
               }}
+              onFocusCapture={(event) => {
+                const cell = cellRefOf(event.target);
+                if (cell !== null) setActiveCell(cell);
+              }}
+              onBlurCapture={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget)) setActiveCell(null);
+              }}
               style={{
                 borderCollapse: 'separate',
                 borderSpacing: 0,
@@ -2094,105 +2183,115 @@ export function WbsTable({
                 ))}
               </thead>
               <tbody>
-                <ViewportRowSpacer
-                  position="before"
-                  heightPx={viewport.rows.beforePx}
-                  columnCount={leafColumnIds.length}
-                />
-                {mountedRows.map(({ row, index }) => (
-                  <PlanRow
-                    key={row.id}
-                    rowId={row.original.id}
-                    rowIndex={index}
-                    attach={viewport.attachRow}
-                    frozen={row.original.frozenNumber !== null}
-                    depLights={depLights}
-                    armed={armedDelete?.rowId === row.original.id}
-                    drop={dropHint?.rowId === row.original.id ? dropHint.zone : undefined}
-                    pointed={pointedRows}
-                    // The drag handlers sit on the row rather than in a column
-                    // definition: `flexRender` renders each `cell` as a
-                    // component *type*, so a definition that changed with the
-                    // drag would remount every cell in the table on every
-                    // pointer move. Built here rather than in {@link PlanRow}
-                    // because they read this component's drag state, which the
-                    // shell has no business subscribing to.
-                    onDragOver={(event) => {
-                      if (dragging === null) return;
-                      // Without this the browser refuses the drop outright.
-                      event.preventDefault();
-                      const box = event.currentTarget.getBoundingClientRect();
-                      setDropHint({
-                        rowId: row.original.id,
-                        zone: zoneFor(event.clientY - box.top, box.height),
-                      });
-                    }}
-                    onDragLeave={() => {
-                      setDropHint((current) =>
-                        current?.rowId === row.original.id ? null : current,
-                      );
-                    }}
-                    onDrop={(event) => {
-                      event.preventDefault();
-                      // The zone the last `dragover` worked out, not one recomputed
-                      // here. That one is the marker the person was looking at when
-                      // they let go, and a drop that lands somewhere other than where
-                      // the line was drawn is the one thing drag must never do.
-                      if (dropHint?.rowId !== row.original.id) return;
-                      dropOn(
-                        row.original.id,
-                        dropHint.zone,
-                        row.getIsExpanded() && row.subRows.length > 0,
-                      );
-                    }}
-                  >
-                    {row.getAllCells().flatMap((cell, columnIndex, rowCells) => {
-                      if (!mountedColumnIds.has(cell.column.id)) {
-                        const previous = rowCells[columnIndex - 1];
-                        if (columnIndex > 0 && !mountedColumnIds.has(previous.column.id)) return [];
-                        let columnCount = 1;
-                        while (
-                          columnIndex + columnCount < rowCells.length &&
-                          !mountedColumnIds.has(rowCells[columnIndex + columnCount].column.id)
-                        )
-                          columnCount += 1;
+                {mountedRows.flatMap(({ row, entry }, mountedIndex) => {
+                  const previousEnd =
+                    mountedIndex === 0
+                      ? 0
+                      : viewport.rows.entries[mountedIndex - 1].startPx +
+                        viewport.rows.entries[mountedIndex - 1].sizePx;
+                  const gapPx = entry.startPx - previousEnd;
+                  return [
+                    <ViewportRowSpacer
+                      key={`gap-${row.id}`}
+                      position={mountedIndex === 0 ? 'before' : 'between'}
+                      heightPx={gapPx}
+                      columnCount={leafColumnIds.length}
+                    />,
+                    <PlanRow
+                      key={row.id}
+                      rowId={row.original.id}
+                      rowIndex={entry.index}
+                      attach={viewport.attachRow}
+                      frozen={row.original.frozenNumber !== null}
+                      depLights={depLights}
+                      armed={armedDelete?.rowId === row.original.id}
+                      drop={dropHint?.rowId === row.original.id ? dropHint.zone : undefined}
+                      pointed={pointedRows}
+                      // The drag handlers sit on the row rather than in a column
+                      // definition: `flexRender` renders each `cell` as a
+                      // component *type*, so a definition that changed with the
+                      // drag would remount every cell in the table on every
+                      // pointer move. Built here rather than in {@link PlanRow}
+                      // because they read this component's drag state, which the
+                      // shell has no business subscribing to.
+                      onDragOver={(event) => {
+                        if (dragging === null) return;
+                        // Without this the browser refuses the drop outright.
+                        event.preventDefault();
+                        const box = event.currentTarget.getBoundingClientRect();
+                        setDropHint({
+                          rowId: row.original.id,
+                          zone: zoneFor(event.clientY - box.top, box.height),
+                        });
+                      }}
+                      onDragLeave={() => {
+                        setDropHint((current) =>
+                          current?.rowId === row.original.id ? null : current,
+                        );
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        // The zone the last `dragover` worked out, not one recomputed
+                        // here. That one is the marker the person was looking at when
+                        // they let go, and a drop that lands somewhere other than where
+                        // the line was drawn is the one thing drag must never do.
+                        if (dropHint?.rowId !== row.original.id) return;
+                        dropOn(
+                          row.original.id,
+                          dropHint.zone,
+                          row.getIsExpanded() && row.subRows.length > 0,
+                        );
+                      }}
+                    >
+                      {row.getAllCells().flatMap((cell, columnIndex, rowCells) => {
+                        if (!mountedColumnIds.has(cell.column.id)) {
+                          const previous = rowCells[columnIndex - 1];
+                          if (columnIndex > 0 && !mountedColumnIds.has(previous.column.id))
+                            return [];
+                          let columnCount = 1;
+                          while (
+                            columnIndex + columnCount < rowCells.length &&
+                            !mountedColumnIds.has(rowCells[columnIndex + columnCount].column.id)
+                          )
+                            columnCount += 1;
+                          return [
+                            <ViewportColumnSpacer
+                              key={`columns-${String(columnIndex)}`}
+                              columnCount={columnCount}
+                            />,
+                          ];
+                        }
+                        const sentence =
+                          cell.column.id === 'start' ? startSentence(row.original) : null;
                         return [
-                          <ViewportColumnSpacer
-                            key={`columns-${String(columnIndex)}`}
-                            columnCount={columnCount}
+                          <PlanTableCell
+                            key={cell.id}
+                            cards={cellCards}
+                            cell={cell}
+                            frameState={frameState}
+                            layout={layout}
+                            armed={armedDelete?.rowId === row.original.id}
+                            attributes={{
+                              // The dependency light's handlers belong to the whole
+                              // `<td>`, not the wrapper inside its padding.
+                              ...(cell.column.id === 'depends'
+                                ? dependsCellHoverProps(row.original)
+                                : {}),
+                              ...(cell.column.id === 'start'
+                                ? startCellProps(row.original, sentence)
+                                : {}),
+                            }}
+                            expandable={row.getCanExpand()}
+                            expanded={row.getIsExpanded()}
+                            startSentence={sentence}
+                            filtering={filtering}
+                            matched={search.matchIds.has(row.id)}
                           />,
                         ];
-                      }
-                      const sentence =
-                        cell.column.id === 'start' ? startSentence(row.original) : null;
-                      return [
-                        <PlanTableCell
-                          key={cell.id}
-                          cards={cellCards}
-                          cell={cell}
-                          frameState={frameState}
-                          layout={layout}
-                          armed={armedDelete?.rowId === row.original.id}
-                          attributes={{
-                            // The dependency light's handlers belong to the whole
-                            // `<td>`, not the wrapper inside its padding.
-                            ...(cell.column.id === 'depends'
-                              ? dependsCellHoverProps(row.original)
-                              : {}),
-                            ...(cell.column.id === 'start'
-                              ? startCellProps(row.original, sentence)
-                              : {}),
-                          }}
-                          expandable={row.getCanExpand()}
-                          expanded={row.getIsExpanded()}
-                          startSentence={sentence}
-                          filtering={filtering}
-                          matched={search.matchIds.has(row.id)}
-                        />,
-                      ];
-                    })}
-                  </PlanRow>
-                ))}
+                      })}
+                    </PlanRow>,
+                  ];
+                })}
                 <ViewportRowSpacer
                   position="after"
                   heightPx={viewport.rows.afterPx}

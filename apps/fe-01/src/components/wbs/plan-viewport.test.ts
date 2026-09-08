@@ -45,6 +45,20 @@ describe('plan viewport', () => {
     ]);
   });
 
+  it('retains an explicitly pinned row outside the ordinary interval', () => {
+    expect(
+      viewportRows({
+        rowIds: ['a', 'b', 'c', 'd', 'e'],
+        heights: new Map(),
+        estimatedHeight: 20,
+        scrollTop: 60,
+        viewportHeight: 20,
+        overscanPx: 0,
+        pinnedIds: new Set(['a']),
+      }).entries.map(({ id }) => id),
+    ).toEqual(['a', 'd']);
+  });
+
   it('keeps pinned columns and slices the scrolling columns independently', () => {
     expect(
       viewportColumns({
@@ -72,6 +86,32 @@ describe('plan viewport', () => {
         { id: 'finish', index: 4, startPx: 350, sizePx: 90 },
       ],
       totalPx: 640,
+    });
+  });
+
+  it('does not count an offscreen active column as omitted space', () => {
+    expect(
+      viewportColumns({
+        columns: [
+          { id: 'name', widthPx: 120, pinned: true },
+          { id: 'team', widthPx: 100, pinned: false },
+          { id: 'depends', widthPx: 100, pinned: false },
+          { id: 'assignees', widthPx: 100, pinned: false },
+        ],
+        scrollLeft: 120,
+        viewportWidth: 100,
+        overscanPx: 0,
+        pinnedIds: new Set(['assignees']),
+      }),
+    ).toEqual({
+      beforePx: 0,
+      afterPx: 100,
+      entries: [
+        { id: 'name', index: 0, startPx: 0, sizePx: 120 },
+        { id: 'team', index: 1, startPx: 120, sizePx: 100 },
+        { id: 'assignees', index: 3, startPx: 320, sizePx: 100 },
+      ],
+      totalPx: 420,
     });
   });
 });

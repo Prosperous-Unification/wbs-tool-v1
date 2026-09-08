@@ -19,6 +19,7 @@ interface RowViewportInput {
   scrollTop: number;
   viewportHeight: number;
   overscanPx: number;
+  pinnedIds?: ReadonlySet<string>;
 }
 
 export interface ViewportColumn {
@@ -32,6 +33,7 @@ interface ColumnViewportInput {
   scrollLeft: number;
   viewportWidth: number;
   overscanPx: number;
+  pinnedIds?: ReadonlySet<string>;
 }
 
 function intersecting(entries: readonly ViewportEntry[], startPx: number, endPx: number) {
@@ -49,6 +51,7 @@ export function viewportRows({
   scrollTop,
   viewportHeight,
   overscanPx,
+  pinnedIds,
 }: RowViewportInput): ViewportSlice {
   let startPx = 0;
   const all = rowIds.map((id, index) => {
@@ -58,11 +61,17 @@ export function viewportRows({
     startPx += sizePx;
     return entry;
   });
-  const entries = intersecting(
-    all,
-    Math.max(0, scrollTop - overscanPx),
-    scrollTop + viewportHeight + overscanPx,
+  const windowed = new Set(
+    intersecting(
+      all,
+      Math.max(0, scrollTop - overscanPx),
+      scrollTop + viewportHeight + overscanPx,
+    ).map(({ id }) => id),
   );
+  // Proof: omitting the pinned-id union, `retains an explicitly pinned row
+  // outside the ordinary interval` failed on `expected [ 'd' ] to deeply equal
+  // [ 'a', 'd' ]`. Watched, 2026-09-08.
+  const entries = all.filter(({ id }) => windowed.has(id) || pinnedIds?.has(id) === true);
   const first = entries.at(0);
   const last = entries.at(-1);
   return {
@@ -79,6 +88,7 @@ export function viewportColumns({
   scrollLeft,
   viewportWidth,
   overscanPx,
+  pinnedIds,
 }: ColumnViewportInput): ViewportSlice {
   let startPx = 0;
   const all = columns.map(({ id, widthPx, pinned }, index) => {
@@ -94,15 +104,23 @@ export function viewportColumns({
     ).map(({ id }) => id),
   );
   const entries = all
-    .filter(({ id, pinned }) => pinned || windowed.has(id))
+    .filter(({ id, pinned }) => pinned || windowed.has(id) || pinnedIds?.has(id) === true)
     .map(({ id, index, startPx: columnStartPx, sizePx }) => ({
       id,
       index,
       startPx: columnStartPx,
       sizePx,
     }));
-  const omitted = all.filter(({ pinned, id }) => !pinned && !windowed.has(id));
-  const firstMountedScrolling = all.find(({ pinned, id }) => !pinned && windowed.has(id));
+  // A pinned active column is mounted scrolling content, not empty space.
+  // Proof: omitting the pinned-id clause, `does not count an offscreen active
+  // column as omitted space` failed on `afterPx: expected 100, received 200`.
+  // Watched, 2026-09-08.
+  const omitted = all.filter(
+    ({ pinned, id }) => !pinned && !windowed.has(id) && pinnedIds?.has(id) !== true,
+  );
+  const firstMountedScrolling = all.find(
+    ({ pinned, id }) => !pinned && (windowed.has(id) || pinnedIds?.has(id) === true),
+  );
   const beforePx = omitted
     .filter(
       ({ index }) => firstMountedScrolling !== undefined && index < firstMountedScrolling.index,
