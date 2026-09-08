@@ -105,6 +105,32 @@ const click = (name: string) => {
 };
 
 describe('what one row costs per render', () => {
+  itDom('opens one cell card without rendering any unrelated row', async () => {
+    // Proof: with `WbsTable` subscribed to `cellCards` again, opening this one
+    // card failed below on `expected 60 to be +0`. Watched 2026-09-08.
+    const api = fakeApi();
+    render(<WbsTable projectId="p1" api={api} />);
+    for (const number of ['010', '020', '030']) {
+      click('Add work item');
+      await screen.findByLabelText(`Name of ${number}`);
+    }
+
+    // The counter is wired before it is used as an absence assertion. A mock
+    // that never saw production would otherwise make zero true for free.
+    expect(cellStyleCalls.count).toBeGreaterThan(0);
+    const final = screen
+      .getByLabelText('Name of 010')
+      .closest('tr')
+      ?.querySelector('[data-final="step-dev"]');
+    if (!(final instanceof HTMLElement)) throw new Error('row 010 has no Dev final cell');
+
+    cellStyleCalls.count = 0;
+    fireEvent.mouseEnter(final);
+
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+    expect(cellStyleCalls.count).toBe(0);
+  });
+
   itDom('works the Start sentence out once per row, however many readers ask', async () => {
     // Three readers ask for it: the `<td>`'s own props, the `cursor: help`
     // decided beside them, and the Start cell itself. Each call allocates a

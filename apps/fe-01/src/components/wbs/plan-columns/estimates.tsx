@@ -173,9 +173,9 @@ export function createEstimatesColumns({
             <span
               data-final={step.id}
               onMouseEnter={() => {
-                // No card to show, no state written: {@link hoveredCell}
-                // lives on the table and a write of it renders all of it.
-                // See the depends cell's own enter for the whole of it.
+                // No card to show, no store notification. See the Depends on
+                // cell's own enter for why passing an empty cell must not
+                // close the card open somewhere else.
                 if (!cardable) return;
                 live.current.cellCards.updateHovered(() => finalCell);
               }}

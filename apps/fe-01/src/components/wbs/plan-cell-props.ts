@@ -87,11 +87,10 @@ export function createPlanCellProps({
               : { rowId: row.id, pillId: null },
           );
         }
-        // Nothing to open, nothing written. `hoveredCell` lives on the table,
-        // so every boundary the pointer crosses costs one render of the whole
-        // of it — and a cell with no card to show has no reason to spend one,
-        // nor to close the card open somewhere else on the pointer's way past.
-        // codex round 3, finding 5.
+        // Nothing to open, nothing written. This guard predates the external
+        // store: a cell with no card to show still has no reason to notify its
+        // subscribers, nor to close the card open somewhere else on the
+        // pointer's way past. codex round 3, finding 5.
         //
         // The key is a string, so a second enter on the same cell writes the
         // value already there and React bails out without rendering.
@@ -118,7 +117,7 @@ export function createPlanCellProps({
         if (dependenciesOf(row.dependsOn).length > 0 && depPicker?.rowId !== row.id) return;
 
         // Leaving the cell clears the dependency hover outright — with the
-        // same-cell guard `hoveredCell`'s clear uses, because a leave lands
+        // same-cell guard the card store's clear uses, because a leave lands
         // after the next cell's enter.
         depLights.updateHover((current) => (current?.rowId === row.id ? null : current));
         // The same-cell guard, for the reason the Name cell's marker gives: a

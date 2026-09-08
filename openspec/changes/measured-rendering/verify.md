@@ -260,3 +260,40 @@ Its headline, and only its headline: explicit per-row render inputs and stable c
 identities. Every repeated reading the inventory named is now one per row per render or one per
 tree read; what is left is the contract change itself, which is where the `columns`-memo landmine
 and the `live` ref actually get replaced.
+
+## 2.2, fifth part — the open cell card leaves the table still, 2026-09-08
+
+The five cardable cells now subscribe to `CellCards` for their own boolean reading. The two
+`<td>` attributes that also depend on that reading live in `PlanCell`; `WbsTable` does not
+subscribe. Moving the pointer onto a folded estimate therefore renders the card and its cell
+shell without reconstructing any unrelated row or heading.
+
+### Failure proof table
+
+| Check                                                     | Injected fault                             | Observed failure       |
+| --------------------------------------------------------- | ------------------------------------------ | ---------------------- |
+| `opens one cell card without rendering any unrelated row` | `WbsTable` subscribed to `cellCards` again | `expected 60 to be +0` |
+
+The check first proves its `flexibleCellStyle` counter moved during setup, then resets it and
+opens a real folded estimate card through the production pointer path. The tooltip assertion
+makes the tested window explicit; a zero from a hover that opened nothing cannot satisfy it.
+
+Fresh verification on this branch:
+
+- `TZ=UTC bunx vitest run src/components/wbs/plan-row-render-cost.test.tsx
+--no-file-parallelism --maxWorkers=1`, from `apps/fe-01`: **3 passed**, 4.45s. The sandbox
+  emitted its existing read-only dconf warnings and Vite's existing native-config warning.
+- `TZ=UTC bunx vitest run --no-file-parallelism --maxWorkers=1`, from `apps/fe-01`:
+  **98 files / 2522 tests passed**, 382.30s. Run outside the socket-restricted sandbox after
+  the sandboxed wrapper stranded with no remaining Vitest process; Vite emitted the existing
+  native-config warning.
+- `TZ=Pacific/Auckland bunx vitest run --config vitest.zoned.config.ts
+--no-file-parallelism --maxWorkers=1`, from `apps/fe-01`: **2 files / 3 tests passed**, 3.51s.
+  Vite emitted the existing native-config warnings.
+- `CI=1 E2E_PORT_SHIFT=1900 bunx playwright test --config
+apps/fe-01/playwright.config.ts apps/fe-01/e2e/hover-cards.spec.ts`, under
+  `with_heavy_lock /tmp/wbs-r10-heavy-work.lock`: **28 passed**, 1.6m, on this checkout's
+  5000/5100/6100 stack. The production `bin/with-heavy-lock.sh` wrapper was unavailable in this
+  container because its Linux path is `/home/puni1/.cache`, which does not exist for user `df`;
+  the same lock library's explicit-path seam provided the mutex. Vite logged closed-page WebSocket
+  proxy `EPIPE`s between passing cases; no assertion failed.
