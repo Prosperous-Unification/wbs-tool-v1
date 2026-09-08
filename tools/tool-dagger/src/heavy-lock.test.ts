@@ -1,4 +1,12 @@
-import { mkdtempSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  closeSync,
+  mkdtempSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -7,6 +15,12 @@ import { afterEach, describe, expect, it } from 'bun:test';
 const SCRIPT = join(import.meta.dir, '../../../bin/with-heavy-lock.sh');
 const LOCK_LIB = join(import.meta.dir, '../../../bin/heavy-lock-lib.sh');
 const roots: string[] = [];
+// Runs before the temp roots are removed, so a case can register the release
+// file and process kills that its own failure path would otherwise skip.
+// Peer review, 2026-09-08: on a readiness or marker timeout the release file
+// is never written, so the holder's inner `bash` — which outlives
+// `holder.kill()`, as this file already measured — polls for it forever.
+const cleanups: Array<() => void | Promise<void>> = [];
 
 // A file that is not there yet reads as empty rather than throwing, because
 // every caller below is polling for it to appear.
@@ -69,7 +83,15 @@ function runWithTestLock(lock: string, waitSeconds: string): ReturnType<typeof B
   );
 }
 
-afterEach(() => {
+afterEach(async () => {
+  for (const cleanup of cleanups.splice(0)) {
+    try {
+      await cleanup();
+    } catch {
+      // Cleanup runs after a failure as often as after a pass; a throw here
+      // would replace the real failure with a cleanup error.
+    }
+  }
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
@@ -173,6 +195,7 @@ describe('with-heavy-lock', () => {
     // itself the readiness wait timed out while the temp root held
     // `heavy.lock.d`, a live holder and a silent stderr.
     const lockDir = `${lock}.d`;
+    const holderErrFd = openSync(holderErr, 'w');
     const holder = Bun.spawn(
       [
         'bash',
@@ -202,8 +225,34 @@ describe('with-heavy-lock', () => {
       // child outlives `holder.kill()` and keeps the pipe open — watched turning
       // this case's 10s failure into a 20s timeout, a diagnostic that hung the
       // case it was diagnosing.
-      { stderr: openSync(holderErr, 'w') },
+      { stderr: holderErrFd },
     );
+    // **The failure paths, not only the happy one.** Both waits below throw on
+    // timeout, and neither the release file nor a kill would otherwise happen.
+    // Writing the release file is what actually ends the holder: killing the
+    // outer process leaves the inner `bash` polling, which is the same
+    // observation the stderr-to-a-file comment above records.
+    cleanups.push(async () => {
+      // Release FIRST, then wait: the release file is what lets the holder's
+      // inner payload return, and only then can the wrapper's deferred trap
+      // run. `holder.kill()` alone was watched leaving the outer wrapper alive
+      // 28 seconds after a failed case, with its payload already gone.
+      writeFileSync(release, '');
+      holder.kill();
+      // SIGTERM is deferred while a foreground command runs, so a wrapper that
+      // is still there after a second is not going to leave on its own.
+      const left = await Promise.race([
+        holder.exited.then(() => true),
+        Bun.sleep(1_000).then(() => false),
+      ]);
+      if (!left) {
+        holder.kill('SIGKILL');
+        await holder.exited;
+      }
+      // `openSync` hands back a descriptor this case owns; removing the temp
+      // root does not close it, so a watch-mode loop would accumulate them.
+      closeSync(holderErrFd);
+    });
 
     // **Holder readiness, observed.** `claim_heavy_lock` does `mkdir` and *then*
     // writes its pid, so the lock directory exists for an instant before the
@@ -246,7 +295,22 @@ describe('with-heavy-lock', () => {
       // Records the retry, then sleeps a short REAL interval. Returning
       // immediately would leave the wrapper spinning `mkdir` hot until the
       // holder releases; 50ms keeps the case fast without a busy loop.
-      `#!/usr/bin/env bash\nprintf 'retry\\n' >>${JSON.stringify(retries)}\nexec /bin/sleep 0.05\n`,
+      //
+      // **It records only the retry loop's own interval, and that guard is the
+      // assertion.** `heavy-lock-lib.sh` retries with a bare `sleep 5`, so a
+      // shim that recorded EVERY call would let any other `sleep` in the
+      // contender write the marker — peer review named an ambient `BASH_ENV`
+      // startup script as the concrete route, which bash sources before
+      // `with_heavy_lock` makes its first claim. The marker would then be there
+      // before the contention it is supposed to be evidence of, and the case
+      // would go green on a free lock: the exact false green this task removed.
+      // Any other `sleep` is passed through unchanged rather than swallowed.
+      `#!/usr/bin/env bash\n` +
+        `if [[ \${1:-} == 5 ]]; then\n` +
+        `  printf 'retry\\n' >>${JSON.stringify(retries)}\n` +
+        `  exec /bin/sleep 0.05\n` +
+        `fi\n` +
+        `exec /bin/sleep "$@"\n`,
       { mode: 0o755 },
     );
 
