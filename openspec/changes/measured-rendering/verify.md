@@ -767,3 +767,9 @@ files after hundreds of preceding cases (**2528 passed / 6 failed**). The six re
 then run together as the only selected cases and all passed in13.46s; the single deterministic
 style assertion passed alone in2.96s. This is diagnostic evidence, not a gate waiver: task5.2
 stays open until the canonical provisioned host runs the complete frozen command and image smoke.
+
+The image leg was also run independently with Bun1.4.2 and
+`WBS_RUN_SOLVER_ORPHAN_PROC=1`: `be-01:solver-image-smoke` built the pinned Bun/Python image,
+authenticated and bound the solver supervisor, and passed **3 tests / 0 failed** across the
+real-Docker orphan and lifecycle suites in1m05s. The canonical combined gate remains required;
+this result closes only the image-smoke evidence that the earlier chained command never reached.
