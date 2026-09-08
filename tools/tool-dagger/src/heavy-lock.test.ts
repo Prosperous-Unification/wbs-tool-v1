@@ -183,9 +183,7 @@ describe('with-heavy-lock', () => {
       // normally, which is what "when the holder releases it" means.
       'bash',
       '-c',
-      'while [[ ! -e $1 ]]; do sleep 0.05; done',
-      'heavy-lock-holder-payload',
-      release,
+      `while [[ ! -e ${JSON.stringify(release)} ]]; do sleep 0.05; done`,
     ]);
 
     // **Holder readiness, observed.** `claim_heavy_lock` does `mkdir` and *then*
