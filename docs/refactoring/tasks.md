@@ -47,7 +47,7 @@ Nothing below has an owning task in the external queue (`backlog/tasks/task-NNN 
       `plan-row-dependencies.test.tsx` holds the peer-update/focus regressions 2.2 must not
       break. Task **2.2 is part-done** — #338 trimmed the contract to 82 fields and made the
       Start sentence one reading per row per render; #339 and #341 removed the two scans of the
-      whole plan and the three directory scans that ran once per cell, and #342 made a row's span one
+      whole plan and the three directory scans that ran once per cell, and #343 made a row's span one
       reading instead of three. What 2.2 still owes is its headline and only its headline:
       explicit per-row render inputs and stable cell component identities. The Chromium baseline (1.2–1.4) is still unrun and still
       gates section 4.
