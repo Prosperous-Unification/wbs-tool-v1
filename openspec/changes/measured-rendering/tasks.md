@@ -1,7 +1,7 @@
 ## 1. Establish browser evidence
 
 - [x] 1.1 Build deterministic real-backend matrix seeding (100/500/1000rows,2/8steps,sparse/dense dependencies) with command batches <=200 and server verification; reject failed setup explicitly.
-- [ ] 1.2 Measure Chromium cold-context/warm navigation and Find input/filter paint opportunities, actual mounted/intersecting cells, and separately instrumented production render calls. Record all samples and environment; add open-Gantt and unfolded-column stress observations.
+- [x] 1.2 Measure Chromium cold-context/warm navigation and Find input/filter paint opportunities, actual mounted/intersecting cells, and separately instrumented production render calls. Record all samples and environment; add open-Gantt and unfolded-column stress observations.
 - [x] 1.3 Observe setup refusal/missing identity/wrong geometry faults at intended assertions. Record actual failures before Proof comments.
 - [ ] 1.4 Derive concrete latency/mounted-cell/render budgets from measurements and write them in intent before optimization. Independent review of this first measured slice.
 

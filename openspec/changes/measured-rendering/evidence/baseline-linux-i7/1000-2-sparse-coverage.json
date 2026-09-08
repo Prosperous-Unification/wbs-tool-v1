@@ -1,0 +1,48 @@
+{
+  "status": "complete",
+  "stage": "precise-coverage",
+  "metadata": {
+    "sourceHead": "93259b4321febfcd23e56705a007d32ef0acf595",
+    "sourceStatus": "",
+    "fixtureSha256": "4c143faa215b32010294252384a17cc0a9c5870b4b7f96f0692f289745b43155",
+    "fixtureFiles": [
+      "apps/fe-01/e2e/rendering-baseline.spec.ts",
+      "apps/fe-01/e2e/rendering-fixture.ts",
+      "apps/fe-01/e2e/rendering-evidence.ts"
+    ],
+    "phase": "coverage",
+    "measurementUse": "baseline-limited",
+    "startedAt": "2026-09-08T05:58:19.010Z",
+    "trace": "off",
+    "seeded": {
+      "rows": 1000,
+      "steps": 2,
+      "density": "sparse",
+      "projectId": "dc8fe442-1d6d-485c-8db5-c8c72878e9b8",
+      "edges": 99,
+      "setupMs": 12885
+    },
+    "browser": "153.0.8010.12",
+    "runtime": {
+      "platform": "linux",
+      "release": "7.0.11-76070011-generic",
+      "arch": "x64",
+      "cpu": "12th Gen Intel(R) Core(TM) i7-12800HX"
+    },
+    "viewport": {
+      "width": 1400,
+      "height": 900
+    },
+    "server": "warm Vite development/backend; fresh owned stack",
+    "throttle": "none"
+  },
+  "samples": [
+    {
+      "stage": "precise-coverage",
+      "observation": {
+        "kind": "precise-coverage",
+        "broadFindCellStyleCalls": 30030
+      }
+    }
+  ]
+}

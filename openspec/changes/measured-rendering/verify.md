@@ -1,6 +1,6 @@
 ## Status
 
-R10 starts from integrated35576d79 in isolated .worktrees/refactoring-r10 / refactor/measured-rendering. Approved refactoring plan§67R10 is authority. Five baseline configurations are measured below; optimization and budgets remain pending.
+R10 starts from the pre-optimization source preserved by93259b43. Approved refactoring plan§67R10 is authority. The complete latency/render-count matrix and bounded Gantt stress observations are measured below. Budgets are now published in proposal.md; independent review remains pending.
 
 Locked Bun install passed after sandbox temp/cache permission escalation (102packages,1.95s). Browser skill was read and runtime initialized; `agent.browsers.get("iab")` reported unavailable and documented discovery returned an empty list. Interactive in-app browser is unavailable. Parent confirmed canonical Playwright Chromium is appropriate for repeatable measurements. Measurement ports5500/5600/6600 are assigned to this worker, subject to actual listener verification. Parent must grant a quiet heavy-check window before timed runs.
 
@@ -23,6 +23,51 @@ Raw completed observations are retained under [evidence/baseline](evidence/basel
 | 500/2/sparse  | 3cold+7warm       | 7500                  | n/a                     | 6.2m          |
 
 The500-row case records warm ready-paint opportunities15.8–18.5seconds and broad Find2.78–3.56seconds. This development-build evidence justifies addressing scaling; it is not a production-build performance claim. Initial remaining matrix cases will use1cold+1warm to keep measurement windows bounded. No percentile or robust variance claims will be made from those limited samples. Budgets await the complete configuration matrix and first-slice review.
+
+### Completed Linux matrix extension — 2026-09-08
+
+The missing seven configurations were run separately from clean detached pre-optimization source
+`93259b4321febfcd23e56705a007d32ef0acf595`. That commit preserves the measurement harness without
+application optimization; the vanished pre-squash hash named above cannot be checked out, so it was
+not guessed. Raw complete phase files are retained under
+[`evidence/baseline-linux-i7`](evidence/baseline-linux-i7). Every accepted file reports clean source,
+fixture SHA256 `4c143faa215b32010294252384a17cc0a9c5870b4b7f96f0692f289745b43155`,
+Chromium153.0.8010.12, Linux7.0.11 x64, Intel i7-12800HX,1400×900, UTC/en-US, no
+throttling, trace off and `measurementUse=baseline-limited`. Each latency case is1cold+1warm; no
+percentile or variance claim is made.
+
+| Configuration | Setup ms | Ready paint cold/warm ms | Broad Find cold/warm ms | Mounted cells | Style calls |
+| ------------- | -------: | -----------------------: | ----------------------: | ------------: | ----------: |
+| 500/2/dense   |   17,693 |            15,860/15,131 |             3,811/4,068 |         7,500 |      15,030 |
+| 500/8/sparse  |   20,058 |            19,015/16,075 |             5,011/4,093 |        10,500 |      21,042 |
+| 500/8/dense   |   31,224 |            19,438/19,084 |             4,798/5,045 |        10,500 |      21,042 |
+| 1000/2/sparse |   12,267 |            50,547/59,420 |           13,368/14,711 |        15,000 |      30,030 |
+| 1000/2/dense  |   59,350 |            61,873/60,804 |           15,940/15,596 |        15,000 |      30,030 |
+| 1000/8/sparse |   58,135 |            57,340/56,522 |           14,926/14,896 |        21,000 |      42,042 |
+| 1000/8/dense  |  101,540 |            59,060/60,752 |           15,556/15,738 |        21,000 |      42,042 |
+
+All seven latency and coverage cases exited0. The four combined runs completed3/3 in3.1m
+(500/2/dense),7.7m (500/8/sparse),9.1m (500/8/dense) and10.8m (1000/2/dense).
+The separately run1000/8 latency cases passed in4.9m sparse and5.9m dense; coverage passed in3.0m
+sparse and3.7m dense. Vite logged WebSocket `EPIPE`/`ECONNRESET` while measured pages closed; the
+tests and required backend requests completed.
+
+Open Gantt retained the same full-table mounted-cell counts. At500/8, unfolding all eight groups
+raised10,500 folded cells to26,500; both sparse and dense cases recorded complete left/right
+geometry. The1000/8 sparse Gantt stress reached its folded21,000-cell checkpoint, then the default
+run failed on `Test timeout of 600000ms exceeded`. A diagnostic harness-only commit extended only
+the overall ceiling; the unchanged workload then failed while clicking `Unfold Step 5 estimates`
+on `locator.click: Timeout 120000ms exceeded` after11.6m. The partial files remain rejected. The
+diagnostic change was removed and no dense duplicate was run: dependency density does not change
+the column geometry, while repeating a known more-than-two-minute UI action would not complete the
+required matrix observation. This bounded failure is the1,000-row unfolded stress observation.
+
+The published fixed-viewport budgets follow the measured fault shape: old work grows linearly to
+21,000 mounted cells and42,042 style calls while only450 cells intersect the folded viewport.
+Budgets allow explicit overscan and a pinned editor but remain independent of total project rows.
+Latency ceilings are generous development-stack regression limits below roughly one sixth of the
+worst ready-paint sample and one third of the worst broad-Find sample. They require every optimized
+sample to pass; they are not averages or production claims.
 
 ## Failure proof table
 
@@ -76,7 +121,7 @@ failed launch is dependency setup evidence, not a test failure.
 
 ## Skipped / pending
 
-Seven matrix configurations, optimization, structural/latency gates, full workspace/Chromium gates and independent review remain pending. The original12 experiments are now36 separate opt-in phase cases that intentionally skip in normal browser gates; future acceptance tests must run normally. In-app browser inspection unavailable as recorded above.
+Optimization, structural/latency gates, full workspace/Chromium gates and independent review remain pending. The original12 experiments are now36 separate opt-in phase cases that intentionally skip in normal browser gates; future acceptance tests must run normally. The two1000/8 Gantt phases are bounded stress failures as recorded above, not complete evidence files. In-app browser inspection unavailable as recorded above.
 
 ## 2.1 — the row and cell dependency inventory and its regressions, 2026-09-08
 
