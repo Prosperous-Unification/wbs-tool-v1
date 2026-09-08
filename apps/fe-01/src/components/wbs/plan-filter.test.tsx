@@ -152,6 +152,25 @@ describe('finding a work item in the tree', () => {
     fireEvent.change(findBox(), { target: { value: typed } });
   };
 
+  itDom('a project switch cannot show or apply the previous project’s query', async () => {
+    const api = await decorating();
+    const view = render(<WbsTable projectId="p1" api={api} />);
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(EVERY_ROW);
+    });
+    find('skirting');
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(['010', '010.2']);
+    });
+
+    view.rerender(<WbsTable projectId="p2" api={api} />);
+
+    expect(findBox().value).toBe('');
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(EVERY_ROW);
+    });
+  });
+
   itDom('keeps the rows that place a match, and drops everything else', async () => {
     await shownPlan();
 

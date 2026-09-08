@@ -2,7 +2,15 @@ import type { EffectiveServices } from '@wbs/domain/effective-service';
 import type { EffectiveTags } from '@wbs/domain/effective-tag';
 import type { EffectiveTeams } from '@wbs/domain/effective-team';
 import { priorityBandOf } from '@wbs/domain/priority-band';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type Dispatch,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import type {
   PriorityBandView,
@@ -86,19 +94,29 @@ export function optionsFor(
  * What a reader has typed and ticked: the Find box, the facets, and the views
  * they have saved.
  *
- * State only. The narrowing it produces is derived on every render by
- * {@link usePlanFilter}, so nothing here can be stale against the rows.
+ * State only. The toolbar owns the urgent Find text and publishes its deferred
+ * value here; narrowing is still derived by {@link usePlanFilter}, so nothing
+ * stores an answer alongside rows that can change underneath it.
  */
 export function usePlanFilterState({ projectId }: { projectId: string }) {
   /**
-   * What has been typed into the Find box.
+   * The deferred Find value the filter owner has accepted.
    *
-   * The narrowing itself is not state: it is {@link narrowTree} of the rows on
-   * screen and this string, re-derived every render. A remembered answer would
-   * narrow to a plan that no longer exists — every edit by anybody refetches
-   * the whole tree.
+   * The project travels with it. During a project switch the old owner's value
+   * is immediately ineligible, before the new toolbar's effect publishes its
+   * initial blank; a delayed effect from the old toolbar is refused as well.
+   * The narrowing itself remains {@link narrowTree} of current rows and this
+   * string, re-derived after every peer update.
    */
-  const [query, setQuery] = useState('');
+  const [ownedQuery, setOwnedQuery] = useState({ projectId, query: '' });
+  const query = ownedQuery.projectId === projectId ? ownedQuery.query : '';
+  const commitQuery = useCallback(
+    (owner: string, nextQuery: string) => {
+      if (owner !== projectId) return;
+      setOwnedQuery({ projectId: owner, query: nextQuery });
+    },
+    [projectId],
+  );
 
   /**
    * Which facets are ticked beside the Find box — the other six of R10's seven
@@ -115,7 +133,20 @@ export function usePlanFilterState({ projectId }: { projectId: string }) {
    * (`project-page.tsx`) and `/` names none of it, so there is nothing here a
    * link could carry to somebody else yet.
    */
-  const [facets, setFacets] = useState<Omit<FilterCriteria, 'query'>>(NO_FACETS);
+  const [ownedFacets, setOwnedFacets] = useState({ projectId, facets: NO_FACETS });
+  const facets = ownedFacets.projectId === projectId ? ownedFacets.facets : NO_FACETS;
+  const setFacets = useCallback<Dispatch<SetStateAction<Omit<FilterCriteria, 'query'>>>>(
+    (next) => {
+      setOwnedFacets((current) => {
+        const currentFacets = current.projectId === projectId ? current.facets : NO_FACETS;
+        return {
+          projectId,
+          facets: typeof next === 'function' ? next(currentFacets) : next,
+        };
+      });
+    },
+    [projectId],
+  );
 
   /**
    * The filters this browser has named and saved for this project — F4, and
@@ -144,7 +175,7 @@ export function usePlanFilterState({ projectId }: { projectId: string }) {
     savedViewsProject.current = projectId;
     setSavedViews(rememberedSavedViews(projectId));
   }, [projectId]);
-  return { query, setQuery, facets, setFacets, savedViews, setSavedViews };
+  return { query, commitQuery, facets, setFacets, savedViews, setSavedViews };
 }
 
 /**

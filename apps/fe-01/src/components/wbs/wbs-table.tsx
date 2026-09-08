@@ -383,7 +383,7 @@ export function WbsTable({
     mermaidSectionMode,
     setMermaidSectionMode,
   } = useRememberedPlanLayout({ projectId });
-  const { query, setQuery, facets, setFacets, savedViews, setSavedViews } = usePlanFilterState({
+  const { query, commitQuery, facets, setFacets, savedViews, setSavedViews } = usePlanFilterState({
     projectId,
   });
   /**
@@ -1381,6 +1381,10 @@ export function WbsTable({
   }
   const toolbarControls = (
     <PlanToolbar
+      // Its urgent Find value belongs to one project. Proof: this key removed,
+      // `a project switch cannot show or apply the previous project’s query`
+      // failed on `expected 'skirting' to be ''`. Watched 2026-09-08.
+      key={projectId}
       criteria={criteria}
       freezeMenuOpen={freezeMenuOpen}
       setFreezeMenuOpen={setFreezeMenuOpen}
@@ -1406,8 +1410,7 @@ export function WbsTable({
       people={people}
       chartRead={chartRead}
       estimateMethod={estimateMethod}
-      query={query}
-      setQuery={setQuery}
+      commitQuery={commitQuery}
       facets={facets}
       setFacets={setFacets}
       facetTeams={facetTeams}

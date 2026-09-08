@@ -123,6 +123,31 @@ failed launch is dependency setup evidence, not a test failure.
 
 Optimization, structural/latency gates, full workspace/Chromium gates and independent review remain pending. The original12 experiments are now36 separate opt-in phase cases that intentionally skip in normal browser gates; future acceptance tests must run normally. The two1000/8 Gantt phases are bounded stress failures as recorded above, not complete evidence files. In-app browser inspection unavailable as recorded above.
 
+## 3.1 — urgent Find ownership and deferred criteria, 2026-09-08
+
+`PlanToolbar` now owns the text visible in Find. `useDeferredValue` publishes a lower-priority
+query to `usePlanFilterState`, so an urgent keystroke rerenders the toolbar rather than the
+component that constructs the table's cells. Applying and saving a named view uses the toolbar's
+current text; counts, matches and no-match wording use the deferred criteria that produced them.
+Facet criteria remain immediate and are now project-owned. Both deferred query and facets read as
+empty as soon as a different project is rendered, and a deferred callback names its owner so a
+late old-project effect is refused. The toolbar is keyed by project so its urgent text cannot
+cross that boundary either.
+
+The new project-switch case failed first on `expected 'skirting' to be ''`. With the split in
+place, the complete filter and toolbar suites passed: **87 tests**,15.29s. Those suites include
+facets, saved-view save/apply, peer row and directory updates, Escape, collapse overlays and
+filtered exports. FE source typecheck, scoped ESLint and Prettier passed.
+
+### Failure proof table
+
+| Check                                  | Injected fault                     | Observed failure                                                                                     |
+| -------------------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Urgent Find text cannot cross projects | Remove `PlanToolbar`'s project key | `a project switch cannot show or apply the previous project’s query`: `expected 'skirting' to be ''` |
+
+The key was restored and the focused case passed. The existing read-only dconf diagnostics were
+the only warnings; no test was skipped from the complete two-file run.
+
 ## 2.3 — committed logical editable grid, 2026-09-08
 
 Every visible column now declares its row editability beside the control it renders. The full

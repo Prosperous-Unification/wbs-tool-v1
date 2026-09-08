@@ -3,7 +3,14 @@ import { type ExpandedState } from '@tanstack/react-table';
 import type { DependencyReach } from '@wbs/domain/dependency-reach';
 import type { EffectiveTeams } from '@wbs/domain/effective-team';
 import type * as React from 'react';
-import { type CSSProperties, type ReactNode, useId, useState } from 'react';
+import {
+  type CSSProperties,
+  type ReactNode,
+  useDeferredValue,
+  useEffect,
+  useId,
+  useState,
+} from 'react';
 
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -546,8 +553,7 @@ export function PlanToolbar({
   people,
   chartRead,
   estimateMethod,
-  query,
-  setQuery,
+  commitQuery,
   facets,
   setFacets,
   facetTeams,
@@ -607,8 +613,7 @@ export function PlanToolbar({
   people: PersonView[];
   chartRead: ChartRead;
   estimateMethod: 'pert' | 'optimistic' | 'realistic' | 'pessimistic';
-  query: string;
-  setQuery: React.Dispatch<React.SetStateAction<string>>;
+  commitQuery: (projectId: string, query: string) => void;
   facets: Omit<FilterCriteria, 'query'>;
   setFacets: React.Dispatch<React.SetStateAction<Omit<FilterCriteria, 'query'>>>;
   facetTeams: FacetOption[];
@@ -643,6 +648,13 @@ export function PlanToolbar({
   startDate: string | null;
   chooseEstimateMethod: (method: 'pert' | 'optimistic' | 'realistic' | 'pessimistic') => void;
 }) {
+  const [query, setQuery] = useState(criteria.query);
+  const deferredQuery = useDeferredValue(query);
+  useEffect(() => {
+    commitQuery(projectId, deferredQuery);
+  }, [commitQuery, deferredQuery, projectId]);
+  const currentCriteria = { ...criteria, query };
+
   return (
     <>
       {/*
@@ -931,12 +943,12 @@ export function PlanToolbar({
       */}
       <SavedViews
         views={savedViews}
-        current={criteria}
+        current={currentCriteria}
         labels={filterLabels}
         onSave={(name) => {
           const next = [
             ...savedViews,
-            { id: crypto.randomUUID(), name, criteria, hiddenColumnIds },
+            { id: crypto.randomUUID(), name, criteria: currentCriteria, hiddenColumnIds },
           ];
           setSavedViews(next);
           rememberSavedViews(projectId, next);
@@ -981,9 +993,11 @@ export function PlanToolbar({
       */}
       {filtering && search.matchIds.size === 0 && (
         <span className="text-sm">
-          {query.trim() === ''
+          {criteria.query.trim() === ''
             ? 'No rows match these filters'
-            : `No matches for “${query}”${facetsChosen(facets) > 0 ? ' with these filters' : ''}`}
+            : `No matches for “${criteria.query}”${
+                facetsChosen(facets) > 0 ? ' with these filters' : ''
+              }`}
         </span>
       )}
       {/*
