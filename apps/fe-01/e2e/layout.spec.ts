@@ -274,6 +274,13 @@ async function freezeNumbering(page: Page): Promise<void> {
  * input on the page until one is asked for.
  */
 async function openEarliestStart(page: Page): Promise<void> {
+  // A leaf heading persists while its body cells are windowed. Scrolling that
+  // stable node first lets the target mount before the click begins.
+  // Proof: without this scroll, the both-steps-unfolded production case timed
+  // out after the at-rest input repeatedly `was detached from the DOM`.
+  await page.locator('thead th[data-column="not-before"]').evaluate((heading) => {
+    heading.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  });
   await page.getByLabel('Earliest start for 010').click();
   await expect(page.locator('tbody tr:first-child input[type="date"]')).toBeVisible();
 }

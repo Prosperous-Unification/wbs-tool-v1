@@ -336,6 +336,16 @@ async function seedPlan(
   // kept rather than loosened to a prefix match — it is what turned that change
   // into 26 named failures instead of a fixture quietly holding the wrong row
   // at the wrong date.
+  //
+  // The Start column can now be outside the mounted horizontal window. Scroll
+  // its persistent heading first; asking Playwright to auto-scroll the
+  // overscanned body cell let the viewport render detach it indefinitely.
+  // Proof: without this explicit scroll the production Chromium fixture timed
+  // out at `waiting for locator('tbody tr').filter({ has: getByLabel('Name of
+  // 010.2') }).locator('[data-column="start"]')`.
+  await page.locator('thead th[data-column="start"]').evaluate((heading) => {
+    heading.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  });
   const said = await rowOf(page, '010.2')
     .locator('[data-column="start"]')
     .getAttribute('data-start-said');

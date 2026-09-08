@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { arch, cpus, platform, release } from 'node:os';
 
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Locator, type Page, test } from '@playwright/test';
 
 import { createRenderingEvidence, renderingProvenance } from './rendering-evidence';
 import { painted, renderingGeometry, seedRenderingPlan } from './rendering-fixture';
@@ -187,6 +187,69 @@ test('a broad Find renders no more than its two filter-sensitive cells per row',
   expect(await nextName.count()).toBe(0);
   await page.keyboard.press('Control+j');
   await expect(nextName).toBeFocused();
+});
+
+test('an editor that left the row window can commit, escape, and hold a refusal', async ({
+  page,
+}) => {
+  const rows = 100;
+  const seeded = await seedRenderingPlan(page, { rows, steps: 2, density: 'sparse' });
+  await page.goto('/');
+  const frame = page.locator('[data-table-frame]');
+  const firstName = page.locator(`[data-name-input="${seeded.ids[0]}"]`);
+  const lastName = page.locator(`[data-name-input="${seeded.ids[rows - 1]}"]`);
+  const leaveFirstBehind = async (active: Locator): Promise<void> => {
+    await frame.evaluate((node) => {
+      node.scrollTop = node.scrollHeight;
+    });
+    await expect(lastName).toBeVisible();
+    await expect(active).toBeFocused();
+  };
+  const returnToFirst = async (): Promise<void> => {
+    await frame.evaluate((node) => {
+      node.scrollTop = 0;
+    });
+    await expect(firstName).toBeVisible();
+  };
+
+  await firstName.fill('Committed after leaving the row window');
+  await leaveFirstBehind(firstName);
+  await lastName.focus();
+  await expect.poll(() => firstName.count()).toBe(0);
+  await returnToFirst();
+  await expect(firstName).toHaveValue('Committed after leaving the row window');
+  await page.reload();
+  await expect(firstName).toHaveValue('Committed after leaving the row window');
+
+  await page.getByLabel('Project start date').fill('2026-06-01');
+  await page.getByLabel('Project start date').blur();
+  await page.locator('thead th[data-column="not-before"]').evaluate((heading) => {
+    heading.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  });
+  const firstStart = page.getByLabel('Earliest start for 0010');
+  await firstStart.fill('2026-09-09');
+  await leaveFirstBehind(firstStart);
+  await page.keyboard.press('Escape');
+  await returnToFirst();
+  await expect(firstStart).toHaveValue('—');
+
+  await page.locator('thead th[data-column="priority"]').evaluate((heading) => {
+    heading.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  });
+  const firstPriority = page.getByLabel('Priority for 0010');
+  await firstPriority.fill('0');
+  await leaveFirstBehind(firstPriority);
+  const refusalResponse = page.waitForResponse(
+    (response) => response.request().method() === 'POST' && response.url().endsWith('/commands'),
+  );
+  await lastName.focus();
+  expect(await (await refusalResponse).text()).toContain('priority_must_be_a_whole_number_from_1');
+  await expect(page.getByRole('alert')).toContainText(
+    'That change could not be completed (priority_must_be_a_whole_number_from_1).',
+  );
+  await expect.poll(() => firstPriority.count()).toBe(0);
+  await returnToFirst();
+  await expect(firstPriority).toHaveValue('0');
 });
 
 test('an unfolded plan mounts only its viewport columns', async ({ page }) => {

@@ -477,6 +477,10 @@ export class LiveField {
         // with the face and a step change — or a breakpoint — takes the face
         // away. `text` rather than the node's value: this runs a round trip
         // later, and what was refused is what was sent.
+        // Proof: this write removed, `an editor that left the row window can
+        // commit, escape, and hold a refusal` failed after the refused priority
+        // remounted on `Expected: "0" · Received: "50"`. Watched in Chromium,
+        // 2026-09-08.
         if (outcome === 'refused') heldRefusals.set(this.cellKey, text);
         // Rule 4, and only for the refusal: an `unsent` commit is one where
         // the box and be-01 already agree, so there is no draft to hold.

@@ -67,6 +67,8 @@ export interface PlanRowReadings {
 
 /** A tree row with the immutable values computed for the current React render. */
 export type RowWithReadings<TReadings> = Omit<TreeRow, 'subRows'> & {
+  /** The plan row this render-only projection was made from. */
+  source: TreeRow;
   subRows: RowWithReadings<TReadings>[];
   readings: TReadings;
 };
@@ -87,6 +89,7 @@ export function attachRowReadings<TReadings>(
 ): RowWithReadings<TReadings>[] {
   return rows.map((row) => ({
     ...row,
+    source: row,
     subRows: attachRowReadings(row.subRows, readingsOf),
     readings: readingsOf(row),
   }));

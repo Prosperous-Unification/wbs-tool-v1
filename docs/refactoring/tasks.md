@@ -42,15 +42,13 @@ ran its own.
 
 Nothing below has an owning task in the external queue (`backlog/tasks/task-NNN …`) unless named.
 
-- [ ] **R10 `measured-rendering`** — 3/17 tasks. Task **2.1 is done** (#335): the cells' 87-field
-      contract is written down in the change's `row-dependency-inventory.md`, and
-      `plan-row-dependencies.test.tsx` holds the peer-update/focus regressions 2.2 must not
-      break. Task **2.2 is part-done** — #338 trimmed the contract to 82 fields and made the
-      Start sentence one reading per row per render; #339 and #341 removed the two scans of the
-      whole plan and the three directory scans that ran once per cell, and #343 made a row's span one
-      reading instead of three. What 2.2 still owes is its headline and only its headline:
-      explicit per-row render inputs and stable cell component identities. The Chromium baseline (1.2–1.4) is still unrun and still
-      gates section 4.
+- [ ] **R10 `measured-rendering`** — 15/17 tasks. Explicit row readings and stable cell identities,
+      deferred Find criteria, logical navigation, variable-height row and column windows, active-editor
+      retention, drag/accessibility geometry, complete Gantt correspondence and the measured Chromium
+      budgets are implemented. The optimized 12-configuration matrix and complete browser gate are
+      recorded in the change's `verify.md`. A direct Chromium case now covers evicted-editor
+      commit, Escape and refused-draft remounting. A fully provisioned workspace gate, final
+      independent review, validation and parent integration remain.
 - [ ] **W4-4 tasks 3.4–3.5** — the independent review and coordinated full browser gate the
       change asked for before its `live` contract is handed to R1/R10. `main`'s green runs cover
       the gate; the review is unrecorded.

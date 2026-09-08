@@ -1107,20 +1107,6 @@ export function WbsTable({
   const startFloor = useRef<ReadonlyMap<string, string>>(new Map());
 
   /**
-   * One row's Start sentence, worked out once however many readers ask.
-   *
-   * Three did, per row, per render: the `<td>`'s own props, the `cursor: help`
-   * decided beside them, and the Start cell itself — and each call allocated a
-   * `Date` inside {@link spanOf} and walked the floor map again. A plain `Map`
-   * rebuilt every render rather than a `useMemo`, because what makes the answer
-   * stale is any of the three things it reads changing, and every one of them
-   * is replaced on the render that changes it.
-   *
-   * `startFloor.current` is read **inside** the call and not captured beside
-   * this line: the chart projection replaces that map further down the render,
-   * and all three readers run after it.
-   */
-  /**
    * One row's two printed days, worked out once however many readers ask.
    *
    * Three do, per row, per render: the Start cell, the Finish cell, and the
@@ -1240,21 +1226,6 @@ export function WbsTable({
     workItems,
     workItemTypes,
   ]);
-
-  const spanOfOnce = (row: TreeRow): ReturnType<typeof spanOf> => {
-    const span = spanByRow.get(row.id);
-    if (span === undefined) throw new Error(`Missing rendered span for row ${row.id}`);
-    return span;
-  };
-
-  const saidByRow = new Map<string, string | null>();
-  const startSentence = (row: TreeRow): string | null => {
-    const known = saidByRow.get(row.id);
-    if (known !== undefined) return known;
-    const said = readStartSentence(row, spanOfOnce, startFloor.current);
-    saidByRow.set(row.id, said);
-    return said;
-  };
 
   /**
    * The current cell values, built once.
@@ -1458,7 +1429,7 @@ export function WbsTable({
     depPicker,
     cellCards,
   });
-  const { ganttPlan } = usePlanChartInput({
+  const { ganttPlan, floorByRow } = usePlanChartInput({
     shownRows,
     startDate,
     effectiveTeamLabelOf,
@@ -1471,6 +1442,34 @@ export function WbsTable({
     priorityBands,
     startFloor,
   });
+  /**
+   * One row's Start sentence, worked out once however many readers and commits
+   * ask while its span and chart floor remain unchanged.
+   *
+   * Three readers ask per row: the `<td>`'s own props, the `cursor: help`
+   * decided beside them, and the Start cell itself. The chart projection above
+   * supplies the same floor map the cards read through `startFloor`.
+   */
+  const startSentence = useMemo(() => {
+    const saidByRow = new Map<string, string | null>();
+    const spanOfOnce = (row: TreeRow): ReturnType<typeof spanOf> => {
+      const span = spanByRow.get(row.id);
+      if (span === undefined) throw new Error(`Missing rendered span for row ${row.id}`);
+      return span;
+    };
+
+    return (row: TreeRow): string | null => {
+      const known = saidByRow.get(row.id);
+      if (known !== undefined) return known;
+      const said = readStartSentence(row, spanOfOnce, floorByRow);
+      saidByRow.set(row.id, said);
+      return said;
+    };
+    // Keep the sentence cache across commits that leave both its row spans and
+    // the chart floor unchanged. `Freeze #` currently commits twice; adding a
+    // fresh object to these dependencies failed `plan-row-render-cost.test.tsx`
+    // on `expected 6 to be +0`. Watched 2026-09-08.
+  }, [floorByRow, spanByRow]);
   const { downloadOnScreen } = usePlanOnScreenExport({
     planForExport,
     shownRows,

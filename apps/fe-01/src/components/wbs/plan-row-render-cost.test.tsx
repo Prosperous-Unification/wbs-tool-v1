@@ -185,7 +185,7 @@ describe('what one row costs per render', () => {
     expect(cellStyleCalls.count).toBe(0);
   });
 
-  itDom('works the Start sentence out once per row, however many readers ask', async () => {
+  itDom('keeps each Start sentence while its span and chart floor stay unchanged', async () => {
     // Three readers ask for it: the `<td>`'s own props, the `cursor: help`
     // decided beside them, and the Start cell itself. Each call allocates a
     // `Date` inside `spanOf` and walks the floor map, so on a 1,000-row plan
@@ -210,17 +210,13 @@ describe('what one row costs per render', () => {
     cellStyleCalls.count = 0;
     startSentenceCalls.count = 0;
     spanCalls.count = 0;
-    // Any gesture that renders the table. How many renders it costs is not this
-    // case's business — it is read back below rather than assumed, which is why
-    // the assertion is a rate and not a pinned number.
+    // A toolbar-only gesture changes neither input to a Start sentence.
     click('Freeze #');
 
     expect(cellStyleCalls.count).toBe(0);
-    expect(startSentenceCalls.count).toBe(rows);
-    // The row projection is unchanged, so its already explicit span is not
-    // rebuilt for this toolbar-only render. The Start sentence still reads it
-    // once per row from that projection because its Gantt floor is filled
-    // later in the same render.
+    expect(startSentenceCalls.count).toBe(0);
+    // The row projection is unchanged, so its already explicit span and Start
+    // sentence are not rebuilt for this toolbar-only render.
     //
     // Proof: adding `freezeMenuOpen` to the row projection's inputs failed
     // below on `expected 3 to be +0`: the menu rebuilt all three spans despite

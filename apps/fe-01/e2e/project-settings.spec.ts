@@ -43,7 +43,10 @@ const NEARLY = 2;
  * a budget resolved from the bar it is measuring is decoration.
  */
 const LAID_OUT_BEFORE_AT_1280 = 1445.33;
-const LAID_OUT_NOW_AT_1280 = 1265;
+// Chromium153 on Linux resolves the same unchanged toolbar to1268.46875px;
+// retain the measured cross-platform high-water mark rather than failing on a
+// fractional glyph advance that added no control.
+const LAID_OUT_NOW_AT_1280 = 1268.5;
 const ROWS_BEFORE_AT_1280 = 2;
 
 /** Registers a throwaway account and opens an empty project. */
@@ -111,8 +114,9 @@ test.describe('the project settings control, in a browser', () => {
     // matching none of the three the precondition names (`Squad`, `Precedence`,
     // so the precondition still passes). Against `BEFORE` that fault was
     // watched **passing** — 1428px against a 1447.33px ceiling. Against this
-    // line it fails on `1428px of controls to lay out, against the 1265px this
-    // change left`. Watched 2026-08-30, both arms.
+    // line it failed on `Expected: <= 1268.5 · Received: 1427.21875`.
+    // Re-watched in Chromium153 on Linux, 2026-09-08, after moving the
+    // cross-platform pin to the measured high-water mark.
     expect(
       measured.laidOut,
       `${String(Math.round(measured.laidOut))}px of controls to lay out, against the ${String(

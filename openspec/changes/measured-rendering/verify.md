@@ -1,6 +1,6 @@
 ## Status
 
-R10 starts from the pre-optimization source preserved by93259b43. Approved refactoring plan§67R10 is authority. The complete latency/render-count matrix and bounded Gantt stress observations are measured below. Budgets are now published in proposal.md; independent re-review approved their corrected derivation and protocol scope with no Critical or Important findings.
+R10 starts from the pre-optimization source preserved by93259b43. Approved refactoring plan§67R10 is authority. The complete latency/render-count matrix and bounded Gantt stress observations are measured below. Budgets are published in proposal.md; independent re-review approved their corrected derivation and protocol scope with no Critical or Important findings. Final review reopened Tasks4.2 and5.2 for direct evicted-editor behavior coverage and a fully provisioned workspace gate.
 
 Locked Bun install passed after sandbox temp/cache permission escalation (102packages,1.95s). Browser skill was read and runtime initialized; `agent.browsers.get("iab")` reported unavailable and documented discovery returned an empty list. Interactive in-app browser is unavailable. Parent confirmed canonical Playwright Chromium is appropriate for repeatable measurements. Measurement ports5500/5600/6600 are assigned to this worker, subject to actual listener verification. Parent must grant a quiet heavy-check window before timed runs.
 
@@ -148,7 +148,7 @@ failed launch is dependency setup evidence, not a test failure.
 
 ## Skipped / pending
 
-Optimization, structural/latency gates, full workspace/Chromium gates and independent review remain pending. The original12 experiments are now36 separate opt-in phase cases that intentionally skip in normal browser gates; future acceptance tests must run normally. The two1000/8 Gantt phases are bounded stress failures as recorded above, not complete evidence files. In-app browser inspection unavailable as recorded above.
+Final independent implementation review and OpenSpec validation remain pending. The original12 experiments are now36 separate opt-in phase cases that intentionally skip in normal browser gates. The two1000/8 baseline Gantt phases are bounded stress failures as recorded above, not complete baseline evidence files. In-app browser inspection was unavailable as recorded above. The final workspace gate's solver image smoke did not run because the chained Nx gate stopped first on the two explicitly recorded unrelated failures; no success is claimed for that smoke.
 
 ## 4.2 — active cells and offscreen navigation, 2026-09-08
 
@@ -672,3 +672,98 @@ windowing landed and is the deliberate negative4.5 asks for, so it was not repea
 manufacture a second identical failure. The readiness proof guards the optimized harness change;
 the repaired100-row/two-step/sparse smoke then passed with cold and warm samples before the matrix
 was trusted.
+
+## 5.1–5.2 — frozen integration verification, 2026-09-08
+
+Two integration regressions surfaced only in the complete frontend run. Attaching immutable row
+readings replaced TanStack row wrappers, so the Gantt recomputed for a toolbar-only commit even
+though its structural rows had not changed. `useShownPlanRows` now retains the committed chart row
+array while the projected wrappers' source rows, depth and leaf state are unchanged. The late Start
+sentence is memoised from its schedule maps after chart projection, so a Freeze-numbering commit
+does not recalculate it. Three DOM-free pure suites newly created by R10 are also named in
+`vitest.node-suites.ts`; the test-tier guard can now see them.
+
+The three complete-browser failures from the first integration run were fixture assumptions exposed
+by honest windowing, not product failures. Gantt and earliest-start fixtures now scroll the target's
+persistent heading before asking for the windowed body cell. The platform-toolbar width budget is
+1268.5px, rounded from the shipped bar's measured1268.46875px; giving the two folded controls their
+text labels back measured1427.21875px and failed the ceiling.
+
+### Fresh checks on the frozen source
+
+- `bunx nx format:check --all`: passed.
+- `bunx nx run-many -t lint typecheck --projects=fe-01 --skip-nx-cache`: passed both targets in
+  37.9s. Nx used its documented in-process plugin fallback because the sandbox denied its worker
+  socket.
+- `bunx nx test fe-01 --skip-nx-cache`: the main suite passed **101 files / 2534 tests** in357.81s;
+  the Pacific/Auckland suite passed **2 files / 3 tests**. Nx completed successfully in6m01s.
+- `CI=1 E2E_PORT_SHIFT=2500 bunx playwright test --config
+apps/fe-01/playwright.config.ts`, under `with_heavy_lock
+/tmp/wbs-r10-heavy-work.lock`: **305 passed / 37 intentional opt-in measurement skips / 0
+  failed** in22.0m, Chromium153, one worker and zero retries. This includes the shared CSS,
+  keyboard, names/references, hover, drag, mobile, marker, Gantt and viewport cases. The production
+  lock wrapper remained unavailable because this host has no `/home/puni1/.cache`; the lock
+  library's explicit-path seam held the same mutex contract. Vite logged page-close WebSocket
+  `EPIPE`/`ECONNRESET` diagnostics between passing cases.
+- Frozen workspace command: `bunx nx format:check --all && bunx nx run-many -t test lint typecheck
+build --parallel=2 --skip-nx-cache && WBS_RUN_SOLVER_ORPHAN_PROC=1 bunx nx run
+be-01:solver-image-smoke`. The formatting leg passed. Nx completed **86/88 targets** in7m02s;
+  every frontend target, including its full test suite, passed. `solver-py:test` failed at import
+  with ten errors because this host's Python lacks `ortools` and `jsonschema`. `gw-01:test` retained
+  three five-second socket integration timeouts. Because the command is chained, the solver-image
+  smoke did not run.
+- The gateway ownership diagnostic used a detached `origin/main` worktree at `5b7fc983` and ran
+  `bun test src/request-deadline.integration.test.ts`: the identical six cases passed and the same
+  three cases timed out in19.54s. No gateway source differs on this branch, so those timeouts
+  predate R10 rather than being waived branch regressions.
+- Focused `solver-py:test` repeated the ten import errors in5.7s: `ModuleNotFoundError: No module
+named 'ortools'` and `ModuleNotFoundError: No module named 'jsonschema'`. This is unavailable host
+  setup, not accepted solver test evidence.
+
+### Integration failure proof table
+
+| Check                                                    | Injected fault                                                                     | Observed failure                             |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------- |
+| chart input survives reading-only wrapper changes        | return the freshly projected row array instead of retaining structural source rows | `expected 1 to be +0`                        |
+| toolbar-only commits do not recalculate Start sentences  | add a fresh object to the Start-sentence memo dependencies                         | `expected 6 to be +0`                        |
+| the folded toolbar stays inside its shipped width budget | restore `Expand all` and `Collapse all` text labels                                | `Expected: <= 1268.5 · Received: 1427.21875` |
+
+All three faults were removed before the focused, complete frontend and complete Chromium runs.
+The exact first two outputs are retained in adjacent `Proof:` comments on their production-path
+tests; the width proof is adjacent to the browser assertion.
+
+## 4.2 review closure — evicted editor outcomes, 2026-09-08
+
+The independent implementation review found that node/selection retention and logical navigation
+did not directly prove what happens when an editor is left after its row has crossed the viewport
+window. A real-browser case now exercises all three outcomes on the first row of a100-row plan:
+the Name commits after scrolling to the last row and survives reload; an earliest-start edit is
+abandoned with Escape while its row is outside the ordinary window; and a priority be-01 refuses
+is restored when that cell remounts. The refusal arm waits for and inspects the real
+`POST …/commands` answer before asserting the toast and remounted value, so it cannot pass before
+the round trip it describes.
+
+- Focused Chromium after restoration: **1 passed**,13.1s.
+- With `heldRefusals.set(this.cellKey, text)` deleted from the production landing path, the same
+  case failed after the refused cell remounted on `Expected: "0" · Received: "50"`.
+- The write was restored and the same case passed again: **1 passed**,13.1s.
+
+The first attempted refusal used a work-item name made only of spaces. The live backend accepted
+that patch and answered `{"results":[{"index":0}],…}`; that premise was removed rather than
+turning a successful write into a counterfeit refusal. Priority zero is already a modeled
+work-item refusal and exercises the shared `LiveField` retention path the task is about.
+
+## 5.2 provisioned local-gate diagnosis, 2026-09-08
+
+This host initially ran Bun1.4.0 although `.bun-version` pins1.4.2, and its Python3.14 environment
+lacked the solver packages. A temporary Python3.14.7 environment was installed from the
+hash-verified `requirements.lock`; `solver-py:test` then passed **202 tests** in34.135s. A temporary
+Bun1.4.2 executable was placed first on `PATH`; under that actual child runtime `gw-01:test` passed
+**123 tests / 0 failed** in4.04s, including the three request-deadline cases that consistently
+timed out under1.4.0.
+
+The whole frontend suite on this workstation still exceeded five-second per-test budgets in five
+files after hundreds of preceding cases (**2528 passed / 6 failed**). The six reported cases were
+then run together as the only selected cases and all passed in13.46s; the single deterministic
+style assertion passed alone in2.96s. This is diagnostic evidence, not a gate waiver: task5.2
+stays open until the canonical provisioned host runs the complete frozen command and image smoke.

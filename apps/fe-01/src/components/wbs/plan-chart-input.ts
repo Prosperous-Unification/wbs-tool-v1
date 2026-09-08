@@ -1,7 +1,7 @@
 import type { Row } from '@tanstack/react-table';
 import { workdaysBetween } from '@wbs/domain/workday';
 import type * as React from 'react';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 import type { PriorityBandView, TeamView } from '@/lib/wbs-api';
 
@@ -17,6 +17,48 @@ import { type PlanRenderRow } from './plan-render-rows';
 import { spanOfRow } from './plan-span';
 import type { ChartRead } from './use-plan-read';
 import { type TreeRow } from './wbs-rows';
+
+interface ShownPlanRow {
+  source: TreeRow;
+  depth: number;
+  leaf: boolean;
+}
+
+/**
+ * The structural rows the chart sees, retaining their identity while only
+ * cell readings change.
+ *
+ * {@link PlanRenderRow} is rebuilt when a menu opens or a draft changes; none
+ * of those readings belongs to the chart. TanStack consequently rebuilds its
+ * `Row` wrappers too, so the chart needs this narrower identity before its
+ * whole-plan memo can distinguish a table render from a plan change.
+ */
+function useShownPlanRows(
+  shownRows: Row<PlanTableFeatures, PlanRenderRow>[],
+): readonly ShownPlanRow[] {
+  const committed = useRef<readonly ShownPlanRow[]>([]);
+  const projected = shownRows.map((row) => ({
+    source: row.original.source,
+    depth: row.depth,
+    leaf: row.subRows.length === 0,
+  }));
+  const unchanged =
+    committed.current.length === projected.length &&
+    projected.every((row, index) => {
+      const before = committed.current[index];
+      return before.source === row.source && before.depth === row.depth && before.leaf === row.leaf;
+    });
+  // Proof: returning `projected` directly rebuilt the Gantt when a row menu
+  // opened; `plan-chart-seam.test.tsx` failed on `expected 1 to be +0`.
+  // Watched 2026-09-08.
+  const structuralRows = unchanged ? committed.current : projected;
+
+  useEffect(() => {
+    committed.current = structuralRows;
+  }, [structuralRows]);
+
+  return structuralRows;
+}
 
 /**
  * What the Gantt is drawn from: the rows on screen, their labels, and the
@@ -51,6 +93,8 @@ export function usePlanChartInput({
   priorityBands: PriorityBandView[];
   startFloor: React.RefObject<ReadonlyMap<string, string>>;
 }) {
+  const structuralRows = useShownPlanRows(shownRows);
+
   /**
    * What the Gantt panel draws, from the rows the renderer is drawing.
    *
@@ -73,49 +117,49 @@ export function usePlanChartInput({
    */
   const ganttPlan: GanttPlan = useMemo<GanttPlan>(
     () => ({
-      rows: shownRows.map((row) => ({
-        id: row.id,
+      rows: structuralRows.map((row) => ({
+        id: row.source.id,
         // The Number column's own number, not a second derivation of it: the
         // chart's labels read `010 - Strip` because that is how the plan is
         // spoken about.
-        number: row.original.number,
-        name: row.original.name,
+        number: row.source.number,
+        name: row.source.name,
         depth: row.depth,
         // A leaf of the plan as drawn, which is a row with nothing under it —
         // the same question `getSubRows` answers for the table model.
-        leaf: row.subRows.length === 0,
+        leaf: row.leaf,
         schedule: {
-          earliestStart: row.original.schedule.earliestStart,
-          earliestFinish: row.original.schedule.earliestFinish,
+          earliestStart: row.source.schedule.earliestStart,
+          earliestFinish: row.source.schedule.earliestFinish,
         },
-        notBeforeOffset: notBeforeOffsetOf(startDate, row.original.startNoEarlierThan),
+        notBeforeOffset: notBeforeOffsetOf(startDate, row.source.startNoEarlierThan),
         // The words about that date, for the floor sentence to append where the
         // not-before is the floor that actually binds this bar. Read on **every**
         // row rather than only the floored ones: which floor binds is
         // `floorWordsOf`'s answer, computed from the schedule, and a chart row
         // that carried the reason only where this side already thought it
         // mattered would be two places deciding one thing.
-        notBeforeReason: row.original.startNoEarlierThanReason,
+        notBeforeReason: row.source.startNoEarlierThanReason,
         // Straight off the tree read, like the trio beside it: what a bar says is
         // a fact about the plan the chart was drawn from, not about a draft
         // somebody is half-way through typing into the column.
-        priority: row.original.priority,
-        maxParallel: row.original.maxParallel,
+        priority: row.source.priority,
+        maxParallel: row.source.maxParallel,
         // The **effective** team, which is the pool be-01 scheduled this row's
         // slices against — not the label the row carries, which may be none at
         // all. A chart drawn from the stored label alone cannot say whose people
         // a bar is waiting for.
-        team: effectiveTeamLabelOf(row.original),
+        team: effectiveTeamLabelOf(row.source),
         // The **effective** tags, for the team's reason one line up and for none
         // of its consequences: an inherited tag has to be sayable on the bar of a
         // row that names no tag, and that is the whole of what this field does.
         // Nothing on the chart is placed from it — see {@link GanttRow.tags}.
-        tags: effectiveTagLabelOf(row.original),
+        tags: effectiveTagLabelOf(row.source),
         // The trio the plan holds for each step on this row, straight off the
         // tree read — the drafts a reader is half-way through typing are not
         // facts about the schedule the chart was drawn from.
-        trioByStep: new Map(Object.entries(row.original.estimates)),
-        waitsFor: row.original.dependsOn.map(
+        trioByStep: new Map(Object.entries(row.source.estimates)),
+        waitsFor: row.source.dependsOn.map(
           // A predecessor the tree does not hold at all is the same modeled
           // absence `personFloorWords` already has words for, and it is said the
           // same way rather than left as a bare id.
@@ -162,7 +206,7 @@ export function usePlanChartInput({
     // hold: a closure rebuilt each render would make this memo a fresh object
     // every time and buy nothing.
     [
-      shownRows,
+      structuralRows,
       flat,
       chartRead,
       startDate,
@@ -197,7 +241,7 @@ export function usePlanChartInput({
   // sentence uses it for.
   const todayForFloor = new Date().toISOString().slice(0, 10);
 
-  startFloor.current = useMemo(
+  const floorByRow = useMemo(
     () =>
       startFloorByRow(
         ganttPlan,
@@ -205,7 +249,8 @@ export function usePlanChartInput({
       ),
     [ganttPlan, startDate, todayForFloor],
   );
-  return { ganttPlan };
+  startFloor.current = floorByRow;
+  return { ganttPlan, floorByRow };
 }
 
 /**
