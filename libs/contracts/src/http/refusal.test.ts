@@ -143,10 +143,12 @@ export function refusalTypeCases() {
   expectTypeOf<Refusal>({ code: 'not-retryable', state: 'future' });
 }
 
-// Budget stated, not defaulted (TASK-415). Measured 1952ms on h2puni at
-// load 7-9, a 2.6x margin on the 5000ms default -- and
-// it spawns tsc, so its duration tracks host load rather than the assertion.
-// The rule is 5x the measured floor, rounded up to the next second.
+// Case budget stated, not defaulted (TASK-415). Observed duration 1952ms on
+// h2puni at load 7-9, a 2.6x margin on the 5000ms default -- and it spawns tsc,
+// so its duration tracks host load rather than the assertion. The rule is 5x
+// the observed duration, rounded up to the next second. One observation, not a
+// floor: re-derive it from notes/t415-per-case-duration-sweep.txt and the
+// harness in notes/t415-sweep.sh rather than trusting this number.
 test('the compiler enforces closed refusal codes, detail variants and command context', () => {
   const checked = Bun.spawnSync({
     cmd: [

@@ -116,17 +116,38 @@ describe('dev MCP deployment probe', () => {
     expect(result.output).toContain('MCP exposure not expected');
   });
 
-  // Budget stated, not defaulted (TASK-415). Measured 2122ms on h2puni at
-  // load 7-9, a 2.4x margin on the 5000ms default -- and
-  // its own probe deadline is 3s, so 5000ms left 1.7x for everything around it.
-  // The rule is 5x the measured floor, rounded up to the next second.
+  // "within the deployment restart deadline" is the subject of this case, and
+  // until TASK-423 nothing checked it. The probe re-reads its deadline only at
+  // the top of each retry, so a success can land after the deadline has passed
+  // and still exit 0 — the runner timeout below cannot tell that apart from a
+  // success at 2s. Asserting the elapsed time against the same deadline the
+  // case configures is what makes a slow success fail.
+  const RETRY_DEADLINE_SECONDS = 3;
+
+  // Case budget stated, not defaulted (TASK-415). Observed duration 2122ms on
+  // h2puni at load 7-9, a 2.4x margin on the 5000ms default -- and its own
+  // probe deadline is 3s, so 5000ms left 1.7x for everything around it. The
+  // rule is 5x the observed duration, rounded up to the next second. One
+  // observation, not a floor: re-derive it from
+  // notes/t415-per-case-duration-sweep.txt and the harness in
+  // notes/t415-sweep.sh rather than trusting this number.
   it('retries the semantic probe within the deployment restart deadline', async () => {
     const server = metadataServer('correct', 'correct', 1);
+    const startedAt = Bun.nanoseconds();
     const result = await runProbe(`http://127.0.0.1:${String(server.port)}`, {
-      MCP_PROBE_DEADLINE_SECONDS: '3',
+      MCP_PROBE_DEADLINE_SECONDS: String(RETRY_DEADLINE_SECONDS),
     });
+    const elapsedMs = (Bun.nanoseconds() - startedAt) / 1e6;
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain('MCP discovery and challenge');
+    // The single retry costs one 2s sleep, so this lands at ~2.1s: observed
+    // 2066, 2083, 2085, 2088, 2126ms on h2puni at head 653ecbdd. The bound is
+    // the deadline itself rather than a multiple of that observation, because
+    // the claim being checked is the case's own — inside 3s — not "fast".
+    // Proof: delay the metadata server ~700ms per request and the probe still
+    // exits 0 after ~3.4s, because the deadline is only re-read before a
+    // retry; this assertion is the one that goes red.
+    expect(elapsedMs).toBeLessThan(RETRY_DEADLINE_SECONDS * 1000);
   }, 11000);
 
   it('rejects authorization metadata that weakens public-client PKCE', async () => {

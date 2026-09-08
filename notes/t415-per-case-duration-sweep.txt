@@ -1,0 +1,46 @@
+cases measured: 4054 across 23 projects
+
+TIGHTEST 15 CASES BY MARGIN TO 5000ms
+    2077ms      2.4x  tools/tool-devsync  dev MCP deployment probe > retries the semantic probe within the deployment restart deadline
+    2020ms      2.5x  tools/tool-dagger  with-heavy-lock > refuses immediately with exit 75 while another heavy operation owns the lock
+    1658ms      3.0x  apps/be-01  a save that meets a held write lock is refused, not queued behind it > writes normally once the other process has committed, on a fresh attempt
+    1634ms      3.1x  apps/be-01  a save that meets a held write lock is refused, not queued behind it > refuses at once while the other process is still writing, and only that process commi
+    1412ms      3.5x  apps/be-01  a refused save retried inside its budget saves the project as it is then > retries after the rival commits and stores an input captured after the interleave
+    1361ms      3.7x  apps/be-01  SavedPlanService.save answers snapshot_busy without holding up an edit > refuses at once and lets a live edit issued in the same window complete
+    1313ms      3.8x  tools/tool-bootstrap  configure.sh Caddyfile merge, executed > runs the merge block at every point of the environment product
+    1230ms      4.1x  tools/tool-bootstrap  configure.sh Caddyfile merge, executed > is caught somewhere in the environment product when disconnected by a condition on the configured site ad
+    1151ms      4.3x  tools/tool-bootstrap  configure.sh Caddyfile merge, executed > is caught somewhere in the environment product when disconnected by a condition spanning the environment 
+    1125ms      4.4x  libs/contracts   > the compiler enforces closed refusal codes, detail variants and command context
+     982ms      5.1x  tools/tool-devsync  durable dev poller > runs the target deployer against the contract the target commit carries
+     920ms      5.4x  tools/tool-git-hooks  the corpus comparison boundary used by CI > uses the pull request event SHA when the named base ref has moved
+     647ms      7.7x  apps/be-01  OIDC browser routes > locks a normalized username after five failures even when IPs change
+     632ms      7.9x  apps/be-01  OIDC browser routes > locks a client IP after five unknown usernames without revealing which exist
+     625ms      8.0x  apps/be-01  OIDC browser routes > keeps an enabled registration token in the hardened cookie and throttles its IP
+
+PER PROJECT WORST CASE
+    2077ms      2.4x     66 cases  tools/tool-devsync
+    2020ms      2.5x     50 cases  tools/tool-dagger
+    1658ms      3.0x   2041 cases  apps/be-01
+    1313ms      3.8x     61 cases  tools/tool-bootstrap
+    1125ms      4.4x    381 cases  libs/contracts
+     920ms      5.4x     95 cases  tools/tool-git-hooks
+     507ms      9.9x    277 cases  tools/tool-remote-scripts
+     503ms      9.9x     33 cases  tools/tool-smoke
+     366ms     13.7x    123 cases  apps/gw-01
+     162ms     31.0x    113 cases  apps/mcp-01
+     114ms     43.8x    582 cases  libs/domain
+      18ms    271.4x      1 cases  tools/tool-observability-stack
+      16ms    317.0x      2 cases  libs/runtime-portable
+      15ms    325.6x      8 cases  libs/realtime
+      11ms    438.6x     95 cases  libs/auth
+      11ms    444.6x      3 cases  libs/observability
+      10ms    489.9x      2 cases  libs/core
+       7ms    761.6x      6 cases  libs/validation
+       5ms   1047.8x     83 cases  tools/tool-deploy
+       3ms   1526.3x      6 cases  libs/config
+       3ms   1692.0x     15 cases  tools/tool-compose
+       1ms   3921.6x      9 cases  tools/dev
+       1ms   5574.1x      2 cases  tools/tool-secrets
+
+under 3x margin: 2
+under 10x margin: 22
