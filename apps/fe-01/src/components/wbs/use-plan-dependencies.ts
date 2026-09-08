@@ -1,11 +1,12 @@
 import type * as React from 'react';
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 
 import type { ProjectApi, StepView } from '@/lib/wbs-api';
 
 import { pickerEntries } from './dep-picker';
 import { parseDependencies, unknownMessage } from './depends-input';
 import { type CommitOutcome } from './live-editing';
+import { indexRowsById } from './plan-indexes';
 import { failureText } from './plan-refusal';
 import type { Toast } from './toasts';
 import type { PlanReadScope } from './use-plan-read';
@@ -65,13 +66,14 @@ export function usePlanDependencies({
    * pass over `flat` for both: two readers looking up the same rows by id is
    * two loops and one more place for the list to come out in a different order.
    */
+  const rowsById = useMemo(() => indexRowsById(flat), [flat]);
   const dependenciesOf = useCallback(
     (ids: readonly string[]) =>
       ids.flatMap((id) => {
-        const found = flat.find((row) => row.id === id);
+        const found = rowsById.get(id);
         return found === undefined ? [] : [{ id, number: found.number, name: found.name }];
       }),
-    [flat],
+    [rowsById],
   );
 
   /**

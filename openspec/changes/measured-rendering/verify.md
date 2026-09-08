@@ -157,3 +157,43 @@ The count is a **rate**, not a pin: the case reads the rows and columns off the 
 `flexibleCellStyle` calls by `(rows + 1) × columns` to learn how many renders the gesture actually
 cost, and asserts one sentence per row per render. A pinned number would have to be re-guessed
 every time a column is added, and would pass for the wrong reason the first time one was.
+
+## 2.2, second part — the two scans of the whole plan that ran per cell, 2026-09-08
+
+Still not 2.2 itself. Two of the per-row readings the inventory listed as "no per-row cache"
+were worse than that: each was a scan of **every row on the plan**, run once per cell.
+
+- `dependenciesOf(ids)` did `flat.find` per dependency id, and every Depends on cell calls it
+  once per render. Rows × dependencies × rows per render — eight million comparisons to draw one
+  column on a thousand-row plan whose rows wait for eight others.
+- `anyAssigneeOn(stepId)` did `flat.some(...)`, and every **folded step cell** calls it. Rows ×
+  steps × rows per render, to decide whether the column reserves an assignee slot.
+
+Both are one pass per tree read now, through `plan-indexes.ts`: `indexRowsById(flat)` and
+`assignedSteps(flat)`, each behind a `useMemo` on `flat`. They live in a module of their own
+rather than in the hooks that use them, and that is load-bearing for the check below —
+`vi.mock` replaces a module's exports for its **importers**, so a pure function called from
+inside the file that declares it cannot be counted. The first form of this check mocked
+`./use-plan-dependencies` and `./use-reference-sets`, and the counter never moved.
+
+`assignedSteps` returns `{ everyStep, named }` rather than a bare set, because `doesEveryStep`
+staffs a step **no row lists by id** — a set of named steps alone would answer `false` for it.
+
+### Failure proof table
+
+| Check                                                               | Injected fault                                                       | Observed failure      |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------- | --------------------- |
+| `rebuilds no index over the plan for a gesture that changes no row` | `indexRowsById`'s `useMemo` dropped, rebuilt inside `dependenciesOf` | `expected 1 to be +0` |
+| the same case                                                       | `assignedSteps`' `useMemo` dropped, rebuilt inside `anyAssigneeOn`   | `expected 8 to be +0` |
+
+Two things the case had to be given before either fault could reach it, and both were watched
+failing at the **wired-check** rather than at the assertion first:
+
+- The plan needs a **dependency**. With none, `dependenciesOf` maps over an empty list and the
+  faulted rebuild inside it is never reached, so `toBe(0)` was true for the wrong reason. The
+  fixture adds one through `api.addDependency`; setting `row.dependsOn` on the view does not
+  work, because the fake derives that field from its own edge list.
+- The Depends on column has to be **on screen**; it is not in the default set.
+
+Each case asserts the counter moved during setup before asserting it is still zero after the
+gesture. Without that, a mock that never ran satisfies the assertion.

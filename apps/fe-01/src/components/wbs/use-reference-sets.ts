@@ -17,6 +17,7 @@ import {
 } from './gantt-geometry';
 import { type CommitOutcome } from './live-editing';
 import { type CardAssignee } from './plan-cards';
+import { assignedSteps } from './plan-indexes';
 import { assigneesOf, listed, MISMATCH_TAIL } from './plan-mismatch';
 import { type TreeRow } from './wbs-rows';
 import { rowWords } from './work-item-words';
@@ -683,10 +684,10 @@ export function usePlanAssignments({
    * the only assigned row takes the slot with it, and the figures stay lined up
    * against what is actually on screen.
    */
+  const assigned = useMemo(() => assignedSteps(flat), [flat]);
   const anyAssigneeOn = useCallback(
-    (stepId: string): boolean =>
-      flat.some((row) => row.assignees[stepId] !== undefined || row.doesEveryStep !== null),
-    [flat],
+    (stepId: string): boolean => assigned.everyStep || assigned.named.has(stepId),
+    [assigned],
   );
   return { nonOwnerNoteOf, assigneeOn, anyAssigneeOn };
 }
