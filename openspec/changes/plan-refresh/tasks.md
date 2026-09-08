@@ -32,11 +32,11 @@
 ## 5. Verify integration and proof quality
 
 - [x] 5.1 Run focused coordinator/API/project-stream/host read/marker/chart/focus/draft suites and all frontend source/spec/e2e typechecks. Inspect every test oracle in the held-response window.
-- [ ] 5.2 Run real-browser peer edit and marker scenarios preserving editor node, typed value, selection and relevant installed output. Watch a missed row update/focus fault if any new render safeguard is introduced.
+- [ ] 5.2 Run real-browser peer edit and marker scenarios preserving editor node, typed value, selection and relevant installed output. Watch a missed row update/focus fault if any new render safeguard is introduced. At closeout, identify the exact browser cases and their observed revisions/output; composed transport/jsdom evidence and a generic green pixels job do not establish this scenario obligation.
 - [x] 5.3 Complete mutation table: named fault, production call path, failing assertion/output, restoration command. Delete any check whose intended fault cannot be observed instead of inventing Proof.
 - [ ] 5.4 Freeze tracked tree and run full workspace gate plus complete Chromium gate on isolated owned ports; preserve incoming Auckland timezone tier. Record all skipped/unavailable checks explicitly.
 - [x] 5.5a Independent review and OpenSpec validation, including rereview of replay recovery and stale physical socket callbacks.
-- [ ] 5.5b Integrate with the current refactoring branch and update queue/evidence after whole-gate outputs support completion. R10 and HTTP-client migration remain blocked until this slice passes.
+- [ ] 5.5b Reconcile integration and update queue/evidence after the required whole-gate outputs support completion. The original refactoring branch was squash-merged as cbad68af; HTTP migration and R10's checked slices have since landed, so their historical blanket blocker is obsolete. Record that merged disposition without inventing a branch-local gate, and keep any unresolved 5.2/5.4 evidence explicit before archival.
 
 ## 6. Independent review corrections
 

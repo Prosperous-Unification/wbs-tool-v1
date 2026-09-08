@@ -29,6 +29,17 @@ that these newly tested windows are covered. **Status 2026-09-07:** W4-4 and R1�
 evidence and the remaining queue are in [`refactoring/tasks.md`](refactoring/tasks.md), which
 supersedes the 2026-09-02 handoff's queue section.
 
+**Execution preparation, 2026-09-08:** R10 has since completed in PR #353 (`f66f73e8`);
+the earlier 2/17 count above is historical.
+[`refactoring/execution-readiness.md`](refactoring/execution-readiness.md) and the owning
+OpenSpec packets linked from [`refactoring/tasks.md`](refactoring/tasks.md) supersede the
+remaining implementation handoffs, file maps and dependency questions below. Historical
+measurements, refusals and completed-work evidence remain history, not current gate output.
+In particular, W4-3/§58's Elysia-export prerequisite is superseded by the existing shared
+`SchemaShape` and the `plan-command-registry` packet; it is not a new probe for the implementer.
+The separately linked Radical Modularity plan is additive scope, not permission to revive
+rejected optimizations or simplify the accepted endpoint architecture.
+
 ## 0 · What the review is optimising for
 
 Three costs decide whether an agent can change this repo without breaking it. Every item

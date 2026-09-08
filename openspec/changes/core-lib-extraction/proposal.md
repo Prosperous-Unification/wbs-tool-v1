@@ -4,34 +4,21 @@ INTENT. Hard cap: 400 words excluding these comments.
 
 ## Why
 
-be-01's application code no longer imports a framework or a driver — Wave 1 made its routes
-data, Wave 2 made its stores and its runtime ports — but it still **lives** in `apps/be-01`,
-where the Elysia mount, the boot script and the drizzle adapters are its neighbours. Nothing
-stops the next service from importing one of them, because nothing can see the direction:
-**two projects in the workspace carry a `ring:` tag and twenty-three do not.** A dependency
-rule the linter cannot find is a rule that never fires, which is the failure R5 was written
-for and the one this repository has shipped twenty-one times.
-
-The move is also what makes the ports worth having. `libs/core` over `@wbs/store-memory` with
-`runtime-portable`'s adapters is a graph with no Bun, no SQLite and no HTTP in it — and until
-that composition exists in a project the boundary can be asserted about, "the source is a
-port" is a claim about names.
+Core scaffolding and project rings have landed, but the service graph still names SQLite
+types, runtime adapters and a batch graph constructed before admission. The current
+SQLite composition does not establish that another source can run the same commands:
+a staged memory source needs the actual scope of each batch. Extracting and enforcing
+these boundaries makes the existing ports usable by a second composition.
 
 ## What Changes
 
-- **Rings on every project**, and a totality test that fails on a project carrying zero or two
-  of `scope:`/`ring:`/`runtime:`. Written and watched failing first, before a single file moves.
-- New projects: `libs/core` (`ring:application`), `libs/store-sqlite` and `libs/store-memory`
-  (`ring:adapter`), `libs/conformance` (`ring:application`, `runtime:bun`).
-- `git mv` in three commits — ports and services, then the SQLite adapters, then the kits —
-  with `bun run test:unit` green after each. The ports barrel becomes one file per port at the
-  move; `Logger` and its no-op move to `@wbs/contracts`.
-- `depConstraints` on the rings, `no-restricted-imports` and `no-restricted-globals` in core
-  and domain, with the `**/*.test.ts` and `**/testing/**` override — and §3.5's sixteen
-  negatives, each watched on its own line.
-- `composeServices({ source, runtime, shared })` and `compose.test.ts`: core over the memory
-  source with `runtime-portable`'s adapters running a batch, a save, a replay and a retention
-  sweep without HTTP.
+- Source-independent ports and value types; SQLite-only transaction helpers stay adapters.
+- Services built from the admitted scope, public graph after settlement, fresh repair scope.
+- One composition over explicit source/runtime capabilities, including independent history.
+- Core services and endpoint bindings, SQLite and staged-memory sources, and conformance
+  kits in separate projects, with production dependency rules watched failing.
+- Browser-executed batch/save/replay/retention proof with no backend, SQLite or Bun runtime.
+- Recursive project checks and a fast test tier selected by targets rather than names.
 
 ## Non-goals
 
@@ -39,10 +26,34 @@ port" is a claim about names.
   `repo-namespacing`, D18/D19, and its own change.
 - Moving `apps/be-01/drizzle/` or the three `migrate-*-cli.ts` entrypoints: the swap invokes
   them by path and the Dockerfile copies them.
-- Building the browser mode (D17), a Postgres source, or a second HTTP adapter.
+- Building browser UI mode, a Postgres source, or a second HTTP adapter.
+- Replacing solver supervision or implementing every deferred source conformance case.
 
 ## Constraints
 
-- No behaviour change: the same tests pass before and after each `git mv` commit.
+- Preserve observable behavior and tests across moves; document required scope corrections.
+- Scheduler boundary completion precedes moving scheduling consumers. The separate
+  scheduler-runtime-port change owns the engine-unavailable contract.
 - The whole-workspace gate is the verdict, not per-project runs (2026-08-30's import-sort
   incident).
+
+## Capabilities
+
+### New Capabilities
+
+- `core-lib-extraction`: portable composition and enforced source/runtime boundaries.
+
+## Domain Terms
+
+Existing Source, Scope, Unit of work, Port, Composition root and Conformance kit.
+
+## Decisions Recorded
+
+[ADR0014](../../../docs/adr/0014-ports-live-in-a-framework-free-core-lib.md),
+[ADR0015](../../../docs/adr/0015-a-command-batch-is-a-unit-of-work-the-source-implements.md),
+[ADR0018](../../../docs/adr/0018-adapter-transactions-stay-outside-core-ports.md).
+
+## Impact
+
+be-01, core, contracts, domain, auth, runtime-portable, source libraries, conformance,
+Nx targets and their existing callers/tests. No migration SQL or deploy identity changes.

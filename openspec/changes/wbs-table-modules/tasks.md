@@ -21,6 +21,10 @@
       split holds on every load-bearing point, and the four documentation-and-surface defects it
       found are fixed in the same change as the record. The coordinated browser gate is `main`'s
       own CI at `a0c7cada` and `7aa61b09`, both `gate: success` and `pixels: success`.
-- [ ] 3.5 Record final gate results and hand off the R1/R10 interfaces.
+- [ ] 3.5 Reconcile the final gate record and hand off the R1/R10 interfaces: cite the
+      historical merged-state CI with its actual revisions, preserve the three column
+      dependencies and PlanLive/editor-identity obligations, and record the receiving
+      changes. Do not claim those old runs verify the current tree. Review 3.4 is already
+      complete; any newly required current-head gate remains pending until freshly run.
 
 The approved W4-4 plan is the design; no separate plan artifact is created. Cell hover-store isolation and PlanCard memoization remain performance work for R10, requiring its browser measurements and explicit row dependencies.

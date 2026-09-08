@@ -4,7 +4,7 @@ Worktree: `.worktrees/refactoring`, branch `refactor/planned-project`.
 
 Baseline, 2026-09-06: from `apps/fe-01`, `TZ=UTC bunx vitest run --no-file-parallelism --maxWorkers=1 --minWorkers=1 src/components/wbs/plan-read-and-write.test.tsx src/components/wbs/plan-keyboard.test.tsx src/components/wbs/plan-chart-seam.test.tsx` passed **151 tests across 3 files**, 69.86s. Existing React act warnings were printed. Full output: `/private/tmp/w4-4-baseline.log`.
 
-Current status: **601 table concept tests passed**, source and root frontend typechecks passed, scoped lint has **0 errors / 1 preserved dependency warning**, and both deliberate negatives were observed. Independent review and the full frontend/browser gates are pending parent coordination.
+Extraction checkpoint (historical): **601 table concept tests passed**, source and root frontend typechecks passed, scoped lint has **0 errors / 1 preserved dependency warning**, and both deliberate negatives were observed. The independent review is recorded later in this file on 2026-09-08. Remaining task 3.5 reconciles gate evidence and the handoff; see [the current ledger](../tasks.md), not this earlier checkpoint, for closeout status.
 
 First extraction checkpoint: the same three suites passed **151/151** in **68.95s**, output `/private/tmp/w4-4-after-core.log`. The output contains the same pre-existing React act warnings as the baseline. `bunx tsc --build --force apps/fe-01/tsconfig.app.json` exited 0 with no diagnostics after column factories and the exported live contract were wired (log `/private/tmp/w4-types.log`, subsequently reused for iterative checks).
 

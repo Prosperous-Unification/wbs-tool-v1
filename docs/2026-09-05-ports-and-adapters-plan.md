@@ -18,6 +18,15 @@ reviews — is in
 keeps superseded decisions and is never a source for an OpenSpec change. Where a `D` row says
 "superseded", the row that supersedes it is the only one to read.
 
+**Execution preparation, 2026-09-08:**
+[`refactoring/execution-readiness.md`](refactoring/execution-readiness.md) and the owning
+OpenSpec packets linked from [`refactoring/tasks.md`](refactoring/tasks.md) supersede older
+implementation handoffs, file maps and remaining dependency questions. Wave 2 has landed;
+Wave 3 has a partial implementation and now has explicit scheduler/conformance companion
+packets. Namespacing remains after core. The dated status and measurements below remain
+historical, not current gate evidence. Section 7 records resolved choices, including D19's
+formerly open contracts-ring note; browser persistence remains outside this plan's scope.
+
 Vocabulary: **port / adapter / source / unit of work / write coordinator / gate / scope /
 endpoint / endpoint shape / request policy / conformance kit / ring** as defined in
 `CONTEXT.md` → Architecture; **module /
@@ -728,7 +737,7 @@ negatives 10–11 are written first.
 | The memory source lags and nobody notices (D29)                                       | The stub allowlist is a named list in `store-memory` with a test that fails on a stub not in it; `sourceConformance(memory)` prints every skipped case; D17's first task is an empty list                                             |
 | A kit case passes both sources for the wrong reason                                   | Every case watched failing against `brokenSource(memory, fault)` with the fault it names                                                                                                                                              |
 | A test misses the window where concurrent work changes ownership                      | Cases (d)–(g), (j)–(l) observe suspended operations, both outcomes of a concurrent save, and the write-before-next-batch publication window. Isolation is not promised (D1).                                                          |
-| Wave 2 collides with an open change on the source seam                                | Wave 0 gate, re-run before each change; `recordEventIn(tx)` reconciled into `UnitOfWork.scope` or waited for                                                                                                                          |
+| Wave 2 collides with an open change on the source seam                                | Recheck active interfaces before each change; ADR 0018 keeps `recordEventIn` and the atomic outcome/event transaction in the SQLite adapter, never in `UnitOfWork.scope`                                                              |
 | Extraction leaves guards aimed at old folders                                         | §3.5 negatives 7 and 8; `eslint.config.js` has no `apps/be-01/src/repository` path left                                                                                                                                               |
 | The emitter requires capabilities a validator does not expose                         | SchemaShape carries generated JSON Schema separately from StandardSchemaV1; nested-union/MCP fixtures and unsupported-conversion negative at the declaration boundary (D25).                                                          |
 | The generic endpoint shapes make `tsc` slow and its errors unreadable                 | Wave 1.1's `tsc` wall-time pin, before and after; `PrincipalOf` is the first to go if it doubles                                                                                                                                      |
@@ -736,20 +745,38 @@ negatives 10–11 are written first.
 
 ## 7 · Open questions for the implementer
 
-1. `Identity` shape returned by `IdentityResolver`: the same as `userFromHeaders` today.
-2. `STEP_POSITION_STEP` and `stepIsInUse`: `@wbs/domain` (facts about steps) rather than core.
-3. ~~Whether `Scope` exposes all stores~~ — corrected by D27: transactional stores only.
-   Independent history stays at the composition root; it cannot be enlisted by a command.
-4. Whether `dual-optimized-scheduler`'s `recordEventIn(tx)` becomes `scope.stores.eventLog.record` —
-   decided at Wave 0 by which lands first.
-5. Whether `@wbs/auth` becomes isomorphic or is absorbed behind `TokenCodec` — decided at
-   Wave 2 by what it holds. Either way it is `ring:adapter` (D14): it holds jose and crypto.
-6. ~~Whether to nest `libs/{domain,contracts}` under `libs/core/`~~ — settled by D19: the
-   directory is `libs/wbs/domain/…`, applied in the namespacing change.
-7. Whether `store-indexeddb` or the memory source with a `persist` hook is the browser mode's
-   persistence. Not this plan's to decide; the kit is the same either way. The hook shape is
-   in §3.2: stage, act, persist atomically, then expose the committed state; failed persistence
-   cannot expose a successful commit. Independent history must stay outside that write set.
-8. Where `contracts` sits once the endpoint types join it: `ring:domain` today because fe-01
-   and gw-01 import it; an `interface` ring between domain and application is the alternative
-   if HTTP shapes in the domain ring start to grate.
+**Reconciled 2026-09-08.** These decisions are specified in
+[`core-lib-extraction/design.md`](../openspec/changes/core-lib-extraction/design.md) and
+[`repo-namespacing/design.md`](../openspec/changes/repo-namespacing/design.md); they are
+not choices delegated to the implementation worker.
+
+1. **Identity — resolved by the landed endpoint contract.** Preserve
+   `Identity = AuthenticatedUser | InternalIdentity` and the existing typed
+   `IdentityResolution` success/401/403 outcomes from `http/endpoint.ts`. The framework-free
+   contract moves to core; credential extraction remains the trigger adapter's job.
+2. **Step facts — resolved.** `STEP_POSITION_STEP`, `stepIsInUse` and `StepHoldings` move
+   together to `libs/domain/src/step.ts`, exported by `@wbs/domain`; service, SQLite and
+   memory consumers share that declaration. They are not repository or core operations.
+3. **Scope — resolved by D27 and core C2.** The default `PlanTransactionalStores` excludes
+   account capability; `AccountStores` extends the full transactional source separately.
+   Independent `HistoryStores` stays at composition and cannot be enlisted by a command.
+4. **Optimizer transaction — resolved by
+   [ADR 0018](adr/0018-adapter-transactions-stay-outside-core-ports.md).** `recordEventIn`
+   remains a concrete SQLite method used by the single outcome/event transaction. It does
+   not become a generic `scope.stores.eventLog` method.
+5. **Auth runtime — resolved.** `@wbs/auth` remains a `ring:adapter`, `runtime:bun` library.
+   Core consumes `PasswordHasher`, `TokenCodec` and `OidcVerifier`; pure identity value
+   types move to contracts. This extraction neither absorbs the adapter nor relabels its
+   jose/crypto implementation isomorphic; unexpected verification/account failures throw.
+6. **Directory layout — resolved by D19.** Domain, contracts and validation remain distinct
+   projects under `libs/wbs/domain/…`; core/conformance use `libs/wbs/application/…`, and
+   adapters use `libs/wbs/adapters/…`. Alias names remain stable during namespacing.
+7. **Browser persistence — deliberately not decided here.** Whether `store-indexeddb` or
+   memory with a `persist` hook implements a future browser product remains outside scope,
+   not a blocker for these packets. The §3.2 contract still stages, acts, persists atomically
+   and then exposes committed state; failed persistence cannot expose a successful commit,
+   and independent history remains outside that write set.
+8. **Contracts ring — resolved for this programme.** `contracts` remains `ring:domain`,
+   including endpoint shapes and the command registry. No additional `interface` ring is
+   introduced. A future ring redesign would require a separate decision; it is not an
+   implementation option hidden behind D19's historical open-question wording.

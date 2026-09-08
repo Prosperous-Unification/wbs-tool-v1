@@ -819,6 +819,11 @@ behind every directory id it uses, under a format name and version. Derived figu
 along for readers and are never restored.
 _Avoid_: backup, dump, snapshot, JSON export (as a term)
 
+**Working plan**:
+The current plan values a single admitted command batch reads and updates while carrying
+out its commands. It ends with that batch; a saved plan is a separate record of history.
+_Avoid_: plan snapshot (for this), cached plan, saved plan (for this)
+
 **Saved plan**:
 One project's whole plan copied by value at one instant and kept in the database: the
 settings, the tree, the estimates, the ownership, the names behind every id it uses, and

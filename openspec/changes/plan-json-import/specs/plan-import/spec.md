@@ -2,171 +2,114 @@
 
 ### Requirement: The plan document carries what a restore needs
 
-`GET /api/projects/:id/export?format=json` SHALL answer a plan document: every
-field it answers today, unchanged, plus `document` (`format: "wbs-plan"`,
-`version: 1`, `exportedAt`), `settings` (name, restricted, estimate method,
-dependency reach, PERT weights, estimate rounding, start date, solution ref),
-`priorityBands`, `capacity` (one entry per team with a remembered capacity), and
-`directory`: id, name and — for people — kind, for every team, person, tag,
-service, work item type and external system any row or capacity entry
-references. A directory entry no row references SHALL NOT be in the document.
+The JSON export SHALL preserve its existing project, workItems, steps and projection fields and add the versioned wbs-plan header, writable settings, capacity, calendar markers and the transitive referenced directory. Settings SHALL include current optimization settings and rows SHALL retain deadlines. Directory closure SHALL include capacity-only teams, assigned people's memberships and team-owned services, while excluding unrelated entries.
 
 #### Scenario: the document names what its ids mean
 
-- **GIVEN** a row labelled with tag `urgent` and assigned to person `Kat` (an agent)
-- **WHEN** the project is exported as JSON
-- **THEN** `directory.tags` holds `urgent` under the id the row carries, and
-  `directory.people` holds `Kat` with `kind: "agent"`
+- **WHEN** a row is assigned to agent Kat who belongs to team Billing, and an otherwise unused team has project capacity
+- **THEN** directory.people includes Kat with kind and teamIds, directory.teams includes Billing and the capacity team, and no unrelated tag is included
 
 #### Scenario: nothing MCP reads has moved
 
-- **WHEN** the project is exported as JSON
-- **THEN** `project`, `workItems`, `steps`, `slices`, `scheduleError`, `seq`,
-  `assignedPeople`, `waitingForPerson` and `waitingForCapacity` are present with
-  the shape they had before this change
+- **WHEN** an unchanged project is exported
+- **THEN** its existing project, workItems, steps, slices, scheduleError, seq, assignedPeople, waitingForPerson and waitingForCapacity retain their existing values and shapes
 
 #### Scenario: the export is the import's input
 
-- **GIVEN** a project exported as a plan document
-- **WHEN** that document is imported into the same deployment and the new
-  project is exported
-- **THEN** the two documents are equal once ids, `exportedAt`, audit stamps and
-  the solution ref are set aside
+- **WHEN** a document is imported into a deployment with compatible directory entries and exported again
+- **THEN** authored settings, row fields, leaf step values, explicit assignments, dependency endpoints, bands, capacity and markers agree after remapping ids and excluding stamps and the optional solution-ref collision outcome
 
-### Requirement: A plan document imports as a new project, whole or not at all
+### Requirement: A plan document imports as a new project whole or not at all
 
-`POST /api/projects/import` SHALL take a plan document and create one new
-project owned by the caller, carrying the document's settings, steps in order,
-priority bands, capacity, and every row with its name, notes, outline position,
-frozen number, not-before date and reason, priority, maximum parallelism, teams,
-tags, services, types, external refs, estimates, actuals, progress, measures,
-assignees and dependencies. Every id SHALL be minted fresh; the document's ids
-are refs resolved within the document. The write SHALL be one transaction: a
-refusal at any row leaves no project, no row and no directory entry behind. The
-answer SHALL carry the new project id, the row count, the directory entries
-created by kind, and whether the solution ref was kept. The import SHALL NOT be
-undoable and SHALL NOT read any derived field of the document.
+POST /api/projects/import SHALL create a new caller-owned project with fresh ids and all declared authored settings, ordered steps, rows, labels, deadlines, constraints, values, assignments, dependencies and markers. It SHALL ignore derived projection fields, including parent roll-ups. FrozenNumber SHALL be preserved as authored freeze state. An import SHALL use one admitted unit of work, SHALL produce no undo/history entry and SHALL leave no project, row or directory creation behind on refusal or failure.
 
 #### Scenario: a restored plan is the plan
 
-- **GIVEN** a document of a plan with three steps, two priority bands, a team
-  capacity, a frozen row, a not-before flag, a dependency, an actual and a
-  measure
-- **WHEN** it is imported
-- **THEN** the new project's tree read answers the same steps in the same order,
-  the same bands, the same capacity, the row frozen under the same number, the
-  flag with its reason, the dependency between the two corresponding new rows,
-  the actual and the measure
+- **WHEN** a plan with three steps, bands, capacity, a frozen row, deadline, not-before flag, dependency, actual, measure and marker is imported
+- **THEN** a read of the new project answers those authored values under newly minted ids and the original project is unchanged
 
-#### Scenario: fresh ids
+#### Scenario: parent aggregate maps do not become facts
 
-- **GIVEN** a document exported from a project that still exists
-- **WHEN** it is imported
-- **THEN** no work item, step or project id in the new project equals one in
-  the document, and the original project is unchanged
+- **WHEN** a parent carries arbitrary exported aggregate maps and its child carries valid own estimates
+- **THEN** only the child's own step values are stored, regardless of the exported rolledUp flag, and the parent's values are recomputed
 
-#### Scenario: a dangling dependency refuses the whole import
+#### Scenario: a failure occurs after a directory creation
 
-- **GIVEN** a document whose row 12 depends on an id no row in the document has
-- **WHEN** it is imported
-- **THEN** the answer is 400 `unknown_ref` at `rows[12].dependsOn[0]`, and the
-  project count, the work item count and every directory table are what they
-  were before the request
+- **WHEN** a valid document creates an absent team and a later scoped store operation deliberately refuses or throws
+- **THEN** that team, the new project and its rows are absent after the request settles, and no collected announcement is sent
 
-#### Scenario: an estimate on a step the document does not declare
+### Requirement: Malformed documents refuse by their actual paths before admission
 
-- **GIVEN** a document whose row holds an estimate keyed by a step id absent from
-  `steps`
-- **WHEN** it is imported
-- **THEN** the answer is 400 `unknown_ref` naming the path, and nothing is written
+The import SHALL validate version, writable values, unique ids/names, hierarchy, step/directory references and dependency validity before entering its unit of work. Refusals SHALL carry paths in the actual document vocabulary, including workItems. Unsupported versions SHALL answer 400 unsupported_version; malformed values SHALL answer 400 invalid_body; missing file-local references SHALL answer 400 unknown_ref.
 
-#### Scenario: a document from a version this build does not read
+#### Scenario: a dangling dependency refuses before any creation
 
-- **GIVEN** a document with `document.version: 2`
-- **WHEN** it is imported
-- **THEN** the answer is 400 `unsupported_version` carrying the version, and
-  nothing is written
+- **WHEN** workItems[12].dependsOn[0] names no declared row
+- **THEN** the response is 400 unknown_ref at that path and the unit of work is not entered
 
-#### Scenario: a malformed row is refused by path
+#### Scenario: a malformed row names its field
 
-- **GIVEN** a document whose row 3 carries `priority: "high"`
-- **WHEN** it is imported
-- **THEN** the answer is 400 naming `rows[3].priority`, and nothing is written
+- **WHEN** workItems[3].priority is high as text
+- **THEN** the response is 400 invalid_body with path workItems[3].priority and nothing is written
 
-### Requirement: Directory names are matched, and the absent ones are created
+#### Scenario: the format is known but the version is not
 
-The import SHALL resolve each directory entry of the document by its trimmed
-name against the deployment's directory, case-sensitively, as the directory's
-own `taken` rule does. An entry with no match SHALL be created before any row is
-written, inside the same transaction, and named in the answer under its kind.
-A person SHALL be created with the document's kind.
+- **WHEN** document.format is wbs-plan and document.version is 2
+- **THEN** the response is 400 unsupported_version naming document.version before interpreting version-specific fields
+
+#### Scenario: a hierarchy cycle is wholly declared
+
+- **WHEN** two declared rows parent each other
+- **THEN** the import returns a typed malformed-document refusal naming the offending parentId and enters no unit of work
+
+### Requirement: Directory names are reused without global overwrite
+
+The import SHALL match trimmed names case-sensitively. It SHALL create absent entries inside the same unit of work and report their names by kind. Newly created people and teams SHALL retain declared kind, memberships and ownership; existing entries SHALL remain unchanged.
 
 #### Scenario: an existing tag is reused
 
-- **GIVEN** the directory holds tag `urgent` and the document names a tag `urgent`
-- **WHEN** the document is imported
-- **THEN** rows carry the existing tag's id and `created.tags` is empty
+- **WHEN** the target directory already holds urgent
+- **THEN** the imported row uses that tag id and created.tags is empty
 
-#### Scenario: a missing person is created with their kind
+#### Scenario: an existing person's metadata differs
 
-- **GIVEN** the directory has nobody named `Kat` and the document assigns `Kat`,
-  kind `agent`
-- **WHEN** the document is imported
-- **THEN** a person `Kat` of kind `agent` exists, the assignment points at them,
-  and `created.people` is `["Kat"]`
+- **WHEN** a matching person's existing kind or memberships differ from the file
+- **THEN** the imported assignment reuses the existing person and no existing kind or membership is overwritten
 
-#### Scenario: a refusal after a creation leaves no creation
+#### Scenario: a missing agent is created
 
-- **GIVEN** a document naming an absent team and carrying a dangling dependency
-- **WHEN** it is imported
-- **THEN** the answer is the dependency's refusal and the team does not exist
+- **WHEN** the document assigns an absent agent Kat
+- **THEN** Kat is created as an agent with the document's remapped memberships and created.people contains Kat
 
-### Requirement: The solution ref is kept when free, and its absence is said
+### Requirement: Optional solution reference loss is explicit
 
-The import SHALL write the document's solution ref when no project holds its
-slug, and SHALL otherwise create the project without one and answer
-`solutionRef: "left-off"`. It SHALL NOT refuse the import for a taken slug.
+The import SHALL keep a free solution slug and SHALL omit a taken slug while returning solutionRef left-off. It SHALL NOT silently disable a requested enabled optimized engine that the target cannot provide.
 
-#### Scenario: free slug
+#### Scenario: the slug is taken
 
-- **GIVEN** no project with slug `acme-q4`
-- **WHEN** a document with that slug is imported
-- **THEN** the new project answers the slug and URL, and the answer says
-  `solutionRef: "kept"`
+- **WHEN** a project already holds acme-q4
+- **THEN** the new project has no solution ref, the holder is unchanged and the success summary reports left-off
 
-#### Scenario: taken slug
+#### Scenario: the selected optimizer is unavailable
 
-- **GIVEN** a project already holding slug `acme-q4`
-- **WHEN** a document with that slug is imported
-- **THEN** the new project has no solution ref, the holder keeps its slug, and the
-  answer says `solutionRef: "left-off"`
+- **WHEN** settings request enabled optimized scheduling but the target has no applicable scheduler adapter
+- **THEN** import returns the scheduler port's typed refusal and creates nothing
 
 ### Requirement: The toolbar offers export and import together
 
-The plan toolbar's menu SHALL be named `Export / Import` and SHALL offer
-`Download JSON`, which saves the plan document under the plan's file name with
-a `.json` extension, and `Import JSON…`, which picks one file, posts it, opens
-the new project on success, and pushes one info toast stating the rows
-imported, the entries created by kind and whether the solution ref was left
-off. A refused import SHALL be an error toast naming the row and the reason,
-and the page SHALL stay on the current project.
+The menu SHALL be named Export / Import. Download JSON SHALL fetch the whole server document and save the plan's JSON filename. Import JSON SHALL read one file, open the newly imported project on success and show one summary toast; refusal SHALL keep the current project and show the reason/path. Cancellation SHALL do nothing.
 
-#### Scenario: download
+#### Scenario: the whole project is downloaded
 
-- **WHEN** `Download JSON` is pressed
-- **THEN** one file named like the CSV export with a `.json` extension is saved,
-  and its content parses to a document with `document.format: "wbs-plan"`
+- **WHEN** a branch is collapsed and search narrows the table to one row, then Download JSON is pressed
+- **THEN** the file contains every work item, not just the displayed rows
 
 #### Scenario: import lands
 
-- **GIVEN** a valid plan document of 40 rows naming one absent tag
-- **WHEN** it is picked through `Import JSON…`
-- **THEN** the page opens the new project, and a toast reads
-  `Imported <name>: 40 work items · created 1 tag`
+- **WHEN** a valid 40-row file creates one absent tag
+- **THEN** the picker opens the new project and one toast reports 40 work items and one created tag
 
-#### Scenario: import refused
+#### Scenario: import is refused
 
-- **GIVEN** a document whose row 12 has a dangling dependency
-- **WHEN** it is picked
-- **THEN** an error toast names row 12 and `unknown_ref`, the project list has
-  not grown, and the page still shows the project it showed
+- **WHEN** the selected file carries a dangling dependency
+- **THEN** the error toast names workItems[12].dependsOn[0] and unknown_ref, the project count is unchanged, and the current project remains selected
