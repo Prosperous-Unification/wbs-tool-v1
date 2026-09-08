@@ -12,7 +12,14 @@ import { type FilterCriteria, type FilterLabels, filterWords } from './tree-sear
 import type { ChartRead } from './use-plan-read';
 import { type TreeRow } from './wbs-rows';
 
-/** Coordinates the table’s plan export actions state and actions. */
+/**
+ * The Export menu's five actions over the **whole** plan, and the plan literal
+ * they all write.
+ *
+ * Whole, never what is on screen: a collapsed branch and a running search are
+ * how one reader is looking at a plan, and an export that carried either would
+ * hand somebody a plan with rows missing and nothing saying so.
+ */
 export function usePlanExportActions({
   projectName,
   estimateMethod,
@@ -269,7 +276,14 @@ export function usePlanExportActions({
   };
 }
 
-/** Coordinates the table’s plan export actions state and actions. */
+/**
+ * The sixth export, and the only one that writes what is on screen — with a
+ * `Scope` line saying so.
+ *
+ * A second action rather than a mode on the five above, settled 2026-08-17: a
+ * button whose header says "the whole plan" is how somebody hands a client a
+ * plan with rows missing.
+ */
 export function usePlanOnScreenExport({
   planForExport,
   shownRows,

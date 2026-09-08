@@ -315,7 +315,15 @@ export function GanttHeightHandle({
   );
 }
 
-/** Coordinates the table’s plan layout state and actions. */
+/**
+ * What this browser remembers about how this project's plan is laid out, read
+ * at mount and kept in step with the project on screen.
+ *
+ * The expansion, the dragged widths, the panel's height, the day scale and the
+ * name column: five pieces of {@link remembered-layout}'s storage, held here as
+ * state because every one of them is read on the first render and written when
+ * a control is used. Switching project re-reads them all and saves none.
+ */
 export function useRememberedPlanLayout({ projectId }: { projectId: string }) {
   /**
    * Which branches are open, as this browser last left them for this project.
@@ -465,7 +473,14 @@ export function useRememberedPlanLayout({ projectId }: { projectId: string }) {
   };
 }
 
-/** Coordinates the table’s plan layout state and actions. */
+/**
+ * Swaps the remembered layout whole when the project on screen changes.
+ *
+ * Its own hook rather than a branch inside the reads above, because it is the
+ * one thing about them that is not a read: this component is not remounted
+ * between projects (`project-page.tsx` renders it without a `key`), so without
+ * this the second project would be laid out by the first one's widths.
+ */
 export function usePlanLayoutSwap({
   widthProject,
   projectId,
@@ -512,7 +527,13 @@ export function usePlanLayoutSwap({
   return {};
 }
 
-/** Coordinates the table’s plan layout state and actions. */
+/**
+ * The two measurements the layout cannot compute and has to observe: how much
+ * room the chart's column has, and what the frame does when the chart opens.
+ *
+ * Effects rather than derivations because the answers are the browser's — a
+ * column's width after layout, and a scroll position after a panel appears.
+ */
 export function usePlanLayoutEffects({
   frameRef,
   ganttOpen,
@@ -629,7 +650,14 @@ export function usePlanLayoutEffects({
   return {};
 }
 
-/** Coordinates the table’s plan layout state and actions. */
+/**
+ * The widths this render lays the table out by, and the three gestures that
+ * change them: a column drag, the chart's height drag, and Reset.
+ *
+ * The composition of the three hooks above plus the arithmetic between them —
+ * what a drag resolves to, which columns the frame can size, and whether the
+ * current widths differ from the ones a reset would restore.
+ */
 export function usePlanLayout({
   flat,
   widthOverrides,

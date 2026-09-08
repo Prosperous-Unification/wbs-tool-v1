@@ -49,7 +49,14 @@ function useDateCellEditor(
   return { editing, open, close };
 }
 
-/** Coordinates plan fields for the table's current render. */
+/**
+ * The per-row value writes that are not structure and not estimates: the name
+ * and notes, the priority, the parallelism, the earliest start and its reason,
+ * the deadline.
+ *
+ * One hook because they share the live-editing rule — a field holds what was
+ * typed until the answer lands, and a peer's edit must not take the caret.
+ */
 export function usePlanFields({
   run,
   api,

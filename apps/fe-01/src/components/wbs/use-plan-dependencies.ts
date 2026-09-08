@@ -11,7 +11,13 @@ import type { Toast } from './toasts';
 import type { PlanReadScope } from './use-plan-read';
 import { type TreeRow } from './wbs-rows';
 
-/** Coordinates plan dependencies for the table's current render. */
+/**
+ * The plan's edges: what a row waits for, what the picker may offer, and what
+ * be-01 would refuse.
+ *
+ * The refusals are computed here rather than discovered on the write, so the
+ * picker can grey a choice out instead of accepting it and failing.
+ */
 export function usePlanDependencies({
   flat,
   pushToast,

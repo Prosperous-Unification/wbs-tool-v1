@@ -16,7 +16,11 @@
 - [x] 3.1 Run all eleven table concept suites; observe the column-remount negative and restore the passing code.
 - [x] 3.2 Verify the source typecheck and scoped lint; observe a missing live field rejected by TypeScript.
 - [x] 3.3 Verify the root frontend typecheck including spec/e2e projects.
-- [ ] 3.4 Complete independent review and the coordinated full frontend/browser gates on a frozen tree.
+- [x] 3.4 Independent review done 2026-09-08 and recorded in
+      [W4-4 verification](../../../docs/refactoring/w4-4/verify.md) § "Independent review": the
+      split holds on every load-bearing point, and the four documentation-and-surface defects it
+      found are fixed in the same change as the record. The coordinated browser gate is `main`'s
+      own CI at `a0c7cada` and `7aa61b09`, both `gate: success` and `pixels: success`.
 - [ ] 3.5 Record final gate results and hand off the R1/R10 interfaces.
 
 The approved W4-4 plan is the design; no separate plan artifact is created. Cell hover-store isolation and PlanCard memoization remain performance work for R10, requiring its browser measurements and explicit row dependencies.

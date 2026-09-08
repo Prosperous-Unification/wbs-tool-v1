@@ -92,8 +92,91 @@ on:
 # cancelled PR run is still there to push to again; the ref behind a cancelled
 # queue run is deleted when the entry leaves the queue, and the commit it was
 # proving is by then either merged or dropped.
+#
+# `cancel-in-progress: false` is necessary and NOT sufficient — the other half
+# of the same loss, measured on `main` on 2026-09-08. That key governs the
+# RUNNING member of a group. GitHub keeps at most one PENDING member beside it,
+# and a third entrant evicts the pending one; `cancel-in-progress` has no say in
+# that. Five consecutive pushes to `main` between 01:09Z and 01:37Z left
+# f64ceea4, 564af749, be5eedc5 and 6ddba437 all `cancelled` with ZERO jobs
+# dispatched while 5bb095a5 held the group — four of five commits with no
+# verdict, reading as unproven rather than broken, which is the exact outcome
+# the paragraph above exists to prevent. 564af749 is the merge of TASK-351, the
+# change that widened the predicate below, so the fix lost its own verdict to
+# the door it had not closed.
+#
+# The 46% above is two different faults, and the split — called unmeasured when
+# this was filed — is clean and time-separated. Over the 195 `ci` runs from
+# 2026-09-07T06:27Z to 2026-09-08T01:48Z, 71 were cancelled: 52 on
+# `pull_request` (the intended supersession), 3 on `workflow_dispatch`, and 16
+# on pushes to `main`. Of those 16, split at `d2e14214` — the commit above that
+# exempted `main`, merged 2026-09-07T22:06Z:
+#   BEFORE  31 main pushes, 11 cancelled, ALL 11 with jobs dispatched
+#           — cancelled mid-flight, which is exactly what that commit fixed
+#   AFTER   14 main pushes,  5 cancelled, ALL 5 with ZERO jobs dispatched
+#           — every one of them a queue eviction, this bug and nothing else
+# So the `main` cancellation rate barely moved, 35% to 36%; what changed was the
+# door. The exemption did the thing it claimed and the loss continued at the
+# same rate through the gap beside it, which is why this is a second fix and not
+# a revision of the first.
+#
+# So `main` is keyed PER COMMIT: a group of one has nothing to evict and nothing
+# to be evicted by. Proved rather than assumed, on 2026-09-08 at 01:44Z, on two
+# throwaway branches taking three pushes each about two seconds apart against a
+# 120s job — same base commit, same job, same `cancel-in-progress: false`, the
+# group key the only difference between the two tables:
+#
+#   CONTROL, `group: t386-${{ github.ref }}` — the shape this file shipped
+#     34177651957  6a7d163e  success    1 job
+#     34177653881  9203ca2d  CANCELLED  0 jobs   <- the middle verdict, lost
+#     34177655790  f17d7b9f  success    1 job
+#   FIXED, `group: t386-${{ github.ref }}-${{ github.sha }}`
+#     34177653252  f43d2ea3  success    1 job
+#     34177654756  63f01d8a  success    1 job
+#     34177656561  492f8635  success    1 job
+#
+# The control is the falsification the remedy had to beat, and it fails in the
+# reported-as-healthy way: `9203ca2d` never dispatched a job, so no step is red
+# and only the run's own `cancelled` says anything happened at all.
+#
+# `pull_request` keeps the ref-only group: superseding a branch run really is
+# free, because the branch is still there to push again. `merge_group` keeps it
+# too and needs nothing added — a queue entry's ref is unique to that entry, so
+# the ref-only key is already per-commit there.
+#
+# The cost, stated at the same strength as the trade above and stated exactly:
+# the old key never ran two `main` runs at once — it ran ONE and held ONE
+# pending behind it, and only the running member consumed a runner. The change
+# is from one executing `main` run to several. At this repo's merge rate that is
+# a few concurrent 20-minute runs, and when the account's concurrency limit is
+# reached GitHub QUEUES the surplus instead of cancelling it — that verdict is
+# delayed, never lost, which is the whole point.
+#
+# Known and NOT closed by this key: two runs of the SAME commit still share a
+# group, because the suffix carries no event or run identity. A
+# `workflow_dispatch` on `main` at commit S joins `ci-refs/heads/main-S` with S's
+# push run, and those two are not interchangeable — a dispatch supplies its own
+# `base_ref` while the push run compares `github.event.before`. Three same-SHA
+# entrants therefore still evict the middle one. TASK-386 peer review I1
+# (`queue/reviews/t386-r1-sol.txt`, openai/gpt-5.6-sol); filed as its own task
+# because keying on run identity instead has to be PROVED to render inside
+# `concurrency:` rather than assumed, and this change is already a strict
+# improvement without it.
+#
+# Overlapping runs are safe here for a reason that was checked rather than
+# assumed: this workflow has no deploy job. `gate` and `pixels_shard` read the
+# tree and validate — `docker compose config -q` parses the deploy files, it
+# does not apply them — so two `main` runs share nothing but the actions cache,
+# where a concurrent write is a "cache already exists" warning and not a
+# corruption. If a job that mutates anything outside its own runner is ever
+# added to this file, that job needs its own serialising `concurrency:` block
+# and this paragraph stops being true.
+#
+# `cancel-in-progress` is deliberately left exactly as TASK-351 wrote it: for
+# `main` it is now redundant, and that redundancy is the backstop if this key
+# ever regresses.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}${{ github.ref == 'refs/heads/main' && format('-{0}', github.sha) || '' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.event_name != 'merge_group' }}
 
 permissions:

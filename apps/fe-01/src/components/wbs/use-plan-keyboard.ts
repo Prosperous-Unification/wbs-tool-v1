@@ -21,7 +21,14 @@ import { expandBranch, FROZEN_REFUSAL } from './use-plan-structure';
 import { type TreeRow } from './wbs-rows';
 import { rowWords } from './work-item-words';
 
-/** Coordinates the table’s plan keyboard state and actions. */
+/**
+ * The keyboard's two standing listeners: the cheat sheet's chord, and the
+ * countdown that disarms a half-pressed delete.
+ *
+ * Effects rather than handlers because neither belongs to a cell — one is a
+ * document-level chord and the other is a timer, and both have to be taken back
+ * when the table goes away.
+ */
 export function usePlanKeyboardEffects({
   setCheatSheetOpen,
   stepStack,
@@ -171,7 +178,14 @@ export function usePlanKeyboardEffects({
   return {};
 }
 
-/** Coordinates the table’s plan keyboard state and actions. */
+/**
+ * Every chord the plan answers, as the eight handlers `live` carries.
+ *
+ * They are built here rather than in the cells because a chord is about the
+ * plan and not about the box the caret happens to be in: Alt+↑ moves a row,
+ * Tab leaves a field, Ctrl+D arms a delete. What each of them reads about the
+ * moment it fires, it reads through `live`.
+ */
 export function usePlanKeyboard({
   outdent,
   indent,
@@ -690,7 +704,14 @@ export function caretOf(input: CellElement): Caret {
   };
 }
 
-/** Coordinates plan keyboard for the table's current render. */
+/**
+ * Walking the plan to the next thing it is missing — the unestimated
+ * navigator's cursor and the branch it has to open to show one.
+ *
+ * Here rather than with the gaps themselves because what it answers is a
+ * **keyboard** question: which cell the caret goes to next, and what has to be
+ * unfolded for that cell to exist.
+ */
 export function usePlanReadiness({
   flat,
   gaps,
@@ -812,7 +833,13 @@ export function usePlanReadiness({
   }, [gapVisit, gridElement]);
   return { walkToNextGap };
 }
-/** Coordinates plan keyboard for the table's current render. */
+/**
+ * Taking the caret to one row from outside the grid.
+ *
+ * The chart's way back into the editor, and the gap navigator's: both name a
+ * row and neither knows where its cell is on screen, so the lookup and the
+ * scroll live once, here.
+ */
 export function useRowNavigation({
   gridElement,
 }: {
@@ -847,7 +874,14 @@ export function useRowNavigation({
   );
   return { goToRow };
 }
-/** Coordinates plan keyboard for the table's current render. */
+/**
+ * The two pieces of state the keyboard owns and nothing else reads: whether the
+ * cheat sheet is open, and which row a first Ctrl+D has armed.
+ *
+ * Held apart from the handlers because they outlive a keystroke — an armed
+ * delete waits three seconds for its second press, and a cheat sheet waits for
+ * Escape.
+ */
 export function usePlanKeyboardState() {
   /** Whether the key bindings are on screen. See {@link KeyboardCheatSheet}. */
   const [cheatSheetOpen, setCheatSheetOpen] = useState(false);

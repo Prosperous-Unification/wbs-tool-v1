@@ -8,7 +8,14 @@ import type { PlanLive } from './plan-live';
 import { REFERENCE_SET_EDGE_FADE } from './reference-set-field';
 import { type TreeRow } from './wbs-rows';
 
-/** Coordinates the table’s plan cell props state and actions. */
+/**
+ * The two `<td>` props builders: what a cell's element carries beyond its
+ * content — the pinned styles, the hover card's `aria-describedby`, the
+ * popover's layer.
+ *
+ * Built per render outside the `columns` memo, so nothing here can pin a stale
+ * reading into a column definition. See the note beside {@link cellProps}.
+ */
 export function createPlanCellProps({
   dependenciesOf,
   depLights,

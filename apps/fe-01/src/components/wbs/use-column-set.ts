@@ -6,7 +6,13 @@ import { COLUMN_LABELS } from './plan-toolbar';
 import { rememberedHiddenColumns, rememberHiddenColumns } from './remembered-layout';
 import { hideableColumnIds } from './table-frame';
 
-/** Coordinates the table’s column set state and actions. */
+/**
+ * Which columns this reader has hidden, and which the table offers to hide.
+ *
+ * The hide-list is remembered per project and per browser, so a column the
+ * table learns to draw later is on screen by default without anybody's storage
+ * being touched. Steps join and leave the offered set as the project's do.
+ */
 export function useColumnSet({ projectId, steps }: { projectId: string; steps: StepView[] }) {
   /**
    * Steps whose columns are unfolded — the three points, next to the final

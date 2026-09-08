@@ -17,7 +17,14 @@ import { printedDay } from './short-date';
 import type { ChartRead } from './use-plan-read';
 import { type TreeRow } from './wbs-rows';
 
-/** Coordinates the table’s plan chart input state and actions. */
+/**
+ * What the Gantt is drawn from: the rows on screen, their labels, and the
+ * floor each bar's start is measured against.
+ *
+ * Memoised because it is rebuilt from the whole plan and the chart re-renders
+ * on every pointer move across it — the reason the memo exists is the pointer,
+ * not the size of the plan.
+ */
 export function usePlanChartInput({
   shownRows,
   startDate,
@@ -221,7 +228,13 @@ export const notBeforeOffsetOf = (
 ): number | null =>
   startDate === null || notBefore === null ? null : workdaysBetween(startDate, notBefore);
 
-/** Coordinates plan chart input for the table's current render. */
+/**
+ * Whether the plan could be scheduled at all, as the one thing the chart and
+ * the table both read.
+ *
+ * A cycle is not a failure to report and retry: it is a plan somebody has to
+ * fix, so it draws a sentence where the bars would be.
+ */
 export function usePlanSchedule({ scheduleError }: { scheduleError: 'cycle' | null }) {
   const hasSchedule = useCallback(() => scheduleError === null, [scheduleError]);
 

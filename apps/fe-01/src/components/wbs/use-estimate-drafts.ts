@@ -21,7 +21,14 @@ import { splitMention } from './mention';
 import { showDays } from './plan-number-format';
 import { type TreeRow } from './wbs-rows';
 
-/** Coordinates the table’s estimate drafts state and actions. */
+/**
+ * The three-point estimates as they are being typed, and the writes that settle
+ * them.
+ *
+ * Drafts are keyed by row, step and point because a trio is typed one figure at
+ * a time and the round trip is per figure: what is on screen has to be what was
+ * typed, not what the last answer said.
+ */
 export function useEstimateDrafts({
   drafts,
   setDrafts,
@@ -283,7 +290,13 @@ export function useEstimateDrafts({
   };
 }
 
-/** Coordinates the table’s estimate drafts state and actions. */
+/**
+ * The `@` list inside an estimate cell — assigning the step's person from the
+ * same box the figures are typed in.
+ *
+ * Here rather than with the assignments because what opens it is a keystroke in
+ * a **draft**: the list is part of typing an estimate, not part of writing one.
+ */
 export function useEstimateMentions({
   foldedBox,
   foldedAtFocus,
@@ -514,7 +527,13 @@ export const estimateDraftKeys = (rowId: string, stepId: string): ReadonlySet<st
     combinedDraftKey(rowId, stepId),
   ]);
 
-/** Coordinates estimate drafts for the table's current render. */
+/**
+ * The drafts themselves, and the mention the caret is inside.
+ *
+ * Held apart from the writers so a keystroke moves this and nothing else: the
+ * cells read their own draft by key, and a re-render of the whole set on every
+ * character is what this shape avoids.
+ */
 export function useEstimateDraftState() {
   /**
    * Estimate boxes whose typed value has not been accepted by be-01 yet, by

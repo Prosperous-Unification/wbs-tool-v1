@@ -11,7 +11,13 @@ import { normalizeNewlines, splitNameCell } from './name-notes';
 import { type Toast } from './toasts';
 import { type TreeRow } from './wbs-rows';
 
-/** Coordinates the table’s plan structure state and actions. */
+/**
+ * What a drag leaves behind when it ends somewhere the table cannot see.
+ *
+ * A pointer released outside the window, or a peer's edit arriving mid-drag,
+ * both end a gesture nobody let go of; the row would otherwise stay marked as
+ * being dragged with nothing holding it.
+ */
 export function usePlanStructureEffects({
   setDragging,
   pushToast,
@@ -73,7 +79,13 @@ export function usePlanStructureEffects({
   return {};
 }
 
-/** Coordinates the table’s plan structure state and actions. */
+/**
+ * Adding a row, and the queue that keeps a held key from racing itself.
+ *
+ * Its own hook because it is the one structural write with a **queue**: the
+ * button repeats under a held Enter, and two creates in flight for one parent
+ * would both compute the same position from the same read.
+ */
 export function useAddWorkItem({
   flat,
   projectId,
@@ -157,7 +169,15 @@ export function useAddWorkItem({
   return { siblingsOf, addWorkItem };
 }
 
-/** Coordinates the table’s plan structure state and actions. */
+/**
+ * Every write that changes the plan's **shape** rather than a cell's value:
+ * add, indent, outdent, move, duplicate, delete, drop, and the name commit that
+ * can create a row.
+ *
+ * One hook because they share a rule the value writes do not — each of them
+ * decides where the caret lands afterwards, and each has a refusal a reader can
+ * act on (a frozen row, a drop into its own subtree).
+ */
 export function usePlanStructure({
   dragging,
   setDragging,
@@ -502,7 +522,13 @@ export function expandBranch(current: ExpandedState, rowId: string): ExpandedSta
   return { ...current, [rowId]: true };
 }
 
-/** Coordinates plan structure for the table's current render. */
+/**
+ * The row being dragged, and the zone the drop would land in.
+ *
+ * Two pieces of state rather than one: the row is set when the gesture starts
+ * and the zone changes on every pointer move across a target, so folding them
+ * would re-render the dragged row on each of those moves.
+ */
 export function usePlanDragState() {
   const [dragging, setDragging] = useState<string | null>(null);
 

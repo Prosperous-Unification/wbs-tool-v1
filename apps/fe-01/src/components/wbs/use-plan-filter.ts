@@ -82,7 +82,13 @@ export function optionsFor(
     .sort((left, right) => left.label.localeCompare(right.label));
 }
 
-/** Coordinates the table’s plan filter state and actions. */
+/**
+ * What a reader has typed and ticked: the Find box, the facets, and the views
+ * they have saved.
+ *
+ * State only. The narrowing it produces is derived on every render by
+ * {@link usePlanFilter}, so nothing here can be stale against the rows.
+ */
 export function usePlanFilterState({ projectId }: { projectId: string }) {
   /**
    * What has been typed into the Find box.
@@ -141,7 +147,13 @@ export function usePlanFilterState({ projectId }: { projectId: string }) {
   return { query, setQuery, facets, setFacets, savedViews, setSavedViews };
 }
 
-/** Coordinates the table’s plan filter state and actions. */
+/**
+ * The rows this render shows, and the six facet lists the panel offers.
+ *
+ * Derived rather than stored, every render: a filter held as state alongside
+ * the rows is a filter that can describe a plan the reader is no longer
+ * looking at.
+ */
 export function usePlanFilter({
   flat,
   steps,

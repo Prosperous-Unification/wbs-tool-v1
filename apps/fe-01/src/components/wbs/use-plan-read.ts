@@ -192,7 +192,15 @@ export const NO_CHART_READ: ChartRead = {
  */
 const NO_MARKERS: readonly CalendarMarkerView[] = [];
 
-/** Coordinates the table’s plan read state and actions. */
+/**
+ * What a plan read holds while it is in flight, and after it has landed: the
+ * rows, the chart's slices, the vocabularies, the undo stack and whether any
+ * of it is stale.
+ *
+ * State rather than a query cache because this table has one project on screen
+ * and a socket telling it when to read again — see {@link usePlanRead} for the
+ * reading itself.
+ */
 export function usePlanReadState({ projectId }: { projectId: string }) {
   /**
    * The project this render belongs to, readable by work that outlives the
@@ -382,7 +390,15 @@ export function usePlanReadState({ projectId }: { projectId: string }) {
   };
 }
 
-/** Coordinates the table’s plan read state and actions. */
+/**
+ * Reading the plan, and everything that decides **when** to read it again: the
+ * socket's events, a write's own answer, and the project changing under the
+ * component.
+ *
+ * `refresh` takes a scope rather than always reading everything, because a step
+ * rename and a tree replacement are different amounts of work and the socket
+ * says which happened.
+ */
 export function usePlanRead({
   setDrafts,
   projectId,

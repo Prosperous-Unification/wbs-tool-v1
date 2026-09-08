@@ -13,7 +13,8 @@ import {
   frameLayout,
   type FrameLayoutState,
 } from './table-frame';
-import { type SubscriptionHandlers, WbsTable, widthFromDrag } from './wbs-table';
+import { widthFromDrag } from './use-plan-layout';
+import { type SubscriptionHandlers, WbsTable } from './wbs-table';
 
 /** The two elements a table cell can be, since a wrapping cell is a textarea. */
 const isCell = (node: unknown): node is HTMLInputElement | HTMLTextAreaElement =>

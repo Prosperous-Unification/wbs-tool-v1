@@ -110,4 +110,28 @@ describe('the CI corpus-version-lint boundary', () => {
       "${{ github.ref != 'refs/heads/main' && github.event_name != 'merge_group' }}",
     );
   });
+
+  test('keys main per commit, because cancel-in-progress does not protect a queued run', () => {
+    // TASK-386. `cancel-in-progress: false` governs the RUNNING member of a
+    // group; GitHub holds at most one PENDING member beside it and evicts that
+    // one when a third run enters. Measured on `main` 2026-09-08: f64ceea4,
+    // 564af749, be5eedc5 and 6ddba437 all `cancelled` with zero jobs while
+    // 5bb095a5 held the group. A group of one commit has nothing to evict.
+    //
+    // Proof, watched on h2puni 2026-09-08: returned `group` to its pre-fix
+    // `ci-${{ github.ref }}` and only this case failed; then set it to
+    // `ci-${{ github.ref }}-${{ github.sha }}` UNCONDITIONALLY — the over-fix
+    // that would stop pull-request runs superseding each other — and only this
+    // case failed again. Both mutants move this one assertion rather than two
+    // different ones, which is the point of asserting a whole string: a
+    // `toContain('github.sha')` would have passed the second.
+    //
+    // Rendering both arms in a real run (`probe/t386-expr`, 2026-09-08T01:46Z)
+    // gave `ci-refs/heads/…-<sha>` matched and `ci-refs/heads/…` unmatched — no
+    // stray `false`, no trailing dash — which is why the `|| ''` is safe to
+    // leave implicit here.
+    expect(readWorkflow().concurrency?.group).toBe(
+      "ci-${{ github.ref }}${{ github.ref == 'refs/heads/main' && format('-{0}', github.sha) || '' }}",
+    );
+  });
 });

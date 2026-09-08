@@ -313,9 +313,10 @@ export function WbsTable({
    * the `rowId::columnId` the keyboard grid already names cells with, so this
    * file holds one spelling of "which cell".
    *
-   * Read through {@link live} inside `columns`, never closed over: `columns`
-   * depends on `steps` alone, and a dependency that changed on every mouse
-   * move would remount every cell in the table as the pointer crossed it.
+   * Read through {@link live} inside `columns`, never closed over: the memo's
+   * dependencies are the three {@link PlanLiveValues} names — `steps`,
+   * `unfoldedSteps`, `hiddenColumnIds` — and a dependency that changed on every
+   * mouse move would remount every cell in the table as the pointer crossed it.
    */
   const [hoveredCell, setHoveredCell] = useState<string | null>(null);
   /**
@@ -2007,5 +2008,9 @@ export function WbsTable({
   );
 }
 
-export { widthFromDrag } from './use-plan-layout';
-export { type PlanReadScope, type SubscriptionHandlers, type WbsTableProps } from './use-plan-read';
+// `SubscriptionHandlers` for `project-page.tsx`, which mounts this component,
+// and `WbsTableProps` for the suite that builds one. Nothing else is re-exported
+// through here: `widthFromDrag` and `PlanReadScope` were, and a table acting as
+// a barrel for modules it no longer owns is the shape this split was for —
+// their callers name `use-plan-layout` and `use-plan-read` directly now.
+export { type SubscriptionHandlers, type WbsTableProps } from './use-plan-read';

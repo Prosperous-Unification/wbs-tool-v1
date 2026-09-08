@@ -36,6 +36,58 @@ From `apps/fe-01`, run `TZ=UTC bunx vitest run --no-file-parallelism --maxWorker
 
 ## R1 / R10 seams
 
-R1 has one frontend owner in `use-plan-read.ts`: `usePlanRead` holds refresh generations, first read, live subscription, `refreshOrMarkStale`, `run` and `stepStack`; `usePlanReadState` owns the installed state values and current-project ref. `readScopeFor` remains unchanged and is re-exported by WbsTable for existing callers. URL-only sharing in wbs-api/project-stream is untouched. The coordinator beside project-stream can replace this read orchestration while retaining the current setters/installed state interface; the dropped wider-scope and stale in-flight read faults are **not fixed** here.
+R1 has one frontend owner in `use-plan-read.ts`: `usePlanRead` holds refresh generations, first read, live subscription, `refreshOrMarkStale`, `run` and `stepStack`; `usePlanReadState` owns the installed state values and current-project ref. `PlanReadScope` is declared in `use-plan-read.ts` and imported from there by
+`use-plan-dependencies.ts` and `plan-toolbar.tsx` directly — **corrected 2026-09-08**: this
+line said `readScopeFor` "remains unchanged and is re-exported by WbsTable", and there is no
+such function anywhere in `apps/` (it survives only in stale `.worktrees/` checkouts). The
+re-export it named was `PlanReadScope`, and that has been deleted too: a table acting as a
+barrel for a module it no longer owns is the shape this split was for. URL-only sharing in wbs-api/project-stream is untouched. The coordinator beside project-stream can replace this read orchestration while retaining the current setters/installed state interface; the dropped wider-scope and stale in-flight read faults are **not fixed** here.
 
 R10 has `use-plan-filter.ts` for query/facet/saved-view state and narrowing, `plan-columns/*` plus `plan-cell-props.ts` for cell behavior, and the exported `PlanLiveValues`/`PlanLive` contract. PlanRow and the pointed store stay unchanged. All rows still mount; search still causes the same parent render. Hovered/focused/open-card state remains in composition, and PlanCards' fresh props remain as before. Virtualization, filter isolation, per-cell subscription and PlanCard memoization are **not implemented or claimed** by this mechanical slice.
+
+## Independent review, 2026-09-08
+
+Task 3.4's independent review, run against `main` at `f64ceea4` by a reader that had the plan
+and the three invariants and had not written the split. Its findings, and what was done:
+
+**The split meets what the plan asked for on every load-bearing point.** All fourteen planned
+modules exist under their planned names; `wbs-table.tsx` is **12,150 → 2,011** lines (669 of
+them comments, so ~1,340 of composition against the plan's "~900–1,100"); the three
+untouchables hold — `live` is the cells' sole contract with `PlanLiveValues`/`PlanLive`
+exported and compiler-enforced, the `columns` memo depends on exactly
+`[steps, unfoldedSteps, hiddenColumnIds]` with a recorded failure proof, and `PlanRow` and
+`pointed-row-store.ts` are byte-identical to baseline. No cycles; no module reaches back into
+the table; no hook closes over a value it should read through `live`. Six modules exist beyond
+the fourteen, all recorded in the extraction map, and one of them — `plan-live.ts` — is the
+exported contract the plan asked for as a type.
+
+Four defects, all of documentation or surface rather than behaviour, **fixed in the same
+change as this record**:
+
+1. **Thirty-two template JSDoc lines that described nothing**, seven of them verbatim
+   duplicates within one file (`use-plan-keyboard.ts`'s three, `use-plan-layout.tsx`'s four).
+   A reader opening those files could not tell the hooks apart from their doc. Every one is
+   now a sentence about what that hook is for and why it is its own hook.
+2. **`wbs-table.tsx:317` still said "`columns` depends on `steps` alone"** — false since the
+   dep list is three, and precisely the restatement the exported type was meant to retire. It
+   names `PlanLiveValues`' three now.
+3. **`verify.md` and `extraction-map.md` named `readScopeFor`**, which does not exist anywhere
+   in `apps/` — it survives only in stale `.worktrees/` checkouts. Both lines are corrected,
+   and the R1 handoff sentence that rested on the claim is rewritten.
+4. **Two re-exports through the table**: `PlanReadScope` (imported from `wbs-table` by nobody)
+   and `widthFromDrag` (re-exported solely so `plan-layout.test.tsx` could import it through
+   the table rather than from `use-plan-layout`). Both deleted; the test names the owner.
+
+Two findings were **left as they are, with reasons**:
+
+- The cell-open state (`hoveredCell`, `focusedCell`, the derived `openCard`) is still
+  composition state — W2-7's deferred half. `tasks.md` and this file both re-defer it to R10
+  in writing, which is a disclosed gap rather than a miss.
+- None of the sixteen new modules has a suite naming it; the oracle is still the whole-table
+  suite (601 tests across eleven concept files, split by W1-2 before this change). That is
+  `design.md`'s decision — "keep the existing component suites on `WbsTable`'s production
+  path" — and changing it is R10's business, where the row/cell dependencies become explicit.
+
+The review also noted `use-column-set.ts` importing `COLUMN_LABELS` from `./plan-toolbar` — a
+hook taking vocabulary from a component module. Not a cycle, and not changed here: moving the
+label table to `table-frame` beside `hideableColumnIds` is a rename with its own blast radius.

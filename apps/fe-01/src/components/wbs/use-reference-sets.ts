@@ -21,7 +21,13 @@ import { assigneesOf, listed, MISMATCH_TAIL } from './plan-mismatch';
 import { type TreeRow } from './wbs-rows';
 import { rowWords } from './work-item-words';
 
-/** Coordinates the table’s reference sets state and actions. */
+/**
+ * The four vocabularies a row can be labelled from — teams, tags, services,
+ * work-item types — as the lists the pickers offer.
+ *
+ * Read beside the tree rather than derived from it: a label the plan does not
+ * use yet is still a label somebody may pick.
+ */
 export function usePlanLabels({
   flat,
   teams,
@@ -358,7 +364,14 @@ export function usePlanLabels({
   };
 }
 
-/** Coordinates the table’s reference sets state and actions. */
+/**
+ * Writing a row's label sets, and creating a label that does not exist yet from
+ * inside the picker.
+ *
+ * `{ replace, create }` per vocabulary, because those are the two things a
+ * reference cell does and they refuse differently — a replace can lose a race,
+ * a create can collide on a name.
+ */
 export function useReferenceSets({
   run,
   api,
@@ -538,7 +551,13 @@ export function useReferenceSets({
   };
 }
 
-/** Coordinates reference sets for the table's current render. */
+/**
+ * Who does which step of which row, and the `@` that mints a person while
+ * assigning them.
+ *
+ * Its own hook beside the label sets because an assignment names a **step** as
+ * well as a row, which is the one reference in the table with two halves.
+ */
 export function usePlanAssignments({
   effectiveTeams,
   teams,

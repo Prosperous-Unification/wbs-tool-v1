@@ -511,7 +511,14 @@ export function SavedViews({
   );
 }
 
-/** Coordinates the table’s plan toolbar state and actions. */
+/**
+ * The plan's toolbar, for both faces of the app: the desktop bar and the phone
+ * sheet render this one component with the same props.
+ *
+ * Every prop is already resolved — nothing here reads the plan, and nothing
+ * here decides what a control means. That is what lets the two renderers
+ * differ only in where the controls are put.
+ */
 export function PlanToolbar({
   criteria,
   freezeMenuOpen,
