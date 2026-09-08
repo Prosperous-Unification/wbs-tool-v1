@@ -963,6 +963,26 @@ _Avoid_: orphan row, legacy row, anonymous row
 
 ### Architecture
 
+**Radical Modularity**:
+The approach to scaling model-assisted work by making responsibility boundaries
+explicit and their granularity adjustable, with quality, time and cost measured.
+_Avoid_: LLM wiki (for the whole approach), agent-scalable wiki (for the whole approach)
+
+**Granularity policy**:
+One identified arrangement of the knowledge, review, ownership, task and integration
+boundaries used for model-assisted work. Different policies can organize the same work.
+_Avoid_: module size, file size, agent size
+
+**Benchmark outcome**:
+One predefined piece of work with fixed acceptance criteria, counted once when
+accepted regardless of how many model assignments contribute to it.
+_Avoid_: task slice, commit count, review count
+
+**Review attestation**:
+A recorded, scoped judgment about repository content and relationships, carrying
+the evidence and limits of the review that produced it.
+_Avoid_: certificate of correctness, proof of completeness
+
 **Port**:
 An interface core owns and an adapter satisfies: every store, the unit of work, the gate, the
 clock, the broadcaster, the identity resolver, and every runtime concern — password hashing,
