@@ -47,7 +47,14 @@ on:
   # line and are not separable from it: the step's `*)` arm exits 1 on an event
   # it has no boundary rule for, so subscribing alone would make every queue
   # entry red. (TASK-351 I2.)
+  #
+  # `types` is named rather than left to default, on GitHub's own advice for
+  # this event: `checks_requested` is the only activity type Actions supports
+  # today, the default is "all of them", and the webhook payload already
+  # documents a second one (`destroyed`). Naming the one we mean is what stops a
+  # future activity type from silently starting gate runs nobody asked for.
   merge_group:
+    types: [checks_requested]
   workflow_dispatch:
     # `Corpus version lint` compares two commits, and a manual run has neither a
     # push boundary nor a `base_ref`. Rather than let it guess one — every guess

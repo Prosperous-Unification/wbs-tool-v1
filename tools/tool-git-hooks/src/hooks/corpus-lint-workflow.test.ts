@@ -120,8 +120,14 @@ describe('the CI corpus-version-lint boundary', () => {
 
   test('takes the merge group boundary from the immutable base_sha, not origin/main', () => {
     const script = corpusLintScript(readWorkflow());
-    const arm = script.slice(script.indexOf('merge_group)'), script.indexOf('workflow_dispatch)'));
-    expect(arm.length).toBeGreaterThan(0);
+    // Bounded by the arm's own `;;`, not by the arm that happens to follow it:
+    // slicing to `workflow_dispatch)` would silently return an EMPTY string —
+    // and pass three `toContain`s vacuously — the day the arms are reordered.
+    const start = script.search(/^[ \t]*merge_group\)$/m);
+    const end = script.indexOf(';;', start);
+    expect(start, 'no `merge_group)` case label in the step').toBeGreaterThanOrEqual(0);
+    expect(end, 'the `merge_group)` arm is not terminated by `;;`').toBeGreaterThan(start);
+    const arm = script.slice(start, end);
 
     expect(arm).toContain('$MERGE_GROUP_BASE_SHA');
     // The task's own failure mode: with another entry queued ahead, `main` is
