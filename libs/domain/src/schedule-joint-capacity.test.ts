@@ -109,6 +109,39 @@ describe('a block labelled with two teams waits for both of them', () => {
     expect(both.earliestStart).not.toBe(2);
   });
 
+  it('re-asks every pool after another pool advances the candidate', () => {
+    // Alpha is busy 0→3. Beta is free at 0 and busy 3→6. The first round moves
+    // the candidate to 3 for Alpha; asking Beta again then moves it to 6. A
+    // one-pass search returns 3 and overlaps `b-late`.
+    //
+    // Proof: replaced the fixpoint's candidate update with an immediate return
+    // of the first round. This case failed with `earliestStart` 3 instead of 6
+    // and `capacityTeamId: "team-alpha"` instead of Beta; 9 passed / 1 failed,
+    // watched 2026-09-08.
+    const rows = [
+      item('a-early', { priority: 1 }),
+      item('b-late', { priority: 1 }),
+      item('both', { priority: 2 }),
+    ];
+    const slices = [
+      slice('a-early', 3, { poolIds: [ALPHA] }),
+      slice('b-late', 3, { poolIds: [BETA] }),
+      slice('both', 1, { poolIds: [ALPHA, BETA] }),
+    ];
+
+    const found = schedule(rows, [], slices, new Map([['b-late', 3]]), pools(1, 1));
+
+    expect(planned(found, 'b-late')).toMatchObject({ earliestStart: 3, earliestFinish: 6 });
+    const both = planned(found, 'both');
+    expect(both).toMatchObject({
+      earliestStart: 6,
+      boundBy: 'capacity',
+      capacityTeamId: BETA,
+    });
+    expect(both.earliestStart).not.toBe(3);
+    expect(blockersOf(both)).toEqual(['a-early', 'b-late']);
+  });
+
   it('names whichever team ran out, not the first of the set', () => {
     // The same plan with the two holds swapped. Nothing about the block or the
     // order of its `poolIds` changes; the team the sentence names does.
