@@ -168,6 +168,11 @@ describe('with-heavy-lock', () => {
     // ever running** — a false green that asserts nothing about queueing.
     const release = join(root, 'release');
     const holderErr = join(root, 'holder.err');
+    // The wrapper takes a lock PATH and claims `<path>.d` — the directory whose
+    // atomic `mkdir` is the mutex. Watched: with the poll pointed at `lock`
+    // itself the readiness wait timed out while the temp root held
+    // `heavy.lock.d`, a live holder and a silent stderr.
+    const lockDir = `${lock}.d`;
     const holder = Bun.spawn([
       'bash',
       '-c',
@@ -203,7 +208,7 @@ describe('with-heavy-lock', () => {
     // holder file has contents. Waiting on the directory would re-introduce the
     // race this case exists to remove, so wait for a non-empty `holder`.
     try {
-      await until(() => readIfPresent(join(lock, 'holder')).trim() !== '');
+      await until(() => readIfPresent(join(lockDir, 'holder')).trim() !== '');
     } catch (cause) {
       holder.kill();
       const said = readIfPresent(holderErr).trim();
@@ -215,7 +220,7 @@ describe('with-heavy-lock', () => {
         }
       };
       throw new Error(
-        `holder never claimed ${lock} (exitCode ${holder.exitCode}); it said: ${said || '(nothing)'}; root has ${listed(root)}; lock has ${listed(lock)}`,
+        `holder never claimed ${lockDir} (exitCode ${holder.exitCode}); it said: ${said || '(nothing)'}; root has ${listed(root)}; lock has ${listed(lockDir)}`,
         { cause },
       );
     }
