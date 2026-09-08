@@ -22,7 +22,7 @@ import { appliedGanttHeight, DAY_PX, GanttPanel } from './gantt-panel';
 import { KeyboardCheatSheet } from './keyboard-cheat-sheet';
 import { OptimizationIndicator } from './optimization-indicator';
 import { PlanCards } from './plan-cards';
-import { createPlanCellProps, opensAPopover } from './plan-cell-props';
+import { createPlanCellProps, opensAPopover, readStartSentence } from './plan-cell-props';
 import { usePlanChartInput, usePlanSchedule } from './plan-chart-input';
 import { PLAN_TABLE_FEATURES } from './plan-columns/column';
 import { createPlanColumns } from './plan-columns/columns';
@@ -795,8 +795,8 @@ export function WbsTable({
     setTagsOf,
     createTeamFor,
     createServiceFor,
-    setExternalRefsOf,
     setTypesOf,
+    setExternalRefsOf,
     createTypeFor,
     createTagFor,
     assignTo,
@@ -814,7 +814,7 @@ export function WbsTable({
       teams,
       createPersonFor,
     });
-  const { hasSchedule, showSchedule, spanOf } = usePlanSchedule({ scheduleError });
+  const { hasSchedule, spanOf } = usePlanSchedule({ scheduleError });
   const { nonOwnerNoteOf, assigneeOn, anyAssigneeOn } = usePlanAssignments({
     effectiveTeams,
     teams,
@@ -851,6 +851,29 @@ export function WbsTable({
   const startFloor = useRef<ReadonlyMap<string, string>>(new Map());
 
   /**
+   * One row's Start sentence, worked out once however many readers ask.
+   *
+   * Three did, per row, per render: the `<td>`'s own props, the `cursor: help`
+   * decided beside them, and the Start cell itself — and each call allocated a
+   * `Date` inside {@link spanOf} and walked the floor map again. A plain `Map`
+   * rebuilt every render rather than a `useMemo`, because what makes the answer
+   * stale is any of the three things it reads changing, and every one of them
+   * is replaced on the render that changes it.
+   *
+   * `startFloor.current` is read **inside** the call and not captured beside
+   * this line: the chart projection replaces that map further down the render,
+   * and all three readers run after it.
+   */
+  const saidByRow = new Map<string, string | null>();
+  const startSentence = (row: TreeRow): string | null => {
+    const known = saidByRow.get(row.id);
+    if (known !== undefined) return known;
+    const said = readStartSentence(row, spanOf, startFloor.current);
+    saidByRow.set(row.id, said);
+    return said;
+  };
+
+  /**
    * The current cell values, built once.
    *
    * They used to be written twice — the `useRef` initialiser and the
@@ -868,9 +891,8 @@ export function WbsTable({
   const liveNow: PlanLiveValues = {
     focusIntent,
     gridElement,
-    startFloor,
+    startSentence,
     api,
-    projectId,
     run,
     busy,
     duplicateRow,
@@ -881,13 +903,11 @@ export function WbsTable({
     onArrowKey,
     onAltMove,
     onCommandKey,
-    armedDelete,
     setDragging,
     setDropHint,
     dependenciesOf,
     dependOn,
     hasSchedule,
-    showSchedule,
     depPicker,
     setDepPicker,
     depLights,
@@ -938,7 +958,6 @@ export function WbsTable({
     setTagsOf,
     setServicesOf,
     setTypesOf,
-    setExternalRefsOf,
     createTeamFor,
     createServiceFor,
     createTagFor,
@@ -950,7 +969,6 @@ export function WbsTable({
     assigneeOn,
     anyAssigneeOn,
     nonOwnerNoteOf,
-    waitsFor,
     matchIds: search.matchIds,
     filtering,
   };
@@ -1068,12 +1086,12 @@ export function WbsTable({
     },
     [pointedRows],
   );
-  const { dependsCellHoverProps, startSentence, startCellProps } = createPlanCellProps({
+  const { dependsCellHoverProps, startCellProps } = createPlanCellProps({
     dependenciesOf,
     depLights,
     depPicker,
     setHoveredCell,
-    live,
+    startSentence,
     openCard,
   });
   const { ganttPlan } = usePlanChartInput({

@@ -4,8 +4,8 @@ import { type ComponentProps } from 'react';
 import { type DepLights } from './dep-light-store';
 import { entersThroughDependsCard } from './depends-card';
 import { cellKey } from './editable-grid';
-import type { PlanLive } from './plan-live';
 import { REFERENCE_SET_EDGE_FADE } from './reference-set-field';
+import type { PrintedDay } from './short-date';
 import { type TreeRow } from './wbs-rows';
 
 /**
@@ -21,15 +21,18 @@ export function createPlanCellProps({
   depLights,
   depPicker,
   setHoveredCell,
-  live,
+  startSentence,
   openCard,
 }: {
   dependenciesOf: (ids: readonly string[]) => { id: string; number: string; name: string }[];
   depLights: DepLights;
   depPicker: { rowId: string; typed: string; highlightId: string | null } | null;
   setHoveredCell: React.Dispatch<React.SetStateAction<string | null>>;
-  live: PlanLive;
-
+  /**
+   * One row's Start sentence, remembered for this render — {@link WbsTable}
+   * builds it, because the `<td>` here and the cell inside it both ask.
+   */
+  startSentence: (row: TreeRow) => string | null;
   openCard: string | null;
 }) {
   /**
@@ -127,9 +130,6 @@ export function createPlanCellProps({
     };
   };
 
-  /** Reads the Start sentence through the shared live contract. */
-  const startSentence = (row: TreeRow): string | null => readStartSentence(row, live);
-
   /**
    * What one row's Start `<td>` carries so the sentence that explains its day is
    * reachable without a pointer resting on the right 34×13px of it, **and
@@ -199,7 +199,7 @@ export function createPlanCellProps({
       'aria-describedby': openCard === startCell ? startCardId(row.id) : undefined,
     };
   };
-  return { dependsCellHoverProps, startSentence, startCellProps };
+  return { dependsCellHoverProps, startCellProps };
 }
 
 /**
@@ -210,11 +210,19 @@ export function createPlanCellProps({
  * then what is holding that day where it is — the floor sentence word for word
  * from the chart's `startFloorByRow`.
  *
- * Read through {@link PlanLive}, including the stable start-floor ref that
- * is filled after the chart projection is built.
+ * Given its two readings rather than reading them off {@link PlanLive}: three
+ * callers asked for this sentence per row per render — the `<td>`'s props, the
+ * `cursor: help` beside them, and the cell itself — and each one allocated a
+ * `Date` through `spanOf`. {@link WbsTable} calls this once per row now and
+ * hands the answer to all three, which is why the floor arrives as the map it
+ * is at the moment of the call rather than as the ref it lives in.
  */
-export function readStartSentence(row: TreeRow, live: PlanLive): string | null {
-  const said = [live.current.spanOf(row).start.iso, live.current.startFloor.current.get(row.id)]
+export function readStartSentence(
+  row: TreeRow,
+  spanOf: (row: TreeRow) => { start: PrintedDay; finish: PrintedDay },
+  startFloor: ReadonlyMap<string, string>,
+): string | null {
+  const said = [spanOf(row).start.iso, startFloor.get(row.id)]
     .filter((part) => part !== null && part !== undefined)
     .join(' — ');
   return said === '' ? null : said;

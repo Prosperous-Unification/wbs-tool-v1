@@ -17,7 +17,6 @@ import type { PickerEntry } from './dep-picker';
 import { type DropZone } from './drag-drop';
 import { type CellElement } from './editable-grid';
 import type { TrioProblem } from './estimate-draft';
-import { type ExternalRefDraft } from './external-refs-modal';
 import { type ServiceLabel, type ServiceTeamLabel, type TagLabel } from './gantt-geometry';
 import type { FocusIntent } from './live-editing';
 import { type CommitOutcome } from './live-editing';
@@ -37,9 +36,15 @@ import { type TreeRow } from './wbs-rows';
 export interface PlanLiveValues {
   focusIntent: React.RefObject<FocusIntent>;
   gridElement: React.RefObject<HTMLElement | null>;
-  startFloor: React.RefObject<ReadonlyMap<string, string>>;
+  /**
+   * The sentence explaining one row's Start day, or null where there is none.
+   *
+   * On the contract rather than read out of {@link PlanLiveValues.spanOf} and a
+   * floor map, because {@link WbsTable} works it out once per row per render and
+   * the `<td>` around this cell asks for the same answer.
+   */
+  startSentence: (row: TreeRow) => string | null;
   api: ProjectApi;
-  projectId: string;
   run: (action: () => Promise<void>) => Promise<CommitOutcome>;
   busy: boolean;
   duplicateRow: (id: string) => Promise<CommitOutcome>;
@@ -50,13 +55,11 @@ export interface PlanLiveValues {
   onArrowKey: (event: React.KeyboardEvent<CellElement>, rowId: string, columnId: string) => void;
   onAltMove: (event: React.KeyboardEvent, row: TreeRow, columnId: string) => void;
   onCommandKey: (event: React.KeyboardEvent, row: TreeRow, columnId: string) => void;
-  armedDelete: { rowId: string; number: string } | null;
   setDragging: React.Dispatch<React.SetStateAction<string | null>>;
   setDropHint: React.Dispatch<React.SetStateAction<{ rowId: string; zone: DropZone } | null>>;
   dependenciesOf: (ids: readonly string[]) => { id: string; number: string; name: string }[];
   dependOn: (successorId: string, typed: string) => void;
   hasSchedule: () => boolean;
-  showSchedule: (days: number) => string;
   depPicker: { rowId: string; typed: string; highlightId: string | null } | null;
   setDepPicker: React.Dispatch<
     React.SetStateAction<{ rowId: string; typed: string; highlightId: string | null } | null>
@@ -126,7 +129,6 @@ export interface PlanLiveValues {
   setTagsOf: (id: string, tagIds: readonly string[]) => Promise<CommitOutcome>;
   setServicesOf: (id: string, serviceIds: readonly string[]) => Promise<CommitOutcome>;
   setTypesOf: (id: string, typeIds: readonly string[]) => Promise<CommitOutcome>;
-  setExternalRefsOf: (id: string, refs: readonly ExternalRefDraft[]) => Promise<CommitOutcome>;
   createTeamFor: (id: string, name: string, current: readonly string[]) => Promise<CommitOutcome>;
   createServiceFor: (
     id: string,
@@ -142,7 +144,6 @@ export interface PlanLiveValues {
   assigneeOn: (row: TreeRow, stepId: string) => CardAssignee | null;
   anyAssigneeOn: (stepId: string) => boolean;
   nonOwnerNoteOf: (row: TreeRow) => string | null;
-  waitsFor: (row: TreeRow) => { id: string; number: string; name: string }[];
   matchIds: ReadonlySet<string>;
   filtering: boolean;
 }
