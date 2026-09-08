@@ -133,9 +133,20 @@ on:
 # overlap without bound rather than two at a time. At this repo's merge rate
 # that is a few concurrent 20-minute runs, and when the account's concurrency
 # limit is reached GitHub QUEUES the surplus instead of cancelling it — the
-# verdict is delayed, never lost, which is the whole point. `cancel-in-progress`
-# is deliberately left exactly as TASK-351 wrote it: for `main` it is now
-# redundant, and that redundancy is the backstop if this key ever regresses.
+# verdict is delayed, never lost, which is the whole point.
+#
+# Overlapping runs are safe here for a reason that was checked rather than
+# assumed: this workflow has no deploy job. `gate` and `pixels_shard` read the
+# tree and validate — `docker compose config -q` parses the deploy files, it
+# does not apply them — so two `main` runs share nothing but the actions cache,
+# where a concurrent write is a "cache already exists" warning and not a
+# corruption. If a job that mutates anything outside its own runner is ever
+# added to this file, that job needs its own serialising `concurrency:` block
+# and this paragraph stops being true.
+#
+# `cancel-in-progress` is deliberately left exactly as TASK-351 wrote it: for
+# `main` it is now redundant, and that redundancy is the backstop if this key
+# ever regresses.
 concurrency:
   group: ci-${{ github.ref }}${{ github.ref == 'refs/heads/main' && format('-{0}', github.sha) || '' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.event_name != 'merge_group' }}
