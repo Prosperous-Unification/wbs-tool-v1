@@ -2079,7 +2079,29 @@ export function WbsTable({
             against this box — see `table-frame.ts` for why it has to be the one
             that scrolls.
           */}
-          <div data-table-frame ref={frameRef} style={TABLE_FRAME}>
+          <div
+            data-table-frame
+            ref={frameRef}
+            style={TABLE_FRAME}
+            onDragOver={(event) => {
+              if (dragging === null) return;
+              const frame = event.currentTarget;
+              const box = frame.getBoundingClientRect();
+              const edgePx = 48;
+              const direction =
+                event.clientY < box.top + edgePx ? -1 : event.clientY > box.bottom - edgePx ? 1 : 0;
+              if (direction === 0) return;
+              event.preventDefault();
+              // Native dragover repeats while the pointer rests at an edge;
+              // each event advances one logical Gantt-row step and lets the
+              // viewport attach the next possible destinations.
+              // Proof: removing this handler, `a row drag at the frame edge
+              // reaches an initially unmounted destination` failed on
+              // `Expected: visible · Error: element(s) not found`. Watched in
+              // Chromium, 2026-09-08.
+              frame.scrollTop += direction * 28;
+            }}
+          >
             {/*
             `separate` with no spacing rather than the browser's default gap:
             the pinned columns' offsets are the running total of their widths,
@@ -2200,6 +2222,13 @@ export function WbsTable({
                     <PlanRow
                       key={row.id}
                       rowId={row.original.id}
+                      // Logical position drives both aria-rowindex and zebra
+                      // parity; spacer rows and a pinned editor make DOM order
+                      // a different sequence. Proof: passing mountedIndex,
+                      // `a broad Find renders no more than its two
+                      // filter-sensitive cells per row` failed on
+                      // `aria-rowindex Expected: "101" · Received: "36"`.
+                      // Watched in Chromium, 2026-09-08.
                       rowIndex={entry.index}
                       attach={viewport.attachRow}
                       frozen={row.original.frozenNumber !== null}

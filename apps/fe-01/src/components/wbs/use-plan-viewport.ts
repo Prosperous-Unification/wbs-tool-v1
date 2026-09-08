@@ -62,19 +62,50 @@ export function usePlanViewport({
     widthPx: typeof window === 'undefined' ? 1400 : window.innerWidth,
   }));
   const [heights, setHeights] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const heightReadings = useRef<ReadonlyMap<string, number>>(heights);
+  const currentRowIds = useRef(rowIds);
+  const pendingAnchorPx = useRef(0);
+  currentRowIds.current = rowIds;
   const rowNodes = useRef(new Map<string, HTMLTableRowElement>());
   const rowIdsByNode = useRef(new Map<HTMLTableRowElement, string>());
   const rowObserver = useRef<ResizeObserver | null>(null);
 
-  const recordHeight = useCallback((rowId: string, heightPx: number) => {
-    if (heightPx <= 0) return;
-    setHeights((current) => {
-      if (current.get(rowId) === heightPx) return current;
+  const recordHeight = useCallback(
+    (rowId: string, heightPx: number) => {
+      if (heightPx <= 0) return;
+      const current = heightReadings.current;
+      const previousHeight = current.get(rowId) ?? ESTIMATED_ROW_HEIGHT_PX;
+      if (previousHeight === heightPx) return;
+      const rowIndex = currentRowIds.current.indexOf(rowId);
+      const frameNode = frameRef.current;
+      if (rowIndex >= 0 && frameNode !== null) {
+        const rowStartPx = currentRowIds.current
+          .slice(0, rowIndex)
+          .reduce((startPx, id) => startPx + (current.get(id) ?? ESTIMATED_ROW_HEIGHT_PX), 0);
+        if (rowStartPx + previousHeight <= frameNode.scrollTop)
+          pendingAnchorPx.current += heightPx - previousHeight;
+      }
       const next = new Map(current);
       next.set(rowId, heightPx);
-      return next;
-    });
-  }, []);
+      heightReadings.current = next;
+      setHeights(next);
+    },
+    [frameRef],
+  );
+
+  useLayoutEffect(() => {
+    const adjustmentPx = pendingAnchorPx.current;
+    if (adjustmentPx === 0) return;
+    const frameNode = frameRef.current;
+    if (frameNode === null) return;
+    pendingAnchorPx.current = 0;
+    // Apply after the new spacer extent commits; applying against the old
+    // scrollHeight at the bottom would be clamped away by the browser.
+    // Proof: removing this adjustment, `a measured row above the viewport
+    // leaves the visible row anchored` failed on `Expected: > 2046 · Received:
+    // 2046`. Watched in Chromium, 2026-09-08.
+    frameNode.scrollTop += adjustmentPx;
+  }, [frameRef, heights]);
 
   useLayoutEffect(() => {
     if (!enabled || typeof ResizeObserver === 'undefined') return;

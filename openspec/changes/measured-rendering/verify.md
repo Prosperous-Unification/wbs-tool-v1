@@ -179,6 +179,34 @@ after page closure were the only warnings.
 
 All faults were removed before the restored browser and unit runs.
 
+## 4.3 — viewport geometry, drag and alternate face, 2026-09-08
+
+Measured row-height changes above the visible interval now adjust `scrollTop` after the replacement
+spacer extent commits, retaining the same visible logical row and pixel offset. Frame-edge dragover
+events advance one fixed Gantt-row step, causing new logical destinations to mount; the ordinary row
+drop-zone handler then marks the newly reached row. Zebra parity and `aria-rowindex` use each entry's
+full logical index, while `aria-rowcount` continues to name the complete filtered/expanded grid.
+Pinned Name geometry stays fixed during horizontal window changes, and the card renderer remains
+outside table windowing.
+
+The four viewport acceptance cases passed together in31.8s. Focused browser preservation checks for
+pinned columns, both stripe states in both palettes, and the mobile card surface passed6/6 in23.6s.
+The viewport/drag/scroll-link unit group passed51/51 in11.04s. FE typecheck passed. Full gates remain
+Task5 work; read-only dconf and page-close WebSocket EPIPE diagnostics were the only warnings.
+
+### Failure proof table
+
+| Check                                                 | Injected fault                           | Observed failure                                  |
+| ----------------------------------------------------- | ---------------------------------------- | ------------------------------------------------- |
+| Height growth above the viewport preserves its anchor | Remove the post-commit scroll adjustment | `Expected: > 2046 · Received: 2046`               |
+| Edge dragging reaches a previously unmounted target   | Remove the frame dragover scroll path    | `Expected: visible · Error: element(s) not found` |
+| ARIA position and parity use logical order            | Pass mounted sequence index to the row   | `aria-rowindex Expected: "101" · Received: "36"`  |
+
+The first drag-test attempt used a guessed `Reorder 0001` label and timed out before reaching the
+behavior; the fixture actually numbers its first row0010. The selector now identifies the first real
+row handle, and the recorded fault comes only from the intended missing autoscroll path. All faults
+were removed before the restored runs.
+
 ## 3.2 — filter-sensitive cell rendering, 2026-09-08
 
 Filter state no longer sits in every `PlanRowReadings`. Number and Name receive it through an

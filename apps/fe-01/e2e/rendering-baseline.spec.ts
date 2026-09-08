@@ -141,6 +141,23 @@ test('a broad Find renders no more than its two filter-sensitive cells per row',
   await expect(page.locator(`[data-name-input="${seeded.ids[rows - 1]}"]`)).toHaveValue(
     'Row 0099 z',
   );
+  await expect(page.locator('[data-grid]')).toHaveAttribute('aria-rowcount', '101');
+  await expect(page.locator(`tr[data-row-id="${seeded.ids[0]}"]`)).toHaveAttribute(
+    'aria-rowindex',
+    '2',
+  );
+  await expect(page.locator(`tr[data-row-id="${seeded.ids[0]}"]`)).toHaveAttribute(
+    'data-row-parity',
+    'odd',
+  );
+  await expect(page.locator(`tr[data-row-id="${seeded.ids[rows - 1]}"]`)).toHaveAttribute(
+    'aria-rowindex',
+    '101',
+  );
+  await expect(page.locator(`tr[data-row-id="${seeded.ids[rows - 1]}"]`)).toHaveAttribute(
+    'data-row-parity',
+    'even',
+  );
   expect((await renderingGeometry(page)).mountedCells).toBeLessThanOrEqual(1200);
   await page.reload();
   await expect(firstName).toHaveValue('Row 0000');
@@ -183,6 +200,9 @@ test('an unfolded plan mounts only its viewport columns', async ({ page }) => {
   await estimate.pressSequentially('7');
   const estimateNode = await estimate.evaluateHandle((node) => node);
   const estimateValue = await estimate.inputValue();
+  const pinnedName = page.locator('[data-grid] tbody td[data-column="name"]').first();
+  const pinnedBefore = await pinnedName.boundingBox();
+  if (pinnedBefore === null) throw new Error('the pinned Name cell has no geometry');
 
   await page.locator('[data-table-frame]').evaluate((frame) => {
     frame.scrollLeft = frame.scrollWidth;
@@ -191,7 +211,76 @@ test('an unfolded plan mounts only its viewport columns', async ({ page }) => {
   expect(await estimate.evaluate((node, before) => node === before, estimateNode)).toBe(true);
   await expect(estimate).toBeFocused();
   await expect(estimate).toHaveValue(estimateValue);
+  const pinnedAfter = await pinnedName.boundingBox();
+  if (pinnedAfter === null) throw new Error('the scrolled pinned Name cell has no geometry');
+  expect(Math.abs(pinnedAfter.x - pinnedBefore.x)).toBeLessThanOrEqual(1);
   expect((await renderingGeometry(page)).mountedCells).toBeLessThanOrEqual(2250);
+});
+
+test('a measured row above the viewport leaves the visible row anchored', async ({ page }) => {
+  const seeded = await seedRenderingPlan(page, { rows: 100, steps: 2, density: 'sparse' });
+  await page.goto('/');
+  const firstName = page.locator(`[data-name-input="${seeded.ids[0]}"]`);
+  await firstName.evaluate((node) => {
+    if (!(node instanceof HTMLElement)) throw new Error('the first Name cannot take focus');
+    node.focus({ preventScroll: true });
+  });
+  const frame = page.locator('[data-table-frame]');
+  await frame.evaluate((node) => {
+    node.scrollTop = node.scrollHeight;
+  });
+  await expect(page.locator(`[data-name-input="${seeded.ids[99]}"]`)).toBeVisible();
+
+  const anchor = await frame.evaluate((node) => {
+    const frameTop = node.getBoundingClientRect().top;
+    const row = [...node.querySelectorAll<HTMLElement>('tbody tr[data-row-id]')].find(
+      (candidate) => candidate.getBoundingClientRect().bottom > frameTop,
+    );
+    if (row === undefined) throw new Error('the viewport has no visible logical row');
+    return {
+      id: row.dataset['rowId'],
+      top: row.getBoundingClientRect().top,
+      scrollTop: node.scrollTop,
+    };
+  });
+  if (anchor.id === undefined) throw new Error('the visible anchor has no row id');
+
+  await firstName.evaluate((node) => {
+    if (!(node instanceof HTMLTextAreaElement)) throw new Error('the first Name is not a textarea');
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+    if (descriptor?.set === undefined) throw new Error('the textarea value boundary is unreadable');
+    descriptor.set.call(node, `${node.value}\nsecond line\nthird line\nfourth line`);
+    node.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+  });
+  await expect
+    .poll(async () => frame.evaluate((node) => node.scrollTop))
+    .toBeGreaterThan(anchor.scrollTop);
+  const settled = await page.locator(`tr[data-row-id="${anchor.id}"]`).evaluate((row) => ({
+    top: row.getBoundingClientRect().top,
+  }));
+  expect(Math.abs(settled.top - anchor.top)).toBeLessThanOrEqual(1);
+});
+
+test('a row drag at the frame edge reaches an initially unmounted destination', async ({
+  page,
+}) => {
+  const seeded = await seedRenderingPlan(page, { rows: 100, steps: 2, density: 'sparse' });
+  await page.goto('/');
+  const destination = page.locator(`tr[data-row-id="${seeded.ids[60]}"]`);
+  expect(await destination.count()).toBe(0);
+  await page.locator('[aria-label^="Reorder "]').first().dispatchEvent('dragstart');
+  const frame = page.locator('[data-table-frame]');
+  const box = await frame.boundingBox();
+  if (box === null) throw new Error('the table frame has no drag geometry');
+  for (let event = 0; event < 60; event += 1)
+    await frame.dispatchEvent('dragover', { clientY: box.y + box.height - 1 });
+  await expect(destination).toBeVisible();
+  const destinationBox = await destination.boundingBox();
+  if (destinationBox === null) throw new Error('the mounted drag destination has no geometry');
+  await destination.dispatchEvent('dragover', {
+    clientY: destinationBox.y + destinationBox.height / 2,
+  });
+  await expect(destination).toHaveAttribute('data-drop', 'into');
 });
 
 test.use({
