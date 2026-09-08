@@ -23,9 +23,19 @@ pre-commit:
       run: bun run tools/tool-git-hooks/src/hooks/doc-caps.ts
       glob: 'LLM_README.md'
 
-# commit-msg conventional-commits enforcement disabled per developer preference.
-# Re-enable by uncommenting the block below and re-running `nx run tool-git-hooks:install`.
-# commit-msg:
-#   commands:
-#     conventional:
-#       run: bun run tools/tool-git-hooks/src/hooks/conventional.ts {1}
+# Stamp agent-authored commits without replacing lefthook's generated wrapper.
+# Both stages are required: normal git commits invoke prepare-commit-msg, while
+# commit-tree based automation invokes only commit-msg.
+prepare-commit-msg:
+  commands:
+    agent-authored-by:
+      run: ops/agent-trailer/prepare-commit-msg {1} {2}
+
+commit-msg:
+  commands:
+    agent-authored-by:
+      run: ops/agent-trailer/prepare-commit-msg {1}
+
+# Conventional-commits enforcement remains disabled per developer preference.
+# Add it beside agent-authored-by above before re-running
+# `nx run tool-git-hooks:install` if that preference changes.
