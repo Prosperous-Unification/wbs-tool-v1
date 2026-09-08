@@ -1053,25 +1053,35 @@ describe('the widths this browser has dragged', () => {
     expect(laidOut()['number']).toBe('600px');
   });
 
-  itDom('drops storage that is not a set of column widths, key and all', async () => {
-    // localStorage is user-editable, so what comes back is a claim. A table
-    // that cannot be opened until somebody clears storage by hand is a worse
-    // answer than a table at its defaults, which is the posture the remembered
-    // expansion beside it takes.
-    // Proof: the `isWidthOverrides` guard deleted, this failed on `TypeError:
-    // Cannot convert undefined or null to object`, thrown out of the render
-    // that mounts the table — the text that is not JSON reaching
-    // `Object.entries` as `undefined`. Watched, 2026-08-09.
-    for (const junk of ['not json at all', '[93, 240]', '{"number":"wide"}', '"a string"']) {
-      cleanup();
-      localStorage.clear();
+  // localStorage is user-editable, so what comes back is a claim. A table
+  // that cannot be opened until somebody clears storage by hand is a worse
+  // answer than a table at its defaults, which is the posture the remembered
+  // expansion beside it takes.
+  // Proof: the `isWidthOverrides` guard deleted, all four go red, and they go
+  // red differently — which is the point of one case per value. Watched
+  // 2026-08-09 as one looping case, which only ever reached the first value,
+  // and re-watched per case 2026-09-08 after the split:
+  //   not json at all    TypeError: Cannot convert undefined or null to object
+  //                      out of the render that mounts the table, the stored
+  //                      text reaching `Object.entries` as `undefined`
+  //   [93, 240]          expected '[93, 240]' to be null
+  //   {"number":"wide"}  expected '' to be '105px'
+  //   "a string"         expected '"a string"' to be null
+  // One case per junk value rather than one case looping over four: four mounts
+  // under vitest's single 5000ms default made this the first case in the suite
+  // to tip on a loaded runner — measured at 2137ms against a 1224ms
+  // next-slowest sibling — and a red named the case, never which junk value
+  // produced it (TASK-405).
+  itDom.each(['not json at all', '[93, 240]', '{"number":"wide"}', '"a string"'])(
+    'drops storage that is not a set of column widths, key and all: %s',
+    async (junk) => {
       storedWidths(junk);
       await threeRoots();
 
       expect(laidOut()['number']).toBe('105px');
       expect(stored()).toBe(null);
-    }
-  });
+    },
+  );
 
   itDom(
     'drops an entry naming a column nothing can size, and keeps the one beside it',
