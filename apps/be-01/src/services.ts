@@ -11,7 +11,7 @@ import type { Drizzle } from './repository/db';
 import { DependencyRepository } from './repository/dependency';
 import { DirectoryRepository } from './repository/directory';
 import { EstimateRepository } from './repository/estimate';
-import { DrizzleEventLogRepo } from './repository/event-log';
+import { DrizzleEventLogStore } from './repository/event-log';
 import { type Gate, OPEN, type WriteCoordinator } from './repository/gate';
 import { PlanEventRepository } from './repository/plan-event';
 import { PriorityBandRepository } from './repository/priority-band';
@@ -23,7 +23,7 @@ import { StepProgressRepository } from './repository/step-progress';
 import { UserRepository } from './repository/user';
 import { SubtreeRepository, WorkItemRepository } from './repository/work-item';
 import { AuthService, type AuthServiceOptions } from './service/auth.service';
-import { type Broadcaster, DeferringBroadcaster } from './service/broadcast';
+import type { Broadcaster } from './service/broadcast';
 import { CalendarMarkerService } from './service/calendar-marker.service';
 import { CapacityService } from './service/capacity.service';
 import { type Clock, clockOf } from './service/clock';
@@ -90,20 +90,20 @@ export interface ServicesOptions {
 
 export interface BeServices extends WritingServices {
   /**
-   * The one broadcaster every service publishes through, wrapped so a command
-   * batch can hold its announcements until it has committed and released the
-   * write lock. `boot.ts` hands it to `buildApp` as `writes.announcements`; it
-   * must be this object and not a second wrapper.
+   * The one broadcaster every route publishes through, and where a batch's own
+   * collector drains to once it has committed and let go of its turn.
+   * `boot.ts` hands it to `buildApp` as `writes.announcements`.
    */
-  announcements: DeferringBroadcaster;
+  announcements: Broadcaster;
   /**
    * The broadcaster {@link announcements} wraps, for **one** reader: the
    * one-lock regression in `boot.db.test.ts` has to read the lock off the object
    * that records under it, or it restates the wiring instead of observing it.
    *
    * Nothing publishes through this. It replaced `DeferringBroadcaster.undeferred`
-   * (TASK-256), which was reachable from every service that held the wrapper —
-   * this is reachable only from the composition root. A publisher wired here
+   * (TASK-256), which was reachable from every service that held the wrapper,
+   * and outlived that wrapper itself (D24); this is reachable only from the
+   * composition root. A publisher wired here
    * would announce before its batch committed, and a rollback would leave a push
    * describing a write that is not there.
    */
@@ -122,11 +122,12 @@ export interface BeServices extends WritingServices {
   uow: UnitOfWork;
   auth: AuthService;
   /**
-   * The batch's own service graph, built over stores that hold no turn because
-   * `UnitOfWork.run` holds it for them (D20). `PlanCommandRunner` is its only
-   * caller; a route reaching for it would write inside somebody else's batch.
+   * How a batch's service graph is built: over stores that hold no turn because
+   * `UnitOfWork.run` holds it for them (D20), and over the collector its runner
+   * hands in (D24). `PlanCommandRunner` is its only caller; a route reaching
+   * for it would write inside somebody else's batch and announce into it.
    */
-  batch: WritingServices;
+  batch: (broadcast: Broadcaster) => WritingServices;
   history: HistoryService;
   replay: ReplayOrchestrator;
   retention: RetentionTimer;
@@ -154,7 +155,7 @@ export function buildStores(db: Drizzle, gate: Gate) {
     capacity: new CapacityRepository(db, gate),
     priorityBands: new PriorityBandRepository(db, gate),
     calendarMarkers: new CalendarMarkerRepository(db, gate),
-    eventLog: new DrizzleEventLogRepo(db, gate),
+    eventLog: new DrizzleEventLogStore(db, gate),
     planEvents: new PlanEventRepository(db, gate),
     steps: new StepRepository(db, gate),
     workItems: new WorkItemRepository(db, gate),
@@ -330,7 +331,7 @@ export function buildServices(opts: ServicesOptions): BeServices {
   // Every service publishes through this wrapper, and only `PlanCommandRunner`
   // ever holds it. Wrapping here rather than at the runner is the point: there
   // is exactly one broadcaster object in the process, so a batch cannot hold one
-  // while a service publishes through another. See {@link DeferringBroadcaster}.
+  // while a service publishes through another. See {@link AnnouncementCollector}.
   const optimizerInput: { workItems: WorkItemService | undefined } = { workItems: undefined };
   const coordinator =
     opts.optimizer === undefined
@@ -362,7 +363,10 @@ export function buildServices(opts: ServicesOptions): BeServices {
   const optimizerEvents = new OptimizerTriggerBroadcaster(broadcast, (projectId) => {
     coordinator?.inputChanged(projectId);
   });
-  const announcements = new DeferringBroadcaster(optimizerEvents);
+  // No wrapper: a batch's announcements belong to the batch, and its own
+  // collector holds them (D24). This is the direct path every route publishes
+  // through and the one a committed batch drains into.
+  const announcements: Broadcaster = optimizerEvents;
   // Both service-facing halves derive from the same coordinator instance: a
   // process cannot accept the ON setting unless its plan reader can also admit
   // and consume optimized rows.
@@ -386,14 +390,15 @@ export function buildServices(opts: ServicesOptions): BeServices {
       localIdentity: opts.localIdentity,
     }),
     // Every writing service in one call, over the stores that take a turn and
-    // the wrapper the announcements are held in. `announcements` is the same
-    // object for both graphs deliberately: there is exactly one broadcaster in
-    // the process, so a batch cannot hold one while a service publishes through
-    // another (see {@link DeferringBroadcaster}).
+    // the broadcaster that publishes straight out. A route's event leaves as
+    // soon as its write has committed, whoever else is mid-batch.
     ...servicesOver(stores, { clock, broadcast: announcements, optimized: optimizer }),
-    // The batch's own graph, over the admitted stores: its writes are already
-    // the batch's, so nothing in it waits for the turn `UnitOfWork` holds.
-    batch: servicesOver(admitted, { clock, broadcast: announcements, optimized: optimizer }),
+    // How the batch's graph is built: over the admitted stores, because its
+    // writes are already the batch's and nothing in it waits for the turn
+    // `UnitOfWork` holds; and over whichever collector the runner hands in, so
+    // one batch's announcements are never another's (D24).
+    batch: (broadcast: Broadcaster) =>
+      servicesOver(admitted, { clock, broadcast, optimized: optimizer }),
     // Built here because this is where the admitted stores are: the unit of
     // work hands its act the same objects the batch's services write through,
     // and a second set would be a scope nothing in the graph is holding.

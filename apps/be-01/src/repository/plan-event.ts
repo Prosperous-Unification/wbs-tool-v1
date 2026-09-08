@@ -63,7 +63,7 @@ export class PlanEventRepository implements PlanEventStore {
    * Deletes every event recorded before `cutoff`, and answers how many went.
    *
    * `changes()` rather than a count read before and after, exactly as
-   * `DrizzleEventLogRepo.pruneBeyond` argues: two full scans is the expensive
+   * `DrizzleEventLogStore.pruneBeyond` argues: two full scans is the expensive
    * way to ask and the wrong one, because the other deployment colour writes to
    * this same file and a concurrent insert between them lands in the difference
    * and reports as a deletion.

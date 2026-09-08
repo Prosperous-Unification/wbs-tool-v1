@@ -2,7 +2,7 @@ import { makeTestDb } from '@wbs/validation/fixtures';
 import type { Database } from 'bun:sqlite';
 import { afterEach, describe, expect, it } from 'bun:test';
 
-import { DrizzleEventLogRepo } from '../repository/event-log';
+import { DrizzleEventLogStore } from '../repository/event-log';
 import { OPEN } from '../repository/gate';
 import { ReplayBuffer } from './replay-buffer';
 import { ReplayOrchestrator } from './replay-orchestrator';
@@ -35,7 +35,7 @@ async function bootstrap(options: { maxEvents?: number; bufferSize?: number } = 
   client.run(BOOT_SQL);
   open.push(client);
 
-  const log = new DrizzleEventLogRepo(db, OPEN);
+  const log = new DrizzleEventLogStore(db, OPEN);
   const buffer = new ReplayBuffer({
     maxPerSubscription: options.bufferSize ?? 100,
     maxAgeMs: 5 * 60_000,
@@ -190,7 +190,7 @@ describe('ReplayOrchestrator — cross-review findings', () => {
     open.push(client);
 
     let now = 1_000;
-    const log = new DrizzleEventLogRepo(db, OPEN);
+    const log = new DrizzleEventLogStore(db, OPEN);
     const buffer = new ReplayBuffer({
       maxPerSubscription: 100,
       maxAgeMs: 60_000,

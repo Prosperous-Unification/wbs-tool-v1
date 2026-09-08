@@ -3,6 +3,7 @@ import { and, desc, eq, sql } from 'drizzle-orm';
 import { isWriteLockBusy } from './constraint';
 import type { Connection, Drizzle } from './db';
 import { drizzleOuterTransaction, drizzleReadTransaction, refuseToWaitForWriteLock } from './db';
+import type { SavedPlanStore } from './saved-plan-ports';
 import type { SavedPlanRow } from './schema';
 import { project, savedPlan, savedPlanBody } from './schema';
 
@@ -182,7 +183,7 @@ export function bodyByteLength(bytes: string): number {
  * against this file (`schema.ts`). A rename is a different route's business and
  * touches the header's `name` alone.
  */
-export class SavedPlanRepository {
+export class SavedPlanRepository implements SavedPlanStore {
   constructor(private readonly opts: SavedPlanWriteOptions) {}
 
   /**

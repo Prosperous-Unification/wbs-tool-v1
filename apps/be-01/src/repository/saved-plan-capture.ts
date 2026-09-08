@@ -27,6 +27,7 @@ import type {
 } from './index';
 import { PriorityBandRepository } from './priority-band';
 import { ProjectRepository } from './project';
+import type { SavedPlanCaptureStore } from './saved-plan-ports';
 import { StepMeasureRepository } from './step-measure';
 import { StepProgressRepository } from './step-progress';
 import { WorkItemRepository } from './work-item';
@@ -145,7 +146,7 @@ export interface SavedPlanCaptureOptions {
  * revokes it while the writing request is told it succeeded. design.md, "The
  * topology found", records what changed.
  */
-export class SavedPlanCaptureRepository {
+export class SavedPlanCaptureRepository implements SavedPlanCaptureStore {
   constructor(private readonly opts: SavedPlanCaptureOptions) {}
 
   /**

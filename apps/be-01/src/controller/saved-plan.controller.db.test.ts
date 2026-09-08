@@ -12,6 +12,7 @@ import { ProjectRepository } from '../repository/project';
 import type { SavedPlanWrite } from '../repository/saved-plan';
 import { UserRepository } from '../repository/user';
 import { type AuthenticatedUser, AuthService } from '../service/auth.service';
+import { AnnouncementCollector } from '../service/broadcast';
 import { ProjectService } from '../service/project.service';
 import { defaultSavedPlanName } from '../service/saved-plan-default-name';
 import { UnknownSavedPlanBodyVersionError } from '../service/saved-plan-integrity';
@@ -782,22 +783,25 @@ describe('the saved-plan routes', () => {
      * later would pass the second and fail the first — and would still lose the
      * event on the refusal this test is named for.
      */
-    it('delivers a save made while an unrelated batch holds, and that batch then refuses', async () => {
+    it('delivers a save made while an unrelated batch is collecting', async () => {
       broadcast.published.length = 0;
 
-      let release!: () => void;
-      const gate = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      const batch = writes.announcements.hold(() => gate);
+      // A batch's collector, open beside the save. Under the ambient rule this
+      // was an `AsyncLocalStorage` hold and the question was which async
+      // context the save was made in; a collector is an object the batch's own
+      // services were built over, so the question is answered by which graph
+      // published rather than by where the call came from (D24).
+      const batchCollector = new AnnouncementCollector(broadcast);
 
       expect((await save('ada')).status).toBe(201);
 
-      release();
-      const { pending } = await batch;
-
-      // The refusal: the batch's own announcements are dropped, never sent.
-      expect(pending).toEqual([]);
+      // Two assertions, because they fail for different reasons. `pending`
+      // empty says the event never entered the batch's collection, which is the
+      // property that makes it survivable; `published` says it actually reached
+      // gw-01 while the batch was still open. An implementation that collected
+      // the event and sent it later would pass the second and fail the first —
+      // and would still lose the event on a refusal.
+      expect(batchCollector.pending).toEqual([]);
       expect(broadcast.published).toEqual([{ projectId, event: { type: 'saved_plans_changed' } }]);
     });
 

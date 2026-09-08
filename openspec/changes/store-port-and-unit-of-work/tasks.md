@@ -80,29 +80,40 @@ does not wait for the turn its batch holds`: a `run` whose act writes through
       is at the call site, and it becomes `servicesOver(scope.stores, …)` in slice 3.
 - [x] 2.7 The full be-01 suite, both tiers.
 
-## 3. Announcements, the event log, and the history that is not in the batch
+## 3. Announcements — who owns an event (D24)
 
-- [ ] 3.1 **Case (l) first, watched red on `main`'s shape.** An ordinary route write commits, a
+- [x] 3.1 **Case (l) first, watched red on `main`'s shape.** An ordinary route write commits, a
       following batch takes the turn before that route publishes, the batch is refused — the
       route's event must still leave, exactly once. Inject the shared ambient slot
       (`DeferringBroadcaster`'s `AsyncLocalStorage` hold) and watch it drop.
-- [ ] 3.2 A per-batch `AnnouncementCollector`; the batch graph is built with
-      `broadcast: collector`, ordinary services keep the direct broadcaster.
-      `DeferringBroadcaster`'s `AsyncLocalStorage` is deleted. Case (f) — a publish from inside
-      a suspended batch is held and leaves after commit — and case (g) — a write started from
-      outside publishes after the batch's release, never inside it.
-- [ ] 3.3 `EventLogStore` replaces `EventLogRepo`, and `recordEventIn(tx)` loses its drizzle
-      transaction parameter: the batch records through `scope.stores.eventLog`, replay and
-      retention read and prune through the public gated store. The `EventLogTransaction` type
-      is deleted — it is drizzle's shape in a port's signature.
-- [ ] 3.4 `Stores`, `TransactionalStores` and `HistoryStores` in `repository/index.ts` as the
+- [x] 3.2 A per-batch `AnnouncementCollector`; the batch graph is built **per batch** over the
+      collector the runner hands in (`batchServices` is a factory), ordinary services keep the
+      direct broadcaster. `DeferringBroadcaster` is deleted whole — `hold`, `send`, the nested
+      hold guard and the `AsyncLocalStorage` with them. Cases (f) and (g).
+      Two things the change had to answer that the plan did not name: the post-commit
+      `announceTreeNow` runs **after** the collector has been drained, so it publishes through a
+      graph over the direct broadcaster (collected, the event would never leave); and two tests
+      pinned a service **identity** through `spyOn`, which a per-batch graph breaks, so the
+      work-item service there is built once and relays to whichever collector is in hand.
+
+## 3b. The event log and the history that is not in the batch
+
+- [x] 3.3 `EventLogStore` replaces `EventLogRepo` and joins `TransactionalStores`, so a batch
+      records through `scope.stores.eventLog` while replay and retention read and prune through
+      the public gated copy. **`recordEventIn(tx)` stays**, and says why at the declaration:
+      its one caller is the optimizer's `storeOptimizedOutcomeAndRecord`, which writes a solver
+      result and its replay record as one act on its own transaction, and moving that onto the
+      unit of work is `dual-optimized-scheduler`'s slice by the Wave 0 gate. `EventLogTransaction`
+      goes with it, not before it.
+- [x] 3.4 `Stores`, `TransactionalStores` and `HistoryStores` in `repository/index.ts` as the
       D22 composition; `Scope` carries the transactional subset only, so a command cannot
       enlist a saved plan. Type-level negative: a `scope.stores.savedPlans` reference must fail
       `tsc`, watched at the line it names.
-- [ ] 3.5 **Case (j).** A saved plan written while a batch is suspended either succeeds without
+- [x] 3.5 **Case (j).** A saved plan written while a batch is suspended either succeeds without
       waiting or reports `snapshot_busy`, and a successful save is still there after the batch
-      commits **and** after it rolls back. The memory negative puts the history tables back
-      inside the swapped clone and must lose the save on commit.
+      commits **and** after it rolls back — both arms, in
+      `saved-plan-in-transaction.db.test.ts`. The memory negative (history put back inside the
+      swapped clone) waits for slice 5, where a memory source exists to break.
 
 ## 4. What a broken reference means, said by the method it happened in
 

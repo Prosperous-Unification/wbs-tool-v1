@@ -6,7 +6,7 @@ import { systemTimers } from '@wbs/runtime-portable';
 import { expect, it } from 'bun:test';
 
 import { openDrizzle } from '../repository/db';
-import { DrizzleEventLogRepo } from '../repository/event-log';
+import { DrizzleEventLogStore } from '../repository/event-log';
 import { OPEN } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { GatewayBroadcaster } from './gateway-broadcaster';
@@ -18,7 +18,7 @@ it('allows C to overtake recorded B while its push is held', async () => {
   const folder = mkdtempSync(join(tmpdir(), 'wbs-broadcast-order-'));
   const path = join(folder, 'test.db');
   runMigrations(path, join(import.meta.dir, '..', '..', 'drizzle'));
-  const eventLog = new DrizzleEventLogRepo(openDrizzle(path), OPEN);
+  const eventLog = new DrizzleEventLogStore(openDrizzle(path), OPEN);
   let releaseB!: () => void;
   let startedB!: () => void;
   const heldB = new Promise<void>((resolve) => {

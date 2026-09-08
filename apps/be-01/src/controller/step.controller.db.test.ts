@@ -21,7 +21,7 @@ import { StepProgressRepository } from '../repository/step-progress';
 import { UserRepository } from '../repository/user';
 import { SubtreeRepository, WorkItemRepository } from '../repository/work-item';
 import { AuthService } from '../service/auth.service';
-import { DeferringBroadcaster } from '../service/broadcast';
+import { AnnouncementCollector } from '../service/broadcast';
 import { DirectoryService } from '../service/directory.service';
 import { ProjectService } from '../service/project.service';
 import { StepService } from '../service/step.service';
@@ -61,13 +61,13 @@ let workItems: WorkItemRepository;
 let projects: ProjectRepository;
 let seededBy: string;
 /**
- * The one broadcaster in the process, and the wrapper over it, held apart so a
- * test can open a batch's hold on the same object the routes publish through.
+ * The one broadcaster in the process, held so a test can read what actually
+ * left it while a batch was open.
  *
- * `services.ts` gives `StepService` `announcements` — the shared
- * {@link DeferringBroadcaster} — so a fixture that hands it a private recorder
- * is not wiring this app builds, and cannot see a batch capture a step event.
- * That divergence is exactly what hid TASK-256.
+ * `services.ts` gives `StepService` the process's own broadcaster, so a fixture
+ * that hands it a private recorder is not the wiring this app builds and cannot
+ * see a batch capture a step event. That divergence is exactly what hid
+ * TASK-256.
  */
 let writes: ReturnType<typeof testWrites>;
 let broadcast: RecordingBroadcaster;
@@ -106,7 +106,7 @@ beforeEach(async () => {
   );
 
   broadcast = recordingBroadcaster();
-  const announcements = new DeferringBroadcaster(broadcast);
+  const announcements = broadcast;
 
   auth = new AuthService({ users: new UserRepository(db, OPEN), jwtKey: TEST_JWT_KEY });
   // One graph for the routes and the batch alike — these stores hold no turn,
@@ -289,15 +289,18 @@ describe('the steps routes are the only spelling', () => {
 });
 
 /**
- * TASK-256, the same class TASK-255 closed for saved plans, on the one service
- * that is still wired to the wrapper.
+ * TASK-256, the same class TASK-255 closed for saved plans, and what D24
+ * replaced the mechanism with.
  *
- * `DeferringBroadcaster.held` is **instance** state and `services.ts` builds
+ * `DeferringBroadcaster.held` was **instance** state and `services.ts` built
  * exactly one instance, so during any open hold *every* publish through that
- * object joins the batch's queue — including one from an HTTP route that has
- * already committed and is not part of the batch. A refused batch drops its
- * queue (`plan-commands.ts` answers a refusal with `pending: []`), and the
- * route's event goes with it. The write happened; nobody was told.
+ * object joined the batch's queue — including one from an HTTP route that had
+ * already committed and was not part of the batch. A refused batch drops what
+ * it collected, and the route's event went with it: the write happened; nobody
+ * was told. TASK-256 made the queue per-caller with `AsyncLocalStorage`, which
+ * answered "whose event is this" correctly and ambiently; the collector answers
+ * it by which graph published, which is the same answer in a runtime that has
+ * no `AsyncLocalStorage` at all.
  *
  * Steps are the worst case rather than another instance of it: `readScopeFor`
  * maps `step_added` / `step_renamed` / `step_removed` to `tree-and-steps`, so
@@ -307,50 +310,33 @@ describe('the steps routes are the only spelling', () => {
  * reachable only through this controller — it is never *inside* a batch, and
  * being captured by one is always wrong.
  *
- * The hold here stands in for that unrelated batch: opened on the same shared
- * broadcaster `buildApp` was given, and its queue then discarded rather than
- * sent — the refusal path exactly.
+ * Two assertions, failing for different reasons. The collector's `pending`
+ * empty says the event never entered a batch's collection, which is what makes
+ * it survivable; the recorder says it actually went out while that batch was
+ * open. An implementation that collected the event and sent it later passes the
+ * second and fails the first — and still loses the event on a refusal.
  *
- * **The route runs BESIDE the hold and not inside it, and that distinction is
- * the test.** The obvious shape calls the route from within the `hold` callback,
- * and under instance state it was indistinguishable from a concurrent request —
- * which is why it read as a fine model of the defect. It is not one. A batch's
- * hold is per-caller (TASK-256), so a call made inside the callback *is* part of
- * the batch by the only definition there is, and asserting it escapes would
- * assert the opposite of the contract. Held open on a gate promise with the
- * request driven from the test's own root context, this is two genuinely
- * concurrent async contexts, which is what production has: an incoming HTTP
- * request is never rooted inside `PlanCommandRunner`'s callback.
- *
- * Two assertions, failing for different reasons. `pending` empty says the event
- * never entered the batch's queue, which is what makes it survivable; the
- * recorder says it actually went out while the hold was still open. An
- * implementation that queued the event and sent it later passes the second and
- * fails the first — and still loses the event on the refusal this is named for.
+ * The window a route's *own* publish can be caught in — after its write, before
+ * it publishes, with a batch open — is `announcement-ownership.db.test.ts`'s
+ * (l), on real services.
  */
 describe('a step mutation is not captured by an unrelated batch', () => {
-  it('delivers an add made while an unrelated batch holds, and that batch then refuses', async () => {
+  it('delivers an add made while an unrelated batch is collecting', async () => {
     const token = await register('owner');
     const project = await newProject(token);
     broadcast.published.length = 0;
 
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    // Not awaited yet: the batch sits on the gate with its hold open, which is
-    // the state an unrelated request arrives in.
-    const batch = writes.announcements.hold(() => gate);
+    // A batch's collector, open beside the route. What used to be an ambient
+    // hold is an object the batch's own services were built over, so an
+    // unrelated route cannot publish into it however its call stack is rooted.
+    const batchCollector = new AnnouncementCollector(broadcast);
 
     const res = await addStep(project.id, token, 'Design');
     expect(res.status).toBe(200);
     const step = ((await res.json()) as { step: Step }).step;
 
-    release();
-    const { pending } = await batch;
-
-    // The refusal: the batch's own announcements are dropped, never sent.
-    expect(pending).toEqual([]);
+    // The refusal: the batch's own announcements would be dropped, never sent.
+    expect(batchCollector.pending).toEqual([]);
     // `toEqual` on the whole array, not a `.some(...)` search: the step the
     // event carries and the project it was announced on are both part of the
     // claim, and an event announced on the wrong project would pass a count.

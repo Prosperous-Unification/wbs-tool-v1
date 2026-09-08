@@ -1,4 +1,4 @@
-import type { EventLogRepo, RecordedEvent } from '../repository/event-log';
+import type { EventLogStore, RecordedEvent } from '../repository/event-log';
 import { type Broadcaster, type ProjectEvent, subscriptionFor } from './broadcast';
 import { type Clock, clockOf } from './clock';
 import type { PushClient } from './push-client';
@@ -11,10 +11,10 @@ export interface GatewayBroadcasterOptions {
    * `EventSequencer` stood here until 2026-09-02 and did nothing but pass the
    * two calls through, reading a clock on the way — which is what a
    * {@link Clock} is for. The sequence numbers were always the log's own, out of
-   * `event_sequencer` in one statement (see `DrizzleEventLogRepo.recordEvent`);
+   * `event_sequencer` in one statement (see `DrizzleEventLogStore.recordEvent`);
    * nothing about them was ever this layer's.
    */
-  eventLog: EventLogRepo;
+  eventLog: EventLogStore;
   /** The instant each event is recorded at — see {@link Clock}. */
   clock?: Clock;
   push: PushClient;
@@ -68,7 +68,8 @@ export class GatewayBroadcaster implements Broadcaster {
    * exclusion said twice — and, once every store takes its own turn, a caller
    * holding a turn while its callee waits for one, which is a deadlock rather
    * than a slow write. A batch's own announcements never reach here while it is
-   * open: they are queued by `DeferringBroadcaster` and drained by `send` after
+   * open: they are collected by that batch's `AnnouncementCollector` and
+   * drained by its `send` after
    * `execute` has let go.
    */
   async publish(projectId: string, event: ProjectEvent): Promise<void> {

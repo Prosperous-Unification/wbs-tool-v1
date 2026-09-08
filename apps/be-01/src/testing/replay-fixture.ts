@@ -1,4 +1,4 @@
-import type { EventLogRepo, RecordedEvent } from '../repository/event-log';
+import type { EventLogStore, RecordedEvent } from '../repository/event-log';
 import { ReplayBuffer } from '../service/replay-buffer';
 import { ReplayOrchestrator } from '../service/replay-orchestrator';
 
@@ -9,7 +9,7 @@ import { ReplayOrchestrator } from '../service/replay-orchestrator';
  * stored rows, because that is what the real one does — `pruneBeyond` must not
  * move the stream backwards, and a length-based sequence would.
  */
-export function inMemoryEventLog(): EventLogRepo & {
+export function inMemoryEventLog(): EventLogStore & {
   record(subscription: string, message: unknown): Promise<RecordedEvent>;
 } {
   const rows = new Map<string, RecordedEvent[]>();
@@ -23,7 +23,7 @@ export function inMemoryEventLog(): EventLogRepo & {
     return event;
   };
 
-  const repo: EventLogRepo = {
+  const repo: EventLogStore = {
     recordEventIn(_tx, subscription, message, createdAt) {
       return record(subscription, message, createdAt);
     },

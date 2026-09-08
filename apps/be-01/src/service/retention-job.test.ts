@@ -2,7 +2,7 @@ import { makeTestDb } from '@wbs/validation/fixtures';
 import type { Database } from 'bun:sqlite';
 import { describe, expect, it } from 'bun:test';
 
-import { DrizzleEventLogRepo } from '../repository/event-log';
+import { DrizzleEventLogStore } from '../repository/event-log';
 import { OPEN } from '../repository/gate';
 import { runRetention } from './retention-job';
 
@@ -32,7 +32,7 @@ describe('runRetention', () => {
         [i, i],
       );
     }
-    const repo = new DrizzleEventLogRepo(db, OPEN);
+    const repo = new DrizzleEventLogStore(db, OPEN);
     const removed = await runRetention(repo, { maxPerSubscription: 10 });
     expect(removed).toBe(5);
     const rows = client
@@ -54,7 +54,7 @@ describe('runRetention', () => {
         [i, i],
       );
     }
-    const repo = new DrizzleEventLogRepo(db, OPEN);
+    const repo = new DrizzleEventLogStore(db, OPEN);
     const removed = await runRetention(repo, { maxPerSubscription: 3 });
     expect(removed).toBe(4);
     const count = client.query('SELECT COUNT(*) as n FROM event_log').get() as { n: number };

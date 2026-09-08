@@ -1,10 +1,11 @@
 import type { TransactionalStores } from '../repository';
-import { type Broadcaster, DeferringBroadcaster } from '../service/broadcast';
+import type { Broadcaster } from '../service/broadcast';
 import type { UnitOfWork } from '../service/unit-of-work';
 import type { WritingServices } from '../services';
 import { testCalendarMarkerService } from './calendar-marker-fixture';
 import { testCapacityService } from './capacity-fixture';
 import { testDirectoryService } from './directory-fixture';
+import type { InMemoryPlan } from './harness';
 import { testPriorityBandService } from './priority-band-fixture';
 import { testProjectService } from './project-fixture';
 import { testStepService } from './step-fixture';
@@ -69,7 +70,7 @@ export function countingUnitOfWork(): UnitOfWork & {
  */
 export function testWrites(
   broadcast: Broadcaster = silentBroadcaster(),
-  batch: WritingServices = {
+  services: WritingServices = {
     workItems: testWorkItemService(),
     directory: testDirectoryService(),
     capacity: testCapacityService(),
@@ -80,16 +81,18 @@ export function testWrites(
   },
 ): {
   uow: ReturnType<typeof countingUnitOfWork>;
-  batch: WritingServices;
-  announcements: DeferringBroadcaster;
+  batch: (broadcast: Broadcaster) => WritingServices;
+  announcements: Broadcaster;
 } {
   return {
     uow: countingUnitOfWork(),
-    batch,
-    // Wrapping the broadcaster the services were built with is the whole
-    // contract: a second one would hold nothing, and the runner would drain an
-    // empty queue while the services published straight through it.
-    announcements: new DeferringBroadcaster(broadcast),
+    // The **same** services whatever collector is handed in, because these
+    // doubles were built before the runner existed and there is no store under
+    // them to rebuild. What a test on the fixtures can still see is which
+    // events the runner drained and when; where they were collected is
+    // `announcement-ownership.db.test.ts`'s, on real services.
+    batch: () => services,
+    announcements: broadcast,
   };
 }
 
@@ -98,5 +101,25 @@ function silentBroadcaster(): Broadcaster {
   return {
     publish: () => Promise.resolve(),
     latestSeq: () => Promise.resolve(-1),
+  };
+}
+
+/**
+ * The batch's services over an {@link inMemoryServices} plan — the doubles a
+ * runner test needs and nothing else.
+ *
+ * The directory is the plan's own store rather than a second double: a
+ * `createPerson` command and the assignment that names them are one batch, and
+ * two directories would make the person invisible to the assignment.
+ */
+export function batchServices(plan: InMemoryPlan): WritingServices {
+  return {
+    workItems: plan.service,
+    directory: testDirectoryService(plan.stores.directory),
+    capacity: testCapacityService(),
+    priorityBands: testPriorityBandService(),
+    projects: testProjectService(),
+    steps: testStepService(),
+    calendarMarkers: testCalendarMarkerService(),
   };
 }

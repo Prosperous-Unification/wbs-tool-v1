@@ -7,7 +7,7 @@ import { scheduleInputHash } from '@wbs/domain/canonical-schedule-input';
 import { afterEach, describe, expect, it } from 'bun:test';
 
 import { openDatabase, openDrizzle } from '../repository/db';
-import { DrizzleEventLogRepo } from '../repository/event-log';
+import { DrizzleEventLogStore } from '../repository/event-log';
 import { OPEN } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { reserveSolverSlot } from '../repository/optimization-admission';
@@ -165,7 +165,7 @@ function coordinator(
       return await childOf(request);
     },
     runChild,
-    eventLog: new DrizzleEventLogRepo(db, OPEN),
+    eventLog: new DrizzleEventLogStore(db, OPEN),
     pushRecorded: () => Promise.resolve(),
     onChildError,
   });
@@ -209,7 +209,7 @@ describe('OptimizationCoordinator read', () => {
         spawned.push(request);
         throw new Error('a drain reconciliation must not resume a solve');
       },
-      eventLog: new DrizzleEventLogRepo(db, OPEN),
+      eventLog: new DrizzleEventLogStore(db, OPEN),
       pushRecorded: () => Promise.resolve(),
       onChildError: (error) => errors.push(error),
       setInterval: (callback, milliseconds) => {
@@ -273,7 +273,7 @@ describe('OptimizationCoordinator read', () => {
         });
       },
       runChild: () => Promise.resolve({ kind: 'exited', code: 0 }),
-      eventLog: new DrizzleEventLogRepo(db, OPEN),
+      eventLog: new DrizzleEventLogStore(db, OPEN),
       pushRecorded: () => Promise.resolve(),
       onChildError: (error) => {
         throw error;
@@ -613,7 +613,7 @@ describe('OptimizationCoordinator read', () => {
         calls.push(request);
         throw new Error('an OFF project reached the launcher');
       },
-      eventLog: new DrizzleEventLogRepo(db, OPEN),
+      eventLog: new DrizzleEventLogStore(db, OPEN),
       pushRecorded: () => Promise.resolve(),
       onChildError: (error) => {
         throw error;
@@ -677,7 +677,7 @@ describe('OptimizationCoordinator read', () => {
         calls.push(request);
         throw new Error('an OFF project reached the launcher');
       },
-      eventLog: new DrizzleEventLogRepo(db, OPEN),
+      eventLog: new DrizzleEventLogStore(db, OPEN),
       pushRecorded: () => Promise.resolve(),
       onChildError: (error) => {
         throw error;
@@ -1362,7 +1362,7 @@ describe('OptimizationCoordinator Retry admission', () => {
           kill: () => undefined,
         });
       },
-      eventLog: new DrizzleEventLogRepo(db, OPEN),
+      eventLog: new DrizzleEventLogStore(db, OPEN),
       pushRecorded: () => Promise.resolve(),
       onChildError: (error) => {
         throw error;
@@ -1456,7 +1456,7 @@ describe('OptimizationCoordinator Retry admission', () => {
         });
       },
       runChild: () => Promise.resolve({ kind: 'exited', code: 0 }),
-      eventLog: new DrizzleEventLogRepo(db, OPEN),
+      eventLog: new DrizzleEventLogStore(db, OPEN),
       pushRecorded: () => Promise.resolve(),
       onChildError: (error) => errors.push(error),
       setInterval: () => 'drain-timer',

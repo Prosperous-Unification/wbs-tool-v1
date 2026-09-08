@@ -1,5 +1,5 @@
 import type { PlanEventStore } from '../repository';
-import type { EventLogRepo } from '../repository/event-log';
+import type { EventLogStore } from '../repository/event-log';
 import { runPlanEventRetention, runRetention } from './retention-job';
 
 /** What one sweep removed, per table, because the two are pruned by different rules. */
@@ -9,7 +9,7 @@ export interface Swept {
 }
 
 export interface RetentionTimerOptions {
-  repo: EventLogRepo;
+  repo: EventLogStore;
   maxPerSubscription: number;
   /**
    * The plan's history. **Required, not optional**, and for the reason

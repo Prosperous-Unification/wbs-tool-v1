@@ -1,21 +1,17 @@
 import { expect, spyOn, test } from 'bun:test';
 
 import { PlanCommandRunner } from '../service/plan-commands';
-import { testCapacityService } from '../testing/capacity-fixture';
-import { testDirectoryService } from '../testing/directory-fixture';
 import { inMemoryServices } from '../testing/harness';
-import { testPriorityBandService } from '../testing/priority-band-fixture';
-import { testWrites } from '../testing/writes-fixture';
+import { batchServices, testWrites } from '../testing/writes-fixture';
 import { workItemRoutes } from './work-item.routes';
 
 function fixture() {
   const plan = inMemoryServices();
+  const writes = testWrites(undefined, batchServices(plan));
   const runner = new PlanCommandRunner({
-    workItems: plan.service,
-    directory: testDirectoryService(plan.stores.directory),
-    capacity: testCapacityService(),
-    priorityBands: testPriorityBandService(),
-    ...testWrites(),
+    batchServices: writes.batch,
+    uow: writes.uow,
+    announcements: writes.announcements,
   });
   return { runner, endpoints: workItemRoutes(plan.service, runner) };
 }

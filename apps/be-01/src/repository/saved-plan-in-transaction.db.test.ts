@@ -4,16 +4,18 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
+import { buildStores } from '../services';
 import { projectRow } from '../testing/project-fixture';
 import type { Connection } from './db';
 import { openConnection, refuseToWaitForWriteLock } from './db';
-import { OPEN } from './gate';
+import { OPEN, WriteCoordinator } from './gate';
 import type { WriteStamp } from './index';
 import { runMigrations } from './migrate';
 import { ProjectRepository } from './project';
-import type { SavedPlanHoldingRow, SavedPlanWrite } from './saved-plan';
+import type { SavedPlanHoldingRow, SavedPlanWrite, SavedPlanWriteOutcome } from './saved-plan';
 import { SavedPlanRepository } from './saved-plan';
 import { savedPlan } from './schema';
+import { sqliteUnitOfWork } from './sqlite-unit-of-work';
 import { UserRepository } from './user';
 
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
@@ -152,4 +154,92 @@ describe('the quota is read inside the transaction that would write', () => {
     // Two, not three: the last slot went to the save that held the lock.
     expect((await headers()).map((row) => row.id).sort()).toEqual(['sp-held', 'sp-last']);
   });
+});
+
+/**
+ * Case (j) of the source kit's admission list, on the production call path.
+ *
+ * A saved plan is **independent of every batch** (D12, D27): it takes no turn at
+ * the write coordinator, so it neither waits for an open batch nor is undone by
+ * one. Both halves matter and they fail for different reasons — a save that
+ * waited would be a save an editing session can stall, and a save a rollback
+ * took would be a plan somebody made and cannot find.
+ *
+ * Written here rather than in the kit for now because the kit is a store kit
+ * and this is a claim about **two stores at once**; it moves with the rest in
+ * slice 5, where `sourceConformance` composes them.
+ */
+describe('a saved plan is independent of the batch beside it', () => {
+  let dir: string;
+  let path: string;
+  let reader: Connection;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), 'wbs-saved-plan-independent-'));
+    path = join(dir, 'test.db');
+    runMigrations(path, FOLDER);
+    const seed = openConnection(path);
+    await new UserRepository(seed.db, OPEN).create(
+      { id: 'owner', username: 'owner', passwordHash: 'x', createdAt: 1 },
+      wrote,
+    );
+    await new ProjectRepository(seed.db, OPEN).create(
+      projectRow({ id: 'p1', name: 'Rewire the shed', ownerId: 'owner' }),
+      [{ id: 'st-1', projectId: 'p1', name: 'Dev', position: 10 }],
+      wrote,
+    );
+    seed.close();
+    reader = openConnection(path);
+  });
+
+  afterEach(() => {
+    reader.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const savedNames = async (): Promise<string[]> =>
+    (await reader.db.select().from(savedPlan)).map((row) => row.name);
+
+  for (const outcome of ['commit', 'rollback'] as const) {
+    it(`survives a batch that ends in ${outcome}`, async () => {
+      const process = openConnection(path);
+      const coordinator = new WriteCoordinator();
+      const uow = sqliteUnitOfWork(process.db, coordinator, buildStores(process.db, OPEN));
+      const plans = new SavedPlanRepository({ openConnection: () => openConnection(path) });
+
+      // Collected into an array rather than assigned to a nullable local, for
+      // the reason the case above gives: an assignment inside a callback stays
+      // at its initial type to TypeScript's narrowing.
+      const saved: SavedPlanWriteOutcome<null>[] = [];
+      try {
+        await uow.run<'done'>(async (scope) => {
+          await scope.stores.steps.add({ id: 'st-2', projectId: 'p1', name: 'QA' }, wrote);
+          // Inside the batch's own turn, from outside the batch: a save that
+          // asked the coordinator for a turn would wait for this one and the
+          // case would time out. Proof: `SavedPlanRepository.write` given the
+          // process gate — `await coordinator.enter(...)` around its body —
+          // failed on `this test timed out after 5000ms`. Watched 2026-09-08.
+          saved.push(await plans.write(record('sp-beside'), () => Promise.resolve(null)));
+          return outcome === 'commit'
+            ? { commit: true, value: 'done' }
+            : { commit: false, value: 'done' };
+        });
+      } finally {
+        process.close();
+      }
+
+      // Either it got in, or it met the database's own write lock and said so —
+      // never "waited for the batch".
+      const outcomeOfSave = saved.at(0);
+      if (outcomeOfSave === undefined) throw new Error('the save never ran beside the batch');
+      expect(['written', 'snapshot_busy']).toContain(outcomeOfSave.outcome);
+      if (outcomeOfSave.outcome !== 'written') return;
+      // And a save that succeeded is still there whichever way the batch went.
+      // Proof: the rollback arm run against a source that swept saved plans
+      // into the batch's transaction is what D27 exists to forbid; the memory
+      // source's version of that fault — history put back inside the swapped
+      // clone — is slice 5's, where a memory source exists to break.
+      expect(await savedNames()).toContain('sp-beside');
+    });
+  }
 });

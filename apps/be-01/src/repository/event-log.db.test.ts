@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { type Drizzle, openDrizzle } from './db';
-import { DrizzleEventLogRepo } from './event-log';
+import { DrizzleEventLogStore } from './event-log';
 import { OPEN } from './gate';
 import { runMigrations } from './migrate';
 
@@ -13,21 +13,21 @@ const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 
 let dir: string;
 let db: Drizzle;
-let repo: DrizzleEventLogRepo;
+let repo: DrizzleEventLogStore;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'wbs-event-log-'));
   const path = join(dir, 'test.db');
   runMigrations(path, FOLDER);
   db = openDrizzle(path);
-  repo = new DrizzleEventLogRepo(db, OPEN);
+  repo = new DrizzleEventLogStore(db, OPEN);
 });
 
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-describe('DrizzleEventLogRepo.latestSeq', () => {
+describe('DrizzleEventLogStore.latestSeq', () => {
   it('reports the sequence of the most recent event', async () => {
     await repo.recordEvent('project:a', { n: 1 }, 100);
     await repo.recordEvent('project:a', { n: 2 }, 200);
@@ -65,7 +65,7 @@ describe('DrizzleEventLogRepo.latestSeq', () => {
  * here with the class deleted: they were always this repository's, asserted
  * through a pass-through that added a clock read and nothing else.
  */
-describe('DrizzleEventLogRepo.recordEvent', () => {
+describe('DrizzleEventLogStore.recordEvent', () => {
   it('numbers each subscription from its own zero', async () => {
     const a1 = await repo.recordEvent('project:a', { v: 1 }, 1_000);
     const a2 = await repo.recordEvent('project:a', { v: 2 }, 1_000);
@@ -100,7 +100,7 @@ describe('DrizzleEventLogRepo.recordEvent', () => {
     const callerPath = join(dir, 'caller.db');
     runMigrations(callerPath, FOLDER);
     const callerDb = openDrizzle(callerPath);
-    const callerRepo = new DrizzleEventLogRepo(callerDb, OPEN);
+    const callerRepo = new DrizzleEventLogStore(callerDb, OPEN);
 
     callerDb.transaction((tx) => {
       repo.recordEventIn(tx, 'project:a', { hello: 'caller' }, 6_000);

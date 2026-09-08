@@ -19,7 +19,7 @@ import { openDrizzle } from '../repository/db';
 import { DependencyRepository } from '../repository/dependency';
 import { DirectoryRepository } from '../repository/directory';
 import { EstimateRepository } from '../repository/estimate';
-import { DrizzleEventLogRepo } from '../repository/event-log';
+import { DrizzleEventLogStore } from '../repository/event-log';
 import { OPEN } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { ProjectRepository } from '../repository/project';
@@ -592,7 +592,7 @@ describe('step events', () => {
   });
 
   it('replays a step event to a client that reconnects', async () => {
-    const eventLog = new DrizzleEventLogRepo(db, OPEN);
+    const eventLog = new DrizzleEventLogStore(db, OPEN);
     const buffer = new ReplayBuffer({ maxPerSubscription: 100, maxAgeMs: 60_000 });
     const durable = new StepService({
       projects: projectStore,

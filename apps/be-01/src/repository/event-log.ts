@@ -11,9 +11,30 @@ export interface RecordedEvent {
   createdAt: number;
 }
 
+/**
+ * Drizzle's transaction handle, in a port's signature — which is the one thing
+ * left in this file that is not source-agnostic.
+ *
+ * It survives {@link EventLogStore.recordEventIn} because the optimizer's
+ * `storeOptimizedOutcomeAndRecord` writes a solver result and its durable
+ * replay record as one act on its **own** transaction, and moving that onto the
+ * unit of work is `dual-optimized-scheduler`'s slice rather than this one's
+ * (Wave 0 gate, 2026-09-08). Every other caller records through
+ * {@link EventLogStore.recordEvent}, which takes its own turn; a batch records
+ * through the copy on its scope, which is admitted.
+ */
 export type EventLogTransaction = Parameters<Parameters<SQLiteBunDatabase['transaction']>[0]>[0];
 
-export interface EventLogRepo {
+/**
+ * The durable record of what has been announced on a subscription — a store
+ * port of the source like the rest, and a **transactional** one (ADR 0015).
+ *
+ * On `Scope` it is the batch's own: the events a batch records live or die with
+ * its writes, which is what makes a replaying client and a live one see the
+ * same history. Replay and retention read and prune through the public, gated
+ * copy.
+ */
+export interface EventLogStore {
   recordEventIn(
     tx: EventLogTransaction,
     subscription: string,
@@ -36,7 +57,7 @@ export interface EventLogRepo {
   pruneBeyond(maxPerSubscription: number): Promise<number>;
 }
 
-export class DrizzleEventLogRepo implements EventLogRepo {
+export class DrizzleEventLogStore implements EventLogStore {
   constructor(
     private readonly db: SQLiteBunDatabase,
     private readonly gate: Gate,

@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, expectTypeOf, it, spyOn } from
 
 import type { Step } from '../repository';
 import { ActualRepository } from '../repository/actual';
+import { CalendarMarkerRepository } from '../repository/calendar-marker';
 import { CapacityRepository } from '../repository/capacity';
 import { CommandJournalRepository } from '../repository/command-journal';
 import type { Drizzle } from '../repository/db';
@@ -26,6 +27,7 @@ import { PriorityBandRepository } from '../repository/priority-band';
 import { ProjectRepository } from '../repository/project';
 import { person, personTeam, service, serviceTeam, tag, workItemType } from '../repository/schema';
 import { sqliteUnitOfWork } from '../repository/sqlite-unit-of-work';
+import { StepRepository } from '../repository/step';
 import { StepMeasureRepository } from '../repository/step-measure';
 import { StepProgressRepository } from '../repository/step-progress';
 import { UserRepository } from '../repository/user';
@@ -33,7 +35,8 @@ import { SubtreeRepository } from '../repository/work-item';
 import { WorkItemRepository } from '../repository/work-item';
 import { buildStores } from '../services';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
-import { type Broadcaster, DeferringBroadcaster } from './broadcast';
+import type { Broadcaster } from './broadcast';
+import { CalendarMarkerService } from './calendar-marker.service';
 import { CapacityService } from './capacity.service';
 import { DirectoryService } from './directory.service';
 import type { PlanCommand } from './plan-command';
@@ -46,6 +49,7 @@ import {
 } from './plan-commands';
 import { PriorityBandService } from './priority-band.service';
 import { ProjectService } from './project.service';
+import { StepService } from './step.service';
 import { WorkItemService, type WorkItemServiceOptions } from './work-item.service';
 
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
@@ -64,6 +68,13 @@ let dependencyStore: DependencyRepository;
 let directoryStore: DirectoryRepository;
 let journalStore: CommandJournalRepository;
 let planEvents: PlanEventRepository;
+let bandStore: PriorityBandRepository;
+/** Where the pinned `workItems` service's announcements go for the batch in hand. */
+let batchBroadcast: Broadcaster;
+const relayTo = (collector: Broadcaster): WorkItemService => {
+  batchBroadcast = collector;
+  return workItems;
+};
 let projectId: string;
 let ownerId: string;
 let steps: Step[];
@@ -88,7 +99,7 @@ beforeEach(async () => {
   journalStore = new CommandJournalRepository(db, OPEN);
   planEvents = new PlanEventRepository(db, OPEN);
   const capacityStore = new CapacityRepository(db, OPEN);
-  const bandStore = new PriorityBandRepository(db, OPEN);
+  bandStore = new PriorityBandRepository(db, OPEN);
   const broadcast = recordingBroadcaster();
 
   ownerId = crypto.randomUUID();
@@ -119,29 +130,51 @@ beforeEach(async () => {
     journal: journalStore,
     broadcast,
   };
-  workItems = new WorkItemService(serviceOptions);
-  // The wrapper the composition root builds, and the same object the three
-  // services below publish through: a batch holds their announcements until it
-  // has committed and let go of the lock, and a second wrapper would hold
-  // nothing while they published straight past it.
-  const announcements = new DeferringBroadcaster(broadcast);
+  // One work-item service for the whole file, so a `spyOn` in a case still
+  // reaches the object the runner uses. Its announcements are relayed to
+  // whichever collector the runner hands in, which is what the per-batch graph
+  // does for real; only the *identity* is pinned here, and pinning it is what
+  // makes a spy possible at all.
+  workItems = new WorkItemService({
+    ...serviceOptions,
+    broadcast: {
+      publish: (id, event) => batchBroadcast.publish(id, event),
+      latestSeq: (id) => batchBroadcast.latestSeq(id),
+    },
+  });
+  batchBroadcast = broadcast;
   runnerOptions = {
-    workItems,
-    directory: new DirectoryService({ directory: directoryStore, broadcast: announcements }),
-    capacity: new CapacityService({
-      projects: projectStore,
-      capacity: capacityStore,
-      broadcast: announcements,
-    }),
-    priorityBands: new PriorityBandService({
-      projects: projectStore,
-      bands: bandStore,
-      broadcast: announcements,
+    // The batch's graph, built over whichever collector the runner hands in —
+    // which is what makes these services' announcements the batch's own.
+    batchServices: (collector) => ({
+      workItems: relayTo(collector),
+      directory: new DirectoryService({ directory: directoryStore, broadcast: collector }),
+      capacity: new CapacityService({
+        projects: projectStore,
+        capacity: capacityStore,
+        broadcast: collector,
+      }),
+      priorityBands: new PriorityBandService({
+        projects: projectStore,
+        bands: bandStore,
+        broadcast: collector,
+      }),
+      projects: new ProjectService({ projects: projectStore, broadcast: collector }),
+      steps: new StepService({
+        projects: projectStore,
+        steps: new StepRepository(db, OPEN),
+        broadcast: collector,
+      }),
+      calendarMarkers: new CalendarMarkerService({
+        projects: projectStore,
+        markers: new CalendarMarkerRepository(db, OPEN),
+        broadcast: collector,
+      }),
     }),
     // The real unit of work over this file's own connection: every case here
     // is about what a batch leaves behind, which is the transaction's answer.
     uow: sqliteUnitOfWork(db, new WriteCoordinator(), buildStores(db, OPEN)),
-    announcements,
+    announcements: broadcast,
   };
   runner = new PlanCommandRunner(runnerOptions);
   const created = await new ProjectService({
@@ -461,8 +494,15 @@ describe('a command batch', () => {
       publish: () => held,
       latestSeq: () => Promise.resolve(0),
     };
-    const slowItems = new WorkItemService({ ...serviceOptions, broadcast: slow });
-    const slowRunner = new PlanCommandRunner({ ...runnerOptions, workItems: slowItems });
+    // The slow publisher replaces the batch graph's work-item service, so the
+    // held batch is the one driven through `slowRunner` by construction.
+    const slowRunner = new PlanCommandRunner({
+      ...runnerOptions,
+      batchServices: (collector) => ({
+        ...runnerOptions.batchServices(collector),
+        workItems: new WorkItemService({ ...serviceOptions, broadcast: slow }),
+      }),
+    });
     const fastRunner = new PlanCommandRunner(runnerOptions);
 
     const batchA = { state: 'pending' as 'pending' | 'applied' };
@@ -496,9 +536,9 @@ describe('a command batch', () => {
     // above gives: the runner that publishes slowly is the one driven here.
     //
     // Proof: with `DirectoryService`'s `broadcast` given the raw broadcaster
-    // instead of the shared `DeferringBroadcaster` — the shape this shipped in —
+    // instead of the batch's own collector — the shape this shipped in —
     // watched failing on `this test timed out after 5000ms`, batch B never
-    // reaching the lock (2026-09-02).
+    // reaching the lock (2026-09-02, and again on the collector 2026-09-08).
     let releaseTag: () => void = () => undefined;
     const held = new Promise<void>((resume) => {
       releaseTag = resume;
@@ -507,14 +547,11 @@ describe('a command batch', () => {
       publish: () => held,
       latestSeq: () => Promise.resolve(0),
     };
-    const slowAnnouncements = new DeferringBroadcaster(slowPushes);
     const tagRunner = new PlanCommandRunner({
       ...runnerOptions,
-      directory: new DirectoryService({
-        directory: directoryStore,
-        broadcast: slowAnnouncements,
-      }),
-      announcements: slowAnnouncements,
+      // The batch's own graph over its collector, as always; what is slow is
+      // where the collector drains **to**, which is after the turn is let go.
+      announcements: slowPushes,
     });
 
     // The tag has to be **on** something for its rename to touch a project:
@@ -627,9 +664,7 @@ describe('the priority a create writes', () => {
     // And 50 is the *third rung* of this project's ladder rather than a number
     // that happens to be 50: the rank is the contract, the figure is what this
     // ladder cuts it at.
-    expect(priorityBandRankOf(await runnerOptions.priorityBands.listFor(projectId), 50)).toBe(
-      ORDINARY_BAND_RANK,
-    );
+    expect(priorityBandRankOf(await bandStore.listFor(projectId), 50)).toBe(ORDINARY_BAND_RANK);
   });
 
   it('a re-cut ladder moves the default', async () => {

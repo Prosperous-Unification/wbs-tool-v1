@@ -1,8 +1,8 @@
 import type { PlanEventStore } from '../repository';
-import type { EventLogRepo } from '../repository/event-log';
+import type { EventLogStore } from '../repository/event-log';
 
 export function runRetention(
-  repo: EventLogRepo,
+  repo: EventLogStore,
   opts: { maxPerSubscription: number },
 ): Promise<number> {
   return repo.pruneBeyond(opts.maxPerSubscription);

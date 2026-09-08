@@ -100,7 +100,8 @@ function touchRefusal(outcome: Exclude<SavedPlanTouchResult['outcome'], 'touched
  * Six saved-plan operations. Saves use project write access; rename/delete defer
  * to the service's creator-or-owner rule. Actor identity comes from policy admission.
  * Successful mutations announce only after the service commits and releases its
- * lock, through the shared per-caller DeferringBroadcaster. Refusals publish nothing.
+ * turn, through the process's own broadcaster — a saved plan is never part of
+ * a batch, so nothing collects its event. Refusals publish nothing.
  */
 export function savedPlanRoutes(
   plans: SavedPlanService,

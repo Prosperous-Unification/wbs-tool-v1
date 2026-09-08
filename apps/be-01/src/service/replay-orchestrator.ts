@@ -1,4 +1,4 @@
-import type { EventLogRepo } from '../repository/event-log';
+import type { EventLogStore } from '../repository/event-log';
 import type { ReplayBuffer } from './replay-buffer';
 
 export interface ReplayEvent {
@@ -10,7 +10,7 @@ export type ReplayOutcome =
   { status: 'replaying'; events: ReplayEvent[] } | { status: 'denied'; reason: 'out_of_range' };
 
 export interface ReplayOrchestratorOptions {
-  log: EventLogRepo;
+  log: EventLogStore;
   buffer: ReplayBuffer;
   /**
    * The largest replay served. Beyond it the answer is a refusal and the client

@@ -7,7 +7,7 @@ import { createLogger } from '@wbs/observability';
 import { afterEach, describe, expect, it } from 'bun:test';
 
 import { openDrizzle } from './repository/db';
-import { DrizzleEventLogRepo } from './repository/event-log';
+import { DrizzleEventLogStore } from './repository/event-log';
 import { OPEN } from './repository/gate';
 import { WriteCoordinator } from './repository/gate';
 import { runMigrations } from './repository/migrate';
@@ -111,7 +111,7 @@ describe('buildServices', () => {
 
     // Emptying the log leaves the replay intact, which it could only do if the
     // event is in the buffer the orchestrator was handed.
-    await new DrizzleEventLogRepo(db, OPEN).pruneBeyond(0);
+    await new DrizzleEventLogStore(db, OPEN).pruneBeyond(0);
     expect(await services.replay.replay({ [subscription]: -1 })).toEqual(fromBuffer);
   });
 
@@ -132,7 +132,7 @@ describe('buildServices', () => {
     const { projectId, ownerId } = await seedProject(db);
 
     const subscription = `project:${projectId}`;
-    const log = new DrizzleEventLogRepo(db, OPEN);
+    const log = new DrizzleEventLogStore(db, OPEN);
     const before = await log.latestSeq(subscription);
 
     const written = await services.calendarMarkers.create(projectId, ownerId, {
@@ -162,7 +162,7 @@ describe('buildServices', () => {
     const { projectId, ownerId } = await seedProject(db);
 
     const subscription = `project:${projectId}`;
-    const log = new DrizzleEventLogRepo(db, OPEN);
+    const log = new DrizzleEventLogStore(db, OPEN);
     const seq = () => log.latestSeq(subscription);
     const start = await seq();
 

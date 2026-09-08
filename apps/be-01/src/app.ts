@@ -21,7 +21,7 @@ import { identityResolver } from './http/identity';
 import { openApiPlugin } from './openapi/openapi-plugin';
 import type { DatabaseHealth } from './repository/health-probe';
 import type { AuthService } from './service/auth.service';
-import type { DeferringBroadcaster } from './service/broadcast';
+import type { Broadcaster } from './service/broadcast';
 import type { CalendarMarkerService } from './service/calendar-marker.service';
 import type { CapacityService } from './service/capacity.service';
 import type { DirectoryService } from './service/directory.service';
@@ -139,19 +139,19 @@ export interface AppOptions {
      */
     uow: UnitOfWork;
     /**
-     * The services a batch writes through, built over stores that hold no turn
-     * because the batch holds it for them (D20). These are **not** the services
-     * beside them in these options: those take a turn per write, which is what
-     * keeps a route write out of an open batch.
+     * How a batch's services are built: over stores that hold no turn because
+     * the batch holds it for them (D20), and over the collector the runner
+     * hands in so the batch's announcements are its own (D24). These are
+     * **not** the services beside them in these options: those take a turn per
+     * write and publish straight through, which is what keeps a route write —
+     * and a route event — out of an open batch.
      */
-    batch: WritingServices;
+    batch: (broadcast: Broadcaster) => WritingServices;
     /**
-     * The broadcaster the directory, capacity and priority-band services were
-     * built with, so a batch can hold their announcements until it has committed
-     * and let go of the lock. It has to be the *same* object those services
-     * publish through — a second one would hold nothing.
+     * Where a batch's collected announcements go once it has committed and let
+     * go of its turn, and where every route publishes directly.
      */
-    announcements: DeferringBroadcaster;
+    announcements: Broadcaster;
   };
   /**
    * The commit the checkout on disk is at, read fresh on every `/health` call.
@@ -191,10 +191,7 @@ export function mountedEndpoints(
     maxConcurrent: opts.maxConcurrentLogins ?? 8,
   });
   const commands = new PlanCommandRunner({
-    workItems: opts.writes.batch.workItems,
-    directory: opts.writes.batch.directory,
-    capacity: opts.writes.batch.capacity,
-    priorityBands: opts.writes.batch.priorityBands,
+    batchServices: opts.writes.batch,
     uow: opts.writes.uow,
     announcements: opts.writes.announcements,
   });

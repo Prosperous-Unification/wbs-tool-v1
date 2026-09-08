@@ -7,7 +7,7 @@ import { DeadlineClock } from '@wbs/runtime-portable/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { drizzleOuterTransaction, openDrizzle } from '../repository/db';
-import { DrizzleEventLogRepo } from '../repository/event-log';
+import { DrizzleEventLogStore } from '../repository/event-log';
 import { WriteCoordinator } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { subscriptionFor } from './broadcast';
@@ -53,7 +53,7 @@ describe('the durable record of a project event', () => {
 
   function bootstrap(): {
     broadcaster: GatewayBroadcaster;
-    eventLog: DrizzleEventLogRepo;
+    eventLog: DrizzleEventLogStore;
     lock: WriteCoordinator;
     buffer: ReplayBuffer;
   } {
@@ -62,7 +62,7 @@ describe('the durable record of a project event', () => {
     // Over the coordinator, which is where the durable record's turn is taken
     // now: the broadcaster used to wrap this call in `lock.run` itself, and the
     // store taking its own turn is the same exclusion said once.
-    const eventLog = new DrizzleEventLogRepo(db, lock);
+    const eventLog = new DrizzleEventLogStore(db, lock);
     return {
       eventLog,
       lock,
@@ -102,7 +102,7 @@ describe('the durable record of a project event', () => {
     // it inline, so a caller that merely called `enter` has not opened anything
     // yet. Awaiting this is what puts the publish inside the window instead of
     // in front of it — without it the mutation below stays green, because
-    // `DrizzleEventLogRepo.recordEvent` runs its statement synchronously and
+    // `DrizzleEventLogStore.recordEvent` runs its statement synchronously and
     // wins the race.
     const open = new Promise<void>((resolve) => {
       announceOpen = resolve;
@@ -178,7 +178,7 @@ describe('the durable record of a project event', () => {
       deliver = resolve;
     });
     const lock = new WriteCoordinator();
-    const eventLog = new DrizzleEventLogRepo(db, lock);
+    const eventLog = new DrizzleEventLogStore(db, lock);
     const broadcaster = new GatewayBroadcaster({
       eventLog,
       buffer: new ReplayBuffer({ maxPerSubscription: 100, maxAgeMs: 60_000 }),
@@ -207,7 +207,7 @@ describe('the durable record of a project event', () => {
   it('retains a durable edit and releases the lock when real push expires', async () => {
     const timers = new DeadlineClock();
     const lock = new WriteCoordinator();
-    const eventLog = new DrizzleEventLogRepo(db, lock);
+    const eventLog = new DrizzleEventLogStore(db, lock);
     const buffer = new ReplayBuffer({ maxPerSubscription: 100, maxAgeMs: 60000 });
     const failures: unknown[] = [];
     let aborted = false;

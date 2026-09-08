@@ -7,20 +7,18 @@ import type {
   TeamWithServices,
   WorkItemType,
 } from '../repository';
-import type { DeferringBroadcaster, HeldAnnouncement } from './broadcast';
-import type { CapacityService } from './capacity.service';
+import type { WritingServices } from '../services';
+import { AnnouncementCollector, type Broadcaster } from './broadcast';
 import type {
   DirectoryOutcome,
   DirectoryRefusal,
   RemoveDirectoryOutcome,
 } from './directory.service';
-import type { DirectoryService } from './directory.service';
 import type { DirectoryUsage } from './directory-usage';
 import { MOST_COMMANDS_IN_A_BATCH, type PlanCommand, type PlanCommandKind } from './plan-command';
-import type { PriorityBandService } from './priority-band.service';
 import type { Decision, UnitOfWork } from './unit-of-work';
 import type { WorkItemRefusal } from './work-item.service';
-import type { Collected, UndoOutcome, WorkItemService } from './work-item.service';
+import type { Collected, UndoOutcome } from './work-item.service';
 
 /**
  * What one step of an applied batch produced: the id of anything it created,
@@ -95,23 +93,32 @@ export type BatchOutcome =
   { ok: true; results: AppliedCommand[]; undoable: boolean; redoable: boolean } | BatchRefusal;
 
 export interface PlanCommandRunnerOptions {
-  workItems: WorkItemService;
-  directory: DirectoryService;
-  capacity: CapacityService;
-  priorityBands: PriorityBandService;
+  /**
+   * The batch's own service graph, built **per batch** over the broadcaster
+   * this runner hands it (D24).
+   *
+   * A factory rather than the services themselves, and that is the whole of who
+   * owns an announcement: every batch gets its own {@link AnnouncementCollector},
+   * and the graph built over it publishes into that batch and nowhere else. A
+   * route's graph is built over the direct broadcaster and is never this one, so
+   * a committed route event cannot be dropped by somebody else's refusal.
+   *
+   * The stores underneath are the same objects every time, over an already-open
+   * gate because this runner holds the turn for them (D20). What is rebuilt per
+   * batch is the thin service layer, which holds no state but its collector.
+   */
+  batchServices: (broadcast: Broadcaster) => WritingServices;
   /**
    * What the batch is one of. It takes the source's one turn for the whole act
-   * and settles every write together (ADR 0015); the services above write
-   * through stores built over an already-open gate, because they are the
-   * batch's own and a second turn would wait for this one (D20).
+   * and settles every write together (ADR 0015).
    */
   uow: UnitOfWork;
   /**
-   * The broadcaster the directory, capacity and priority-band services publish
-   * through, so this runner can hold their announcements until the batch has
-   * committed and let go of the lock. See {@link DeferringBroadcaster}.
+   * Where a batch's collected announcements go once it has committed and let go
+   * of its turn. The **direct** broadcaster: nothing between the runner and the
+   * gateway holds anything back.
    */
-  announcements: DeferringBroadcaster;
+  announcements: Broadcaster;
 }
 
 /** The kinds that need no project: the directory's. */
@@ -186,8 +193,9 @@ export class PlanCommandRunner {
    *
    * That rule used to be this method's alone, and three services it calls broke
    * it by publishing from inside `applyAll`. They publish through
-   * {@link DeferringBroadcaster} now, held for the length of the transaction and
-   * drained here — so the rule is one mechanism rather than four conventions.
+   * this batch's own {@link AnnouncementCollector} now, held for the length of
+   * the unit of work and drained here — so the rule is one mechanism rather
+   * than four conventions.
    *
    * **The hold sits inside `lock.run`, not around it**, and that is not a
    * detail: `execute` runs concurrently for every queued batch and only the lock
@@ -207,11 +215,11 @@ export class PlanCommandRunner {
     actorId: string,
     commands: readonly PlanCommand[],
   ): Promise<BatchOutcome> {
-    const { announcements } = this.opts;
-    interface Applied {
-      applied: BatchOutcome | Collected<AppliedCommand[]>;
-      pending: HeldAnnouncement[];
-    }
+    // This batch's own collector and its own graph over it. Two batches never
+    // share either, and no route's graph is built over this one.
+    const collector = new AnnouncementCollector(this.opts.announcements);
+    const graph = this.opts.batchServices(collector);
+    type Applied = BatchOutcome | Collected<AppliedCommand[]>;
     const done = await this.opts.uow.run<Applied>(async (): Promise<Decision<Applied>> => {
       // Proof: admitting one extra command returned404 instead of400 in the mounted cap-order case.
       const over = commands.at(MOST_COMMANDS_IN_A_BATCH);
@@ -224,60 +232,55 @@ export class PlanCommandRunner {
           // decides *when*, only *whether*.
           commit: false,
           value: {
-            applied: {
-              ok: false,
-              at: MOST_COMMANDS_IN_A_BATCH,
-              kind: over.kind,
-              reason: 'too_many_commands',
-            },
-            pending: [],
+            ok: false,
+            at: MOST_COMMANDS_IN_A_BATCH,
+            kind: over.kind,
+            reason: 'too_many_commands',
           },
         };
       }
-      const { workItems } = this.opts;
-      const held = await announcements.hold(
-        async (): Promise<BatchOutcome | Collected<AppliedCommand[]>> => {
-          try {
-            const collected = await workItems.collect(() =>
-              this.applyAll(projectId, actorId, commands),
-            );
-            if (projectId !== null) {
-              await workItems.recordCollected(projectId, actorId, collected.recordings);
-            }
-            return collected;
-          } catch (cause) {
-            if (cause instanceof Refused) {
-              return { ok: false, at: cause.at, kind: cause.kind, ...cause.refusal };
-            }
-            throw cause;
-          }
-        },
-      );
-      // A refusal rolls the unit of work back, so whatever it queued describes
-      // writes that will not be there. Dropped rather than sent.
-      if ('ok' in held.result) {
-        return { commit: false, value: { applied: held.result, pending: [] } };
+      let applied: Applied;
+      try {
+        const collected = await graph.workItems.collect(() =>
+          this.applyAll(graph, projectId, actorId, commands),
+        );
+        if (projectId !== null) {
+          await graph.workItems.recordCollected(projectId, actorId, collected.recordings);
+        }
+        applied = collected;
+      } catch (cause) {
+        if (cause instanceof Refused) {
+          applied = { ok: false, at: cause.at, kind: cause.kind, ...cause.refusal };
+        } else throw cause;
       }
-      return { commit: true, value: { applied: held.result, pending: held.pending } };
+      // A refusal rolls the unit of work back, so whatever this batch collected
+      // describes writes that will not be there. Dropped rather than sent —
+      // which is one `if`, because the collector is this batch's alone.
+      return 'ok' in applied ? { commit: false, value: applied } : { commit: true, value: applied };
     });
-    const { applied, pending } = done;
-    if ('ok' in applied) return applied;
-    // Out of the lock and after the commit, which is what the whole hold is for.
-    await announcements.send(pending);
-    const { workItems } = this.opts;
+    if ('ok' in done) return done;
+    // After the commit and after the turn is let go, which is what the whole
+    // collector is for.
+    await collector.send();
     if (projectId === null)
-      return { ok: true, results: applied.result, undoable: false, redoable: false };
-    if (applied.dirty) await workItems.announceTreeNow(projectId);
-    const state = await workItems.undoState(projectId, actorId);
-    return { ok: true, results: applied.result, ...state };
+      return { ok: true, results: done.result, undoable: false, redoable: false };
+    // Through a graph over the **direct** broadcaster, because this runs after
+    // the collector has been drained: a tree announcement made through the
+    // batch's own collector would be collected by an object nothing will drain
+    // again, and the event would never leave. It is the same reason it happens
+    // out here at all — the push is a network call and the turn is long gone.
+    const afterCommit = this.opts.batchServices(this.opts.announcements);
+    if (done.dirty) await afterCommit.workItems.announceTreeNow(projectId);
+    const state = await afterCommit.workItems.undoState(projectId, actorId);
+    return { ok: true, results: done.result, ...state };
   }
 
   undo(projectId: string, actorId: string): Promise<UndoOutcome> {
-    return this.walk(projectId, () => this.opts.workItems.undo(projectId, actorId));
+    return this.walk(projectId, (graph) => graph.workItems.undo(projectId, actorId));
   }
 
   redo(projectId: string, actorId: string): Promise<UndoOutcome> {
-    return this.walk(projectId, () => this.opts.workItems.redo(projectId, actorId));
+    return this.walk(projectId, (graph) => graph.workItems.redo(projectId, actorId));
   }
 
   /**
@@ -286,13 +289,18 @@ export class PlanCommandRunner {
    * too — and then discards the stale entry again through `afterRollback`,
    * because the service's own discard went with the rollback.
    */
-  private async walk(projectId: string, step: () => Promise<UndoOutcome>): Promise<UndoOutcome> {
-    const { workItems } = this.opts;
+  private async walk(
+    projectId: string,
+    step: (graph: WritingServices) => Promise<UndoOutcome>,
+  ): Promise<UndoOutcome> {
+    const collector = new AnnouncementCollector(this.opts.announcements);
+    const graph = this.opts.batchServices(collector);
+    const { workItems } = graph;
     // The step's own broadcast is collected rather than sent, for the reason
     // `execute` gives: the push happens after the turn is let go.
     const walked = await this.opts.uow.run<Collected<UndoOutcome>>(
       async (): Promise<Decision<Collected<UndoOutcome>>> => {
-        const collected = await workItems.collect(step);
+        const collected = await workItems.collect(() => step(graph));
         if (collected.result.ok) return { commit: true, value: collected };
         const entryId = collected.result.entryId;
         return {
@@ -320,11 +328,17 @@ export class PlanCommandRunner {
         };
       },
     );
-    if (walked.dirty) await workItems.announceTreeNow(projectId);
+    await collector.send();
+    // The direct broadcaster, for `execute`'s reason: the collector has been
+    // drained and will not be again.
+    if (walked.dirty) {
+      await this.opts.batchServices(this.opts.announcements).workItems.announceTreeNow(projectId);
+    }
     return walked.result;
   }
 
   private async applyAll(
+    graph: WritingServices,
     scope: string | null,
     actorId: string,
     commands: readonly PlanCommand[],
@@ -367,7 +381,7 @@ export class PlanCommandRunner {
         return { index, ref, id: created };
       };
       const plain = (): AppliedBase => ({ index });
-      const { workItems, directory, capacity, priorityBands } = this.opts;
+      const { workItems, directory, capacity, priorityBands } = graph;
       const refuseOutcome = (outcome: ServiceRefusal): never => {
         if (outcome.reason === 'taken')
           return refuse({ reason: 'taken', detail: { name: outcome.name } });

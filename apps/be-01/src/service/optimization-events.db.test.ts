@@ -9,7 +9,7 @@ import { scheduleInputHash } from '@wbs/domain/canonical-schedule-input';
 import { afterEach, describe, expect, it } from 'bun:test';
 
 import { openDatabase, openDrizzle } from '../repository/db';
-import { DrizzleEventLogRepo, type RecordedEvent } from '../repository/event-log';
+import { DrizzleEventLogStore, type RecordedEvent } from '../repository/event-log';
 import { OPEN } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { reserveSolverSlot } from '../repository/optimization-admission';
@@ -150,7 +150,7 @@ describe('optimized outcome events', () => {
         launches += 1;
         throw new Error('preflight failure reached launcher');
       },
-      eventLog: new DrizzleEventLogRepo(db, OPEN),
+      eventLog: new DrizzleEventLogStore(db, OPEN),
       pushRecorded: (_subscription, _recorded, event) => {
         pushed.push(event);
         return Promise.resolve();
@@ -197,7 +197,7 @@ describe('optimized outcome events', () => {
 
     for (const reason of reasons) {
       const { path, db } = database();
-      const eventLog = new DrizzleEventLogRepo(db, OPEN);
+      const eventLog = new DrizzleEventLogStore(db, OPEN);
       const base = admittedWrite(db);
       const committed = storeOptimizedOutcomeAndRecord(db, eventLog, {
         ...base,
@@ -261,7 +261,7 @@ describe('optimized outcome events', () => {
         await options.onExit({ code: 0, stdout: INFEASIBLE_RESPONSE, stderr: '' });
         return { kind: 'exited', code: 0 };
       },
-      eventLog: new DrizzleEventLogRepo(db, OPEN),
+      eventLog: new DrizzleEventLogStore(db, OPEN),
       pushRecorded: (_subscription, _recorded, event) => {
         pushed.push(event);
         return Promise.resolve();
@@ -296,7 +296,7 @@ describe('optimized outcome events', () => {
         budgetMs: BUDGET,
       },
     ]);
-    expect(await new DrizzleEventLogRepo(db, OPEN).rangeSince('project:p-1', -1)).toHaveLength(2);
+    expect(await new DrizzleEventLogStore(db, OPEN).rangeSince('project:p-1', -1)).toHaveLength(2);
     const raw = openDatabase(path);
     try {
       expect(
@@ -362,7 +362,7 @@ describe('optimized outcome events', () => {
         await options.onExit({ code: 0, stdout: RESPONSE, stderr: '' });
         return { kind: 'exited', code: 0 };
       },
-      eventLog: new DrizzleEventLogRepo(db, OPEN),
+      eventLog: new DrizzleEventLogStore(db, OPEN),
       pushRecorded: (_subscription, recorded, event) => {
         const raw = openDatabase(path);
         try {
@@ -458,7 +458,7 @@ describe('optimized outcome events', () => {
 
   it('replays the durable record when the process stops before the live push', async () => {
     const { db } = database();
-    const eventLog = new DrizzleEventLogRepo(db, OPEN);
+    const eventLog = new DrizzleEventLogStore(db, OPEN);
     const committed = storeOptimizedOutcomeAndRecord(db, eventLog, admittedWrite(db));
 
     expect(committed.result).toBe('stored');

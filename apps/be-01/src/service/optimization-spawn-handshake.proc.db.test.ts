@@ -6,7 +6,7 @@ import type { ScheduleInput } from '@wbs/domain/canonical-schedule-input';
 import { afterEach, describe, expect, it } from 'bun:test';
 
 import { openDatabase, openDrizzle } from '../repository/db';
-import { DrizzleEventLogRepo } from '../repository/event-log';
+import { DrizzleEventLogStore } from '../repository/event-log';
 import { OPEN } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { solverSlot } from '../repository/schema';
@@ -164,7 +164,7 @@ describe('the two-coordinator spawn handshake', () => {
           if (owner === 'blue') await paused.promise;
           return attempt.child;
         },
-        eventLog: new DrizzleEventLogRepo(db, OPEN),
+        eventLog: new DrizzleEventLogStore(db, OPEN),
         pushRecorded: () => Promise.resolve(),
         onChildError: (error) => errors.push(error),
       });

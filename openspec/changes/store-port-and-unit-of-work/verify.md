@@ -46,6 +46,29 @@ Re-run 2026-09-08 against `main` @ `d2e14214`, over the file set the change decl
 The whole-workspace gate is slice 6's, on a frozen tree. Nothing outside `apps/be-01`
 changed in this slice.
 
+## Slice 3b — the event log, the store composition, and the history outside the batch
+
+| Command                                             | When       | Result                                                 |
+| --------------------------------------------------- | ---------- | ------------------------------------------------------ |
+| `bun test` in `apps/be-01`                          | 2026-09-08 | **2008 pass, 1 skip, 0 fail**, 20,011 assertions, 115s |
+| `bunx tsc --build --force apps/be-01/tsconfig.json` | 2026-09-08 | clean                                                  |
+| `bunx eslint apps/be-01/src`                        | 2026-09-08 | clean                                                  |
+
+## Slice 3 — the announcement collector
+
+| Command                                             | When       | Result                                                 |
+| --------------------------------------------------- | ---------- | ------------------------------------------------------ |
+| `bun test` in `apps/be-01`                          | 2026-09-08 | **2006 pass, 1 skip, 0 fail**, 20,009 assertions, 114s |
+| `bun run test:unit` (be-01 + every lib)             | 2026-09-08 | 7 tasks, all passing, 2.3s                             |
+| `bunx nx run be-01:lint --skip-nx-cache`            | 2026-09-08 | clean                                                  |
+| `bunx tsc --build --force apps/be-01/tsconfig.json` | 2026-09-08 | clean                                                  |
+
+The window (l) is about needed building before it could be observed: the route has to be
+suspended **between its store write and its own publish**, with the batch suspended mid-`applyAll`
+so its hold is open across that publish. The first version of the case suspended inside the
+_inner_ broadcaster — after the ownership decision — and passed with the ambient slot injected.
+A case that samples the wrong side of the decision is a check that cannot fail.
+
 ## Slice 2 — the unit of work
 
 | Command                                             | When       | Result                                                                       |

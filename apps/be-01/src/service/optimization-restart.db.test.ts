@@ -7,7 +7,7 @@ import { scheduleInputHash } from '@wbs/domain/canonical-schedule-input';
 import { afterEach, describe, expect, it } from 'bun:test';
 
 import { openDatabase, openDrizzle } from '../repository/db';
-import { DrizzleEventLogRepo } from '../repository/event-log';
+import { DrizzleEventLogStore } from '../repository/event-log';
 import { OPEN } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { reserveSolverSlot } from '../repository/optimization-admission';
@@ -124,7 +124,7 @@ function restarted(
         kill: () => undefined,
       });
     },
-    eventLog: new DrizzleEventLogRepo(db, OPEN),
+    eventLog: new DrizzleEventLogStore(db, OPEN),
     pushRecorded: () => Promise.resolve(),
     setInterval: interval,
     clearInterval: () => undefined,

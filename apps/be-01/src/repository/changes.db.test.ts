@@ -39,7 +39,7 @@ function seedEvents(howMany: number): void {
  * whole reason the two retention sweeps wrap their delete and their count in one
  * transaction.
  *
- * `PlanEventRepository.pruneOlderThan` and `DrizzleEventLogRepo.pruneBeyond`
+ * `PlanEventRepository.pruneOlderThan` and `DrizzleEventLogStore.pruneBeyond`
  * both `await` between the delete and the count until 2026-09-02, and neither
  * holds the write lock (they are the retention timer's, not a request's). A plan
  * command landing in that window hands its own row count to the sweep's log

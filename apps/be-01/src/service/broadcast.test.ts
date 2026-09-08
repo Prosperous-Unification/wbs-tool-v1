@@ -8,7 +8,7 @@ import {
 } from '../testing/calendar-marker-fixture';
 import { inMemoryServices } from '../testing/harness';
 import { inMemoryProjects, projectRow } from '../testing/project-fixture';
-import { DeferringBroadcaster, type ProjectEvent } from './broadcast';
+import { AnnouncementCollector, type ProjectEvent } from './broadcast';
 import type { CalendarMarkerService } from './calendar-marker.service';
 import type { WorkItemService } from './work-item.service';
 
@@ -134,43 +134,58 @@ describe('what a project subscriber receives', () => {
 });
 
 /**
- * The nested-hold guard, which R5 requires a negative test for because
- * TASK-256 changed what it inspects.
+ * What the nested-hold guard was for, and what replaced it.
  *
- * It used to read instance state, so it caught two *concurrent* batches and
- * that is the failure it was written for — `plan-commands.ts`'s `Proof:`
- * comment names one, watched 2026-09-02. Making the queue per-caller retired
- * that symptom: concurrent batches now get a store each and never meet here.
- * What is left is the case the guard is actually still needed for, and it is a
- * different one — a hold opened *inside* another hold's own context, which
- * `AsyncLocalStorage` would answer by shadowing the parent's store. The parent
- * would then commit having been told nothing about what the child announced,
- * which is the same silent drop this whole task is about, one level in.
+ * The guard lived on `DeferringBroadcaster`, whose queue was an
+ * `AsyncLocalStorage` store: a hold opened inside another hold's own context
+ * shadowed its parent's, so the parent committed having been told nothing about
+ * what the child announced. There is no such window now — a collector is an
+ * object a graph was built over, and two batches are two objects — so the guard
+ * is gone with the class rather than left standing over a case that cannot
+ * happen.
  *
- * So the guard's reachable path narrowed and its test had to follow. Without
- * one, deleting the two lines leaves the suite green.
+ * What is left to hold is what the collector actually promises: nothing leaves
+ * until it is drained, the dedupe rule for content-free events, and the order.
  */
-describe('DeferringBroadcaster refuses a nested hold', () => {
-  it('throws rather than shadowing the outer hold, and the outer queue survives', async () => {
+describe('a batch collects its own announcements', () => {
+  it('sends nothing until it is drained, then everything in order', async () => {
     const inner = recordingBroadcaster();
-    const broadcaster = new DeferringBroadcaster(inner);
+    const collector = new AnnouncementCollector(inner);
 
-    let nested: unknown;
-    const { pending } = await broadcaster.hold(async () => {
-      await broadcaster.publish('p-1', { type: 'directory_changed' });
-      nested = await broadcaster
-        .hold(() => Promise.resolve(undefined))
-        .then(() => undefined)
-        .catch((error: unknown) => error);
-    });
-
-    expect(nested).toBeInstanceOf(Error);
-    expect((nested as Error).message).toBe('a batch is already holding announcements');
-    // The outer batch still owns everything it queued: a shadowing store would
-    // have handed it an empty one and sent nothing.
-    expect(pending).toEqual([{ projectId: 'p-1', event: { type: 'directory_changed' } }]);
-    // And nothing escaped to the inner broadcaster while the hold was open.
+    await collector.publish('p-1', { type: 'directory_changed' });
+    await collector.publish('p-2', { type: 'saved_plans_changed' });
+    // Proof: `publish` made to call `this.inner.publish` directly — the shape a
+    // batch had before anything held its events — leaves this assertion reading
+    // `expected [ Array(2) ] to equal []`, and the two events are gone from the
+    // process before the transaction they describe has committed.
     expect(inner.published).toEqual([]);
+
+    await collector.send();
+    expect(inner.published).toEqual([
+      { projectId: 'p-1', event: { type: 'directory_changed' } },
+      { projectId: 'p-2', event: { type: 'saved_plans_changed' } },
+    ]);
+  });
+
+  it('keeps one content-free event per project, and every event that carries something', async () => {
+    const inner = recordingBroadcaster();
+    const collector = new AnnouncementCollector(inner);
+
+    await collector.publish('p-1', { type: 'directory_changed' });
+    await collector.publish('p-1', { type: 'directory_changed' });
+    await collector.publish('p-2', { type: 'directory_changed' });
+    await collector.publish('p-1', { type: 'step_removed', stepId: 'a' });
+    await collector.publish('p-1', { type: 'step_removed', stepId: 'b' });
+    await collector.send();
+
+    // A tag rename across forty projects is forty `directory_changed` and one
+    // per project is all any of them says; two `step_removed` are two facts.
+    expect(inner.published).toEqual([
+      { projectId: 'p-1', event: { type: 'directory_changed' } },
+      { projectId: 'p-2', event: { type: 'directory_changed' } },
+      { projectId: 'p-1', event: { type: 'step_removed', stepId: 'a' } },
+      { projectId: 'p-1', event: { type: 'step_removed', stepId: 'b' } },
+    ]);
   });
 });
 
