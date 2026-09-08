@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, lt } from 'drizzle-orm';
 
 import { rowsChanged } from './changes';
 import type { Drizzle } from './db';
+import type { Gate } from './gate';
 import type { PlanEvent, PlanEventFilter, PlanEventStore } from './index';
 import { planEvent, type PlanEventRow } from './schema';
 
@@ -18,7 +19,10 @@ import { planEvent, type PlanEventRow } from './schema';
  * in `index.ts` says what a caller may ask of it.
  */
 export class PlanEventRepository implements PlanEventStore {
-  constructor(private readonly db: Drizzle) {}
+  constructor(
+    private readonly db: Drizzle,
+    private readonly gate: Gate,
+  ) {}
 
   /**
    * One project's history, newest first, narrowed by `filter`.
@@ -70,17 +74,19 @@ export class PlanEventRepository implements PlanEventStore {
    * have.
    */
   async pruneOlderThan(cutoff: number): Promise<number> {
-    await Promise.resolve();
-    // **One transaction over the delete and its count**, which is the whole
-    // point of the pairing: `changes()` answers about the last statement this
-    // connection ran, and this method used to `await` between the two. Nothing
-    // else in be-01 writes without the write lock — but the retention sweep
-    // does not hold it, so a plan command landing in that window would have
-    // handed its own row count to the sweep's log line. The four satellite
-    // stores already did it this way; these two did not.
-    return this.db.transaction((tx) => {
-      tx.delete(planEvent).where(lt(planEvent.createdAt, cutoff)).run();
-      return rowsChanged(tx, 'deleting from plan_event');
+    return await this.gate.enter(async () => {
+      await Promise.resolve();
+      // **One transaction over the delete and its count**, which is the whole
+      // point of the pairing: `changes()` answers about the last statement this
+      // connection ran, and this method used to `await` between the two. Nothing
+      // else in be-01 writes without the write lock — but the retention sweep
+      // does not hold it, so a plan command landing in that window would have
+      // handed its own row count to the sweep's log line. The four satellite
+      // stores already did it this way; these two did not.
+      return this.db.transaction((tx) => {
+        tx.delete(planEvent).where(lt(planEvent.createdAt, cutoff)).run();
+        return rowsChanged(tx, 'deleting from plan_event');
+      });
     });
   }
 }

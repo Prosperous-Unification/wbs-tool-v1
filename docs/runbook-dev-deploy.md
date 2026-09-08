@@ -130,14 +130,18 @@ version file move together; changing a literal in the loader is neither necessar
 
 Puni1's existing every-minute crontab continues to run `/home/puni1/wbs-dev/bin/poll.sh`. Each tick
 fetches `origin/main`, resolves that named remote ref rather than the process-global `FETCH_HEAD`,
-extracts the exact target commit's `sync.ts` to a commit-named atomic candidate, and runs it with the
-managed interpreter. Different targets therefore cannot overwrite one another when a manual deploy
-overlaps a tick; `sync.ts`'s deploy lock still serializes the checkout mutation. If a target deployer
-throws before reset, the checkout stays put; a later fixed target supplies and executes its own
-repaired deployer on the next tick. The extracted tool still performs every solver, restart, recreate
-and post-reset HEAD check, while the outer poll lock and `/health` commit proof remain intact. Do not
-recover with a raw `git reset`; that bypasses the checks whose refusal is the reason the checkout did
-not move.
+extracts the exact target commit's deployer to a commit-named candidate tree under `bin/`, and runs
+it from there with the managed interpreter. The tree is the target's `tools/`, `libs/` and root
+configs rather than `sync.ts` alone: the deployer reaches the deploy contract through the `@wbs/*`
+tsconfig paths, and Bun resolves those from the tsconfig nearest the importing file, so a bare copy
+in `bin/` fails on `Cannot find module '@wbs/deploy-contract'` — every tick did, the day that copy
+was first installed (2026-09-07). Different targets therefore cannot overwrite one another when a
+manual deploy overlaps a tick; `sync.ts`'s deploy lock still serializes the checkout mutation. If a
+target deployer throws before reset, the checkout stays put; a later fixed target supplies and
+executes its own repaired deployer on the next tick, against the contract it was written with rather
+than the checkout's. The extracted tool still performs every solver, restart, recreate and post-reset
+HEAD check, while the outer poll lock and `/health` commit proof remain intact. Do not recover with a
+raw `git reset`; that bypasses the checks whose refusal is the reason the checkout did not move.
 
 Dev has **no edge password**. It was removed 2026-08-06: it was a second login on top of the
 app's own, and a browser that had cached a wrong credential for the realm could not be talked

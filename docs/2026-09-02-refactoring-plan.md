@@ -24,7 +24,10 @@ optimizations. The five design findings are incorporated in the
 [ports-and-adapters plan D24–D28](2026-09-05-ports-and-adapters-plan.md#1--decisions); the
 review's disposition is in that plan's history file, §11.
 Earlier measurements and completion entries below remain historical evidence, not proof
-that these newly tested windows are covered. All §67 implementation slices are **not started**.
+that these newly tested windows are covered. **Status 2026-09-07:** W4-4 and R1–R9 are on `main`
+(squash `cbad68af`, PR #287); R10 is 2 of 17 tasks in; per-slice counts, the merged-state
+evidence and the remaining queue are in [`refactoring/tasks.md`](refactoring/tasks.md), which
+supersedes the 2026-09-02 handoff's queue section.
 
 ## 0 · What the review is optimising for
 
@@ -2569,7 +2572,7 @@ arrangements and observed results needed to reproduce them are recorded below.
    table/CSS work also runs the whole browser gate on ports verified to belong to this
    checkout. None of the checks below is claimed to have run against an implemented fix.
 
-### Consistency slices — all not started
+### Consistency slices — status in `refactoring/tasks.md` (2026-09-07: R1–R9 merged, R10 open)
 
 **R1 · I1 + I2 · One plan-refresh module owns invalidations.** Needs: before
 `http-endpoint-port` Wave 1.4; folds into W4-4's `use-plan-read`. Estimated implementation

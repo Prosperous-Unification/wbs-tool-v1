@@ -102,3 +102,12 @@ the two specs run, and nothing in this dump ran them.
 2. Re-read CI at whatever head that produces — green at the exact head is the
    merge gate, not the body's earlier sweep.
 3. Merge, or record why it is being held.
+
+## Disposition — 2026-09-07
+
+Merged as `cbad68af` (squash, PR #287) the same hour this dump was written. CI at that head was
+red on `fe-01:test` (`<MenuControl>` under the refusing-api fake), fixed on `main` by #300; the
+next two `main` heads, `a0c7cada` and `7aa61b09`, are `gate: success` and `pixels: success`. The
+two `layout.spec.ts` assertions above are in `pixels`, so they pass on the merged tree; no commit
+names them, and why they failed on the branch's last head is not explained anywhere. Evidence
+table: `docs/refactoring/verify.md` § "Merged state".

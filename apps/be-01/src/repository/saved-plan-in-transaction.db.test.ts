@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { projectRow } from '../testing/project-fixture';
 import type { Connection } from './db';
 import { openConnection, refuseToWaitForWriteLock } from './db';
+import { OPEN } from './gate';
 import type { WriteStamp } from './index';
 import { runMigrations } from './migrate';
 import { ProjectRepository } from './project';
@@ -41,11 +42,11 @@ describe('the quota is read inside the transaction that would write', () => {
     path = join(dir, 'test.db');
     runMigrations(path, FOLDER);
     const seed = openConnection(path);
-    await new UserRepository(seed.db).create(
+    await new UserRepository(seed.db, OPEN).create(
       { id: 'owner', username: 'owner', passwordHash: 'x', createdAt: 1 },
       wrote,
     );
-    await new ProjectRepository(seed.db).create(
+    await new ProjectRepository(seed.db, OPEN).create(
       projectRow({ id: 'p1', name: 'Rewire the shed', ownerId: 'owner' }),
       [{ id: 'st-1', projectId: 'p1', name: 'Dev', position: 10 }],
       wrote,

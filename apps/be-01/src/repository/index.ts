@@ -8,6 +8,7 @@ import type {
   StepState,
 } from '@wbs/domain';
 
+import type { EventLogRepo } from './event-log';
 import type { MeasureMetric, PersonKind, ScheduleEngine, SolverObjectiveName } from './schema';
 
 /**
@@ -2173,4 +2174,38 @@ export interface ProjectStore {
   /** Returns null when the project is gone. */
   update(id: string, patch: ProjectPatch, stamp: WriteStamp): Promise<Project | null>;
   stepsOf(projectId: string): Promise<Step[]>;
+}
+
+/**
+ * Every store a {@link Command batch} may write through, as one composition.
+ *
+ * A composition rather than one interface (D22, `docs/2026-09-05-ports-and-adapters-plan.md`
+ * §3.2): a source implements the ports it has, and the type of what it composes
+ * says which services can then be built over it. This is the **transactional**
+ * half — what `UnitOfWork.run` hands its act on a {@link Scope}, and what a
+ * source's write coordinator orders.
+ *
+ * The saved-plan ports are deliberately absent. They open their own connection,
+ * take no turn, and survive a batch's outcome either way (D27), so a command
+ * that could reach one through its scope would be able to enlist a save in a
+ * transaction that has nothing to do with it.
+ */
+export interface TransactionalStores {
+  projects: ProjectStore;
+  users: UserStore & OidcIdentityStore;
+  directory: DirectoryStore;
+  capacity: CapacityStore;
+  priorityBands: PriorityBandStore;
+  calendarMarkers: CalendarMarkerStore;
+  eventLog: EventLogRepo;
+  planEvents: PlanEventStore;
+  steps: StepStore;
+  workItems: WorkItemStore;
+  estimates: EstimateStore;
+  actuals: ActualStore;
+  measures: MeasureStore;
+  progress: StepProgressStore;
+  dependencies: DependencyStore;
+  subtrees: SubtreeStore;
+  journal: CommandJournalStore;
 }

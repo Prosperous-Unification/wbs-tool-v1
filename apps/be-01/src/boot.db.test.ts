@@ -10,11 +10,10 @@ import { errors } from 'jose';
 import { bootBe01, type RunningBe } from './boot';
 import type { OidcRouteOptions } from './controller/oidc-options';
 import { openDatabase, openDrizzle } from './repository/db';
+import type { WriteCoordinator } from './repository/gate';
 import { runMigrations } from './repository/migrate';
 import { allocateGeneration, readGeneration } from './repository/optimization-generation';
 import type { AuthenticatedUser } from './service/auth.service';
-import type { GatewayBroadcaster } from './service/gateway-broadcaster';
-import type { WriteLock } from './service/write-lock';
 
 /**
  * What `/health` answers, as this suite reads it.
@@ -277,25 +276,25 @@ describe('bootBe01', () => {
     expect((await second.json()) as HealthAnswer).toEqual({ status: 'ok', commit: moved });
   });
 
-  it('holds a command batch out while the broadcaster lock is taken', async () => {
-    // The one-lock wiring, observed rather than restated. `boot.ts` creates one
-    // `WriteLock` and passes it to `buildServices` (the broadcaster records
-    // under it) and to `buildApp` (`PlanCommandRunner` opens its outer
-    // transaction under it). That those are the SAME object is the whole
-    // durability guarantee — a second lock excludes nothing, and the batch's
-    // rollback goes back to erasing a durable event the push has already left
-    // with. Every existing test builds its own pair, so all of them stay green
-    // through a split; Sol's Important on PR 204.
+  it('holds a command batch out while the write coordinator is taken', async () => {
+    // The one-coordinator wiring, observed rather than restated. `boot.ts`
+    // creates one `WriteCoordinator` and passes it to `buildServices` (every
+    // store takes its turn at it) and to `buildApp` (`PlanCommandRunner` takes
+    // one turn for the whole batch). That those are the SAME object is the
+    // whole durability guarantee — a second one excludes nothing, and the
+    // batch's rollback goes back to erasing a durable event the push has
+    // already left with. Every existing test builds its own pair, so all of
+    // them stay green through a split; Sol's Important on PR 204.
     //
-    // Proof it is not a restatement: `boot.ts` line 75 mutated to
-    // `lock: new WriteLock()` with line 126 left alone, which is a healthy pair
-    // of locks and the exact split this guards. The race below then resolves the
-    // wrong way round.
+    // Proof it is not a restatement: `boot.ts`'s `gate: writeCoordinator`
+    // mutated to `gate: new WriteCoordinator()` with `writes.gate` left alone,
+    // which is a healthy pair of coordinators and the exact split this guards.
+    // The race below then resolves the wrong way round.
     //
-    // Read off the real objects at both ends: the lock comes from the
-    // broadcaster `buildServices` constructed, and the waiting is done by the
-    // runner `buildApp` constructed, reached over its own HTTP route. Nothing
-    // here rebuilds the wiring it is checking.
+    // Read off the real objects at both ends: the coordinator comes from the
+    // graph `buildServices` constructed, and the waiting is done by the runner
+    // `buildApp` constructed, reached over its own HTTP route. Nothing here
+    // rebuilds the wiring it is checking.
     //
     // **It is an ordering race and not an elapsed-time sample, and the
     // difference is the whole test.** A fixed sleep followed by "has it answered
@@ -313,16 +312,18 @@ describe('bootBe01', () => {
       username: 'local-dev',
       scopes: ['read', 'write'],
     });
-    // The `GatewayBroadcaster` `announcements` was built around — the object
-    // that records under the lock, which is the end of the wiring this reads.
-    const broadcaster: GatewayBroadcaster = be.services.gatewayBroadcaster;
+    // The process's one write coordinator, read off the built graph — the end
+    // of the wiring this case is about. Every store `buildServices` builds
+    // takes its turn at this object, and the runner takes one turn for a whole
+    // batch, so a turn held here is exactly "a batch cannot start".
+    const coordinator = be.services.gate;
 
     let release!: () => void;
     let announceTaken!: () => void;
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
-    // `WriteLock.run` schedules its callback on a microtask rather than running
+    // `WriteCoordinator.run` schedules its callback on a microtask rather than running
     // it inline, so a caller that has merely called `run` holds nothing yet.
     // Awaiting this is what puts the batch behind the turn instead of beside it
     // — the same trap that made this change's first durability regression
@@ -330,8 +331,8 @@ describe('bootBe01', () => {
     const taken = new Promise<void>((resolve) => {
       announceTaken = resolve;
     });
-    const lock = broadcaster.lock;
-    const turn = lock.run(async () => {
+    const lock = coordinator;
+    const turn = lock.enter(async () => {
       announceTaken();
       await held;
     });
@@ -344,9 +345,9 @@ describe('bootBe01', () => {
     const reached = new Promise<void>((resolve) => {
       announceReached = resolve;
     });
-    const seam = lock as { run?: WriteLock['run'] };
-    const real = lock.run.bind(lock);
-    seam.run = <T>(work: () => Promise<T>): Promise<T> => {
+    const seam = lock as { enter?: WriteCoordinator['enter'] };
+    const real = lock.enter.bind(lock);
+    seam.enter = <T>(work: () => Promise<T>): Promise<T> => {
       announceReached();
       return real(work);
     };
@@ -365,7 +366,7 @@ describe('bootBe01', () => {
         batch.then(() => 'the batch answered first' as const),
       ]);
     } finally {
-      delete seam.run;
+      delete seam.enter;
       release();
     }
 

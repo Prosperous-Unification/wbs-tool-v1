@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { projectRow } from '../testing/project-fixture';
 import { workItemRow } from '../testing/work-item-fixture';
 import { openDatabase, openDrizzle } from './db';
+import { OPEN } from './gate';
 import type { Project, Step, WorkItem, WriteStamp } from './index';
 import { runMigrations } from './migrate';
 import { ProjectRepository } from './project';
@@ -58,11 +59,11 @@ beforeEach(async () => {
   path = join(dir, 'test.db');
   runMigrations(path, FOLDER);
   const db = openDrizzle(path);
-  repo = new StepProgressRepository(db);
-  workItems = new WorkItemRepository(db);
+  repo = new StepProgressRepository(db, OPEN);
+  workItems = new WorkItemRepository(db, OPEN);
 
   ownerId = crypto.randomUUID();
-  await new UserRepository(db).create(
+  await new UserRepository(db, OPEN).create(
     { id: ownerId, username: 'owner', passwordHash: 'x', createdAt: 1 },
     wrote(),
   );
@@ -81,7 +82,7 @@ beforeEach(async () => {
     { id: devId, projectId, name: 'Dev', position: 10 },
     { id: qaId, projectId, name: 'QA', position: 20 },
   ];
-  await new ProjectRepository(db).create(project, steps, wrote());
+  await new ProjectRepository(db, OPEN).create(project, steps, wrote());
 
   stripId = crypto.randomUUID();
   sandId = crypto.randomUUID();
@@ -201,11 +202,11 @@ describe('StepProgressRepository', () => {
     const owner = crypto.randomUUID();
     // The other plan is the other owner's, so its rows are attributed to them.
     const wroteElsewhere: WriteStamp = { at: 1, by: owner };
-    await new UserRepository(db).create(
+    await new UserRepository(db, OPEN).create(
       { id: owner, username: 'other', passwordHash: 'x', createdAt: 1 },
       wroteElsewhere,
     );
-    await new ProjectRepository(db).create(
+    await new ProjectRepository(db, OPEN).create(
       projectRow({
         id: otherProject,
         name: 'Another shed',
@@ -214,7 +215,7 @@ describe('StepProgressRepository', () => {
       [{ id: otherStep, projectId: otherProject, name: 'Dev', position: 10 }],
       wroteElsewhere,
     );
-    await new WorkItemRepository(db).insert(
+    await new WorkItemRepository(db, OPEN).insert(
       workItemRow({
         id: otherItem,
         projectId: otherProject,

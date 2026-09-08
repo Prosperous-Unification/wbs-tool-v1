@@ -12,6 +12,7 @@ import { openDatabase, openDrizzle } from './db';
 import { DependencyRepository } from './dependency';
 import { DirectoryRepository } from './directory';
 import { EstimateRepository } from './estimate';
+import { OPEN } from './gate';
 import type { SubtreeCopy, WorkItem, WriteStamp } from './index';
 import { runMigrations } from './migrate';
 import { ProjectRepository } from './project';
@@ -46,21 +47,21 @@ beforeEach(async () => {
   dbPath = join(dir, 'test.db');
   runMigrations(dbPath, FOLDER);
   const db = openDrizzle(dbPath);
-  repo = new WorkItemRepository(db);
-  subtrees = new SubtreeRepository(db);
-  estimates = new EstimateRepository(db);
-  measures = new StepMeasureRepository(db);
-  dependencies = new DependencyRepository(db);
-  directory = new DirectoryRepository(db);
+  repo = new WorkItemRepository(db, OPEN);
+  subtrees = new SubtreeRepository(db, OPEN);
+  estimates = new EstimateRepository(db, OPEN);
+  measures = new StepMeasureRepository(db, OPEN);
+  dependencies = new DependencyRepository(db, OPEN);
+  directory = new DirectoryRepository(db, OPEN);
 
   ownerId = crypto.randomUUID();
-  await new UserRepository(db).create(
+  await new UserRepository(db, OPEN).create(
     { id: ownerId, username: 'owner', passwordHash: 'x', createdAt: 1 },
     wrote(),
   );
   projectId = crypto.randomUUID();
   stepId = crypto.randomUUID();
-  await new ProjectRepository(db).create(
+  await new ProjectRepository(db, OPEN).create(
     projectRow({
       id: projectId,
       ownerId,
@@ -952,6 +953,7 @@ describe('deleting a subtree', () => {
           statements.push(query);
         },
       }),
+      OPEN,
     );
 
     // Ancestors first, exactly as `subtreeOf` hands them over — the order the
@@ -987,6 +989,7 @@ describe('freezing every number', () => {
           statements.push(query);
         },
       }),
+      OPEN,
     );
 
     await counted.setFrozenNumbers(
@@ -1196,6 +1199,7 @@ describe('the order the work-item select answers in', () => {
           statements.push(query);
         },
       }),
+      OPEN,
     );
 
     await logged.listByProject(projectId);

@@ -3,6 +3,7 @@ import type { SQLiteBunDatabase } from 'drizzle-orm/bun-sqlite';
 
 import { auditOnCreate, auditOnUpdate } from './audit';
 import { rowsChanged } from './changes';
+import type { Gate } from './gate';
 import type { MeasureStore, StoredMeasure, WriteStamp } from './index';
 import { bumpWorkItems } from './revision';
 import { type MeasureMetric, step, stepMeasure, workItem } from './schema';
@@ -33,7 +34,10 @@ import { type MeasureMetric, step, stepMeasure, workItem } from './schema';
  * it, which carries the metric on each row instead.
  */
 export class StepMeasureRepository implements MeasureStore {
-  constructor(private readonly db: SQLiteBunDatabase) {}
+  constructor(
+    private readonly db: SQLiteBunDatabase,
+    private readonly gate: Gate,
+  ) {}
 
   /**
    * Every measure in the project, **in step order** within each work item and in
@@ -87,16 +91,18 @@ export class StepMeasureRepository implements MeasureStore {
    * today.
    */
   async set(toSet: StoredMeasure, stamp: WriteStamp): Promise<void> {
-    await Promise.resolve();
-    this.db.transaction((tx) => {
-      tx.insert(stepMeasure)
-        .values({ ...toSet, ...auditOnCreate(stamp) })
-        .onConflictDoUpdate({
-          target: [stepMeasure.workItemId, stepMeasure.stepId, stepMeasure.metric],
-          set: { value: toSet.value, recordedAt: toSet.recordedAt, ...auditOnUpdate(stamp) },
-        })
-        .run();
-      bumpWorkItems(tx, [toSet.workItemId], stamp);
+    await this.gate.enter(async () => {
+      await Promise.resolve();
+      this.db.transaction((tx) => {
+        tx.insert(stepMeasure)
+          .values({ ...toSet, ...auditOnCreate(stamp) })
+          .onConflictDoUpdate({
+            target: [stepMeasure.workItemId, stepMeasure.stepId, stepMeasure.metric],
+            set: { value: toSet.value, recordedAt: toSet.recordedAt, ...auditOnUpdate(stamp) },
+          })
+          .run();
+        bumpWorkItems(tx, [toSet.workItemId], stamp);
+      });
     });
   }
 
@@ -106,24 +112,26 @@ export class StepMeasureRepository implements MeasureStore {
     metric: MeasureMetric,
     stamp: WriteStamp,
   ): Promise<void> {
-    // All three parts of the key, not one or two: the primary key is (work
-    // item, step, metric). Narrowing to the step would clear it across the whole
-    // database, and narrowing to the pair would take the hours away with the
-    // tokens. `step-measure.test.ts` keeps a survivor for each of the three so
-    // none of those three mistakes can pass — the guard `actual.test.ts` keeps
-    // for its two halves, with the third the discriminator adds.
-    await Promise.resolve();
-    this.db.transaction((tx) => {
-      tx.delete(stepMeasure)
-        .where(
-          and(
-            eq(stepMeasure.workItemId, workItemId),
-            eq(stepMeasure.stepId, stepId),
-            eq(stepMeasure.metric, metric),
-          ),
-        )
-        .run();
-      bumpWorkItems(tx, [workItemId], stamp);
+    await this.gate.enter(async () => {
+      // All three parts of the key, not one or two: the primary key is (work
+      // item, step, metric). Narrowing to the step would clear it across the whole
+      // database, and narrowing to the pair would take the hours away with the
+      // tokens. `step-measure.test.ts` keeps a survivor for each of the three so
+      // none of those three mistakes can pass — the guard `actual.test.ts` keeps
+      // for its two halves, with the third the discriminator adds.
+      await Promise.resolve();
+      this.db.transaction((tx) => {
+        tx.delete(stepMeasure)
+          .where(
+            and(
+              eq(stepMeasure.workItemId, workItemId),
+              eq(stepMeasure.stepId, stepId),
+              eq(stepMeasure.metric, metric),
+            ),
+          )
+          .run();
+        bumpWorkItems(tx, [workItemId], stamp);
+      });
     });
   }
 
@@ -145,14 +153,16 @@ export class StepMeasureRepository implements MeasureStore {
    * inside the `UPDATE` and inside the count.
    */
   async moveAll(fromWorkItemId: string, toWorkItemId: string, stamp: WriteStamp): Promise<void> {
-    await Promise.resolve();
-    this.db.transaction((tx) => {
-      tx.update(stepMeasure)
-        .set({ workItemId: toWorkItemId, ...auditOnUpdate(stamp) })
-        .where(eq(stepMeasure.workItemId, fromWorkItemId))
-        .run();
-      if (rowsChanged(tx, 'moving measures') === 0) return;
-      bumpWorkItems(tx, [fromWorkItemId, toWorkItemId], stamp);
+    await this.gate.enter(async () => {
+      await Promise.resolve();
+      this.db.transaction((tx) => {
+        tx.update(stepMeasure)
+          .set({ workItemId: toWorkItemId, ...auditOnUpdate(stamp) })
+          .where(eq(stepMeasure.workItemId, fromWorkItemId))
+          .run();
+        if (rowsChanged(tx, 'moving measures') === 0) return;
+        bumpWorkItems(tx, [fromWorkItemId, toWorkItemId], stamp);
+      });
     });
   }
 }

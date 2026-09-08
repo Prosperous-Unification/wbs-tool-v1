@@ -2,6 +2,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import type { SQLiteBunDatabase } from 'drizzle-orm/bun-sqlite';
 
 import { auditOnCreate, auditOnUpdate } from './audit';
+import type { Gate } from './gate';
 import type { CapacityStore, CapacityWritten, TeamCapacity, WriteStamp } from './index';
 import { project, projectTeamCapacity, serviceTeam } from './schema';
 
@@ -41,7 +42,10 @@ import { project, projectTeamCapacity, serviceTeam } from './schema';
  * until somebody makes a project.
  */
 export class CapacityRepository implements CapacityStore {
-  constructor(private readonly db: SQLiteBunDatabase) {}
+  constructor(
+    private readonly db: SQLiteBunDatabase,
+    private readonly gate: Gate,
+  ) {}
 
   /**
    * One indexed read — the primary key's own prefix — keyed on the team alone,
@@ -108,47 +112,49 @@ export class CapacityRepository implements CapacityStore {
     size: number | null,
     stamp: WriteStamp,
   ): Promise<CapacityWritten> {
-    await Promise.resolve();
-    return this.db.transaction((tx) => {
-      // The clear needs neither id to exist to be honest about its outcome — it
-      // is still checked, because "cleared the capacity of a project that is not
-      // there" is a claim this must not make.
-      const held = tx
-        .select({ id: project.id })
-        .from(project)
-        .where(eq(project.id, projectId))
-        .all();
-      if (held.length === 0) return { ok: false, reason: 'not_found' };
-      const team = tx
-        .select({ id: serviceTeam.id })
-        .from(serviceTeam)
-        .where(eq(serviceTeam.id, serviceTeamId))
-        .all();
-      if (team.length === 0) return { ok: false, reason: 'not_found' };
+    return await this.gate.enter(async () => {
+      await Promise.resolve();
+      return this.db.transaction((tx) => {
+        // The clear needs neither id to exist to be honest about its outcome — it
+        // is still checked, because "cleared the capacity of a project that is not
+        // there" is a claim this must not make.
+        const held = tx
+          .select({ id: project.id })
+          .from(project)
+          .where(eq(project.id, projectId))
+          .all();
+        if (held.length === 0) return { ok: false, reason: 'not_found' };
+        const team = tx
+          .select({ id: serviceTeam.id })
+          .from(serviceTeam)
+          .where(eq(serviceTeam.id, serviceTeamId))
+          .all();
+        if (team.length === 0) return { ok: false, reason: 'not_found' };
 
-      if (size === null) {
-        tx.delete(projectTeamCapacity)
-          .where(
-            and(
-              eq(projectTeamCapacity.projectId, projectId),
-              eq(projectTeamCapacity.serviceTeamId, serviceTeamId),
-            ),
-          )
+        if (size === null) {
+          tx.delete(projectTeamCapacity)
+            .where(
+              and(
+                eq(projectTeamCapacity.projectId, projectId),
+                eq(projectTeamCapacity.serviceTeamId, serviceTeamId),
+              ),
+            )
+            .run();
+          return { ok: true };
+        }
+        // Upsert on the pair rather than a read-then-write: two clients typing
+        // into the same box at once both pass a check-then-insert, and only the
+        // primary key stops the second from becoming a second answer to one
+        // question.
+        tx.insert(projectTeamCapacity)
+          .values({ projectId, serviceTeamId, size, ...auditOnCreate(stamp) })
+          .onConflictDoUpdate({
+            target: [projectTeamCapacity.projectId, projectTeamCapacity.serviceTeamId],
+            set: { size, ...auditOnUpdate(stamp) },
+          })
           .run();
         return { ok: true };
-      }
-      // Upsert on the pair rather than a read-then-write: two clients typing
-      // into the same box at once both pass a check-then-insert, and only the
-      // primary key stops the second from becoming a second answer to one
-      // question.
-      tx.insert(projectTeamCapacity)
-        .values({ projectId, serviceTeamId, size, ...auditOnCreate(stamp) })
-        .onConflictDoUpdate({
-          target: [projectTeamCapacity.projectId, projectTeamCapacity.serviceTeamId],
-          set: { size, ...auditOnUpdate(stamp) },
-        })
-        .run();
-      return { ok: true };
+      });
     });
   }
 }

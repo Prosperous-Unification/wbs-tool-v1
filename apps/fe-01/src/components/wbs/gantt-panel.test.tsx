@@ -8343,8 +8343,15 @@ describe('the day sheet renames a listed marker', () => {
     // And the fake really holds it, which a recorder that pushed without
     // performing would not show.
     expect(api.markers.map((marker) => marker.name)).toEqual(['Go live']);
-    // Back to a list, drawn from what the owner read back.
-    expect(namesInSheet()).toEqual(['Go live']);
+    // Back to a list, drawn from what the owner read back — which is a second
+    // round trip after the recorded call, so the list is waited for rather
+    // than read the instant the call lands. Read that instant, this sampled
+    // the pre-rename sheet on the CI runner (`expected [ 'Cutover' ] to deeply
+    // equal [ 'Go live' ]`, main at 3e17fb01, run 34160044188) while passing
+    // on every faster box.
+    await waitFor(() => {
+      expect(namesInSheet()).toEqual(['Go live']);
+    });
     expect(document.querySelector('[aria-label="New name for Cutover"]')).toBeNull();
   });
 });

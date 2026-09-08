@@ -323,6 +323,33 @@ describe('dev-sync lock diagnostics', () => {
     ]);
   });
 
+  // The locked child performs every mutating step -- reset, install, restart
+  // and the solver preflight -- so it, not the short-lived parent, is the run
+  // whose interpreter matters. A default of `'bun'` let PATH decide: on h2puni
+  // the poller launched the deploy with its own pinned binary while the child
+  // fell through to a root-owned /usr/local/bin/bun 1.2.20, matching neither
+  // that binary nor the 1.3.14 that .bun-version and CI pin. dev-poll-sync.sh
+  // refuses to exec a mismatched interpreter, and this default is where that
+  // guarantee was being discarded one process later.
+  //
+  // Asserted through the recorded argv rather than the source text, because
+  // the shape this file used to grep for no longer exists.
+  it('defaults the locked child to this process interpreter, never PATH', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'wbs-devsync-interpreter-'));
+    const argumentsPath = join(directory, 'arguments');
+    const flockPath = join(directory, 'flock');
+    const lockPath = join(directory, 'devsync.lock');
+    const scriptPath = join(directory, 'sync.ts');
+    await writeFile(flockPath, `#!/bin/sh\nprintf '%s\\n' "$@" > '${argumentsPath}'\n`);
+    await chmod(flockPath, 0o755);
+
+    expect(await runDevSyncLock('target-sha', { flockPath, lockPath, scriptPath })).toBe(0);
+
+    const argv = (await readFile(argumentsPath, 'utf8')).trim().split('\n');
+    expect(argv[4]).toBe(process.execPath);
+    expect(argv[4]).not.toBe('bun');
+  });
+
   it('identifies only flock lock contention as a held deploy lock', () => {
     expect(devSyncFailureMessage(LOCK_BUSY_EXIT_CODE)).toBe(
       '[dev-sync] skipped: another deploy holds the lock',

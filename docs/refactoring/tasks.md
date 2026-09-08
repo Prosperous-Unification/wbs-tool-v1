@@ -1,44 +1,77 @@
 # Planned refactoring execution
 
-Branch: `refactor/planned-project`; base: `f89ebf56` (2026-09-06).
+**State as of 2026-09-07, `main` @ `3e17fb01`.** This file is the one queue for the two plans;
+the plans themselves stay normative for _what_ and _why_:
+[refactoring plan](../2026-09-02-refactoring-plan.md) (W0–W4, §67 R1–R10) and
+[ports-and-adapters plan](../2026-09-05-ports-and-adapters-plan.md) (Waves 0–3, namespacing).
+Each implementation change keeps ordered slices and fresh evidence in its own `tasks.md` and
+`verify.md` under `openspec/changes/`. Historical completion claims require code inspection.
 
-Sources: [refactoring plan](../2026-09-02-refactoring-plan.md),
-[ports-and-adapters plan](../2026-09-05-ports-and-adapters-plan.md).
-Each implementation change keeps ordered slices and fresh evidence in its own
-`tasks.md` and `verify.md`. Historical completion claims require code inspection.
+The execution branch `refactor/planned-project` (base `f89ebf56`, 2026-09-06) was squash-merged
+into `main` as `cbad68af` (PR #287, 2026-09-07). **Every branch-local hash the earlier version of
+this file and the change-local `verify.md` files cite (`281144a9`, `35576d79`, `e9141949`, …) no
+longer resolves**; `cbad68af` is the commit that carries all of them. Evidence for the merged
+state is in [`verify.md`](verify.md) § "Merged state".
 
-## Execution queue
+## What landed
 
-- [x] Create isolated worktree and branch; install locked dependencies.
-- [x] Establish baseline unit tests and current collision inventory (full gates pending).
-- [ ] W4-4: table modules committed (`281144a9`), 601 concept tests and review passed; full gates pending.
-- [ ] R1: implemented/reviewed and integrated (`35576d79`), 220 focused regressions passed; full gates pending.
-- [ ] R2: team removal revisions and audit stamps — implementation/review/typecheck done (`e9141949`); full gate pending.
-- [ ] R3: authentication storage fault boundary — implementation/review/typecheck done (`271500c4`); full gate pending.
-- [ ] R4: ingress committed (`ae1fc858`), 337 scoped tests and review passed; composed gate pending.
-- [ ] R5: login admission committed (`47167984`), 131 scoped tests/review/typecheck passed; full gate pending.
-- [ ] R6: scoped queries committed (`20801719`), scoped tests/review/typecheck passed; full gate pending.
-- [ ] R7: scoped presence implemented/reviewed and integrated (`96c2cd6e`); 342 scoped tests passed, full gate pending.
-- [ ] R8: bounded replay sweep committed (`5793763e`), 31 scoped tests/review passed; full gate pending.
-- [ ] R9: backend/gateway cancellation implemented/reviewed and integrated (`d13b0330`, `f594a8fa`); full gates pending.
-- [ ] R10: implementation started in isolated `refactor/measured-rendering`; preparing Chromium measurement fixtures.
-- [ ] HTTP Wave 0: route/refusal/origin inventories and compiler baseline recorded; promotion reconciliation underway.
-- [ ] HTTP Wave 1: shared endpoint shapes, adapter, document and typed clients.
-- [ ] Store Wave 2: ports, write coordinator, unit of work, runtime ports and kits.
-- [ ] Core Wave 3: extract packages and enforce rings with negative proofs.
-- [ ] Namespacing: move packages and update gates.
-- [ ] Review each implementation and resolve findings.
-- [ ] Main `bf69132d` merged without conflicts and reviewed; 2610 backend/auth/domain/solver tests and forced BE/FE types passed. Fetch again before final gates.
-- [ ] Freeze final tree; full workspace/browser gates and whole-branch review.
+| Item                                             | Where it is now                                                                                                                         | Evidence                                                                                                                                                          |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| W4-4 `WbsTable` split into fourteen modules      | `apps/fe-01/src/components/wbs/{use-plan-*,plan-columns/*,plan-cell-props,plan-live,…}.ts`, on `main` since `cbad68af`                  | `openspec/changes/wbs-table-modules` 8/10 tasks; 601 concept tests at merge; `main` CI green at `a0c7cada` and `7aa61b09` (gate + pixels)                         |
+| HTTP Wave 0, collision gate                      | [`collisions.md`](collisions.md)                                                                                                        | inventory at base `f89ebf56`, feature integration recorded 2026-09-06                                                                                             |
+| HTTP Wave 1, `http-endpoint-port`                | `libs/contracts/src/http/*`, be-01's `http/` binders and Elysia mount, typed clients; `openapi.json` no longer tracked                  | change archived `openspec/changes/archive/2026-09-07-http-endpoint-port`, spec synced to `openspec/specs/http-endpoint-port`; TASK-347                            |
+| R1 `plan-refresh`                                | `apps/fe-01/src/lib/` invalidation coordinator, `use-plan-read`                                                                         | 25/28 tasks; the 3 open are the frozen-tree gates, satisfied by `main`'s runs above                                                                               |
+| R2 `team-removal-revisions`                      | be-01 service/repository                                                                                                                | 4/5 tasks; open item is the parent gate                                                                                                                           |
+| R3 `account-store-failures`                      | auth / be-01                                                                                                                            | 8/8 tasks                                                                                                                                                         |
+| R4 `websocket-ingress`                           | gw-01                                                                                                                                   | 9/9 tasks                                                                                                                                                         |
+| R5 `login-admission`                             | auth / be-01                                                                                                                            | 5/5 tasks                                                                                                                                                         |
+| R6 `project-assignment-reads`                    | be-01 repository                                                                                                                        | 3/4 tasks; open item is the parent gate                                                                                                                           |
+| R7 `scoped-presence`                             | gw-01                                                                                                                                   | 12/12 tasks                                                                                                                                                       |
+| R8 `bounded-replay-sweep`                        | gw-01 / realtime                                                                                                                        | 4/4 tasks                                                                                                                                                         |
+| R9 `gateway-request-deadlines`                   | gw-01, be-01 cancellation                                                                                                               | 14/15 tasks; open item is the parent gate                                                                                                                         |
+| The spec projects' type errors                   | in the gate: `typecheck` runs `tsc --build --force apps/<app>/tsconfig.json`, whose references include `tsconfig.spec.json`             | measured 2026-09-07 at `3e17fb01`: **0** errors across all 23 spec projects; a deliberate `const deliberatelyWrong: number = 'not a number'` in a test fails both |
+| Toolchain (`toolchain-2026-09`, not a plan item) | Bun 1.4.2, Nx 23.2, TS 7 for `tsc`, Vite 8, Vitest 5, React 19.2, Table 9, drizzle 1.0.0-rc.4, ESLint 10, Prettier 3.9.6, dagger 0.21.9 | PR #248 merged as `98093d2d`; TASK-348                                                                                                                            |
+
+The "parent gate" tasks left open in R1, R2, R6 and R9 asked for a frozen-tree full gate of the
+branch. The branch is gone; the gate that stands in for it is `main`'s own CI at `a0c7cada` and
+`7aa61b09`, both `gate: success` and `pixels: success`, with every slice merged. Tick those tasks
+when the change is archived, citing those runs, or leave them as the record that the branch never
+ran its own.
+
+## Execution queue — what remains
+
+Nothing below has an owning task in the external queue (`backlog/tasks/task-NNN …`) unless named.
+
+- [ ] **R10 `measured-rendering`** — 2/17 tasks; work was started in `refactor/measured-rendering`
+      (last movement #301, 2026-09-07, docs and baselines only). Needs R1 (done) and W4-4 (done);
+      starts with the Chromium baseline in its `tasks.md` 1.2–1.4.
+- [ ] **W4-4 tasks 3.4–3.5** — the independent review and coordinated full browser gate the
+      change asked for before its `live` contract is handed to R1/R10. `main`'s green runs cover
+      the gate; the review is unrecorded.
+- [ ] **Archive the nine R-slice changes** whose tasks are complete or gate-only
+      (`opsx:archive`, syncing each delta spec into `openspec/specs/`). Only
+      `http-endpoint-port` has been archived.
+- [ ] **Ports Wave 2 `store-port-and-unit-of-work`** — not started; no change directory, no
+      `libs/core` or `store-sqlite`. Plan §3.2, §3.4, §4. Wave 0's collision check runs again first.
+- [ ] **Ports Wave 3 `core-lib-extraction`** — not started; `libs/` has `runtime-portable` and no
+      `core` or `conformance`. Plan §3.3, §3.5.
+- [ ] **`repo-namespacing`** (D18/D19) — not started; after Wave 3.
+- [ ] **W4-3's registry proper** in `libs/contracts` — its own OpenSpec change; depends on
+      verifying Elysia's Standard Schema → JSON Schema export (handoff §58).
+- [ ] **W2-3's plan snapshot** — architecture, its own change (plan §W2-3).
+- [ ] **W2-1's write half** — narrowing which reads a local write triggers (plan §25, §67 R1
+      carries the socket half).
+- [ ] **W1-6 e2e seeding**; **W3-10 OIDC store adoption** — each refused pending its own change.
+- [ ] **`plan-json-import`** — approved artifacts, no implementation
+      ([`collisions.md`](collisions.md)); Dany's.
 
 ## Integration policy
 
-Feature work remains on `main`. This branch receives feature commits before its
-final gates; it is not merged into `main` automatically. Parallel workers own
-disjoint files, and all broad measurements require a frozen tree. Browser runs
+Feature work stays on `main`; each remaining item is its own branch and PR, gated by CI at its
+exact head (the toolchain and HTTP merges both carried PR bodies whose evidence predated the head;
+`docs/state/TASK-347-http-endpoint-port.md` and `TASK-348-toolchain-2026-09.md` record that).
+Parallel workers own disjoint files, and broad measurements require a frozen tree. Browser runs
 must own their ports and cannot reuse another checkout's server.
 
-The audit found TASK-262 already supplies framework-free routes and two binders;
-those are reused and adapted, not reimplemented. The old handoff's excluded spec
-projects no longer match current typecheck configuration; baseline output decides
-whether those projects now pass.
+The audit found TASK-262 already supplies framework-free routes and two binders; those were reused
+by Wave 1, not reimplemented.

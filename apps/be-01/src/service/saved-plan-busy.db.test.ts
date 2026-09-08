@@ -8,6 +8,7 @@ import { CapacityRepository } from '../repository/capacity';
 import type { Connection } from '../repository/db';
 import { openConnection } from '../repository/db';
 import { DirectoryRepository } from '../repository/directory';
+import { OPEN } from '../repository/gate';
 import type { WriteStamp } from '../repository/index';
 import { runMigrations } from '../repository/migrate';
 import { ProjectRepository } from '../repository/project';
@@ -65,11 +66,11 @@ describe('SavedPlanService.save answers snapshot_busy without holding up an edit
     runMigrations(path, FOLDER);
     const seed = openConnection(path);
     const db = seed.db;
-    await new UserRepository(db).create(
+    await new UserRepository(db, OPEN).create(
       { id: 'owner', username: 'owner', passwordHash: 'x', createdAt: 1 },
       wrote,
     );
-    await new ProjectRepository(db).create(
+    await new ProjectRepository(db, OPEN).create(
       projectRow({
         id: 'p1',
         name: 'Rewire the shed',
@@ -80,11 +81,11 @@ describe('SavedPlanService.save answers snapshot_busy without holding up an edit
       [{ id: 'st-1', projectId: 'p1', name: 'Dev', position: 10 }],
       wrote,
     );
-    const directory = new DirectoryRepository(db);
+    const directory = new DirectoryRepository(db, OPEN);
     await directory.addTeam({ id: 't-platform', name: 'Platform' }, wrote);
     await directory.addPerson({ id: 'pp-ada', name: 'Ada' }, ['t-platform'], wrote);
-    await new CapacityRepository(db).set('p1', 't-platform', 4, wrote);
-    const items = new WorkItemRepository(db);
+    await new CapacityRepository(db, OPEN).set('p1', 't-platform', 4, wrote);
+    const items = new WorkItemRepository(db, OPEN);
     await items.insert(item('wi-1', 10), [], wrote);
     await items.insert(item('wi-2', 20), [], wrote);
     seed.close();
@@ -165,7 +166,7 @@ describe('SavedPlanService.save answers snapshot_busy without holding up an edit
     // carrying the ordinary 5 s `busy_timeout`. It waits for the holder and
     // then lands — which is the spec's "a live edit issued during that window
     // still completes".
-    await new WorkItemRepository(reader.db).insert(item('wi-3', 30), [], wrote);
+    await new WorkItemRepository(reader.db, OPEN).insert(item('wi-3', 30), [], wrote);
     expect(await itemIds()).toEqual(['wi-1', 'wi-2', 'wi-3']);
 
     expect(await finished).toBe(0);

@@ -910,10 +910,10 @@ which id each ref became.
 _Avoid_: temp id, client id, placeholder, alias
 
 **Write lock**:
-The one-at-a-time rule every be-01 write waits behind while a command batch is open, because
-the server has one database connection and a batch holds a transaction on it across awaits.
-Reads never wait.
-_Avoid_: mutex, semaphore, queue, serialization
+SQLite's own, taken by `BEGIN IMMEDIATE` on the file. What be-01's writes wait behind is the
+**Write coordinator** in the Architecture section below, and the two are different objects:
+one excludes other processes, the other orders this one's own writers.
+_Avoid_: using this name for the coordinator
 
 **Restricted project**:
 A project only its owner may edit. Every authenticated account may still read it; an

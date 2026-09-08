@@ -1,0 +1,1933 @@
+{
+  "seeded": {
+    "rows": 100,
+    "steps": 8,
+    "density": "dense",
+    "projectId": "7a182387-c342-4d97-a894-ef7f72de8459",
+    "edges": 764,
+    "setupMs": 3314
+  },
+  "browser": "151.0.7922.34",
+  "runtime": {
+    "platform": "darwin",
+    "release": "25.5.0",
+    "arch": "arm64",
+    "cpu": "Apple M1 Pro"
+  },
+  "viewport": {
+    "width": 1400,
+    "height": 900
+  },
+  "server": "warm Vite development/backend; fresh owned stack",
+  "throttle": "none",
+  "samples": [
+    {
+      "kind": "cold-context",
+      "contextIndex": 0,
+      "round": 0,
+      "readyPaintMs": 1287.2000000476837,
+      "treeResponseToPaintMs": 937.9000000953674,
+      "longTasks": [
+        {
+          "start": 363.5,
+          "duration": 674
+        },
+        {
+          "start": 1081.2000000476837,
+          "duration": 205
+        },
+        {
+          "start": 1383.7000000476837,
+          "duration": 180
+        },
+        {
+          "start": 1585.7999999523163,
+          "duration": 169
+        }
+      ],
+      "geometry": {
+        "mountedRows": 100,
+        "mountedCells": 2100,
+        "intersectingRows": 30,
+        "intersectingCells": 450,
+        "headers": 21,
+        "width": 1368,
+        "height": 805,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "columns": [
+          {
+            "id": "drag",
+            "width": 24
+          },
+          {
+            "id": "number",
+            "width": 105
+          },
+          {
+            "id": "name",
+            "width": 200
+          },
+          {
+            "id": "depends",
+            "width": 86
+          },
+          {
+            "id": "priority",
+            "width": 48
+          },
+          {
+            "id": "tag",
+            "width": 120
+          },
+          {
+            "id": "in-parallel",
+            "width": 32
+          },
+          {
+            "id": "1242d8d7-5f8b-45f3-91aa-6a29f37f9d07-final",
+            "width": 96
+          },
+          {
+            "id": "e7a7c4db-78c2-4ce7-9b50-822b0ff83684-final",
+            "width": 96
+          },
+          {
+            "id": "7b0adae6-d379-4b6b-a815-03b95c2348cd-final",
+            "width": 96
+          },
+          {
+            "id": "e1c8e90a-95b4-4fe9-b47c-f18096d3de99-final",
+            "width": 96
+          },
+          {
+            "id": "804e3c80-5686-43a5-93db-4344267a5d2c-final",
+            "width": 96
+          },
+          {
+            "id": "834a61ce-f9a8-4214-9814-5843e36bf80b-final",
+            "width": 96
+          },
+          {
+            "id": "2b1aba33-d6bd-47d7-a45c-9812d55d29dc-final",
+            "width": 96
+          },
+          {
+            "id": "b87065ab-c690-48fb-90d1-727d96d235bf-final",
+            "width": 96
+          },
+          {
+            "id": "final-total",
+            "width": 52
+          },
+          {
+            "id": "not-before",
+            "width": 56
+          },
+          {
+            "id": "start",
+            "width": 98
+          },
+          {
+            "id": "finish",
+            "width": 98
+          },
+          {
+            "id": "float",
+            "width": 56
+          },
+          {
+            "id": "actions",
+            "width": 40
+          }
+        ],
+        "rowHeights": [26.1875, 26.1875, 26.1875]
+      },
+      "broad": {
+        "character": "R",
+        "inputPaintMs": 189.39999985694885,
+        "filterPaintMs": 189.39999985694885
+      },
+      "selective": {
+        "character": "z",
+        "inputPaintMs": 19.600000143051147,
+        "filterPaintMs": 19.600000143051147
+      }
+    },
+    {
+      "kind": "warm-reload",
+      "contextIndex": 0,
+      "round": 1,
+      "readyPaintMs": 1117.3999998569489,
+      "treeResponseToPaintMs": 832.3999998569489,
+      "longTasks": [
+        {
+          "start": 297.59999990463257,
+          "duration": 561
+        },
+        {
+          "start": 902,
+          "duration": 215
+        },
+        {
+          "start": 1218,
+          "duration": 241
+        },
+        {
+          "start": 1487.2999999523163,
+          "duration": 191
+        }
+      ],
+      "geometry": {
+        "mountedRows": 100,
+        "mountedCells": 2100,
+        "intersectingRows": 30,
+        "intersectingCells": 450,
+        "headers": 21,
+        "width": 1368,
+        "height": 805,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "columns": [
+          {
+            "id": "drag",
+            "width": 24
+          },
+          {
+            "id": "number",
+            "width": 105
+          },
+          {
+            "id": "name",
+            "width": 200
+          },
+          {
+            "id": "depends",
+            "width": 86
+          },
+          {
+            "id": "priority",
+            "width": 48
+          },
+          {
+            "id": "tag",
+            "width": 120
+          },
+          {
+            "id": "in-parallel",
+            "width": 32
+          },
+          {
+            "id": "1242d8d7-5f8b-45f3-91aa-6a29f37f9d07-final",
+            "width": 96
+          },
+          {
+            "id": "e7a7c4db-78c2-4ce7-9b50-822b0ff83684-final",
+            "width": 96
+          },
+          {
+            "id": "7b0adae6-d379-4b6b-a815-03b95c2348cd-final",
+            "width": 96
+          },
+          {
+            "id": "e1c8e90a-95b4-4fe9-b47c-f18096d3de99-final",
+            "width": 96
+          },
+          {
+            "id": "804e3c80-5686-43a5-93db-4344267a5d2c-final",
+            "width": 96
+          },
+          {
+            "id": "834a61ce-f9a8-4214-9814-5843e36bf80b-final",
+            "width": 96
+          },
+          {
+            "id": "2b1aba33-d6bd-47d7-a45c-9812d55d29dc-final",
+            "width": 96
+          },
+          {
+            "id": "b87065ab-c690-48fb-90d1-727d96d235bf-final",
+            "width": 96
+          },
+          {
+            "id": "final-total",
+            "width": 52
+          },
+          {
+            "id": "not-before",
+            "width": 56
+          },
+          {
+            "id": "start",
+            "width": 98
+          },
+          {
+            "id": "finish",
+            "width": 98
+          },
+          {
+            "id": "float",
+            "width": 56
+          },
+          {
+            "id": "actions",
+            "width": 40
+          }
+        ],
+        "rowHeights": [26.1875, 26.1875, 26.1875]
+      },
+      "broad": {
+        "character": "R",
+        "inputPaintMs": 222.40000009536743,
+        "filterPaintMs": 222.40000009536743
+      },
+      "selective": {
+        "character": "z",
+        "inputPaintMs": 19.700000047683716,
+        "filterPaintMs": 19.59999990463257
+      }
+    },
+    {
+      "kind": "warm-reload",
+      "contextIndex": 0,
+      "round": 2,
+      "readyPaintMs": 1134.2999999523163,
+      "treeResponseToPaintMs": 839.7999999523163,
+      "longTasks": [
+        {
+          "start": 312.39999985694885,
+          "duration": 588
+        },
+        {
+          "start": 936.5,
+          "duration": 197
+        },
+        {
+          "start": 1233.8999998569489,
+          "duration": 188
+        },
+        {
+          "start": 1449.8999998569489,
+          "duration": 167
+        }
+      ],
+      "geometry": {
+        "mountedRows": 100,
+        "mountedCells": 2100,
+        "intersectingRows": 30,
+        "intersectingCells": 450,
+        "headers": 21,
+        "width": 1368,
+        "height": 805,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "columns": [
+          {
+            "id": "drag",
+            "width": 24
+          },
+          {
+            "id": "number",
+            "width": 105
+          },
+          {
+            "id": "name",
+            "width": 200
+          },
+          {
+            "id": "depends",
+            "width": 86
+          },
+          {
+            "id": "priority",
+            "width": 48
+          },
+          {
+            "id": "tag",
+            "width": 120
+          },
+          {
+            "id": "in-parallel",
+            "width": 32
+          },
+          {
+            "id": "1242d8d7-5f8b-45f3-91aa-6a29f37f9d07-final",
+            "width": 96
+          },
+          {
+            "id": "e7a7c4db-78c2-4ce7-9b50-822b0ff83684-final",
+            "width": 96
+          },
+          {
+            "id": "7b0adae6-d379-4b6b-a815-03b95c2348cd-final",
+            "width": 96
+          },
+          {
+            "id": "e1c8e90a-95b4-4fe9-b47c-f18096d3de99-final",
+            "width": 96
+          },
+          {
+            "id": "804e3c80-5686-43a5-93db-4344267a5d2c-final",
+            "width": 96
+          },
+          {
+            "id": "834a61ce-f9a8-4214-9814-5843e36bf80b-final",
+            "width": 96
+          },
+          {
+            "id": "2b1aba33-d6bd-47d7-a45c-9812d55d29dc-final",
+            "width": 96
+          },
+          {
+            "id": "b87065ab-c690-48fb-90d1-727d96d235bf-final",
+            "width": 96
+          },
+          {
+            "id": "final-total",
+            "width": 52
+          },
+          {
+            "id": "not-before",
+            "width": 56
+          },
+          {
+            "id": "start",
+            "width": 98
+          },
+          {
+            "id": "finish",
+            "width": 98
+          },
+          {
+            "id": "float",
+            "width": 56
+          },
+          {
+            "id": "actions",
+            "width": 40
+          }
+        ],
+        "rowHeights": [26.1875, 26.1875, 26.1875]
+      },
+      "broad": {
+        "character": "R",
+        "inputPaintMs": 178.39999985694885,
+        "filterPaintMs": 178.39999985694885
+      },
+      "selective": {
+        "character": "z",
+        "inputPaintMs": 19.100000143051147,
+        "filterPaintMs": 19.100000143051147
+      }
+    },
+    {
+      "kind": "warm-reload",
+      "contextIndex": 0,
+      "round": 3,
+      "readyPaintMs": 1084.4000000953674,
+      "treeResponseToPaintMs": 810.2999999523163,
+      "longTasks": [
+        {
+          "start": 289.2999999523163,
+          "duration": 565
+        },
+        {
+          "start": 891.5,
+          "duration": 192
+        },
+        {
+          "start": 1189.1000001430511,
+          "duration": 175
+        },
+        {
+          "start": 1394.2000000476837,
+          "duration": 194
+        }
+      ],
+      "geometry": {
+        "mountedRows": 100,
+        "mountedCells": 2100,
+        "intersectingRows": 30,
+        "intersectingCells": 450,
+        "headers": 21,
+        "width": 1368,
+        "height": 805,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "columns": [
+          {
+            "id": "drag",
+            "width": 24
+          },
+          {
+            "id": "number",
+            "width": 105
+          },
+          {
+            "id": "name",
+            "width": 200
+          },
+          {
+            "id": "depends",
+            "width": 86
+          },
+          {
+            "id": "priority",
+            "width": 48
+          },
+          {
+            "id": "tag",
+            "width": 120
+          },
+          {
+            "id": "in-parallel",
+            "width": 32
+          },
+          {
+            "id": "1242d8d7-5f8b-45f3-91aa-6a29f37f9d07-final",
+            "width": 96
+          },
+          {
+            "id": "e7a7c4db-78c2-4ce7-9b50-822b0ff83684-final",
+            "width": 96
+          },
+          {
+            "id": "7b0adae6-d379-4b6b-a815-03b95c2348cd-final",
+            "width": 96
+          },
+          {
+            "id": "e1c8e90a-95b4-4fe9-b47c-f18096d3de99-final",
+            "width": 96
+          },
+          {
+            "id": "804e3c80-5686-43a5-93db-4344267a5d2c-final",
+            "width": 96
+          },
+          {
+            "id": "834a61ce-f9a8-4214-9814-5843e36bf80b-final",
+            "width": 96
+          },
+          {
+            "id": "2b1aba33-d6bd-47d7-a45c-9812d55d29dc-final",
+            "width": 96
+          },
+          {
+            "id": "b87065ab-c690-48fb-90d1-727d96d235bf-final",
+            "width": 96
+          },
+          {
+            "id": "final-total",
+            "width": 52
+          },
+          {
+            "id": "not-before",
+            "width": 56
+          },
+          {
+            "id": "start",
+            "width": 98
+          },
+          {
+            "id": "finish",
+            "width": 98
+          },
+          {
+            "id": "float",
+            "width": 56
+          },
+          {
+            "id": "actions",
+            "width": 40
+          }
+        ],
+        "rowHeights": [26.1875, 26.1875, 26.1875]
+      },
+      "broad": {
+        "character": "R",
+        "inputPaintMs": 179.29999995231628,
+        "filterPaintMs": 179.29999995231628
+      },
+      "selective": {
+        "character": "z",
+        "inputPaintMs": 20.600000143051147,
+        "filterPaintMs": 20.600000143051147
+      }
+    },
+    {
+      "kind": "warm-reload",
+      "contextIndex": 0,
+      "round": 4,
+      "readyPaintMs": 1130.6000001430511,
+      "treeResponseToPaintMs": 858.7999999523163,
+      "longTasks": [
+        {
+          "start": 290.5,
+          "duration": 629
+        },
+        {
+          "start": 956.5,
+          "duration": 174
+        },
+        {
+          "start": 1218.7000000476837,
+          "duration": 168
+        },
+        {
+          "start": 1412,
+          "duration": 179
+        }
+      ],
+      "geometry": {
+        "mountedRows": 100,
+        "mountedCells": 2100,
+        "intersectingRows": 30,
+        "intersectingCells": 450,
+        "headers": 21,
+        "width": 1368,
+        "height": 805,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "columns": [
+          {
+            "id": "drag",
+            "width": 24
+          },
+          {
+            "id": "number",
+            "width": 105
+          },
+          {
+            "id": "name",
+            "width": 200
+          },
+          {
+            "id": "depends",
+            "width": 86
+          },
+          {
+            "id": "priority",
+            "width": 48
+          },
+          {
+            "id": "tag",
+            "width": 120
+          },
+          {
+            "id": "in-parallel",
+            "width": 32
+          },
+          {
+            "id": "1242d8d7-5f8b-45f3-91aa-6a29f37f9d07-final",
+            "width": 96
+          },
+          {
+            "id": "e7a7c4db-78c2-4ce7-9b50-822b0ff83684-final",
+            "width": 96
+          },
+          {
+            "id": "7b0adae6-d379-4b6b-a815-03b95c2348cd-final",
+            "width": 96
+          },
+          {
+            "id": "e1c8e90a-95b4-4fe9-b47c-f18096d3de99-final",
+            "width": 96
+          },
+          {
+            "id": "804e3c80-5686-43a5-93db-4344267a5d2c-final",
+            "width": 96
+          },
+          {
+            "id": "834a61ce-f9a8-4214-9814-5843e36bf80b-final",
+            "width": 96
+          },
+          {
+            "id": "2b1aba33-d6bd-47d7-a45c-9812d55d29dc-final",
+            "width": 96
+          },
+          {
+            "id": "b87065ab-c690-48fb-90d1-727d96d235bf-final",
+            "width": 96
+          },
+          {
+            "id": "final-total",
+            "width": 52
+          },
+          {
+            "id": "not-before",
+            "width": 56
+          },
+          {
+            "id": "start",
+            "width": 98
+          },
+          {
+            "id": "finish",
+            "width": 98
+          },
+          {
+            "id": "float",
+            "width": 56
+          },
+          {
+            "id": "actions",
+            "width": 40
+          }
+        ],
+        "rowHeights": [26.1875, 26.1875, 26.1875]
+      },
+      "broad": {
+        "character": "R",
+        "inputPaintMs": 182.29999995231628,
+        "filterPaintMs": 182.20000004768372
+      },
+      "selective": {
+        "character": "z",
+        "inputPaintMs": 23.90000009536743,
+        "filterPaintMs": 23.90000009536743
+      }
+    },
+    {
+      "kind": "warm-reload",
+      "contextIndex": 0,
+      "round": 5,
+      "readyPaintMs": 1278.8000001907349,
+      "treeResponseToPaintMs": 976.8000001907349,
+      "longTasks": [
+        {
+          "start": 320.90000009536743,
+          "duration": 704
+        },
+        {
+          "start": 1070.4000000953674,
+          "duration": 208
+        },
+        {
+          "start": 1391.1000001430511,
+          "duration": 195
+        },
+        {
+          "start": 1611.7000000476837,
+          "duration": 182
+        }
+      ],
+      "geometry": {
+        "mountedRows": 100,
+        "mountedCells": 2100,
+        "intersectingRows": 30,
+        "intersectingCells": 450,
+        "headers": 21,
+        "width": 1368,
+        "height": 805,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "columns": [
+          {
+            "id": "drag",
+            "width": 24
+          },
+          {
+            "id": "number",
+            "width": 105
+          },
+          {
+            "id": "name",
+            "width": 200
+          },
+          {
+            "id": "depends",
+            "width": 86
+          },
+          {
+            "id": "priority",
+            "width": 48
+          },
+          {
+            "id": "tag",
+            "width": 120
+          },
+          {
+            "id": "in-parallel",
+            "width": 32
+          },
+          {
+            "id": "1242d8d7-5f8b-45f3-91aa-6a29f37f9d07-final",
+            "width": 96
+          },
+          {
+            "id": "e7a7c4db-78c2-4ce7-9b50-822b0ff83684-final",
+            "width": 96
+          },
+          {
+            "id": "7b0adae6-d379-4b6b-a815-03b95c2348cd-final",
+            "width": 96
+          },
+          {
+            "id": "e1c8e90a-95b4-4fe9-b47c-f18096d3de99-final",
+            "width": 96
+          },
+          {
+            "id": "804e3c80-5686-43a5-93db-4344267a5d2c-final",
+            "width": 96
+          },
+          {
+            "id": "834a61ce-f9a8-4214-9814-5843e36bf80b-final",
+            "width": 96
+          },
+          {
+            "id": "2b1aba33-d6bd-47d7-a45c-9812d55d29dc-final",
+            "width": 96
+          },
+          {
+            "id": "b87065ab-c690-48fb-90d1-727d96d235bf-final",
+            "width": 96
+          },
+          {
+            "id": "final-total",
+            "width": 52
+          },
+          {
+            "id": "not-before",
+            "width": 56
+          },
+          {
+            "id": "start",
+            "width": 98
+          },
+          {
+            "id": "finish",
+            "width": 98
+          },
+          {
+            "id": "float",
+            "width": 56
+          },
+          {
+            "id": "actions",
+            "width": 40
+          }
+        ],
+        "rowHeights": [26.1875, 26.1875, 26.1875]
+      },
+      "broad": {
+        "character": "R",
+        "inputPaintMs": 188.70000004768372,
+        "filterPaintMs": 188.70000004768372
+      },
+      "selective": {
+        "character": "z",
+        "inputPaintMs": 19.700000047683716,
+        "filterPaintMs": 19.700000047683716
+      }
+    },
+    {
+      "kind": "warm-reload",
+      "contextIndex": 0,
+      "round": 6,
+      "readyPaintMs": 1095.5999999046326,
+      "treeResponseToPaintMs": 806.9000000953674,
+      "longTasks": [
+        {
+          "start": 301.5,
+          "duration": 581
+        },
+        {
+          "start": 921,
+          "duration": 174
+        },
+        {
+          "start": 1190.3999998569489,
+          "duration": 160
+        },
+        {
+          "start": 1374,
+          "duration": 173
+        }
+      ],
+      "geometry": {
+        "mountedRows": 100,
+        "mountedCells": 2100,
+        "intersectingRows": 30,
+        "intersectingCells": 450,
+        "headers": 21,
+        "width": 1368,
+        "height": 805,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "columns": [
+          {
+            "id": "drag",
+            "width": 24
+          },
+          {
+            "id": "number",
+            "width": 105
+          },
+          {
+            "id": "name",
+            "width": 200
+          },
+          {
+            "id": "depends",
+            "width": 86
+          },
+          {
+            "id": "priority",
+            "width": 48
+          },
+          {
+            "id": "tag",
+            "width": 120
+          },
+          {
+            "id": "in-parallel",
+            "width": 32
+          },
+          {
+            "id": "1242d8d7-5f8b-45f3-91aa-6a29f37f9d07-final",
+            "width": 96
+          },
+          {
+            "id": "e7a7c4db-78c2-4ce7-9b50-822b0ff83684-final",
+            "width": 96
+          },
+          {
+            "id": "7b0adae6-d379-4b6b-a815-03b95c2348cd-final",
+            "width": 96
+          },
+          {
+            "id": "e1c8e90a-95b4-4fe9-b47c-f18096d3de99-final",
+            "width": 96
+          },
+          {
+            "id": "804e3c80-5686-43a5-93db-4344267a5d2c-final",
+            "width": 96
+          },
+          {
+            "id": "834a61ce-f9a8-4214-9814-5843e36bf80b-final",
+            "width": 96
+          },
+          {
+            "id": "2b1aba33-d6bd-47d7-a45c-9812d55d29dc-final",
+            "width": 96
+          },
+          {
+            "id": "b87065ab-c690-48fb-90d1-727d96d235bf-final",
+            "width": 96
+          },
+          {
+            "id": "final-total",
+            "width": 52
+          },
+          {
+            "id": "not-before",
+            "width": 56
+          },
+          {
+            "id": "start",
+            "width": 98
+          },
+          {
+            "id": "finish",
+            "width": 98
+          },
+          {
+            "id": "float",
+            "width": 56
+          },
+          {
+            "id": "actions",
+            "width": 40
+          }
+        ],
+        "rowHeights": [26.1875, 26.1875, 26.1875]
+      },
+      "broad": {
+        "character": "R",
+        "inputPaintMs": 198,
+        "filterPaintMs": 198
+      },
+      "selective": {
+        "character": "z",
+        "inputPaintMs": 22.09999990463257,
+        "filterPaintMs": 22.09999990463257
+      }
+    },
+    {
+      "kind": "warm-reload",
+      "contextIndex": 0,
+      "round": 7,
+      "readyPaintMs": 1235.0999999046326,
+      "treeResponseToPaintMs": 949.5,
+      "longTasks": [
+        {
+          "start": 300.7999999523163,
+          "duration": 711
+        },
+        {
+          "start": 1047.7000000476837,
+          "duration": 187
+        },
+        {
+          "start": 1330.8999998569489,
+          "duration": 167
+        },
+        {
+          "start": 1521.0999999046326,
+          "duration": 179
+        }
+      ],
+      "geometry": {
+        "mountedRows": 100,
+        "mountedCells": 2100,
+        "intersectingRows": 30,
+        "intersectingCells": 450,
+        "headers": 21,
+        "width": 1368,
+        "height": 805,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "columns": [
+          {
+            "id": "drag",
+            "width": 24
+          },
+          {
+            "id": "number",
+            "width": 105
+          },
+          {
+            "id": "name",
+            "width": 200
+          },
+          {
+            "id": "depends",
+            "width": 86
+          },
+          {
+            "id": "priority",
+            "width": 48
+          },
+          {
+            "id": "tag",
+            "width": 120
+          },
+          {
+            "id": "in-parallel",
+            "width": 32
+          },
+          {
+            "id": "1242d8d7-5f8b-45f3-91aa-6a29f37f9d07-final",
+            "width": 96
+          },
+          {
+            "id": "e7a7c4db-78c2-4ce7-9b50-822b0ff83684-final",
+            "width": 96
+          },
+          {
+            "id": "7b0adae6-d379-4b6b-a815-03b95c2348cd-final",
+            "width": 96
+          },
+          {
+            "id": "e1c8e90a-95b4-4fe9-b47c-f18096d3de99-final",
+            "width": 96
+          },
+          {
+            "id": "804e3c80-5686-43a5-93db-4344267a5d2c-final",
+            "width": 96
+          },
+          {
+            "id": "834a61ce-f9a8-4214-9814-5843e36bf80b-final",
+            "width": 96
+          },
+          {
+            "id": "2b1aba33-d6bd-47d7-a45c-9812d55d29dc-final",
+            "width": 96
+          },
+          {
+            "id": "b87065ab-c690-48fb-90d1-727d96d235bf-final",
+            "width": 96
+          },
+          {
+            "id": "final-total",
+            "width": 52
+          },
+          {
+            "id": "not-before",
+            "width": 56
+          },
+          {
+            "id": "start",
+            "width": 98
+          },
+          {
+            "id": "finish",
+            "width": 98
+          },
+          {
+            "id": "float",
+            "width": 56
+          },
+          {
+            "id": "actions",
+            "width": 40
+          }
+        ],
+        "rowHeights": [26.1875, 26.1875, 26.1875]
+      },
+      "broad": {
+        "character": "R",
+        "inputPaintMs": 189.70000004768372,
+        "filterPaintMs": 189.70000004768372
+      },
+      "selective": {
+        "character": "z",
+        "inputPaintMs": 26.299999952316284,
+        "filterPaintMs": 26.299999952316284
+      }
+    },
+    {
+      "kind": "precise-coverage",
+      "broadFindCellStyleCalls": 4242
+    },
+    {
+      "kind": "gantt-open",
+      "geometry": {
+        "mountedRows": 100,
+        "mountedCells": 2100,
+        "intersectingRows": 16,
+        "intersectingCells": 240,
+        "headers": 21,
+        "width": 1368,
+        "height": 424,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "columns": [
+          {
+            "id": "drag",
+            "width": 24
+          },
+          {
+            "id": "number",
+            "width": 105
+          },
+          {
+            "id": "name",
+            "width": 200
+          },
+          {
+            "id": "depends",
+            "width": 86
+          },
+          {
+            "id": "priority",
+            "width": 48
+          },
+          {
+            "id": "tag",
+            "width": 120
+          },
+          {
+            "id": "in-parallel",
+            "width": 32
+          },
+          {
+            "id": "1242d8d7-5f8b-45f3-91aa-6a29f37f9d07-final",
+            "width": 96
+          },
+          {
+            "id": "e7a7c4db-78c2-4ce7-9b50-822b0ff83684-final",
+            "width": 96
+          },
+          {
+            "id": "7b0adae6-d379-4b6b-a815-03b95c2348cd-final",
+            "width": 96
+          },
+          {
+            "id": "e1c8e90a-95b4-4fe9-b47c-f18096d3de99-final",
+            "width": 96
+          },
+          {
+            "id": "804e3c80-5686-43a5-93db-4344267a5d2c-final",
+            "width": 96
+          },
+          {
+            "id": "834a61ce-f9a8-4214-9814-5843e36bf80b-final",
+            "width": 96
+          },
+          {
+            "id": "2b1aba33-d6bd-47d7-a45c-9812d55d29dc-final",
+            "width": 96
+          },
+          {
+            "id": "b87065ab-c690-48fb-90d1-727d96d235bf-final",
+            "width": 96
+          },
+          {
+            "id": "final-total",
+            "width": 52
+          },
+          {
+            "id": "not-before",
+            "width": 56
+          },
+          {
+            "id": "start",
+            "width": 98
+          },
+          {
+            "id": "finish",
+            "width": 98
+          },
+          {
+            "id": "float",
+            "width": 56
+          },
+          {
+            "id": "actions",
+            "width": 40
+          }
+        ],
+        "rowHeights": [26.1875, 26.1875, 26.1875]
+      },
+      "chart": 100,
+      "labelGeometry": [
+        {
+          "top": 540,
+          "height": 28
+        },
+        {
+          "top": 568,
+          "height": 28
+        },
+        {
+          "top": 596,
+          "height": 28
+        }
+      ]
+    },
+    {
+      "kind": "eight-steps-unfolded-left",
+      "geometry": {
+        "mountedRows": 100,
+        "mountedCells": 5300,
+        "intersectingRows": 16,
+        "intersectingCells": 288,
+        "headers": 53,
+        "width": 1368,
+        "height": 424,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "columns": [
+          {
+            "id": "drag",
+            "width": 24
+          },
+          {
+            "id": "number",
+            "width": 105
+          },
+          {
+            "id": "name",
+            "width": 200
+          },
+          {
+            "id": "depends",
+            "width": 86
+          },
+          {
+            "id": "priority",
+            "width": 48
+          },
+          {
+            "id": "tag",
+            "width": 120
+          },
+          {
+            "id": "in-parallel",
+            "width": 32
+          },
+          {
+            "id": "1242d8d7-5f8b-45f3-91aa-6a29f37f9d07-final",
+            "width": 96
+          },
+          {
+            "id": "1242d8d7-5f8b-45f3-91aa-6a29f37f9d07-optimistic",
+            "width": 44
+          },
+          {
+            "id": "1242d8d7-5f8b-45f3-91aa-6a29f37f9d07-realistic",
+            "width": 44
+          },
+          {
+            "id": "1242d8d7-5f8b-45f3-91aa-6a29f37f9d07-pessimistic",
+            "width": 44
+          },
+          {
+            "id": "1242d8d7-5f8b-45f3-91aa-6a29f37f9d07-assignee",
+            "width": 120
+          },
+          {
+            "id": "e7a7c4db-78c2-4ce7-9b50-822b0ff83684-final",
+            "width": 96
+          },
+          {
+            "id": "e7a7c4db-78c2-4ce7-9b50-822b0ff83684-optimistic",
+            "width": 44
+          },
+          {
+            "id": "e7a7c4db-78c2-4ce7-9b50-822b0ff83684-realistic",
+            "width": 44
+          },
+          {
+            "id": "e7a7c4db-78c2-4ce7-9b50-822b0ff83684-pessimistic",
+            "width": 44
+          },
+          {
+            "id": "e7a7c4db-78c2-4ce7-9b50-822b0ff83684-assignee",
+            "width": 120
+          },
+          {
+            "id": "7b0adae6-d379-4b6b-a815-03b95c2348cd-final",
+            "width": 96
+          },
+          {
+            "id": "7b0adae6-d379-4b6b-a815-03b95c2348cd-optimistic",
+            "width": 44
+          },
+          {
+            "id": "7b0adae6-d379-4b6b-a815-03b95c2348cd-realistic",
+            "width": 44
+          },
+          {
+            "id": "7b0adae6-d379-4b6b-a815-03b95c2348cd-pessimistic",
+            "width": 44
+          },
+          {
+            "id": "7b0adae6-d379-4b6b-a815-03b95c2348cd-assignee",
+            "width": 120
+          },
+          {
+            "id": "e1c8e90a-95b4-4fe9-b47c-f18096d3de99-final",
+            "width": 96
+          },
+          {
+            "id": "e1c8e90a-95b4-4fe9-b47c-f18096d3de99-optimistic",
+            "width": 44
+          },
+          {
+            "id": "e1c8e90a-95b4-4fe9-b47c-f18096d3de99-realistic",
+            "width": 44
+          },
+          {
+            "id": "e1c8e90a-95b4-4fe9-b47c-f18096d3de99-pessimistic",
+            "width": 44
+          },
+          {
+            "id": "e1c8e90a-95b4-4fe9-b47c-f18096d3de99-assignee",
+            "width": 120
+          },
+          {
+            "id": "804e3c80-5686-43a5-93db-4344267a5d2c-final",
+            "width": 96
+          },
+          {
+            "id": "804e3c80-5686-43a5-93db-4344267a5d2c-optimistic",
+            "width": 44
+          },
+          {
+            "id": "804e3c80-5686-43a5-93db-4344267a5d2c-realistic",
+            "width": 44
+          },
+          {
+            "id": "804e3c80-5686-43a5-93db-4344267a5d2c-pessimistic",
+            "width": 44
+          },
+          {
+            "id": "804e3c80-5686-43a5-93db-4344267a5d2c-assignee",
+            "width": 120
+          },
+          {
+            "id": "834a61ce-f9a8-4214-9814-5843e36bf80b-final",
+            "width": 96
+          },
+          {
+            "id": "834a61ce-f9a8-4214-9814-5843e36bf80b-optimistic",
+            "width": 44
+          },
+          {
+            "id": "834a61ce-f9a8-4214-9814-5843e36bf80b-realistic",
+            "width": 44
+          },
+          {
+            "id": "834a61ce-f9a8-4214-9814-5843e36bf80b-pessimistic",
+            "width": 44
+          },
+          {
+            "id": "834a61ce-f9a8-4214-9814-5843e36bf80b-assignee",
+            "width": 120
+          },
+          {
+            "id": "2b1aba33-d6bd-47d7-a45c-9812d55d29dc-final",
+            "width": 96
+          },
+          {
+            "id": "2b1aba33-d6bd-47d7-a45c-9812d55d29dc-optimistic",
+            "width": 44
+          },
+          {
+            "id": "2b1aba33-d6bd-47d7-a45c-9812d55d29dc-realistic",
+            "width": 44
+          },
+          {
+            "id": "2b1aba33-d6bd-47d7-a45c-9812d55d29dc-pessimistic",
+            "width": 44
+          },
+          {
+            "id": "2b1aba33-d6bd-47d7-a45c-9812d55d29dc-assignee",
+            "width": 120
+          },
+          {
+            "id": "b87065ab-c690-48fb-90d1-727d96d235bf-final",
+            "width": 96
+          },
+          {
+            "id": "b87065ab-c690-48fb-90d1-727d96d235bf-optimistic",
+            "width": 44
+          },
+          {
+            "id": "b87065ab-c690-48fb-90d1-727d96d235bf-realistic",
+            "width": 44
+          },
+          {
+            "id": "b87065ab-c690-48fb-90d1-727d96d235bf-pessimistic",
+            "width": 44
+          },
+          {
+            "id": "b87065ab-c690-48fb-90d1-727d96d235bf-assignee",
+            "width": 120
+          },
+          {
+            "id": "final-total",
+            "width": 52
+          },
+          {
+            "id": "not-before",
+            "width": 56
+          },
+          {
+            "id": "start",
+            "width": 98
+          },
+          {
+            "id": "finish",
+            "width": 98
+          },
+          {
+            "id": "float",
+            "width": 56
+          },
+          {
+            "id": "actions",
+            "width": 40
+          }
+        ],
+        "rowHeights": [26.1875, 26.1875, 26.1875]
+      }
+    },
+    {
+      "kind": "eight-steps-unfolded-right",
+      "geometry": {
+        "mountedRows": 100,
+        "mountedCells": 5300,
+        "intersectingRows": 16,
+        "intersectingCells": 384,
+        "headers": 53,
+        "width": 1368,
+        "height": 424,
+        "scrollTop": 0,
+        "scrollLeft": 2431,
+        "columns": [
+          {
+            "id": "drag",
+            "width": 24
+          },
+          {
+            "id": "number",
+            "width": 105
+          },
+          {
+            "id": "name",
+            "width": 200
+          },
+          {
+            "id": "depends",
+            "width": 86
+          },
+          {
+            "id": "priority",
+            "width": 48
+          },
+          {
+            "id": "tag",
+            "width": 120
+          },
+          {
+            "id": "in-parallel",
+            "width": 32
+          },
+          {
+            "id": "1242d8d7-5f8b-45f3-91aa-6a29f37f9d07-final",
+            "width": 96
+          },
+          {
+            "id": "1242d8d7-5f8b-45f3-91aa-6a29f37f9d07-optimistic",
+            "width": 44
+          },
+          {
+            "id": "1242d8d7-5f8b-45f3-91aa-6a29f37f9d07-realistic",
+            "width": 44
+          },
+          {
+            "id": "1242d8d7-5f8b-45f3-91aa-6a29f37f9d07-pessimistic",
+            "width": 44
+          },
+          {
+            "id": "1242d8d7-5f8b-45f3-91aa-6a29f37f9d07-assignee",
+            "width": 120
+          },
+          {
+            "id": "e7a7c4db-78c2-4ce7-9b50-822b0ff83684-final",
+            "width": 96
+          },
+          {
+            "id": "e7a7c4db-78c2-4ce7-9b50-822b0ff83684-optimistic",
+            "width": 44
+          },
+          {
+            "id": "e7a7c4db-78c2-4ce7-9b50-822b0ff83684-realistic",
+            "width": 44
+          },
+          {
+            "id": "e7a7c4db-78c2-4ce7-9b50-822b0ff83684-pessimistic",
+            "width": 44
+          },
+          {
+            "id": "e7a7c4db-78c2-4ce7-9b50-822b0ff83684-assignee",
+            "width": 120
+          },
+          {
+            "id": "7b0adae6-d379-4b6b-a815-03b95c2348cd-final",
+            "width": 96
+          },
+          {
+            "id": "7b0adae6-d379-4b6b-a815-03b95c2348cd-optimistic",
+            "width": 44
+          },
+          {
+            "id": "7b0adae6-d379-4b6b-a815-03b95c2348cd-realistic",
+            "width": 44
+          },
+          {
+            "id": "7b0adae6-d379-4b6b-a815-03b95c2348cd-pessimistic",
+            "width": 44
+          },
+          {
+            "id": "7b0adae6-d379-4b6b-a815-03b95c2348cd-assignee",
+            "width": 120
+          },
+          {
+            "id": "e1c8e90a-95b4-4fe9-b47c-f18096d3de99-final",
+            "width": 96
+          },
+          {
+            "id": "e1c8e90a-95b4-4fe9-b47c-f18096d3de99-optimistic",
+            "width": 44
+          },
+          {
+            "id": "e1c8e90a-95b4-4fe9-b47c-f18096d3de99-realistic",
+            "width": 44
+          },
+          {
+            "id": "e1c8e90a-95b4-4fe9-b47c-f18096d3de99-pessimistic",
+            "width": 44
+          },
+          {
+            "id": "e1c8e90a-95b4-4fe9-b47c-f18096d3de99-assignee",
+            "width": 120
+          },
+          {
+            "id": "804e3c80-5686-43a5-93db-4344267a5d2c-final",
+            "width": 96
+          },
+          {
+            "id": "804e3c80-5686-43a5-93db-4344267a5d2c-optimistic",
+            "width": 44
+          },
+          {
+            "id": "804e3c80-5686-43a5-93db-4344267a5d2c-realistic",
+            "width": 44
+          },
+          {
+            "id": "804e3c80-5686-43a5-93db-4344267a5d2c-pessimistic",
+            "width": 44
+          },
+          {
+            "id": "804e3c80-5686-43a5-93db-4344267a5d2c-assignee",
+            "width": 120
+          },
+          {
+            "id": "834a61ce-f9a8-4214-9814-5843e36bf80b-final",
+            "width": 96
+          },
+          {
+            "id": "834a61ce-f9a8-4214-9814-5843e36bf80b-optimistic",
+            "width": 44
+          },
+          {
+            "id": "834a61ce-f9a8-4214-9814-5843e36bf80b-realistic",
+            "width": 44
+          },
+          {
+            "id": "834a61ce-f9a8-4214-9814-5843e36bf80b-pessimistic",
+            "width": 44
+          },
+          {
+            "id": "834a61ce-f9a8-4214-9814-5843e36bf80b-assignee",
+            "width": 120
+          },
+          {
+            "id": "2b1aba33-d6bd-47d7-a45c-9812d55d29dc-final",
+            "width": 96
+          },
+          {
+            "id": "2b1aba33-d6bd-47d7-a45c-9812d55d29dc-optimistic",
+            "width": 44
+          },
+          {
+            "id": "2b1aba33-d6bd-47d7-a45c-9812d55d29dc-realistic",
+            "width": 44
+          },
+          {
+            "id": "2b1aba33-d6bd-47d7-a45c-9812d55d29dc-pessimistic",
+            "width": 44
+          },
+          {
+            "id": "2b1aba33-d6bd-47d7-a45c-9812d55d29dc-assignee",
+            "width": 120
+          },
+          {
+            "id": "b87065ab-c690-48fb-90d1-727d96d235bf-final",
+            "width": 96
+          },
+          {
+            "id": "b87065ab-c690-48fb-90d1-727d96d235bf-optimistic",
+            "width": 44
+          },
+          {
+            "id": "b87065ab-c690-48fb-90d1-727d96d235bf-realistic",
+            "width": 44
+          },
+          {
+            "id": "b87065ab-c690-48fb-90d1-727d96d235bf-pessimistic",
+            "width": 44
+          },
+          {
+            "id": "b87065ab-c690-48fb-90d1-727d96d235bf-assignee",
+            "width": 120
+          },
+          {
+            "id": "final-total",
+            "width": 52
+          },
+          {
+            "id": "not-before",
+            "width": 56
+          },
+          {
+            "id": "start",
+            "width": 98
+          },
+          {
+            "id": "finish",
+            "width": 98
+          },
+          {
+            "id": "float",
+            "width": 56
+          },
+          {
+            "id": "actions",
+            "width": 40
+          }
+        ],
+        "rowHeights": [26.1875, 26.1875, 26.1875]
+      }
+    },
+    {
+      "kind": "cold-context",
+      "contextIndex": 1,
+      "round": 0,
+      "readyPaintMs": 1167,
+      "treeResponseToPaintMs": 839.5999999046326,
+      "longTasks": [
+        {
+          "start": 340.59999990463257,
+          "duration": 599
+        },
+        {
+          "start": 987.7999999523163,
+          "duration": 179
+        },
+        {
+          "start": 1258.4000000953674,
+          "duration": 189
+        },
+        {
+          "start": 1471.2999999523163,
+          "duration": 170
+        }
+      ],
+      "geometry": {
+        "mountedRows": 100,
+        "mountedCells": 2100,
+        "intersectingRows": 30,
+        "intersectingCells": 450,
+        "headers": 21,
+        "width": 1368,
+        "height": 805,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "columns": [
+          {
+            "id": "drag",
+            "width": 24
+          },
+          {
+            "id": "number",
+            "width": 105
+          },
+          {
+            "id": "name",
+            "width": 200
+          },
+          {
+            "id": "depends",
+            "width": 86
+          },
+          {
+            "id": "priority",
+            "width": 48
+          },
+          {
+            "id": "tag",
+            "width": 120
+          },
+          {
+            "id": "in-parallel",
+            "width": 32
+          },
+          {
+            "id": "1242d8d7-5f8b-45f3-91aa-6a29f37f9d07-final",
+            "width": 96
+          },
+          {
+            "id": "e7a7c4db-78c2-4ce7-9b50-822b0ff83684-final",
+            "width": 96
+          },
+          {
+            "id": "7b0adae6-d379-4b6b-a815-03b95c2348cd-final",
+            "width": 96
+          },
+          {
+            "id": "e1c8e90a-95b4-4fe9-b47c-f18096d3de99-final",
+            "width": 96
+          },
+          {
+            "id": "804e3c80-5686-43a5-93db-4344267a5d2c-final",
+            "width": 96
+          },
+          {
+            "id": "834a61ce-f9a8-4214-9814-5843e36bf80b-final",
+            "width": 96
+          },
+          {
+            "id": "2b1aba33-d6bd-47d7-a45c-9812d55d29dc-final",
+            "width": 96
+          },
+          {
+            "id": "b87065ab-c690-48fb-90d1-727d96d235bf-final",
+            "width": 96
+          },
+          {
+            "id": "final-total",
+            "width": 52
+          },
+          {
+            "id": "not-before",
+            "width": 56
+          },
+          {
+            "id": "start",
+            "width": 98
+          },
+          {
+            "id": "finish",
+            "width": 98
+          },
+          {
+            "id": "float",
+            "width": 56
+          },
+          {
+            "id": "actions",
+            "width": 40
+          }
+        ],
+        "rowHeights": [26.1875, 26.1875, 26.1875]
+      },
+      "broad": {
+        "character": "R",
+        "inputPaintMs": 217.59999990463257,
+        "filterPaintMs": 217.59999990463257
+      },
+      "selective": {
+        "character": "z",
+        "inputPaintMs": 20.700000047683716,
+        "filterPaintMs": 20.59999990463257
+      }
+    },
+    {
+      "kind": "cold-context",
+      "contextIndex": 2,
+      "round": 0,
+      "readyPaintMs": 1267.0999999046326,
+      "treeResponseToPaintMs": 931.0999999046326,
+      "longTasks": [
+        {
+          "start": 355.19999980926514,
+          "duration": 678
+        },
+        {
+          "start": 1073.7999999523163,
+          "duration": 193
+        },
+        {
+          "start": 1360.5,
+          "duration": 169
+        },
+        {
+          "start": 1555.8999998569489,
+          "duration": 187
+        }
+      ],
+      "geometry": {
+        "mountedRows": 100,
+        "mountedCells": 2100,
+        "intersectingRows": 30,
+        "intersectingCells": 450,
+        "headers": 21,
+        "width": 1368,
+        "height": 805,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "columns": [
+          {
+            "id": "drag",
+            "width": 24
+          },
+          {
+            "id": "number",
+            "width": 105
+          },
+          {
+            "id": "name",
+            "width": 200
+          },
+          {
+            "id": "depends",
+            "width": 86
+          },
+          {
+            "id": "priority",
+            "width": 48
+          },
+          {
+            "id": "tag",
+            "width": 120
+          },
+          {
+            "id": "in-parallel",
+            "width": 32
+          },
+          {
+            "id": "1242d8d7-5f8b-45f3-91aa-6a29f37f9d07-final",
+            "width": 96
+          },
+          {
+            "id": "e7a7c4db-78c2-4ce7-9b50-822b0ff83684-final",
+            "width": 96
+          },
+          {
+            "id": "7b0adae6-d379-4b6b-a815-03b95c2348cd-final",
+            "width": 96
+          },
+          {
+            "id": "e1c8e90a-95b4-4fe9-b47c-f18096d3de99-final",
+            "width": 96
+          },
+          {
+            "id": "804e3c80-5686-43a5-93db-4344267a5d2c-final",
+            "width": 96
+          },
+          {
+            "id": "834a61ce-f9a8-4214-9814-5843e36bf80b-final",
+            "width": 96
+          },
+          {
+            "id": "2b1aba33-d6bd-47d7-a45c-9812d55d29dc-final",
+            "width": 96
+          },
+          {
+            "id": "b87065ab-c690-48fb-90d1-727d96d235bf-final",
+            "width": 96
+          },
+          {
+            "id": "final-total",
+            "width": 52
+          },
+          {
+            "id": "not-before",
+            "width": 56
+          },
+          {
+            "id": "start",
+            "width": 98
+          },
+          {
+            "id": "finish",
+            "width": 98
+          },
+          {
+            "id": "float",
+            "width": 56
+          },
+          {
+            "id": "actions",
+            "width": 40
+          }
+        ],
+        "rowHeights": [26.1875, 26.1875, 26.1875]
+      },
+      "broad": {
+        "character": "R",
+        "inputPaintMs": 182.20000004768372,
+        "filterPaintMs": 182.20000004768372
+      },
+      "selective": {
+        "character": "z",
+        "inputPaintMs": 19.90000009536743,
+        "filterPaintMs": 19.90000009536743
+      }
+    }
+  ]
+}

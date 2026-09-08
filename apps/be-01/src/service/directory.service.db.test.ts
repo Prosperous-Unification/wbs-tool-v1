@@ -8,6 +8,7 @@ import type { DirectoryStore, Person, Step, WorkItem, WriteStamp } from '../repo
 import { CapacityRepository } from '../repository/capacity';
 import { openDrizzle } from '../repository/db';
 import { DirectoryRepository } from '../repository/directory';
+import { OPEN } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { ProjectRepository } from '../repository/project';
 import { teamService } from '../repository/schema';
@@ -101,18 +102,18 @@ beforeEach(async () => {
   runMigrations(path, FOLDER);
   db = openDrizzle(path);
 
-  projects = new ProjectRepository(db);
-  store = new DirectoryRepository(db);
-  capacity = new CapacityRepository(db);
-  workItems = new WorkItemRepository(db);
-  stepStore = new StepRepository(db);
+  projects = new ProjectRepository(db, OPEN);
+  store = new DirectoryRepository(db, OPEN);
+  capacity = new CapacityRepository(db, OPEN);
+  workItems = new WorkItemRepository(db, OPEN);
+  stepStore = new StepRepository(db, OPEN);
   broadcast = recordingBroadcaster();
   directory = new DirectoryService({ directory: store, broadcast });
 
   ownerId = crypto.randomUUID();
   // Stamped with its own id, which is how a signup is: there is no earlier
   // account for the first one to name.
-  await new UserRepository(db).create(
+  await new UserRepository(db, OPEN).create(
     {
       id: ownerId,
       username: 'owner',

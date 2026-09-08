@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import type { SQLiteBunDatabase } from 'drizzle-orm/bun-sqlite';
 
 import { auditOnCreate, auditOnUpdate } from './audit';
+import type { Gate } from './gate';
 import type { EstimateStore, StoredEstimate, WriteStamp } from './index';
 import { bumpWorkItems } from './revision';
 import { estimate, step, workItem } from './schema';
@@ -31,7 +32,10 @@ import { estimate, step, workItem } from './schema';
  * prevented.
  */
 export class EstimateRepository implements EstimateStore {
-  constructor(private readonly db: SQLiteBunDatabase) {}
+  constructor(
+    private readonly db: SQLiteBunDatabase,
+    private readonly gate: Gate,
+  ) {}
 
   /**
    * Every estimate in the project, **in step order** within each work item.
@@ -80,39 +84,43 @@ export class EstimateRepository implements EstimateStore {
   }
 
   async set(toSet: StoredEstimate, stamp: WriteStamp): Promise<void> {
-    await Promise.resolve();
-    this.db.transaction((tx) => {
-      tx.insert(estimate)
-        .values({ ...toSet, ...auditOnCreate(stamp) })
-        .onConflictDoUpdate({
-          target: [estimate.workItemId, estimate.stepId],
-          set: {
-            optimistic: toSet.optimistic,
-            realistic: toSet.realistic,
-            pessimistic: toSet.pessimistic,
-            ...auditOnUpdate(stamp),
-          },
-        })
-        .run();
-      bumpWorkItems(tx, [toSet.workItemId], stamp);
+    await this.gate.enter(async () => {
+      await Promise.resolve();
+      this.db.transaction((tx) => {
+        tx.insert(estimate)
+          .values({ ...toSet, ...auditOnCreate(stamp) })
+          .onConflictDoUpdate({
+            target: [estimate.workItemId, estimate.stepId],
+            set: {
+              optimistic: toSet.optimistic,
+              realistic: toSet.realistic,
+              pessimistic: toSet.pessimistic,
+              ...auditOnUpdate(stamp),
+            },
+          })
+          .run();
+        bumpWorkItems(tx, [toSet.workItemId], stamp);
+      });
     });
   }
 
   async remove(workItemId: string, stepId: string, stamp: WriteStamp): Promise<void> {
-    // Both halves of the key, not the step alone: the composite primary key is
-    // (work item, step), and narrowing to one of them would clear that step
-    // across the whole database. `estimate.test.ts` keeps a survivor for each
-    // half so that mistake cannot pass.
-    //
-    // Proof: narrowed to `eq(estimate.stepId, stepId)` alone, `removes one
-    // work item's step without touching the other step or the same step
-    // elsewhere` fails; watched 2026-08-06.
-    await Promise.resolve();
-    this.db.transaction((tx) => {
-      tx.delete(estimate)
-        .where(and(eq(estimate.workItemId, workItemId), eq(estimate.stepId, stepId)))
-        .run();
-      bumpWorkItems(tx, [workItemId], stamp);
+    await this.gate.enter(async () => {
+      // Both halves of the key, not the step alone: the composite primary key is
+      // (work item, step), and narrowing to one of them would clear that step
+      // across the whole database. `estimate.test.ts` keeps a survivor for each
+      // half so that mistake cannot pass.
+      //
+      // Proof: narrowed to `eq(estimate.stepId, stepId)` alone, `removes one
+      // work item's step without touching the other step or the same step
+      // elsewhere` fails; watched 2026-08-06.
+      await Promise.resolve();
+      this.db.transaction((tx) => {
+        tx.delete(estimate)
+          .where(and(eq(estimate.workItemId, workItemId), eq(estimate.stepId, stepId)))
+          .run();
+        bumpWorkItems(tx, [workItemId], stamp);
+      });
     });
   }
 
@@ -124,13 +132,15 @@ export class EstimateRepository implements EstimateStore {
    * moving both` fails on the parent's revision; watched 2026-08-07.
    */
   async moveAll(fromWorkItemId: string, toWorkItemId: string, stamp: WriteStamp): Promise<void> {
-    await Promise.resolve();
-    this.db.transaction((tx) => {
-      tx.update(estimate)
-        .set({ workItemId: toWorkItemId, ...auditOnUpdate(stamp) })
-        .where(eq(estimate.workItemId, fromWorkItemId))
-        .run();
-      bumpWorkItems(tx, [fromWorkItemId, toWorkItemId], stamp);
+    await this.gate.enter(async () => {
+      await Promise.resolve();
+      this.db.transaction((tx) => {
+        tx.update(estimate)
+          .set({ workItemId: toWorkItemId, ...auditOnUpdate(stamp) })
+          .where(eq(estimate.workItemId, fromWorkItemId))
+          .run();
+        bumpWorkItems(tx, [fromWorkItemId, toWorkItemId], stamp);
+      });
     });
   }
 }

@@ -1,0 +1,1255 @@
+{
+  "seeded": {
+    "rows": 500,
+    "steps": 2,
+    "density": "sparse",
+    "projectId": "e4217d6a-c59a-40d4-9397-508cecc1f4b1",
+    "edges": 49,
+    "setupMs": 4238
+  },
+  "browser": "151.0.7922.34",
+  "runtime": {
+    "platform": "darwin",
+    "release": "25.5.0",
+    "arch": "arm64",
+    "cpu": "Apple M1 Pro"
+  },
+  "viewport": {
+    "width": 1400,
+    "height": 900
+  },
+  "server": "warm Vite development/backend; fresh owned stack",
+  "throttle": "none",
+  "samples": [
+    {
+      "kind": "cold-context",
+      "contextIndex": 0,
+      "round": 0,
+      "readyPaintMs": 15930.699999809265,
+      "treeResponseToPaintMs": 15579.099999904633,
+      "longTasks": [
+        {
+          "start": 365.5,
+          "duration": 12591
+        },
+        {
+          "start": 12957.599999904633,
+          "duration": 82
+        },
+        {
+          "start": 13068.5,
+          "duration": 2862
+        },
+        {
+          "start": 16201.199999809265,
+          "duration": 2929
+        },
+        {
+          "start": 19248.199999809265,
+          "duration": 3027
+        }
+      ],
+      "geometry": {
+        "mountedRows": 500,
+        "mountedCells": 7500,
+        "intersectingRows": 30,
+        "intersectingCells": 450,
+        "headers": 15,
+        "width": 1368,
+        "height": 805,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "columns": [
+          {
+            "id": "drag",
+            "width": 24
+          },
+          {
+            "id": "number",
+            "width": 105
+          },
+          {
+            "id": "name",
+            "width": 361
+          },
+          {
+            "id": "depends",
+            "width": 86
+          },
+          {
+            "id": "priority",
+            "width": 48
+          },
+          {
+            "id": "tag",
+            "width": 120
+          },
+          {
+            "id": "in-parallel",
+            "width": 32
+          },
+          {
+            "id": "364d226c-bb92-495f-8ef3-13580e15ca38-final",
+            "width": 96
+          },
+          {
+            "id": "f0e42471-ecd5-484e-ab04-036b33a8d4aa-final",
+            "width": 96
+          },
+          {
+            "id": "final-total",
+            "width": 52
+          },
+          {
+            "id": "not-before",
+            "width": 56
+          },
+          {
+            "id": "start",
+            "width": 98
+          },
+          {
+            "id": "finish",
+            "width": 98
+          },
+          {
+            "id": "float",
+            "width": 56
+          },
+          {
+            "id": "actions",
+            "width": 40
+          }
+        ],
+        "rowHeights": [26.1875, 26.1875, 26.1875]
+      },
+      "broad": {
+        "character": "R",
+        "inputPaintMs": 3228.5,
+        "filterPaintMs": 3228.5
+      },
+      "selective": {
+        "character": "z",
+        "inputPaintMs": 53.89999985694885,
+        "filterPaintMs": 53.89999985694885
+      }
+    },
+    {
+      "kind": "warm-reload",
+      "contextIndex": 0,
+      "round": 1,
+      "readyPaintMs": 16488.10000014305,
+      "treeResponseToPaintMs": 16155,
+      "longTasks": [
+        {
+          "start": 345.40000009536743,
+          "duration": 13038
+        },
+        {
+          "start": 13383.600000143051,
+          "duration": 83
+        },
+        {
+          "start": 13492.400000095367,
+          "duration": 2995
+        },
+        {
+          "start": 16799.900000095367,
+          "duration": 2856
+        },
+        {
+          "start": 19805.10000014305,
+          "duration": 3154
+        }
+      ],
+      "geometry": {
+        "mountedRows": 500,
+        "mountedCells": 7500,
+        "intersectingRows": 30,
+        "intersectingCells": 450,
+        "headers": 15,
+        "width": 1368,
+        "height": 805,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "columns": [
+          {
+            "id": "drag",
+            "width": 24
+          },
+          {
+            "id": "number",
+            "width": 105
+          },
+          {
+            "id": "name",
+            "width": 361
+          },
+          {
+            "id": "depends",
+            "width": 86
+          },
+          {
+            "id": "priority",
+            "width": 48
+          },
+          {
+            "id": "tag",
+            "width": 120
+          },
+          {
+            "id": "in-parallel",
+            "width": 32
+          },
+          {
+            "id": "364d226c-bb92-495f-8ef3-13580e15ca38-final",
+            "width": 96
+          },
+          {
+            "id": "f0e42471-ecd5-484e-ab04-036b33a8d4aa-final",
+            "width": 96
+          },
+          {
+            "id": "final-total",
+            "width": 52
+          },
+          {
+            "id": "not-before",
+            "width": 56
+          },
+          {
+            "id": "start",
+            "width": 98
+          },
+          {
+            "id": "finish",
+            "width": 98
+          },
+          {
+            "id": "float",
+            "width": 56
+          },
+          {
+            "id": "actions",
+            "width": 40
+          }
+        ],
+        "rowHeights": [26.1875, 26.1875, 26.1875]
+      },
+      "broad": {
+        "character": "R",
+        "inputPaintMs": 2783,
+        "filterPaintMs": 2783
+      },
+      "selective": {
+        "character": "z",
+        "inputPaintMs": 47.89999985694885,
+        "filterPaintMs": 47.89999985694885
+      }
+    },
+    {
+      "kind": "warm-reload",
+      "contextIndex": 0,
+      "round": 2,
+      "readyPaintMs": 15918.900000095367,
+      "treeResponseToPaintMs": 15581.900000095367,
+      "longTasks": [
+        {
+          "start": 351,
+          "duration": 12757
+        },
+        {
+          "start": 13108.099999904633,
+          "duration": 83
+        },
+        {
+          "start": 13219.400000095367,
+          "duration": 2699
+        },
+        {
+          "start": 16229.200000047684,
+          "duration": 2965
+        },
+        {
+          "start": 19323.599999904633,
+          "duration": 3259
+        }
+      ],
+      "geometry": {
+        "mountedRows": 500,
+        "mountedCells": 7500,
+        "intersectingRows": 30,
+        "intersectingCells": 450,
+        "headers": 15,
+        "width": 1368,
+        "height": 805,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "columns": [
+          {
+            "id": "drag",
+            "width": 24
+          },
+          {
+            "id": "number",
+            "width": 105
+          },
+          {
+            "id": "name",
+            "width": 361
+          },
+          {
+            "id": "depends",
+            "width": 86
+          },
+          {
+            "id": "priority",
+            "width": 48
+          },
+          {
+            "id": "tag",
+            "width": 120
+          },
+          {
+            "id": "in-parallel",
+            "width": 32
+          },
+          {
+            "id": "364d226c-bb92-495f-8ef3-13580e15ca38-final",
+            "width": 96
+          },
+          {
+            "id": "f0e42471-ecd5-484e-ab04-036b33a8d4aa-final",
+            "width": 96
+          },
+          {
+            "id": "final-total",
+            "width": 52
+          },
+          {
+            "id": "not-before",
+            "width": 56
+          },
+          {
+            "id": "start",
+            "width": 98
+          },
+          {
+            "id": "finish",
+            "width": 98
+          },
+          {
+            "id": "float",
+            "width": 56
+          },
+          {
+            "id": "actions",
+            "width": 40
+          }
+        ],
+        "rowHeights": [26.1875, 26.1875, 26.1875]
+      },
+      "broad": {
+        "character": "R",
+        "inputPaintMs": 3278.2999999523163,
+        "filterPaintMs": 3278.2999999523163
+      },
+      "selective": {
+        "character": "z",
+        "inputPaintMs": 49.80000019073486,
+        "filterPaintMs": 49.80000019073486
+      }
+    },
+    {
+      "kind": "warm-reload",
+      "contextIndex": 0,
+      "round": 3,
+      "readyPaintMs": 16278.5,
+      "treeResponseToPaintMs": 15838,
+      "longTasks": [
+        {
+          "start": 462.09999990463257,
+          "duration": 12892
+        },
+        {
+          "start": 13354.700000047684,
+          "duration": 91
+        },
+        {
+          "start": 13472.099999904633,
+          "duration": 2806
+        },
+        {
+          "start": 16590,
+          "duration": 3223
+        },
+        {
+          "start": 19979.400000095367,
+          "duration": 3151
+        }
+      ],
+      "geometry": {
+        "mountedRows": 500,
+        "mountedCells": 7500,
+        "intersectingRows": 30,
+        "intersectingCells": 450,
+        "headers": 15,
+        "width": 1368,
+        "height": 805,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "columns": [
+          {
+            "id": "drag",
+            "width": 24
+          },
+          {
+            "id": "number",
+            "width": 105
+          },
+          {
+            "id": "name",
+            "width": 361
+          },
+          {
+            "id": "depends",
+            "width": 86
+          },
+          {
+            "id": "priority",
+            "width": 48
+          },
+          {
+            "id": "tag",
+            "width": 120
+          },
+          {
+            "id": "in-parallel",
+            "width": 32
+          },
+          {
+            "id": "364d226c-bb92-495f-8ef3-13580e15ca38-final",
+            "width": 96
+          },
+          {
+            "id": "f0e42471-ecd5-484e-ab04-036b33a8d4aa-final",
+            "width": 96
+          },
+          {
+            "id": "final-total",
+            "width": 52
+          },
+          {
+            "id": "not-before",
+            "width": 56
+          },
+          {
+            "id": "start",
+            "width": 98
+          },
+          {
+            "id": "finish",
+            "width": 98
+          },
+          {
+            "id": "float",
+            "width": 56
+          },
+          {
+            "id": "actions",
+            "width": 40
+          }
+        ],
+        "rowHeights": [26.1875, 26.1875, 26.1875]
+      },
+      "broad": {
+        "character": "R",
+        "inputPaintMs": 3151.4000000953674,
+        "filterPaintMs": 3151.4000000953674
+      },
+      "selective": {
+        "character": "z",
+        "inputPaintMs": 40.700000047683716,
+        "filterPaintMs": 40.59999990463257
+      }
+    },
+    {
+      "kind": "warm-reload",
+      "contextIndex": 0,
+      "round": 4,
+      "readyPaintMs": 15812.5,
+      "treeResponseToPaintMs": 15497,
+      "longTasks": [
+        {
+          "start": 337.09999990463257,
+          "duration": 12543
+        },
+        {
+          "start": 12880.5,
+          "duration": 86
+        },
+        {
+          "start": 12997.5,
+          "duration": 2814
+        },
+        {
+          "start": 15812.200000047684,
+          "duration": 51
+        },
+        {
+          "start": 16154.299999952316,
+          "duration": 3218
+        },
+        {
+          "start": 19512.799999952316,
+          "duration": 2957
+        }
+      ],
+      "geometry": {
+        "mountedRows": 500,
+        "mountedCells": 7500,
+        "intersectingRows": 30,
+        "intersectingCells": 450,
+        "headers": 15,
+        "width": 1368,
+        "height": 805,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "columns": [
+          {
+            "id": "drag",
+            "width": 24
+          },
+          {
+            "id": "number",
+            "width": 105
+          },
+          {
+            "id": "name",
+            "width": 361
+          },
+          {
+            "id": "depends",
+            "width": 86
+          },
+          {
+            "id": "priority",
+            "width": 48
+          },
+          {
+            "id": "tag",
+            "width": 120
+          },
+          {
+            "id": "in-parallel",
+            "width": 32
+          },
+          {
+            "id": "364d226c-bb92-495f-8ef3-13580e15ca38-final",
+            "width": 96
+          },
+          {
+            "id": "f0e42471-ecd5-484e-ab04-036b33a8d4aa-final",
+            "width": 96
+          },
+          {
+            "id": "final-total",
+            "width": 52
+          },
+          {
+            "id": "not-before",
+            "width": 56
+          },
+          {
+            "id": "start",
+            "width": 98
+          },
+          {
+            "id": "finish",
+            "width": 98
+          },
+          {
+            "id": "float",
+            "width": 56
+          },
+          {
+            "id": "actions",
+            "width": 40
+          }
+        ],
+        "rowHeights": [26.1875, 26.1875, 26.1875]
+      },
+      "broad": {
+        "character": "R",
+        "inputPaintMs": 3235.699999809265,
+        "filterPaintMs": 3235.699999809265
+      },
+      "selective": {
+        "character": "z",
+        "inputPaintMs": 44,
+        "filterPaintMs": 44
+      }
+    },
+    {
+      "kind": "warm-reload",
+      "contextIndex": 0,
+      "round": 5,
+      "readyPaintMs": 18488.700000047684,
+      "treeResponseToPaintMs": 18153.10000014305,
+      "longTasks": [
+        {
+          "start": 351.7000000476837,
+          "duration": 14613
+        },
+        {
+          "start": 14964.700000047684,
+          "duration": 96
+        },
+        {
+          "start": 15092.5,
+          "duration": 3396
+        },
+        {
+          "start": 18802.799999952316,
+          "duration": 3129
+        },
+        {
+          "start": 22093.700000047684,
+          "duration": 3349
+        }
+      ],
+      "geometry": {
+        "mountedRows": 500,
+        "mountedCells": 7500,
+        "intersectingRows": 30,
+        "intersectingCells": 450,
+        "headers": 15,
+        "width": 1368,
+        "height": 805,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "columns": [
+          {
+            "id": "drag",
+            "width": 24
+          },
+          {
+            "id": "number",
+            "width": 105
+          },
+          {
+            "id": "name",
+            "width": 361
+          },
+          {
+            "id": "depends",
+            "width": 86
+          },
+          {
+            "id": "priority",
+            "width": 48
+          },
+          {
+            "id": "tag",
+            "width": 120
+          },
+          {
+            "id": "in-parallel",
+            "width": 32
+          },
+          {
+            "id": "364d226c-bb92-495f-8ef3-13580e15ca38-final",
+            "width": 96
+          },
+          {
+            "id": "f0e42471-ecd5-484e-ab04-036b33a8d4aa-final",
+            "width": 96
+          },
+          {
+            "id": "final-total",
+            "width": 52
+          },
+          {
+            "id": "not-before",
+            "width": 56
+          },
+          {
+            "id": "start",
+            "width": 98
+          },
+          {
+            "id": "finish",
+            "width": 98
+          },
+          {
+            "id": "float",
+            "width": 56
+          },
+          {
+            "id": "actions",
+            "width": 40
+          }
+        ],
+        "rowHeights": [26.1875, 26.1875, 26.1875]
+      },
+      "broad": {
+        "character": "R",
+        "inputPaintMs": 2962,
+        "filterPaintMs": 2961.899999856949
+      },
+      "selective": {
+        "character": "z",
+        "inputPaintMs": 61.5,
+        "filterPaintMs": 61.5
+      }
+    },
+    {
+      "kind": "warm-reload",
+      "contextIndex": 0,
+      "round": 6,
+      "readyPaintMs": 16374.699999809265,
+      "treeResponseToPaintMs": 16033.199999809265,
+      "longTasks": [
+        {
+          "start": 356.19999980926514,
+          "duration": 13028
+        },
+        {
+          "start": 13384.5,
+          "duration": 80
+        },
+        {
+          "start": 13492.399999856949,
+          "duration": 2882
+        },
+        {
+          "start": 16758,
+          "duration": 3265
+        },
+        {
+          "start": 20159.799999952316,
+          "duration": 3464
+        }
+      ],
+      "geometry": {
+        "mountedRows": 500,
+        "mountedCells": 7500,
+        "intersectingRows": 30,
+        "intersectingCells": 450,
+        "headers": 15,
+        "width": 1368,
+        "height": 805,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "columns": [
+          {
+            "id": "drag",
+            "width": 24
+          },
+          {
+            "id": "number",
+            "width": 105
+          },
+          {
+            "id": "name",
+            "width": 361
+          },
+          {
+            "id": "depends",
+            "width": 86
+          },
+          {
+            "id": "priority",
+            "width": 48
+          },
+          {
+            "id": "tag",
+            "width": 120
+          },
+          {
+            "id": "in-parallel",
+            "width": 32
+          },
+          {
+            "id": "364d226c-bb92-495f-8ef3-13580e15ca38-final",
+            "width": 96
+          },
+          {
+            "id": "f0e42471-ecd5-484e-ab04-036b33a8d4aa-final",
+            "width": 96
+          },
+          {
+            "id": "final-total",
+            "width": 52
+          },
+          {
+            "id": "not-before",
+            "width": 56
+          },
+          {
+            "id": "start",
+            "width": 98
+          },
+          {
+            "id": "finish",
+            "width": 98
+          },
+          {
+            "id": "float",
+            "width": 56
+          },
+          {
+            "id": "actions",
+            "width": 40
+          }
+        ],
+        "rowHeights": [26.1875, 26.1875, 26.1875]
+      },
+      "broad": {
+        "character": "R",
+        "inputPaintMs": 3109,
+        "filterPaintMs": 3109
+      },
+      "selective": {
+        "character": "z",
+        "inputPaintMs": 85.09999990463257,
+        "filterPaintMs": 85.09999990463257
+      }
+    },
+    {
+      "kind": "warm-reload",
+      "contextIndex": 0,
+      "round": 7,
+      "readyPaintMs": 18332.89999985695,
+      "treeResponseToPaintMs": 18026.799999952316,
+      "longTasks": [
+        {
+          "start": 323.2000000476837,
+          "duration": 14634
+        },
+        {
+          "start": 14957.899999856949,
+          "duration": 84
+        },
+        {
+          "start": 15066.700000047684,
+          "duration": 3265
+        },
+        {
+          "start": 18665.700000047684,
+          "duration": 4165
+        },
+        {
+          "start": 23020.599999904633,
+          "duration": 4651
+        }
+      ],
+      "geometry": {
+        "mountedRows": 500,
+        "mountedCells": 7500,
+        "intersectingRows": 30,
+        "intersectingCells": 450,
+        "headers": 15,
+        "width": 1368,
+        "height": 805,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "columns": [
+          {
+            "id": "drag",
+            "width": 24
+          },
+          {
+            "id": "number",
+            "width": 105
+          },
+          {
+            "id": "name",
+            "width": 361
+          },
+          {
+            "id": "depends",
+            "width": 86
+          },
+          {
+            "id": "priority",
+            "width": 48
+          },
+          {
+            "id": "tag",
+            "width": 120
+          },
+          {
+            "id": "in-parallel",
+            "width": 32
+          },
+          {
+            "id": "364d226c-bb92-495f-8ef3-13580e15ca38-final",
+            "width": 96
+          },
+          {
+            "id": "f0e42471-ecd5-484e-ab04-036b33a8d4aa-final",
+            "width": 96
+          },
+          {
+            "id": "final-total",
+            "width": 52
+          },
+          {
+            "id": "not-before",
+            "width": 56
+          },
+          {
+            "id": "start",
+            "width": 98
+          },
+          {
+            "id": "finish",
+            "width": 98
+          },
+          {
+            "id": "float",
+            "width": 56
+          },
+          {
+            "id": "actions",
+            "width": 40
+          }
+        ],
+        "rowHeights": [26.1875, 26.1875, 26.1875]
+      },
+      "broad": {
+        "character": "R",
+        "inputPaintMs": 3560.5,
+        "filterPaintMs": 3560.5
+      },
+      "selective": {
+        "character": "z",
+        "inputPaintMs": 75.59999990463257,
+        "filterPaintMs": 75.59999990463257
+      }
+    },
+    {
+      "kind": "precise-coverage",
+      "broadFindCellStyleCalls": 15030
+    },
+    {
+      "kind": "gantt-open",
+      "geometry": {
+        "mountedRows": 500,
+        "mountedCells": 7500,
+        "intersectingRows": 16,
+        "intersectingCells": 240,
+        "headers": 15,
+        "width": 1368,
+        "height": 424,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "columns": [
+          {
+            "id": "drag",
+            "width": 24
+          },
+          {
+            "id": "number",
+            "width": 105
+          },
+          {
+            "id": "name",
+            "width": 361
+          },
+          {
+            "id": "depends",
+            "width": 86
+          },
+          {
+            "id": "priority",
+            "width": 48
+          },
+          {
+            "id": "tag",
+            "width": 120
+          },
+          {
+            "id": "in-parallel",
+            "width": 32
+          },
+          {
+            "id": "364d226c-bb92-495f-8ef3-13580e15ca38-final",
+            "width": 96
+          },
+          {
+            "id": "f0e42471-ecd5-484e-ab04-036b33a8d4aa-final",
+            "width": 96
+          },
+          {
+            "id": "final-total",
+            "width": 52
+          },
+          {
+            "id": "not-before",
+            "width": 56
+          },
+          {
+            "id": "start",
+            "width": 98
+          },
+          {
+            "id": "finish",
+            "width": 98
+          },
+          {
+            "id": "float",
+            "width": 56
+          },
+          {
+            "id": "actions",
+            "width": 40
+          }
+        ],
+        "rowHeights": [26.1875, 26.1875, 26.1875]
+      },
+      "chart": 500,
+      "labelGeometry": [
+        {
+          "top": 540,
+          "height": 28
+        },
+        {
+          "top": 568,
+          "height": 28
+        },
+        {
+          "top": 596,
+          "height": 28
+        }
+      ]
+    },
+    {
+      "kind": "cold-context",
+      "contextIndex": 1,
+      "round": 0,
+      "readyPaintMs": 16252.200000047684,
+      "treeResponseToPaintMs": 15886.299999952316,
+      "longTasks": [
+        {
+          "start": 380.5,
+          "duration": 13089
+        },
+        {
+          "start": 13470.600000143051,
+          "duration": 74
+        },
+        {
+          "start": 13565.400000095367,
+          "duration": 2686
+        },
+        {
+          "start": 16541.5,
+          "duration": 2972
+        },
+        {
+          "start": 19642.400000095367,
+          "duration": 3192
+        }
+      ],
+      "geometry": {
+        "mountedRows": 500,
+        "mountedCells": 7500,
+        "intersectingRows": 30,
+        "intersectingCells": 450,
+        "headers": 15,
+        "width": 1368,
+        "height": 805,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "columns": [
+          {
+            "id": "drag",
+            "width": 24
+          },
+          {
+            "id": "number",
+            "width": 105
+          },
+          {
+            "id": "name",
+            "width": 361
+          },
+          {
+            "id": "depends",
+            "width": 86
+          },
+          {
+            "id": "priority",
+            "width": 48
+          },
+          {
+            "id": "tag",
+            "width": 120
+          },
+          {
+            "id": "in-parallel",
+            "width": 32
+          },
+          {
+            "id": "364d226c-bb92-495f-8ef3-13580e15ca38-final",
+            "width": 96
+          },
+          {
+            "id": "f0e42471-ecd5-484e-ab04-036b33a8d4aa-final",
+            "width": 96
+          },
+          {
+            "id": "final-total",
+            "width": 52
+          },
+          {
+            "id": "not-before",
+            "width": 56
+          },
+          {
+            "id": "start",
+            "width": 98
+          },
+          {
+            "id": "finish",
+            "width": 98
+          },
+          {
+            "id": "float",
+            "width": 56
+          },
+          {
+            "id": "actions",
+            "width": 40
+          }
+        ],
+        "rowHeights": [26.1875, 26.1875, 26.1875]
+      },
+      "broad": {
+        "character": "R",
+        "inputPaintMs": 3135.5999999046326,
+        "filterPaintMs": 3135.5999999046326
+      },
+      "selective": {
+        "character": "z",
+        "inputPaintMs": 59.5,
+        "filterPaintMs": 59.5
+      }
+    },
+    {
+      "kind": "cold-context",
+      "contextIndex": 2,
+      "round": 0,
+      "readyPaintMs": 15512.299999952316,
+      "treeResponseToPaintMs": 15164.299999952316,
+      "longTasks": [
+        {
+          "start": 362,
+          "duration": 12292
+        },
+        {
+          "start": 12654.899999856949,
+          "duration": 106
+        },
+        {
+          "start": 12787.399999856949,
+          "duration": 2724
+        },
+        {
+          "start": 15811,
+          "duration": 3063
+        },
+        {
+          "start": 18985.39999985695,
+          "duration": 2998
+        }
+      ],
+      "geometry": {
+        "mountedRows": 500,
+        "mountedCells": 7500,
+        "intersectingRows": 30,
+        "intersectingCells": 450,
+        "headers": 15,
+        "width": 1368,
+        "height": 805,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "columns": [
+          {
+            "id": "drag",
+            "width": 24
+          },
+          {
+            "id": "number",
+            "width": 105
+          },
+          {
+            "id": "name",
+            "width": 361
+          },
+          {
+            "id": "depends",
+            "width": 86
+          },
+          {
+            "id": "priority",
+            "width": 48
+          },
+          {
+            "id": "tag",
+            "width": 120
+          },
+          {
+            "id": "in-parallel",
+            "width": 32
+          },
+          {
+            "id": "364d226c-bb92-495f-8ef3-13580e15ca38-final",
+            "width": 96
+          },
+          {
+            "id": "f0e42471-ecd5-484e-ab04-036b33a8d4aa-final",
+            "width": 96
+          },
+          {
+            "id": "final-total",
+            "width": 52
+          },
+          {
+            "id": "not-before",
+            "width": 56
+          },
+          {
+            "id": "start",
+            "width": 98
+          },
+          {
+            "id": "finish",
+            "width": 98
+          },
+          {
+            "id": "float",
+            "width": 56
+          },
+          {
+            "id": "actions",
+            "width": 40
+          }
+        ],
+        "rowHeights": [26.1875, 26.1875, 26.1875]
+      },
+      "broad": {
+        "character": "R",
+        "inputPaintMs": 3192.600000143051,
+        "filterPaintMs": 3192.600000143051
+      },
+      "selective": {
+        "character": "z",
+        "inputPaintMs": 54.69999980926514,
+        "filterPaintMs": 54.69999980926514
+      }
+    }
+  ]
+}

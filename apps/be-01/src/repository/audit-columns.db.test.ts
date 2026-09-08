@@ -9,6 +9,7 @@ import { messagesOf } from './constraint';
 import type { Drizzle } from './db';
 import { openDrizzle } from './db';
 import { DirectoryRepository } from './directory';
+import { OPEN } from './gate';
 import type { WriteStamp } from './index';
 import { runMigrations } from './migrate';
 import { person, personTeam, tag } from './schema';
@@ -39,11 +40,11 @@ beforeEach(async () => {
   const path = join(dir, 'test.db');
   runMigrations(path, FOLDER);
   db = openDrizzle(path);
-  directory = new DirectoryRepository(db);
+  directory = new DirectoryRepository(db, OPEN);
 
   kim = crypto.randomUUID();
   sam = crypto.randomUUID();
-  const users = new UserRepository(db);
+  const users = new UserRepository(db, OPEN);
   await users.create(
     { id: kim, username: 'kim', passwordHash: 'x', createdAt: 1 },
     stampAt(1, kim),

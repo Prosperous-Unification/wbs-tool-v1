@@ -17,6 +17,7 @@ import {
   auditOnUpdate,
   withoutAuditColumns,
 } from './audit';
+import type { Gate } from './gate';
 import type {
   NewProject,
   Project,
@@ -292,7 +293,10 @@ function withOwnerName<T extends { name: string; ownerName: string | null }>(
  * two concurrent additions both win.
  */
 export class ProjectRepository implements ProjectStore {
-  constructor(private readonly db: SQLiteBunDatabase) {}
+  constructor(
+    private readonly db: SQLiteBunDatabase,
+    private readonly gate: Gate,
+  ) {}
 
   // `async` is load-bearing rather than decorative: `db.transaction` is
   // synchronous, so a constraint violation would otherwise be thrown before the
@@ -303,34 +307,36 @@ export class ProjectRepository implements ProjectStore {
     startingSteps: readonly Step[],
     stamp: WriteStamp,
   ): Promise<Project> {
-    await Promise.resolve();
-    // Stated here rather than left to the column defaults, because this method
-    // answers with the project it wrote and a caller comparing that answer to a
-    // later read must see the same three values. Leaving them out of the INSERT
-    // and guessing them in the return would be two sources for one row.
-    const settings = {
-      optimizationEnabled: toCreate.optimizationEnabled ?? DEFAULT_PROJECT_SETTINGS.enabled,
-      scheduleEngine: toCreate.scheduleEngine ?? DEFAULT_PROJECT_SETTINGS.engine,
-      scheduleObjective: toCreate.scheduleObjective ?? DEFAULT_PROJECT_SETTINGS.objective,
-    };
-    const written: Project = { ...toCreate, ...settings };
-    this.db.transaction((tx) => {
-      const { solutionRef, pertWeights, ...fields } = written;
-      tx.insert(project)
-        .values({
-          ...fields,
-          ...weightColumns(pertWeights),
-          solutionSlug: solutionRef?.slug ?? null,
-          solutionUrl: solutionRef?.url ?? null,
-          ...auditOnCreateBesidesCreatedAt(stamp),
-        })
-        .run();
-      if (startingSteps.length > 0)
-        tx.insert(step)
-          .values(startingSteps.map((starting) => ({ ...starting, ...auditOnCreate(stamp) })))
+    return await this.gate.enter(async () => {
+      await Promise.resolve();
+      // Stated here rather than left to the column defaults, because this method
+      // answers with the project it wrote and a caller comparing that answer to a
+      // later read must see the same three values. Leaving them out of the INSERT
+      // and guessing them in the return would be two sources for one row.
+      const settings = {
+        optimizationEnabled: toCreate.optimizationEnabled ?? DEFAULT_PROJECT_SETTINGS.enabled,
+        scheduleEngine: toCreate.scheduleEngine ?? DEFAULT_PROJECT_SETTINGS.engine,
+        scheduleObjective: toCreate.scheduleObjective ?? DEFAULT_PROJECT_SETTINGS.objective,
+      };
+      const written: Project = { ...toCreate, ...settings };
+      this.db.transaction((tx) => {
+        const { solutionRef, pertWeights, ...fields } = written;
+        tx.insert(project)
+          .values({
+            ...fields,
+            ...weightColumns(pertWeights),
+            solutionSlug: solutionRef?.slug ?? null,
+            solutionUrl: solutionRef?.url ?? null,
+            ...auditOnCreateBesidesCreatedAt(stamp),
+          })
           .run();
+        if (startingSteps.length > 0)
+          tx.insert(step)
+            .values(startingSteps.map((starting) => ({ ...starting, ...auditOnCreate(stamp) })))
+            .run();
+      });
+      return written;
     });
-    return written;
   }
 
   async findById(id: string): Promise<Project | null> {
@@ -429,90 +435,94 @@ export class ProjectRepository implements ProjectStore {
    * revision` in `service/revision.test.ts`.
    */
   async recordOpen(projectId: string, stamp: WriteStamp): Promise<void> {
-    await this.db
-      .insert(projectAccess)
-      .values({ userId: stamp.by, projectId, lastOpenedAt: stamp.at, ...auditOnCreate(stamp) })
-      // The pair is the primary key, so a second open is an update rather than
-      // a constraint violation — and the stamp's instant is taken as given
-      // rather than maxed: the clock that saw the open happen is the one that
-      // stamped the act.
-      .onConflictDoUpdate({
-        target: [projectAccess.userId, projectAccess.projectId],
-        set: { lastOpenedAt: sql`excluded.last_opened_at`, ...auditOnUpdate(stamp) },
-      });
+    await this.gate.enter(async () => {
+      await this.db
+        .insert(projectAccess)
+        .values({ userId: stamp.by, projectId, lastOpenedAt: stamp.at, ...auditOnCreate(stamp) })
+        // The pair is the primary key, so a second open is an update rather than
+        // a constraint violation — and the stamp's instant is taken as given
+        // rather than maxed: the clock that saw the open happen is the one that
+        // stamped the act.
+        .onConflictDoUpdate({
+          target: [projectAccess.userId, projectAccess.projectId],
+          set: { lastOpenedAt: sql`excluded.last_opened_at`, ...auditOnUpdate(stamp) },
+        });
+    });
   }
 
   async update(id: string, patch: ProjectPatch, stamp: WriteStamp): Promise<Project | null> {
-    // An empty patch would make drizzle emit `SET` with no assignments, which
-    // SQLite rejects — so a request that changes nothing reads instead.
-    // Read off the patch rather than from a list of its fields: the list was
-    // one line per `ProjectPatch` key, and a key added without a line here is a
-    // patch that silently reads instead of writing. `Object.values` cannot
-    // forget a field (tasks.md 3b.2, which added three at once).
-    if (Object.values(patch).every((value) => value === undefined)) {
-      return this.findById(id);
-    }
-    const { solutionRef, pertWeights, ...fields } = patch;
-    // The bump rides in the same `SET` as the change it describes, so a patch
-    // that lands without moving the revision is not a state this can reach.
-    const updates = {
-      ...fields,
-      // The triple is written as a triple or not at all: a patch holding one
-      // weight would leave the other two as they were, and the divisor is
-      // their sum — half an answer is a different arithmetic rather than a
-      // partial one. `ProjectPatch` carries them as one object for that
-      // reason, and this is where it becomes three columns.
-      ...(pertWeights === undefined ? {} : weightColumns(pertWeights)),
-      ...(solutionRef === undefined
-        ? {}
-        : {
-            solutionSlug: solutionRef?.slug ?? null,
-            solutionUrl: solutionRef?.url ?? null,
-          }),
-      revision: bumpedProject,
-    };
-    return this.db.transaction((tx) => {
-      // Claim the ON→OFF edge with a write, not a read followed by a write.
-      // Two backend processes can PATCH one SQLite file during a blue/green
-      // swap; the conditional UPDATE serializes them so exactly one advances
-      // every release's cancellation epoch.
-      let updated =
-        patch.optimizationEnabled === false
-          ? tx
-              .update(project)
-              .set({ ...updates, ...auditOnUpdate(stamp) })
-              .where(and(eq(project.id, id), eq(project.optimizationEnabled, true)))
-              .returning()
-              .all()
-              .at(0)
-          : undefined;
-      const turnedOff = updated !== undefined;
-      updated ??= tx
-        .update(project)
-        .set({ ...updates, ...auditOnUpdate(stamp) })
-        .where(eq(project.id, id))
-        .returning()
-        .all()
-        .at(0);
-      if (updated === undefined) return null;
-
-      if (turnedOff) {
-        tx.update(optimizationGeneration)
-          .set({
-            cancelEpoch: sql`${optimizationGeneration.cancelEpoch} + 1`,
-            updatedAt: stamp.at,
-          })
-          .where(eq(optimizationGeneration.projectId, id))
-          .run();
-        tx.update(solverSlot)
-          .set({ cancelRequestedAt: stamp.at })
-          .where(eq(solverSlot.projectId, id))
-          .run();
-        tx.delete(solverQueue).where(eq(solverQueue.projectId, id)).run();
+    return await this.gate.enter(async () => {
+      // An empty patch would make drizzle emit `SET` with no assignments, which
+      // SQLite rejects — so a request that changes nothing reads instead.
+      // Read off the patch rather than from a list of its fields: the list was
+      // one line per `ProjectPatch` key, and a key added without a line here is a
+      // patch that silently reads instead of writing. `Object.values` cannot
+      // forget a field (tasks.md 3b.2, which added three at once).
+      if (Object.values(patch).every((value) => value === undefined)) {
+        return this.findById(id);
       }
-      // Proof: without this cleanup, `turns optimization off as an idempotent
-      // project-scoped cancellation` leaves both epochs, slots and queues live.
-      return toProject(updated);
+      const { solutionRef, pertWeights, ...fields } = patch;
+      // The bump rides in the same `SET` as the change it describes, so a patch
+      // that lands without moving the revision is not a state this can reach.
+      const updates = {
+        ...fields,
+        // The triple is written as a triple or not at all: a patch holding one
+        // weight would leave the other two as they were, and the divisor is
+        // their sum — half an answer is a different arithmetic rather than a
+        // partial one. `ProjectPatch` carries them as one object for that
+        // reason, and this is where it becomes three columns.
+        ...(pertWeights === undefined ? {} : weightColumns(pertWeights)),
+        ...(solutionRef === undefined
+          ? {}
+          : {
+              solutionSlug: solutionRef?.slug ?? null,
+              solutionUrl: solutionRef?.url ?? null,
+            }),
+        revision: bumpedProject,
+      };
+      return this.db.transaction((tx) => {
+        // Claim the ON→OFF edge with a write, not a read followed by a write.
+        // Two backend processes can PATCH one SQLite file during a blue/green
+        // swap; the conditional UPDATE serializes them so exactly one advances
+        // every release's cancellation epoch.
+        let updated =
+          patch.optimizationEnabled === false
+            ? tx
+                .update(project)
+                .set({ ...updates, ...auditOnUpdate(stamp) })
+                .where(and(eq(project.id, id), eq(project.optimizationEnabled, true)))
+                .returning()
+                .all()
+                .at(0)
+            : undefined;
+        const turnedOff = updated !== undefined;
+        updated ??= tx
+          .update(project)
+          .set({ ...updates, ...auditOnUpdate(stamp) })
+          .where(eq(project.id, id))
+          .returning()
+          .all()
+          .at(0);
+        if (updated === undefined) return null;
+
+        if (turnedOff) {
+          tx.update(optimizationGeneration)
+            .set({
+              cancelEpoch: sql`${optimizationGeneration.cancelEpoch} + 1`,
+              updatedAt: stamp.at,
+            })
+            .where(eq(optimizationGeneration.projectId, id))
+            .run();
+          tx.update(solverSlot)
+            .set({ cancelRequestedAt: stamp.at })
+            .where(eq(solverSlot.projectId, id))
+            .run();
+          tx.delete(solverQueue).where(eq(solverQueue.projectId, id)).run();
+        }
+        // Proof: without this cleanup, `turns optimization off as an idempotent
+        // project-scoped cancellation` leaves both epochs, slots and queues live.
+        return toProject(updated);
+      });
     });
   }
 

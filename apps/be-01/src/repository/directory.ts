@@ -3,6 +3,7 @@ import type { SQLiteBunDatabase } from 'drizzle-orm/bun-sqlite';
 
 import { auditOnCreate, auditOnUpdate } from './audit';
 import { isUniqueViolation, UNIQUE_INDEXES } from './constraint';
+import type { Gate } from './gate';
 import type {
   AssignmentWritten,
   DirectoryRemoved,
@@ -281,7 +282,10 @@ function projectsOf(rows: readonly { projectId: string }[]): string[] {
  * and only a constraint stops the second one.
  */
 export class DirectoryRepository implements DirectoryStore {
-  constructor(private readonly db: SQLiteBunDatabase) {}
+  constructor(
+    private readonly db: SQLiteBunDatabase,
+    private readonly gate: Gate,
+  ) {}
 
   /**
    * Every team, by name.
@@ -320,20 +324,22 @@ export class DirectoryRepository implements DirectoryStore {
   }
 
   async addTeam(toAdd: ServiceTeam, stamp: WriteStamp): Promise<ServiceTeam> {
-    await this.db
-      .insert(serviceTeam)
-      .values({ ...toAdd, ...auditOnCreate(stamp) })
-      .onConflictDoNothing();
-    // The row that is there now, which is the earlier one when two arrived at
-    // once. Returning `toAdd` would hand back an id nothing holds.
-    const rows = await this.db
-      .select({ id: serviceTeam.id, name: serviceTeam.name })
-      .from(serviceTeam)
-      .where(eq(serviceTeam.name, toAdd.name))
-      .limit(1);
-    const found = rows.at(0);
-    if (found === undefined) throw new Error(`team vanished after insert: ${toAdd.name}`);
-    return found;
+    return await this.gate.enter(async () => {
+      await this.db
+        .insert(serviceTeam)
+        .values({ ...toAdd, ...auditOnCreate(stamp) })
+        .onConflictDoNothing();
+      // The row that is there now, which is the earlier one when two arrived at
+      // once. Returning `toAdd` would hand back an id nothing holds.
+      const rows = await this.db
+        .select({ id: serviceTeam.id, name: serviceTeam.name })
+        .from(serviceTeam)
+        .where(eq(serviceTeam.name, toAdd.name))
+        .limit(1);
+      const found = rows.at(0);
+      if (found === undefined) throw new Error(`team vanished after insert: ${toAdd.name}`);
+      return found;
+    });
   }
 
   /** Every tag in the global directory, by name — {@link DirectoryStore.listTeams}' shape. */
@@ -355,18 +361,20 @@ export class DirectoryRepository implements DirectoryStore {
    * two of them.
    */
   async addTag(toAdd: Tag, stamp: WriteStamp): Promise<Tag> {
-    await this.db
-      .insert(tag)
-      .values({ ...toAdd, ...auditOnCreate(stamp) })
-      .onConflictDoNothing();
-    const rows = await this.db
-      .select({ id: tag.id, name: tag.name })
-      .from(tag)
-      .where(eq(tag.name, toAdd.name))
-      .limit(1);
-    const found = rows.at(0);
-    if (found === undefined) throw new Error(`tag vanished after insert: ${toAdd.name}`);
-    return found;
+    return await this.gate.enter(async () => {
+      await this.db
+        .insert(tag)
+        .values({ ...toAdd, ...auditOnCreate(stamp) })
+        .onConflictDoNothing();
+      const rows = await this.db
+        .select({ id: tag.id, name: tag.name })
+        .from(tag)
+        .where(eq(tag.name, toAdd.name))
+        .limit(1);
+      const found = rows.at(0);
+      if (found === undefined) throw new Error(`tag vanished after insert: ${toAdd.name}`);
+      return found;
+    });
   }
 
   /** Every service in the global directory, by name — {@link DirectoryStore.listTeams}' shape. */
@@ -382,18 +390,20 @@ export class DirectoryRepository implements DirectoryStore {
    * — {@link DirectoryRepository.addTag}'s shape and every one of its reasons.
    */
   async addService(toAdd: Service, stamp: WriteStamp): Promise<Service> {
-    await this.db
-      .insert(service)
-      .values({ ...toAdd, ...auditOnCreate(stamp) })
-      .onConflictDoNothing();
-    const rows = await this.db
-      .select({ id: service.id, name: service.name })
-      .from(service)
-      .where(eq(service.name, toAdd.name))
-      .limit(1);
-    const found = rows.at(0);
-    if (found === undefined) throw new Error(`service vanished after insert: ${toAdd.name}`);
-    return found;
+    return await this.gate.enter(async () => {
+      await this.db
+        .insert(service)
+        .values({ ...toAdd, ...auditOnCreate(stamp) })
+        .onConflictDoNothing();
+      const rows = await this.db
+        .select({ id: service.id, name: service.name })
+        .from(service)
+        .where(eq(service.name, toAdd.name))
+        .limit(1);
+      const found = rows.at(0);
+      if (found === undefined) throw new Error(`service vanished after insert: ${toAdd.name}`);
+      return found;
+    });
   }
 
   /**
@@ -428,69 +438,71 @@ export class DirectoryRepository implements DirectoryStore {
     patch: TeamPatch,
     stamp: WriteStamp,
   ): Promise<ServiceTeamWritten> {
-    await Promise.resolve();
-    const wanted = patch.serviceIds === undefined ? null : [...new Set(patch.serviceIds)];
-    try {
-      return this.db.transaction((tx) => {
-        const held = tx
-          .select({ id: serviceTeam.id, name: serviceTeam.name })
-          .from(serviceTeam)
-          .where(eq(serviceTeam.id, teamId))
-          .all();
-        const team = held.at(0);
-        if (team === undefined) return { ok: false, reason: 'not_found' };
-        if (wanted !== null && wanted.length > 0) {
-          const found = tx
-            .select({ id: service.id })
-            .from(service)
-            .where(inArray(service.id, wanted))
-            .all();
-          if (found.length !== wanted.length) return { ok: false, reason: 'unknown_service' };
-        }
-        if (patch.name !== undefined) {
-          tx.update(serviceTeam)
-            .set({ name: patch.name, ...auditOnUpdate(stamp) })
+    return await this.gate.enter(async () => {
+      await Promise.resolve();
+      const wanted = patch.serviceIds === undefined ? null : [...new Set(patch.serviceIds)];
+      try {
+        return this.db.transaction((tx) => {
+          const held = tx
+            .select({ id: serviceTeam.id, name: serviceTeam.name })
+            .from(serviceTeam)
             .where(eq(serviceTeam.id, teamId))
-            .run();
-        }
-        if (wanted !== null) {
-          // Whole-set semantics: the rows that were there go, whichever they
-          // were. Deleting and re-inserting rather than diffing because the map
-          // has no payload beyond the pair — there is nothing in a surviving row
-          // worth keeping.
-          tx.delete(teamService).where(eq(teamService.teamId, teamId)).run();
-          if (wanted.length > 0) {
-            tx.insert(teamService)
-              .values(wanted.map((serviceId) => ({ teamId, serviceId, ...auditOnCreate(stamp) })))
+            .all();
+          const team = held.at(0);
+          if (team === undefined) return { ok: false, reason: 'not_found' };
+          if (wanted !== null && wanted.length > 0) {
+            const found = tx
+              .select({ id: service.id })
+              .from(service)
+              .where(inArray(service.id, wanted))
+              .all();
+            if (found.length !== wanted.length) return { ok: false, reason: 'unknown_service' };
+          }
+          if (patch.name !== undefined) {
+            tx.update(serviceTeam)
+              .set({ name: patch.name, ...auditOnUpdate(stamp) })
+              .where(eq(serviceTeam.id, teamId))
               .run();
           }
-        }
-        const rows = tx
-          .select({ id: serviceTeam.id, name: serviceTeam.name })
-          .from(serviceTeam)
-          .where(eq(serviceTeam.id, teamId))
-          .all();
-        const patched = rows.at(0);
-        if (patched === undefined) throw new Error(`team vanished mid-patch: ${teamId}`);
-        const serviceIds = tx
-          .select({ serviceId: teamService.serviceId })
-          .from(teamService)
-          .where(eq(teamService.teamId, teamId))
-          .orderBy(asc(teamService.serviceId))
-          .all();
-        // Read here rather than afterwards: these are the very rows the patch
-        // is about, and a second read would answer for a directory that had
-        // already moved on.
-        return {
-          ok: true,
-          team: { ...patched, serviceIds: serviceIds.map((row) => row.serviceId) },
-          projectIds: this.projectsLabelled(tx, teamId),
-        };
-      });
-    } catch (err) {
-      if (isUniqueViolation(err, UNIQUE_INDEXES.teamName)) return { ok: false, reason: 'taken' };
-      throw err;
-    }
+          if (wanted !== null) {
+            // Whole-set semantics: the rows that were there go, whichever they
+            // were. Deleting and re-inserting rather than diffing because the map
+            // has no payload beyond the pair — there is nothing in a surviving row
+            // worth keeping.
+            tx.delete(teamService).where(eq(teamService.teamId, teamId)).run();
+            if (wanted.length > 0) {
+              tx.insert(teamService)
+                .values(wanted.map((serviceId) => ({ teamId, serviceId, ...auditOnCreate(stamp) })))
+                .run();
+            }
+          }
+          const rows = tx
+            .select({ id: serviceTeam.id, name: serviceTeam.name })
+            .from(serviceTeam)
+            .where(eq(serviceTeam.id, teamId))
+            .all();
+          const patched = rows.at(0);
+          if (patched === undefined) throw new Error(`team vanished mid-patch: ${teamId}`);
+          const serviceIds = tx
+            .select({ serviceId: teamService.serviceId })
+            .from(teamService)
+            .where(eq(teamService.teamId, teamId))
+            .orderBy(asc(teamService.serviceId))
+            .all();
+          // Read here rather than afterwards: these are the very rows the patch
+          // is about, and a second read would answer for a directory that had
+          // already moved on.
+          return {
+            ok: true,
+            team: { ...patched, serviceIds: serviceIds.map((row) => row.serviceId) },
+            projectIds: this.projectsLabelled(tx, teamId),
+          };
+        });
+      } catch (err) {
+        if (isUniqueViolation(err, UNIQUE_INDEXES.teamName)) return { ok: false, reason: 'taken' };
+        throw err;
+      }
+    });
   }
 
   /**
@@ -504,23 +516,25 @@ export class DirectoryRepository implements DirectoryStore {
    * it, so no journal entry is made stale by it.
    */
   async renameTag(tagId: string, name: string, stamp: WriteStamp): Promise<TagWritten> {
-    await Promise.resolve();
-    try {
-      return this.db.transaction((tx) => {
-        const rows = tx
-          .update(tag)
-          .set({ name, ...auditOnUpdate(stamp) })
-          .where(eq(tag.id, tagId))
-          .returning({ id: tag.id, name: tag.name })
-          .all();
-        const renamed = rows.at(0);
-        if (renamed === undefined) return { ok: false, reason: 'not_found' };
-        return { ok: true, tag: renamed, projectIds: this.projectsTagged(tx, tagId) };
-      });
-    } catch (err) {
-      if (isUniqueViolation(err, UNIQUE_INDEXES.tagName)) return { ok: false, reason: 'taken' };
-      throw err;
-    }
+    return await this.gate.enter(async () => {
+      await Promise.resolve();
+      try {
+        return this.db.transaction((tx) => {
+          const rows = tx
+            .update(tag)
+            .set({ name, ...auditOnUpdate(stamp) })
+            .where(eq(tag.id, tagId))
+            .returning({ id: tag.id, name: tag.name })
+            .all();
+          const renamed = rows.at(0);
+          if (renamed === undefined) return { ok: false, reason: 'not_found' };
+          return { ok: true, tag: renamed, projectIds: this.projectsTagged(tx, tagId) };
+        });
+      } catch (err) {
+        if (isUniqueViolation(err, UNIQUE_INDEXES.tagName)) return { ok: false, reason: 'taken' };
+        throw err;
+      }
+    });
   }
 
   /**
@@ -533,23 +547,26 @@ export class DirectoryRepository implements DirectoryStore {
    * the event the service publishes once this commits.
    */
   async renameService(serviceId: string, name: string, stamp: WriteStamp): Promise<ServiceWritten> {
-    await Promise.resolve();
-    try {
-      return this.db.transaction((tx) => {
-        const rows = tx
-          .update(service)
-          .set({ name, ...auditOnUpdate(stamp) })
-          .where(eq(service.id, serviceId))
-          .returning({ id: service.id, name: service.name })
-          .all();
-        const renamed = rows.at(0);
-        if (renamed === undefined) return { ok: false, reason: 'not_found' };
-        return { ok: true, service: renamed, projectIds: this.projectsServiced(tx, serviceId) };
-      });
-    } catch (err) {
-      if (isUniqueViolation(err, UNIQUE_INDEXES.serviceName)) return { ok: false, reason: 'taken' };
-      throw err;
-    }
+    return await this.gate.enter(async () => {
+      await Promise.resolve();
+      try {
+        return this.db.transaction((tx) => {
+          const rows = tx
+            .update(service)
+            .set({ name, ...auditOnUpdate(stamp) })
+            .where(eq(service.id, serviceId))
+            .returning({ id: service.id, name: service.name })
+            .all();
+          const renamed = rows.at(0);
+          if (renamed === undefined) return { ok: false, reason: 'not_found' };
+          return { ok: true, service: renamed, projectIds: this.projectsServiced(tx, serviceId) };
+        });
+      } catch (err) {
+        if (isUniqueViolation(err, UNIQUE_INDEXES.serviceName))
+          return { ok: false, reason: 'taken' };
+        throw err;
+      }
+    });
   }
 
   async listPeople(): Promise<PersonWithTeams[]> {
@@ -591,43 +608,45 @@ export class DirectoryRepository implements DirectoryStore {
     teamIds: readonly string[],
     stamp: WriteStamp,
   ): Promise<PersonAdded> {
-    await Promise.resolve();
-    const wanted = [...new Set(teamIds)];
-    return this.db.transaction((tx) => {
-      if (wanted.length > 0) {
-        const held = tx
-          .select({ id: serviceTeam.id })
-          .from(serviceTeam)
-          .where(inArray(serviceTeam.id, wanted))
-          .all();
-        if (held.length !== wanted.length) return { ok: false, reason: 'unknown_team' };
-      }
-      tx.insert(person)
-        .values({ ...toAdd, ...auditOnCreate(stamp) })
-        .onConflictDoNothing()
-        .run();
-      // The row that is there now, which is the earlier one when two arrived at
-      // once. Returning `toAdd` would hand back an id nothing holds.
-      const rows = tx
-        .select({ id: person.id, name: person.name, kind: person.kind })
-        .from(person)
-        .where(eq(person.name, toAdd.name))
-        .all();
-      const found = rows.at(0);
-      if (found === undefined) throw new Error(`person vanished after insert: ${toAdd.name}`);
-      if (wanted.length > 0) {
-        tx.insert(personTeam)
-          .values(
-            wanted.map((serviceTeamId) => ({
-              personId: found.id,
-              serviceTeamId,
-              ...auditOnCreate(stamp),
-            })),
-          )
+    return await this.gate.enter(async () => {
+      await Promise.resolve();
+      const wanted = [...new Set(teamIds)];
+      return this.db.transaction((tx) => {
+        if (wanted.length > 0) {
+          const held = tx
+            .select({ id: serviceTeam.id })
+            .from(serviceTeam)
+            .where(inArray(serviceTeam.id, wanted))
+            .all();
+          if (held.length !== wanted.length) return { ok: false, reason: 'unknown_team' };
+        }
+        tx.insert(person)
+          .values({ ...toAdd, ...auditOnCreate(stamp) })
           .onConflictDoNothing()
           .run();
-      }
-      return { ok: true, person: found };
+        // The row that is there now, which is the earlier one when two arrived at
+        // once. Returning `toAdd` would hand back an id nothing holds.
+        const rows = tx
+          .select({ id: person.id, name: person.name, kind: person.kind })
+          .from(person)
+          .where(eq(person.name, toAdd.name))
+          .all();
+        const found = rows.at(0);
+        if (found === undefined) throw new Error(`person vanished after insert: ${toAdd.name}`);
+        if (wanted.length > 0) {
+          tx.insert(personTeam)
+            .values(
+              wanted.map((serviceTeamId) => ({
+                personId: found.id,
+                serviceTeamId,
+                ...auditOnCreate(stamp),
+              })),
+            )
+            .onConflictDoNothing()
+            .run();
+        }
+        return { ok: true, person: found };
+      });
     });
   }
 
@@ -661,72 +680,79 @@ export class DirectoryRepository implements DirectoryStore {
     patch: PersonPatch,
     stamp: WriteStamp,
   ): Promise<PersonWritten> {
-    await Promise.resolve();
-    const wanted = patch.teamIds === undefined ? null : [...new Set(patch.teamIds)];
-    try {
-      return this.db.transaction((tx) => {
-        const held = tx.select({ id: person.id }).from(person).where(eq(person.id, personId)).all();
-        if (held.length === 0) return { ok: false, reason: 'not_found' };
-        if (wanted !== null && wanted.length > 0) {
-          const found = tx
-            .select({ id: serviceTeam.id })
-            .from(serviceTeam)
-            .where(inArray(serviceTeam.id, wanted))
-            .all();
-          if (found.length !== wanted.length) return { ok: false, reason: 'unknown_team' };
-        }
-        // One `set`, not one per field: two updates would be two revisions of
-        // the same row for a patch the caller sent as one thing, and the second
-        // would have to be skipped when only the first field was named anyway.
-        const columns = {
-          ...(patch.name === undefined ? {} : { name: patch.name }),
-          ...(patch.kind === undefined ? {} : { kind: patch.kind }),
-        };
-        if (Object.keys(columns).length > 0) {
-          // The stamp rides inside the guard, not outside it: this row's
-          // `updated_at` moves when this row's own columns move, and a patch
-          // that only re-drew the team map wrote nothing here to date.
-          tx.update(person)
-            .set({ ...columns, ...auditOnUpdate(stamp) })
+    return await this.gate.enter(async () => {
+      await Promise.resolve();
+      const wanted = patch.teamIds === undefined ? null : [...new Set(patch.teamIds)];
+      try {
+        return this.db.transaction((tx) => {
+          const held = tx
+            .select({ id: person.id })
+            .from(person)
             .where(eq(person.id, personId))
-            .run();
-        }
-        if (wanted !== null) {
-          tx.delete(personTeam).where(eq(personTeam.personId, personId)).run();
-          if (wanted.length > 0) {
-            tx.insert(personTeam)
-              .values(
-                wanted.map((serviceTeamId) => ({
-                  personId,
-                  serviceTeamId,
-                  ...auditOnCreate(stamp),
-                })),
-              )
+            .all();
+          if (held.length === 0) return { ok: false, reason: 'not_found' };
+          if (wanted !== null && wanted.length > 0) {
+            const found = tx
+              .select({ id: serviceTeam.id })
+              .from(serviceTeam)
+              .where(inArray(serviceTeam.id, wanted))
+              .all();
+            if (found.length !== wanted.length) return { ok: false, reason: 'unknown_team' };
+          }
+          // One `set`, not one per field: two updates would be two revisions of
+          // the same row for a patch the caller sent as one thing, and the second
+          // would have to be skipped when only the first field was named anyway.
+          const columns = {
+            ...(patch.name === undefined ? {} : { name: patch.name }),
+            ...(patch.kind === undefined ? {} : { kind: patch.kind }),
+          };
+          if (Object.keys(columns).length > 0) {
+            // The stamp rides inside the guard, not outside it: this row's
+            // `updated_at` moves when this row's own columns move, and a patch
+            // that only re-drew the team map wrote nothing here to date.
+            tx.update(person)
+              .set({ ...columns, ...auditOnUpdate(stamp) })
+              .where(eq(person.id, personId))
               .run();
           }
-        }
-        const rows = tx
-          .select({ id: person.id, name: person.name, kind: person.kind })
-          .from(person)
-          .where(eq(person.id, personId))
-          .all();
-        const patched = rows.at(0);
-        if (patched === undefined) throw new Error(`person vanished mid-patch: ${personId}`);
-        const teamIds = tx
-          .select({ serviceTeamId: personTeam.serviceTeamId })
-          .from(personTeam)
-          .where(eq(personTeam.personId, personId))
-          .all();
-        return {
-          ok: true,
-          person: { ...patched, teamIds: teamIds.map((row) => row.serviceTeamId) },
-          projectIds: this.projectsAssigning(tx, personId),
-        };
-      });
-    } catch (err) {
-      if (isUniqueViolation(err, UNIQUE_INDEXES.personName)) return { ok: false, reason: 'taken' };
-      throw err;
-    }
+          if (wanted !== null) {
+            tx.delete(personTeam).where(eq(personTeam.personId, personId)).run();
+            if (wanted.length > 0) {
+              tx.insert(personTeam)
+                .values(
+                  wanted.map((serviceTeamId) => ({
+                    personId,
+                    serviceTeamId,
+                    ...auditOnCreate(stamp),
+                  })),
+                )
+                .run();
+            }
+          }
+          const rows = tx
+            .select({ id: person.id, name: person.name, kind: person.kind })
+            .from(person)
+            .where(eq(person.id, personId))
+            .all();
+          const patched = rows.at(0);
+          if (patched === undefined) throw new Error(`person vanished mid-patch: ${personId}`);
+          const teamIds = tx
+            .select({ serviceTeamId: personTeam.serviceTeamId })
+            .from(personTeam)
+            .where(eq(personTeam.personId, personId))
+            .all();
+          return {
+            ok: true,
+            person: { ...patched, teamIds: teamIds.map((row) => row.serviceTeamId) },
+            projectIds: this.projectsAssigning(tx, personId),
+          };
+        });
+      } catch (err) {
+        if (isUniqueViolation(err, UNIQUE_INDEXES.personName))
+          return { ok: false, reason: 'taken' };
+        throw err;
+      }
+    });
   }
 
   /**
@@ -778,36 +804,41 @@ export class DirectoryRepository implements DirectoryStore {
    * 2026-08-20.
    */
   async removeTag(tagId: string, cascade: boolean, stamp: WriteStamp): Promise<DirectoryRemoved> {
-    await Promise.resolve();
-    return this.db.transaction((tx) => {
-      const labelled = tx
-        .select({ id: workItem.id, projectId: workItem.projectId })
-        .from(workItemTag)
-        .innerJoin(workItem, eq(workItemTag.workItemId, workItem.id))
-        .where(eq(workItemTag.tagId, tagId))
-        .all();
-      if (!cascade && labelled.length > 0) {
+    return await this.gate.enter(async () => {
+      await Promise.resolve();
+      return this.db.transaction((tx) => {
+        const labelled = tx
+          .select({ id: workItem.id, projectId: workItem.projectId })
+          .from(workItemTag)
+          .innerJoin(workItem, eq(workItemTag.workItemId, workItem.id))
+          .where(eq(workItemTag.tagId, tagId))
+          .all();
+        if (!cascade && labelled.length > 0) {
+          return {
+            ok: false,
+            reason: 'in_use',
+            usage: usageRowsIn(tx, projectsOf(labelled), []),
+          };
+        }
+        bumpWorkItems(
+          tx,
+          labelled.map((each) => each.id),
+          stamp,
+        );
+        // The `work_item_tag` rows are **not** deleted here: `tag_id` cascades,
+        // which is the one place this dimension deliberately differs from
+        // `step_progress`. See the migration for why a label may be taken by the
+        // database where a statement about somebody's work may not.
+        const removed = tx.delete(tag).where(eq(tag.id, tagId)).returning({ id: tag.id }).all();
+        if (removed.length === 0) return { ok: false, reason: 'not_found' };
         return {
-          ok: false,
-          reason: 'in_use',
-          usage: usageRowsIn(tx, projectsOf(labelled), []),
+          ok: true,
+          removal: {
+            workItemIds: labelled.map((each) => each.id),
+            projectIds: projectsOf(labelled),
+          },
         };
-      }
-      bumpWorkItems(
-        tx,
-        labelled.map((each) => each.id),
-        stamp,
-      );
-      // The `work_item_tag` rows are **not** deleted here: `tag_id` cascades,
-      // which is the one place this dimension deliberately differs from
-      // `step_progress`. See the migration for why a label may be taken by the
-      // database where a statement about somebody's work may not.
-      const removed = tx.delete(tag).where(eq(tag.id, tagId)).returning({ id: tag.id }).all();
-      if (removed.length === 0) return { ok: false, reason: 'not_found' };
-      return {
-        ok: true,
-        removal: { workItemIds: labelled.map((each) => each.id), projectIds: projectsOf(labelled) },
-      };
+      });
     });
   }
 
@@ -836,18 +867,21 @@ export class DirectoryRepository implements DirectoryStore {
    * reasons, including returning the *earlier* row when two callers raced.
    */
   async addWorkItemType(toAdd: WorkItemType, stamp: WriteStamp): Promise<WorkItemType> {
-    await this.db
-      .insert(workItemType)
-      .values({ ...toAdd, ...auditOnCreate(stamp) })
-      .onConflictDoNothing();
-    const rows = await this.db
-      .select({ id: workItemType.id, name: workItemType.name })
-      .from(workItemType)
-      .where(eq(workItemType.name, toAdd.name))
-      .limit(1);
-    const found = rows.at(0);
-    if (found === undefined) throw new Error(`work item type vanished after insert: ${toAdd.name}`);
-    return found;
+    return await this.gate.enter(async () => {
+      await this.db
+        .insert(workItemType)
+        .values({ ...toAdd, ...auditOnCreate(stamp) })
+        .onConflictDoNothing();
+      const rows = await this.db
+        .select({ id: workItemType.id, name: workItemType.name })
+        .from(workItemType)
+        .where(eq(workItemType.name, toAdd.name))
+        .limit(1);
+      const found = rows.at(0);
+      if (found === undefined)
+        throw new Error(`work item type vanished after insert: ${toAdd.name}`);
+      return found;
+    });
   }
 
   /**
@@ -861,24 +895,26 @@ export class DirectoryRepository implements DirectoryStore {
     name: string,
     stamp: WriteStamp,
   ): Promise<WorkItemTypeWritten> {
-    await Promise.resolve();
-    try {
-      return this.db.transaction((tx) => {
-        const rows = tx
-          .update(workItemType)
-          .set({ name, ...auditOnUpdate(stamp) })
-          .where(eq(workItemType.id, typeId))
-          .returning({ id: workItemType.id, name: workItemType.name })
-          .all();
-        const renamed = rows.at(0);
-        if (renamed === undefined) return { ok: false, reason: 'not_found' };
-        return { ok: true, workItemType: renamed, projectIds: this.projectsTyped(tx, typeId) };
-      });
-    } catch (err) {
-      if (isUniqueViolation(err, UNIQUE_INDEXES.workItemTypeName))
-        return { ok: false, reason: 'taken' };
-      throw err;
-    }
+    return await this.gate.enter(async () => {
+      await Promise.resolve();
+      try {
+        return this.db.transaction((tx) => {
+          const rows = tx
+            .update(workItemType)
+            .set({ name, ...auditOnUpdate(stamp) })
+            .where(eq(workItemType.id, typeId))
+            .returning({ id: workItemType.id, name: workItemType.name })
+            .all();
+          const renamed = rows.at(0);
+          if (renamed === undefined) return { ok: false, reason: 'not_found' };
+          return { ok: true, workItemType: renamed, projectIds: this.projectsTyped(tx, typeId) };
+        });
+      } catch (err) {
+        if (isUniqueViolation(err, UNIQUE_INDEXES.workItemTypeName))
+          return { ok: false, reason: 'taken' };
+        throw err;
+      }
+    });
   }
 
   /**
@@ -913,39 +949,44 @@ export class DirectoryRepository implements DirectoryStore {
     cascade: boolean,
     stamp: WriteStamp,
   ): Promise<DirectoryRemoved> {
-    await Promise.resolve();
-    return this.db.transaction((tx) => {
-      const labelled = tx
-        .select({ id: workItem.id, projectId: workItem.projectId })
-        .from(workItemWorkItemType)
-        .innerJoin(workItem, eq(workItemWorkItemType.workItemId, workItem.id))
-        .where(eq(workItemWorkItemType.typeId, typeId))
-        .all();
-      if (!cascade && labelled.length > 0) {
+    return await this.gate.enter(async () => {
+      await Promise.resolve();
+      return this.db.transaction((tx) => {
+        const labelled = tx
+          .select({ id: workItem.id, projectId: workItem.projectId })
+          .from(workItemWorkItemType)
+          .innerJoin(workItem, eq(workItemWorkItemType.workItemId, workItem.id))
+          .where(eq(workItemWorkItemType.typeId, typeId))
+          .all();
+        if (!cascade && labelled.length > 0) {
+          return {
+            ok: false,
+            reason: 'in_use',
+            usage: usageRowsIn(tx, projectsOf(labelled), []),
+          };
+        }
+        bumpWorkItems(
+          tx,
+          labelled.map((each) => each.id),
+          stamp,
+        );
+        // The `work_item_work_item_type` rows are **not** deleted here: `type_id`
+        // cascades, for `work_item_tag`'s reason unchanged — a label may be taken
+        // by the database where a statement about somebody's work may not.
+        const removed = tx
+          .delete(workItemType)
+          .where(eq(workItemType.id, typeId))
+          .returning({ id: workItemType.id })
+          .all();
+        if (removed.length === 0) return { ok: false, reason: 'not_found' };
         return {
-          ok: false,
-          reason: 'in_use',
-          usage: usageRowsIn(tx, projectsOf(labelled), []),
+          ok: true,
+          removal: {
+            workItemIds: labelled.map((each) => each.id),
+            projectIds: projectsOf(labelled),
+          },
         };
-      }
-      bumpWorkItems(
-        tx,
-        labelled.map((each) => each.id),
-        stamp,
-      );
-      // The `work_item_work_item_type` rows are **not** deleted here: `type_id`
-      // cascades, for `work_item_tag`'s reason unchanged — a label may be taken
-      // by the database where a statement about somebody's work may not.
-      const removed = tx
-        .delete(workItemType)
-        .where(eq(workItemType.id, typeId))
-        .returning({ id: workItemType.id })
-        .all();
-      if (removed.length === 0) return { ok: false, reason: 'not_found' };
-      return {
-        ok: true,
-        removal: { workItemIds: labelled.map((each) => each.id), projectIds: projectsOf(labelled) },
-      };
+      });
     });
   }
 
@@ -986,40 +1027,45 @@ export class DirectoryRepository implements DirectoryStore {
     cascade: boolean,
     stamp: WriteStamp,
   ): Promise<DirectoryRemoved> {
-    await Promise.resolve();
-    return this.db.transaction((tx) => {
-      // Off the join since task 10.2, `removeTag`'s read exactly. The column is
-      // not consulted: a row this release labelled has no `service_id` to find,
-      // so the old read would have bumped no revision and confirmed no usage for
-      // exactly the rows the removal actually empties.
-      const labelled = tx
-        .select({ id: workItem.id, projectId: workItem.projectId })
-        .from(workItemService)
-        .innerJoin(workItem, eq(workItemService.workItemId, workItem.id))
-        .where(eq(workItemService.serviceId, serviceId))
-        .all();
-      if (!cascade && labelled.length > 0) {
+    return await this.gate.enter(async () => {
+      await Promise.resolve();
+      return this.db.transaction((tx) => {
+        // Off the join since task 10.2, `removeTag`'s read exactly. The column is
+        // not consulted: a row this release labelled has no `service_id` to find,
+        // so the old read would have bumped no revision and confirmed no usage for
+        // exactly the rows the removal actually empties.
+        const labelled = tx
+          .select({ id: workItem.id, projectId: workItem.projectId })
+          .from(workItemService)
+          .innerJoin(workItem, eq(workItemService.workItemId, workItem.id))
+          .where(eq(workItemService.serviceId, serviceId))
+          .all();
+        if (!cascade && labelled.length > 0) {
+          return {
+            ok: false,
+            reason: 'in_use',
+            usage: usageRowsIn(tx, projectsOf(labelled), []),
+          };
+        }
+        bumpWorkItems(
+          tx,
+          labelled.map((each) => each.id),
+          stamp,
+        );
+        const removed = tx
+          .delete(service)
+          .where(eq(service.id, serviceId))
+          .returning({ id: service.id })
+          .all();
+        if (removed.length === 0) return { ok: false, reason: 'not_found' };
         return {
-          ok: false,
-          reason: 'in_use',
-          usage: usageRowsIn(tx, projectsOf(labelled), []),
+          ok: true,
+          removal: {
+            workItemIds: labelled.map((each) => each.id),
+            projectIds: projectsOf(labelled),
+          },
         };
-      }
-      bumpWorkItems(
-        tx,
-        labelled.map((each) => each.id),
-        stamp,
-      );
-      const removed = tx
-        .delete(service)
-        .where(eq(service.id, serviceId))
-        .returning({ id: service.id })
-        .all();
-      if (removed.length === 0) return { ok: false, reason: 'not_found' };
-      return {
-        ok: true,
-        removal: { workItemIds: labelled.map((each) => each.id), projectIds: projectsOf(labelled) },
-      };
+      });
     });
   }
 
@@ -1061,32 +1107,34 @@ export class DirectoryRepository implements DirectoryStore {
     cascade: boolean,
     stamp: WriteStamp,
   ): Promise<DirectoryRemoved> {
-    await Promise.resolve();
-    return this.db.transaction((tx) => {
-      const held = tx
-        .select({ workItemId: assignment.workItemId })
-        .from(assignment)
-        .where(eq(assignment.personId, personId))
-        .all();
-      if (!cascade && held.length > 0) {
-        return {
-          ok: false,
-          reason: 'in_use',
-          usage: usageRowsIn(tx, this.projectsAssigning(tx, personId), []),
-        };
-      }
-      const projectIds = this.projectsAssigning(tx, personId);
-      tx.delete(assignment).where(eq(assignment.personId, personId)).run();
-      tx.delete(personTeam).where(eq(personTeam.personId, personId)).run();
-      const removed = tx.delete(person).where(eq(person.id, personId)).returning().all();
-      // Nothing was deleted, so there was nothing here to delete: somebody
-      // else's removal committed first. This request changed nothing and must
-      // move no revision — the two deletes above touched nothing for the same
-      // reason.
-      if (removed.length === 0) return { ok: false, reason: 'not_found' };
-      const workItemIds = [...new Set(held.map((each) => each.workItemId))];
-      bumpWorkItems(tx, workItemIds, stamp);
-      return { ok: true, removal: { workItemIds, projectIds } };
+    return await this.gate.enter(async () => {
+      await Promise.resolve();
+      return this.db.transaction((tx) => {
+        const held = tx
+          .select({ workItemId: assignment.workItemId })
+          .from(assignment)
+          .where(eq(assignment.personId, personId))
+          .all();
+        if (!cascade && held.length > 0) {
+          return {
+            ok: false,
+            reason: 'in_use',
+            usage: usageRowsIn(tx, this.projectsAssigning(tx, personId), []),
+          };
+        }
+        const projectIds = this.projectsAssigning(tx, personId);
+        tx.delete(assignment).where(eq(assignment.personId, personId)).run();
+        tx.delete(personTeam).where(eq(personTeam.personId, personId)).run();
+        const removed = tx.delete(person).where(eq(person.id, personId)).returning().all();
+        // Nothing was deleted, so there was nothing here to delete: somebody
+        // else's removal committed first. This request changed nothing and must
+        // move no revision — the two deletes above touched nothing for the same
+        // reason.
+        if (removed.length === 0) return { ok: false, reason: 'not_found' };
+        const workItemIds = [...new Set(held.map((each) => each.workItemId))];
+        bumpWorkItems(tx, workItemIds, stamp);
+        return { ok: true, removal: { workItemIds, projectIds } };
+      });
     });
   }
 
@@ -1115,51 +1163,56 @@ export class DirectoryRepository implements DirectoryStore {
    * after the count` takes both with it.
    */
   async removeTeam(teamId: string, cascade: boolean, stamp: WriteStamp): Promise<DirectoryRemoved> {
-    await Promise.resolve();
-    return this.db.transaction((tx) => {
-      // Through the join, which is where a work item's teams live since
-      // `team-sets`. The `UPDATE` below still nulls the column beside it, and
-      // the join rows go by the cascade.
-      const labelled = tx
-        .select({ id: workItem.id, projectId: workItem.projectId })
-        .from(workItemTeam)
-        .innerJoin(workItem, eq(workItemTeam.workItemId, workItem.id))
-        .where(eq(workItemTeam.teamId, teamId))
-        .all();
-      const members = this.membersOf(tx, teamId);
-      if (!cascade && (labelled.length > 0 || members.length > 0)) {
+    return await this.gate.enter(async () => {
+      await Promise.resolve();
+      return this.db.transaction((tx) => {
+        // Through the join, which is where a work item's teams live since
+        // `team-sets`. The `UPDATE` below still nulls the column beside it, and
+        // the join rows go by the cascade.
+        const labelled = tx
+          .select({ id: workItem.id, projectId: workItem.projectId })
+          .from(workItemTeam)
+          .innerJoin(workItem, eq(workItemTeam.workItemId, workItem.id))
+          .where(eq(workItemTeam.teamId, teamId))
+          .all();
+        const members = this.membersOf(tx, teamId);
+        if (!cascade && (labelled.length > 0 || members.length > 0)) {
+          return {
+            ok: false,
+            reason: 'in_use',
+            // The capacity rows are read in this same transaction as the count
+            // that refused, so the numbers the confirmation names are the ones
+            // that were in force when the removal was refused — see
+            // {@link DirectoryUsageRows.capacityOf}. Per project since
+            // `capacity-per-project`: the team row this used to read carried one
+            // number for every plan, and there is no such number now.
+            usage: usageRowsIn(tx, projectsOf(labelled), members, teamId),
+          };
+        }
+        bumpWorkItems(
+          tx,
+          labelled.map((each) => each.id),
+          stamp,
+        );
+        tx.update(workItem)
+          .set({ serviceTeamId: null, ...auditOnUpdate(stamp) })
+          .where(eq(workItem.serviceTeamId, teamId))
+          .run();
+        tx.delete(personTeam).where(eq(personTeam.serviceTeamId, teamId)).run();
+        const removed = tx
+          .delete(serviceTeam)
+          .where(eq(serviceTeam.id, teamId))
+          .returning({ id: serviceTeam.id })
+          .all();
+        if (removed.length === 0) return { ok: false, reason: 'not_found' };
         return {
-          ok: false,
-          reason: 'in_use',
-          // The capacity rows are read in this same transaction as the count
-          // that refused, so the numbers the confirmation names are the ones
-          // that were in force when the removal was refused — see
-          // {@link DirectoryUsageRows.capacityOf}. Per project since
-          // `capacity-per-project`: the team row this used to read carried one
-          // number for every plan, and there is no such number now.
-          usage: usageRowsIn(tx, projectsOf(labelled), members, teamId),
+          ok: true,
+          removal: {
+            workItemIds: labelled.map((each) => each.id),
+            projectIds: projectsOf(labelled),
+          },
         };
-      }
-      bumpWorkItems(
-        tx,
-        labelled.map((each) => each.id),
-        stamp,
-      );
-      tx.update(workItem)
-        .set({ serviceTeamId: null, ...auditOnUpdate(stamp) })
-        .where(eq(workItem.serviceTeamId, teamId))
-        .run();
-      tx.delete(personTeam).where(eq(personTeam.serviceTeamId, teamId)).run();
-      const removed = tx
-        .delete(serviceTeam)
-        .where(eq(serviceTeam.id, teamId))
-        .returning({ id: serviceTeam.id })
-        .all();
-      if (removed.length === 0) return { ok: false, reason: 'not_found' };
-      return {
-        ok: true,
-        removal: { workItemIds: labelled.map((each) => each.id), projectIds: projectsOf(labelled) },
-      };
+      });
     });
   }
 
@@ -1351,31 +1404,37 @@ export class DirectoryRepository implements DirectoryStore {
     personId: string | null,
     stamp: WriteStamp,
   ): Promise<AssignmentWritten> {
-    await Promise.resolve();
-    return this.db.transaction((tx) => {
-      if (personId !== null) {
-        const held = tx.select({ id: person.id }).from(person).where(eq(person.id, personId)).all();
-        if (held.length === 0) return { ok: false, reason: 'unknown_person' };
-      }
-      if (personId === null) {
-        // `and(...)`, not `&&`: the JS operator would evaluate to the second
-        // condition alone and delete every step's assignment on this work item.
-        tx.delete(assignment)
-          .where(and(eq(assignment.workItemId, workItemId), eq(assignment.stepId, stepId)))
-          .run();
-      } else {
-        tx.insert(assignment)
-          .values({ workItemId, stepId, personId, ...auditOnCreate(stamp) })
-          // The pair is the primary key, so reassigning is an update rather
-          // than a constraint violation.
-          .onConflictDoUpdate({
-            target: [assignment.workItemId, assignment.stepId],
-            set: { personId, ...auditOnUpdate(stamp) },
-          })
-          .run();
-      }
-      bumpWorkItems(tx, [workItemId], stamp);
-      return { ok: true };
+    return await this.gate.enter(async () => {
+      await Promise.resolve();
+      return this.db.transaction((tx) => {
+        if (personId !== null) {
+          const held = tx
+            .select({ id: person.id })
+            .from(person)
+            .where(eq(person.id, personId))
+            .all();
+          if (held.length === 0) return { ok: false, reason: 'unknown_person' };
+        }
+        if (personId === null) {
+          // `and(...)`, not `&&`: the JS operator would evaluate to the second
+          // condition alone and delete every step's assignment on this work item.
+          tx.delete(assignment)
+            .where(and(eq(assignment.workItemId, workItemId), eq(assignment.stepId, stepId)))
+            .run();
+        } else {
+          tx.insert(assignment)
+            .values({ workItemId, stepId, personId, ...auditOnCreate(stamp) })
+            // The pair is the primary key, so reassigning is an update rather
+            // than a constraint violation.
+            .onConflictDoUpdate({
+              target: [assignment.workItemId, assignment.stepId],
+              set: { personId, ...auditOnUpdate(stamp) },
+            })
+            .run();
+        }
+        bumpWorkItems(tx, [workItemId], stamp);
+        return { ok: true };
+      });
     });
   }
 }

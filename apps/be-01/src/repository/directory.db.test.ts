@@ -10,6 +10,7 @@ import { projectRow } from '../testing/project-fixture';
 import { workItemRow } from '../testing/work-item-fixture';
 import { type Drizzle, openDrizzle } from './db';
 import { DirectoryRepository } from './directory';
+import { OPEN } from './gate';
 import type { Project, Step, WorkItem, WriteStamp } from './index';
 import { runMigrations } from './migrate';
 import { ProjectRepository } from './project';
@@ -41,11 +42,11 @@ beforeEach(async () => {
   const path = join(dir, 'test.db');
   runMigrations(path, FOLDER);
   db = openDrizzle(path);
-  repo = new DirectoryRepository(db);
-  workItems = new WorkItemRepository(db);
+  repo = new DirectoryRepository(db, OPEN);
+  workItems = new WorkItemRepository(db, OPEN);
 
   ownerId = crypto.randomUUID();
-  await new UserRepository(db).create(
+  await new UserRepository(db, OPEN).create(
     { id: ownerId, username: 'owner', passwordHash: 'x', createdAt: 1 },
     wrote(),
   );
@@ -60,7 +61,7 @@ beforeEach(async () => {
     { id: stepId, projectId, name: 'Dev', position: 10 },
     { id: otherStepId, projectId, name: 'QA', position: 20 },
   ];
-  await new ProjectRepository(db).create(project, steps, wrote());
+  await new ProjectRepository(db, OPEN).create(project, steps, wrote());
   itemId = crypto.randomUUID();
   const item: WorkItem = workItemRow({
     id: itemId,

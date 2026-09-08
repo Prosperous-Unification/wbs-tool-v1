@@ -9,6 +9,7 @@ import { projectRow } from '../testing/project-fixture';
 import { CalendarMarkerRepository } from './calendar-marker';
 import type { Connection } from './db';
 import { openConnection } from './db';
+import { OPEN } from './gate';
 import type { CalendarMarker, WriteStamp } from './index';
 import { runMigrations } from './migrate';
 import { ProjectRepository } from './project';
@@ -88,11 +89,11 @@ describe('CalendarMarkerRepository', () => {
     const path = join(dir, 'test.db');
     runMigrations(path, FOLDER);
     const seed = openConnection(path);
-    await new UserRepository(seed.db).create(
+    await new UserRepository(seed.db, OPEN).create(
       { id: 'owner', username: 'owner', passwordHash: 'x', createdAt: 1 },
       wrote,
     );
-    const projects = new ProjectRepository(seed.db);
+    const projects = new ProjectRepository(seed.db, OPEN);
     await projects.create(
       projectRow({ id: 'p1', name: 'Rewire the shed', ownerId: 'owner' }),
       [{ id: 'st-1', projectId: 'p1', name: 'Build', position: 10 }],
@@ -105,7 +106,7 @@ describe('CalendarMarkerRepository', () => {
     );
     seed.close();
     conn = openConnection(path);
-    markers = new CalendarMarkerRepository(conn.db);
+    markers = new CalendarMarkerRepository(conn.db, OPEN);
   });
 
   afterEach(() => {

@@ -6,6 +6,11 @@ times in one afternoon and explicit git paths do not help when the collision is 
 
 The plan doc stays the record of what was done and why; this is the state of the queue.
 
+> **Superseded on 2026-09-07** by [`refactoring/tasks.md`](refactoring/tasks.md). Since this was
+> written: W4-4 was executed and merged with §67's R1–R9 (squash `cbad68af`, PR #287); the spec
+> projects' type errors are **0** and inside the gate (measured, `refactoring/verify.md`); the
+> refusals table and the traps below still hold and are not restated there.
+
 ## Where the queue stands
 
 Every row of `docs/2026-09-02-refactoring-plan.md` now reads **Done**, **Refused with a

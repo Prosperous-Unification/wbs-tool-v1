@@ -7,6 +7,7 @@ import { drizzleReadTransaction } from './db';
 import { DependencyRepository } from './dependency';
 import { DirectoryRepository } from './directory';
 import { EstimateRepository } from './estimate';
+import { OPEN } from './gate';
 import type {
   Assignment,
   ExternalSystem,
@@ -159,8 +160,8 @@ export class SavedPlanCaptureRepository {
     const connection = this.opts.openConnection();
     try {
       const db = connection.db;
-      const projects = new ProjectRepository(db);
-      const directory = new DirectoryRepository(db);
+      const projects = new ProjectRepository(db, OPEN);
+      const directory = new DirectoryRepository(db, OPEN);
       const tx = drizzleReadTransaction(db);
       tx.begin();
       try {
@@ -172,16 +173,16 @@ export class SavedPlanCaptureRepository {
           tx.commit();
           return null;
         }
-        const workItems = await new WorkItemRepository(db).listByProject(projectId);
-        const estimates = await new EstimateRepository(db).listByProject(projectId);
-        const actuals = await new ActualRepository(db).listByProject(projectId);
-        const progress = await new StepProgressRepository(db).listByProject(projectId);
-        const measures = await new StepMeasureRepository(db).listByProject(projectId);
-        const dependencies = await new DependencyRepository(db).listByProject(projectId);
+        const workItems = await new WorkItemRepository(db, OPEN).listByProject(projectId);
+        const estimates = await new EstimateRepository(db, OPEN).listByProject(projectId);
+        const actuals = await new ActualRepository(db, OPEN).listByProject(projectId);
+        const progress = await new StepProgressRepository(db, OPEN).listByProject(projectId);
+        const measures = await new StepMeasureRepository(db, OPEN).listByProject(projectId);
+        const dependencies = await new DependencyRepository(db, OPEN).listByProject(projectId);
         const { assignments } = await directory.assignmentsInProject(projectId);
         const steps = await projects.stepsOf(projectId);
-        const capacity = await new CapacityRepository(db).slotsFor(projectId);
-        const priorityBands = await new PriorityBandRepository(db).listFor(projectId);
+        const capacity = await new CapacityRepository(db, OPEN).slotsFor(projectId);
+        const priorityBands = await new PriorityBandRepository(db, OPEN).listFor(projectId);
         // Capture the directory whole for independent saved-plan history;
         // the live tree's assigned-name projection cannot replace these reads.
         const people = await directory.listPeople();

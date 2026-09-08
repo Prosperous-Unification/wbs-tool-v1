@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { type Drizzle, openDrizzle } from './db';
 import { DrizzleEventLogRepo } from './event-log';
+import { OPEN } from './gate';
 import { runMigrations } from './migrate';
 
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
@@ -19,7 +20,7 @@ beforeEach(() => {
   const path = join(dir, 'test.db');
   runMigrations(path, FOLDER);
   db = openDrizzle(path);
-  repo = new DrizzleEventLogRepo(db);
+  repo = new DrizzleEventLogRepo(db, OPEN);
 });
 
 afterEach(() => {
@@ -99,7 +100,7 @@ describe('DrizzleEventLogRepo.recordEvent', () => {
     const callerPath = join(dir, 'caller.db');
     runMigrations(callerPath, FOLDER);
     const callerDb = openDrizzle(callerPath);
-    const callerRepo = new DrizzleEventLogRepo(callerDb);
+    const callerRepo = new DrizzleEventLogRepo(callerDb, OPEN);
 
     callerDb.transaction((tx) => {
       repo.recordEventIn(tx, 'project:a', { hello: 'caller' }, 6_000);

@@ -3,6 +3,7 @@ import type { SQLiteBunDatabase } from 'drizzle-orm/bun-sqlite';
 
 import { auditOnCreate, auditOnUpdate } from './audit';
 import { isUniqueViolation, UNIQUE_INDEXES } from './constraint';
+import type { Gate } from './gate';
 import type {
   Assignment,
   NewStep,
@@ -108,7 +109,10 @@ export function stepIsInUse(held: StepHoldings): boolean {
  * estimate in it means. See `project.revision` in `schema.ts`.
  */
 export class StepRepository implements StepStore {
-  constructor(private readonly db: SQLiteBunDatabase) {}
+  constructor(
+    private readonly db: SQLiteBunDatabase,
+    private readonly gate: Gate,
+  ) {}
 
   /**
    * The project's steps, in step order.
@@ -153,29 +157,31 @@ export class StepRepository implements StepStore {
    * 2026-08-08.
    */
   async add(toAdd: NewStep, stamp: WriteStamp): Promise<StepWritten> {
-    await Promise.resolve();
-    try {
-      return this.db.transaction((tx) => {
-        const last = tx
-          .select({ position: max(step.position) })
-          .from(step)
-          .where(eq(step.projectId, toAdd.projectId))
-          .get();
-        const written: Step = {
-          ...toAdd,
-          position: (last?.position ?? 0) + STEP_POSITION_STEP,
-        };
-        tx.insert(step)
-          .values({ ...written, ...auditOnCreate(stamp) })
-          .run();
-        bumpProject(tx, toAdd.projectId, stamp);
-        return { ok: true, step: written };
-      });
-    } catch (err) {
-      if (isUniqueViolation(err, UNIQUE_INDEXES.stepNameInProject))
-        return { ok: false, reason: 'taken' };
-      throw err;
-    }
+    return await this.gate.enter(async () => {
+      await Promise.resolve();
+      try {
+        return this.db.transaction((tx) => {
+          const last = tx
+            .select({ position: max(step.position) })
+            .from(step)
+            .where(eq(step.projectId, toAdd.projectId))
+            .get();
+          const written: Step = {
+            ...toAdd,
+            position: (last?.position ?? 0) + STEP_POSITION_STEP,
+          };
+          tx.insert(step)
+            .values({ ...written, ...auditOnCreate(stamp) })
+            .run();
+          bumpProject(tx, toAdd.projectId, stamp);
+          return { ok: true, step: written };
+        });
+      } catch (err) {
+        if (isUniqueViolation(err, UNIQUE_INDEXES.stepNameInProject))
+          return { ok: false, reason: 'taken' };
+        throw err;
+      }
+    });
   }
 
   /**
@@ -189,28 +195,30 @@ export class StepRepository implements StepStore {
    * a rename of nothing answered `ok`; watched 2026-08-08.
    */
   async rename(stepId: string, name: string, stamp: WriteStamp): Promise<StepWritten> {
-    await Promise.resolve();
-    try {
-      return this.db.transaction((tx) => {
-        const rows = tx
-          .update(step)
-          .set({ name, ...auditOnUpdate(stamp) })
-          .where(eq(step.id, stepId))
-          .returning(STEP_COLUMNS)
-          .all();
-        const renamed = rows.at(0);
-        // Nothing was updated, so there is no step by that id — and nothing to
-        // bump. Rolling back is not needed (the update wrote nothing), but the
-        // early return keeps the bump and the write in the same branch.
-        if (renamed === undefined) return { ok: false, reason: 'not_found' };
-        bumpProject(tx, renamed.projectId, stamp);
-        return { ok: true, step: renamed };
-      });
-    } catch (err) {
-      if (isUniqueViolation(err, UNIQUE_INDEXES.stepNameInProject))
-        return { ok: false, reason: 'taken' };
-      throw err;
-    }
+    return await this.gate.enter(async () => {
+      await Promise.resolve();
+      try {
+        return this.db.transaction((tx) => {
+          const rows = tx
+            .update(step)
+            .set({ name, ...auditOnUpdate(stamp) })
+            .where(eq(step.id, stepId))
+            .returning(STEP_COLUMNS)
+            .all();
+          const renamed = rows.at(0);
+          // Nothing was updated, so there is no step by that id — and nothing to
+          // bump. Rolling back is not needed (the update wrote nothing), but the
+          // early return keeps the bump and the write in the same branch.
+          if (renamed === undefined) return { ok: false, reason: 'not_found' };
+          bumpProject(tx, renamed.projectId, stamp);
+          return { ok: true, step: renamed };
+        });
+      } catch (err) {
+        if (isUniqueViolation(err, UNIQUE_INDEXES.stepNameInProject))
+          return { ok: false, reason: 'taken' };
+        throw err;
+      }
+    });
   }
 
   /**
@@ -328,117 +336,119 @@ export class StepRepository implements StepStore {
     cascade: boolean,
     stamp: WriteStamp,
   ): Promise<StepRemoved> {
-    await Promise.resolve();
-    return this.db.transaction((tx) => {
-      const stepInProject = tx
-        .select({ id: step.id })
-        .from(step)
-        .where(and(eq(step.id, stepId), eq(step.projectId, projectId)));
-      const estimated = tx
-        .select({ workItemId: estimate.workItemId })
-        .from(estimate)
-        .where(inArray(estimate.stepId, stepInProject))
-        .all();
-      // Counted inside the transaction with the estimates, and counted at all
-      // because an actual is a record of work somebody has already done: a step
-      // that holds one and no estimate is `in_use`, and an unconfirmed removal
-      // of it is refused rather than quietly taking the only record of that
-      // week. `actual.step_id` has no cascade for exactly this — see `step` in
-      // `schema.ts`.
-      const recorded = tx
-        .select({ workItemId: actual.workItemId })
-        .from(actual)
-        .where(inArray(actual.stepId, stepInProject))
-        .all();
-      // And the statements, counted here for the recorded days' reason: a step
-      // that holds no estimate and no actual but has been said to be **done** on
-      // a work item is `in_use`, and an unconfirmed removal of it would turn
-      // finished work back into work nobody has started, silently.
-      const spoken = tx
-        .select({ workItemId: stepProgress.workItemId })
-        .from(stepProgress)
-        .where(inArray(stepProgress.stepId, stepInProject))
-        .all();
-      // And the figures that are not days, counted here for the recorded days'
-      // reason in two of its three units and for the estimates' reason in the
-      // third: a `token_actual` or an `hours_actual` is an account of work that
-      // has already happened, and a step holding one and nothing else is
-      // `in_use`. Rows, not pairs — a pair holding a token estimate and an hours
-      // fact is two statements, and the number a person is shown before
-      // consenting has to be the number of statements that go.
-      const measured = tx
-        .select({ workItemId: stepMeasure.workItemId })
-        .from(stepMeasure)
-        .where(inArray(stepMeasure.stepId, stepInProject))
-        .all();
-      const assigned = tx
-        .select({ workItemId: assignment.workItemId })
-        .from(assignment)
-        .where(inArray(assignment.stepId, stepInProject))
-        .all();
-      const held: StepHoldings = {
-        estimates: estimated.length,
-        actuals: recorded.length,
-        progress: spoken.length,
-        measures: measured.length,
-        assignments: assigned.length,
-      };
-      if (!cascade && stepIsInUse(held)) {
-        return {
-          ok: false,
-          reason: 'in_use',
-          // Every count but the assignments is the one just tested. The
-          // assignments are re-read across the whole project rather than for
-          // this step, because the caller reports assumed-assignee flips from
-          // them and those are a fact about rows this step does not hold.
-          usage: { ...held, assignments: assignmentsIn(tx, projectId) },
-        };
-      }
-      tx.delete(estimate).where(inArray(estimate.stepId, stepInProject)).run();
-      // Explicit, like the estimates and for the identical reason: `step_id`
-      // carries no cascade here, so the step delete below hits the foreign key
-      // and answers 500 without this statement.
-      tx.delete(actual).where(inArray(actual.stepId, stepInProject)).run();
-      // Explicit for the same reason once more: `step_progress.step_id` carries
-      // no cascade either, deliberately.
-      tx.delete(stepProgress).where(inArray(stepProgress.stepId, stepInProject)).run();
-      // Explicit for the third time and the same reason: `step_measure.step_id`
-      // carries no cascade either (`schema.ts`, `stepMeasure`), so without this
-      // statement the step delete below hits the foreign key and answers 500 to
-      // a confirmed cascade — the exact failure the estimates' delete was added
-      // for in 2026-08-08, one table later.
-      tx.delete(stepMeasure).where(inArray(stepMeasure.stepId, stepInProject)).run();
-      tx.delete(assignment).where(inArray(assignment.stepId, stepInProject)).run();
-      const removed = tx
-        .delete(step)
-        .where(and(eq(step.id, stepId), eq(step.projectId, projectId)))
-        .returning()
-        .all();
-      // Nothing was deleted, so there was nothing here to delete: somebody
-      // else's removal committed first, or this step belongs to another
-      // project. Either way this request changed nothing and must move no
-      // revision — the two deletes above touched nothing for the same reason.
-      if (removed.length === 0) return { ok: false, reason: 'not_found' };
-      const workItemIds = [
-        ...new Set(
-          [...estimated, ...recorded, ...spoken, ...measured, ...assigned].map(
-            (row) => row.workItemId,
-          ),
-        ),
-      ];
-      bumpWorkItems(tx, workItemIds, stamp);
-      bumpProject(tx, projectId, stamp);
-      return {
-        ok: true,
-        removal: {
+    return await this.gate.enter(async () => {
+      await Promise.resolve();
+      return this.db.transaction((tx) => {
+        const stepInProject = tx
+          .select({ id: step.id })
+          .from(step)
+          .where(and(eq(step.id, stepId), eq(step.projectId, projectId)));
+        const estimated = tx
+          .select({ workItemId: estimate.workItemId })
+          .from(estimate)
+          .where(inArray(estimate.stepId, stepInProject))
+          .all();
+        // Counted inside the transaction with the estimates, and counted at all
+        // because an actual is a record of work somebody has already done: a step
+        // that holds one and no estimate is `in_use`, and an unconfirmed removal
+        // of it is refused rather than quietly taking the only record of that
+        // week. `actual.step_id` has no cascade for exactly this — see `step` in
+        // `schema.ts`.
+        const recorded = tx
+          .select({ workItemId: actual.workItemId })
+          .from(actual)
+          .where(inArray(actual.stepId, stepInProject))
+          .all();
+        // And the statements, counted here for the recorded days' reason: a step
+        // that holds no estimate and no actual but has been said to be **done** on
+        // a work item is `in_use`, and an unconfirmed removal of it would turn
+        // finished work back into work nobody has started, silently.
+        const spoken = tx
+          .select({ workItemId: stepProgress.workItemId })
+          .from(stepProgress)
+          .where(inArray(stepProgress.stepId, stepInProject))
+          .all();
+        // And the figures that are not days, counted here for the recorded days'
+        // reason in two of its three units and for the estimates' reason in the
+        // third: a `token_actual` or an `hours_actual` is an account of work that
+        // has already happened, and a step holding one and nothing else is
+        // `in_use`. Rows, not pairs — a pair holding a token estimate and an hours
+        // fact is two statements, and the number a person is shown before
+        // consenting has to be the number of statements that go.
+        const measured = tx
+          .select({ workItemId: stepMeasure.workItemId })
+          .from(stepMeasure)
+          .where(inArray(stepMeasure.stepId, stepInProject))
+          .all();
+        const assigned = tx
+          .select({ workItemId: assignment.workItemId })
+          .from(assignment)
+          .where(inArray(assignment.stepId, stepInProject))
+          .all();
+        const held: StepHoldings = {
           estimates: estimated.length,
           actuals: recorded.length,
           progress: spoken.length,
           measures: measured.length,
           assignments: assigned.length,
-          workItemIds,
-        },
-      };
+        };
+        if (!cascade && stepIsInUse(held)) {
+          return {
+            ok: false,
+            reason: 'in_use',
+            // Every count but the assignments is the one just tested. The
+            // assignments are re-read across the whole project rather than for
+            // this step, because the caller reports assumed-assignee flips from
+            // them and those are a fact about rows this step does not hold.
+            usage: { ...held, assignments: assignmentsIn(tx, projectId) },
+          };
+        }
+        tx.delete(estimate).where(inArray(estimate.stepId, stepInProject)).run();
+        // Explicit, like the estimates and for the identical reason: `step_id`
+        // carries no cascade here, so the step delete below hits the foreign key
+        // and answers 500 without this statement.
+        tx.delete(actual).where(inArray(actual.stepId, stepInProject)).run();
+        // Explicit for the same reason once more: `step_progress.step_id` carries
+        // no cascade either, deliberately.
+        tx.delete(stepProgress).where(inArray(stepProgress.stepId, stepInProject)).run();
+        // Explicit for the third time and the same reason: `step_measure.step_id`
+        // carries no cascade either (`schema.ts`, `stepMeasure`), so without this
+        // statement the step delete below hits the foreign key and answers 500 to
+        // a confirmed cascade — the exact failure the estimates' delete was added
+        // for in 2026-08-08, one table later.
+        tx.delete(stepMeasure).where(inArray(stepMeasure.stepId, stepInProject)).run();
+        tx.delete(assignment).where(inArray(assignment.stepId, stepInProject)).run();
+        const removed = tx
+          .delete(step)
+          .where(and(eq(step.id, stepId), eq(step.projectId, projectId)))
+          .returning()
+          .all();
+        // Nothing was deleted, so there was nothing here to delete: somebody
+        // else's removal committed first, or this step belongs to another
+        // project. Either way this request changed nothing and must move no
+        // revision — the two deletes above touched nothing for the same reason.
+        if (removed.length === 0) return { ok: false, reason: 'not_found' };
+        const workItemIds = [
+          ...new Set(
+            [...estimated, ...recorded, ...spoken, ...measured, ...assigned].map(
+              (row) => row.workItemId,
+            ),
+          ),
+        ];
+        bumpWorkItems(tx, workItemIds, stamp);
+        bumpProject(tx, projectId, stamp);
+        return {
+          ok: true,
+          removal: {
+            estimates: estimated.length,
+            actuals: recorded.length,
+            progress: spoken.length,
+            measures: measured.length,
+            assignments: assigned.length,
+            workItemIds,
+          },
+        };
+      });
     });
   }
 }

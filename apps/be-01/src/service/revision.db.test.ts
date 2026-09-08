@@ -10,6 +10,7 @@ import { openDrizzle } from '../repository/db';
 import { DependencyRepository } from '../repository/dependency';
 import { DirectoryRepository } from '../repository/directory';
 import { EstimateRepository } from '../repository/estimate';
+import { OPEN } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { ProjectRepository } from '../repository/project';
 import { StepRepository } from '../repository/step';
@@ -81,17 +82,17 @@ beforeEach(async () => {
   runMigrations(path, FOLDER);
   const db = openDrizzle(path);
 
-  projectStore = new ProjectRepository(db);
-  workItemStore = new WorkItemRepository(db);
-  estimateStore = new EstimateRepository(db);
-  actualStore = new ActualRepository(db);
-  measureStore = new StepMeasureRepository(db);
-  progressStore = new StepProgressRepository(db);
-  const dependencies = new DependencyRepository(db);
-  const directory = new DirectoryRepository(db);
+  projectStore = new ProjectRepository(db, OPEN);
+  workItemStore = new WorkItemRepository(db, OPEN);
+  estimateStore = new EstimateRepository(db, OPEN);
+  actualStore = new ActualRepository(db, OPEN);
+  measureStore = new StepMeasureRepository(db, OPEN);
+  progressStore = new StepProgressRepository(db, OPEN);
+  const dependencies = new DependencyRepository(db, OPEN);
+  const directory = new DirectoryRepository(db, OPEN);
 
   ownerId = crypto.randomUUID();
-  await new UserRepository(db).create(
+  await new UserRepository(db, OPEN).create(
     {
       id: ownerId,
       username: 'owner',
@@ -104,7 +105,7 @@ beforeEach(async () => {
   projects = new ProjectService({ projects: projectStore, broadcast: recordingBroadcaster() });
   stepService = new StepService({
     projects: projectStore,
-    steps: new StepRepository(db),
+    steps: new StepRepository(db, OPEN),
     broadcast: recordingBroadcaster(),
   });
   workItems = new WorkItemService({
@@ -118,7 +119,7 @@ beforeEach(async () => {
     capacity: inMemoryCapacity(),
     priorityBands: inMemoryPriorityBands(),
     dependencies,
-    subtrees: new SubtreeRepository(db),
+    subtrees: new SubtreeRepository(db, OPEN),
     journal: inMemoryCommandJournal(),
     broadcast: recordingBroadcaster(),
   });
@@ -363,8 +364,8 @@ describe('what an estimate moves', () => {
    */
   it('leaves the counter at 2 after two writes through two connections', async () => {
     const strip = await root('Strip');
-    const first = new EstimateRepository(openDrizzle(path));
-    const second = new EstimateRepository(openDrizzle(path));
+    const first = new EstimateRepository(openDrizzle(path), OPEN);
+    const second = new EstimateRepository(openDrizzle(path), OPEN);
 
     await first.set({ workItemId: strip, stepId: dev(), ...DAYS }, wrote());
     await second.set(
@@ -399,7 +400,7 @@ describe('what an assignment moves', () => {
     const strip = await root('Strip');
     const cable = await root('Cable', strip);
     const person = await personAdded(
-      new DirectoryRepository(openDrizzle(path)).addPerson(
+      new DirectoryRepository(openDrizzle(path), OPEN).addPerson(
         { id: crypto.randomUUID(), name: 'Ada' },
         [],
         wrote(),

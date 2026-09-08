@@ -17,6 +17,7 @@ import { CapacityRepository } from '../repository/capacity';
 import { openConnection } from '../repository/db';
 import { DirectoryRepository } from '../repository/directory';
 import { EstimateRepository } from '../repository/estimate';
+import { OPEN } from '../repository/gate';
 import type { WriteStamp } from '../repository/index';
 import { runMigrations } from '../repository/migrate';
 import { ProjectRepository } from '../repository/project';
@@ -60,11 +61,11 @@ describe('the stored schedule body', () => {
   const seedProject = async (startDate: IsoDate | null): Promise<void> => {
     const seed = openConnection(path);
     const db = seed.db;
-    await new UserRepository(db).create(
+    await new UserRepository(db, OPEN).create(
       { id: 'owner', username: 'owner', passwordHash: 'x', createdAt: 1 },
       wrote,
     );
-    await new ProjectRepository(db).create(
+    await new ProjectRepository(db, OPEN).create(
       projectRow({
         id: 'p1',
         name: 'plan',
@@ -75,12 +76,12 @@ describe('the stored schedule body', () => {
       [{ id: 'st-1', projectId: 'p1', name: 'Dev', position: 10 }],
       wrote,
     );
-    const directory = new DirectoryRepository(db);
+    const directory = new DirectoryRepository(db, OPEN);
     await directory.addTeam({ id: 't-platform', name: 'Platform' }, wrote);
     await directory.addPerson({ id: 'pp-ada', name: 'Ada' }, ['t-platform'], wrote);
-    await new CapacityRepository(db).set('p1', 't-platform', 1, wrote);
-    const items = new WorkItemRepository(db);
-    const estimates = new EstimateRepository(db);
+    await new CapacityRepository(db, OPEN).set('p1', 't-platform', 1, wrote);
+    const items = new WorkItemRepository(db, OPEN);
+    const estimates = new EstimateRepository(db, OPEN);
     // Three leaves of different lengths, all on one person: the second and
     // third queue behind the first, so `boundBy` is `person` and
     // `resourcePredecessorId` names a real slice rather than sitting null on

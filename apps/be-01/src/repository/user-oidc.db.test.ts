@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { openDrizzle } from './db';
+import { OPEN } from './gate';
 import type { WriteStamp } from './index';
 import { runMigrations } from './migrate';
 import { UserRepository } from './user';
@@ -18,7 +19,7 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'wbs-user-oidc-'));
   const path = join(dir, 'test.db');
   runMigrations(path, FOLDER);
-  users = new UserRepository(openDrizzle(path));
+  users = new UserRepository(openDrizzle(path), OPEN);
 });
 
 afterEach(() => {

@@ -15,20 +15,23 @@ import { ActualRepository } from '../repository/actual';
 import { CapacityRepository } from '../repository/capacity';
 import { CommandJournalRepository } from '../repository/command-journal';
 import type { Drizzle } from '../repository/db';
-import { drizzleOuterTransaction, openDrizzle } from '../repository/db';
+import { openDrizzle } from '../repository/db';
 import { DependencyRepository } from '../repository/dependency';
 import { DirectoryRepository } from '../repository/directory';
 import { EstimateRepository } from '../repository/estimate';
+import { OPEN, WriteCoordinator } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { PlanEventRepository } from '../repository/plan-event';
 import { PriorityBandRepository } from '../repository/priority-band';
 import { ProjectRepository } from '../repository/project';
 import { person, personTeam, service, serviceTeam, tag, workItemType } from '../repository/schema';
+import { sqliteUnitOfWork } from '../repository/sqlite-unit-of-work';
 import { StepMeasureRepository } from '../repository/step-measure';
 import { StepProgressRepository } from '../repository/step-progress';
 import { UserRepository } from '../repository/user';
 import { SubtreeRepository } from '../repository/work-item';
 import { WorkItemRepository } from '../repository/work-item';
+import { buildStores } from '../services';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
 import { type Broadcaster, DeferringBroadcaster } from './broadcast';
 import { CapacityService } from './capacity.service';
@@ -44,7 +47,6 @@ import {
 import { PriorityBandService } from './priority-band.service';
 import { ProjectService } from './project.service';
 import { WorkItemService, type WorkItemServiceOptions } from './work-item.service';
-import { WriteLock } from './write-lock';
 
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 
@@ -78,21 +80,21 @@ beforeEach(async () => {
   const path = join(dir, 'test.db');
   runMigrations(path, FOLDER);
   db = openDrizzle(path);
-  projectStore = new ProjectRepository(db);
-  workItemStore = new WorkItemRepository(db);
-  estimateStore = new EstimateRepository(db);
-  dependencyStore = new DependencyRepository(db);
-  directoryStore = new DirectoryRepository(db);
-  journalStore = new CommandJournalRepository(db);
-  planEvents = new PlanEventRepository(db);
-  const capacityStore = new CapacityRepository(db);
-  const bandStore = new PriorityBandRepository(db);
+  projectStore = new ProjectRepository(db, OPEN);
+  workItemStore = new WorkItemRepository(db, OPEN);
+  estimateStore = new EstimateRepository(db, OPEN);
+  dependencyStore = new DependencyRepository(db, OPEN);
+  directoryStore = new DirectoryRepository(db, OPEN);
+  journalStore = new CommandJournalRepository(db, OPEN);
+  planEvents = new PlanEventRepository(db, OPEN);
+  const capacityStore = new CapacityRepository(db, OPEN);
+  const bandStore = new PriorityBandRepository(db, OPEN);
   const broadcast = recordingBroadcaster();
 
   ownerId = crypto.randomUUID();
   // The account stamps itself, which is what a signup does — and `created_by`
   // references `users(id)`, so nothing else could satisfy it for the first row.
-  await new UserRepository(db).create(
+  await new UserRepository(db, OPEN).create(
     {
       id: ownerId,
       username: 'owner',
@@ -106,14 +108,14 @@ beforeEach(async () => {
     workItems: workItemStore,
     projects: projectStore,
     estimates: estimateStore,
-    actuals: new ActualRepository(db),
-    measures: new StepMeasureRepository(db),
-    progress: new StepProgressRepository(db),
+    actuals: new ActualRepository(db, OPEN),
+    measures: new StepMeasureRepository(db, OPEN),
+    progress: new StepProgressRepository(db, OPEN),
     directory: directoryStore,
     capacity: capacityStore,
     priorityBands: bandStore,
     dependencies: dependencyStore,
-    subtrees: new SubtreeRepository(db),
+    subtrees: new SubtreeRepository(db, OPEN),
     journal: journalStore,
     broadcast,
   };
@@ -136,8 +138,9 @@ beforeEach(async () => {
       bands: bandStore,
       broadcast: announcements,
     }),
-    transactions: drizzleOuterTransaction(db),
-    lock: new WriteLock(),
+    // The real unit of work over this file's own connection: every case here
+    // is about what a batch leaves behind, which is the transaction's answer.
+    uow: sqliteUnitOfWork(db, new WriteCoordinator(), buildStores(db, OPEN)),
     announcements,
   };
   runner = new PlanCommandRunner(runnerOptions);

@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 
 import { openDatabase, openDrizzle } from '../repository/db';
 import { DrizzleEventLogRepo } from '../repository/event-log';
+import { OPEN } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { bindSolverSlot, reserveSolverSlot } from '../repository/optimization-admission';
 import { allocateGeneration } from '../repository/optimization-generation';
@@ -173,7 +174,7 @@ describe('cross-coordinator cancellation', () => {
 
     const broadcast = recordingBroadcaster();
     const service = new ProjectService({
-      projects: new ProjectRepository(green),
+      projects: new ProjectRepository(green, OPEN),
       broadcast,
       optimizerAvailable: () => true,
       clock: clockOf({ now: () => 50 }),
@@ -257,7 +258,7 @@ describe('cross-coordinator cancellation', () => {
         if (attempt === undefined) throw new Error('spawned child was not recorded');
         return runSolverChildLifecycle({ ...options, sleep: attempt.heartbeat.sleep });
       },
-      eventLog: new DrizzleEventLogRepo(blue),
+      eventLog: new DrizzleEventLogRepo(blue, OPEN),
       pushRecorded: () => Promise.resolve(),
       onChildError: (error) => errors.push(error),
     });

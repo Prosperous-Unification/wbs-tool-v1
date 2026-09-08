@@ -3,6 +3,7 @@ import { asc, eq } from 'drizzle-orm';
 import type { SQLiteBunDatabase } from 'drizzle-orm/bun-sqlite';
 
 import { auditOnCreate } from './audit';
+import type { Gate } from './gate';
 import type { PriorityBandStore, PriorityBandsWritten, WriteStamp } from './index';
 import { project, projectPriorityBand } from './schema';
 
@@ -24,7 +25,10 @@ import { project, projectPriorityBand } from './schema';
  * row's own revision counts writes to that row.
  */
 export class PriorityBandRepository implements PriorityBandStore {
-  constructor(private readonly db: SQLiteBunDatabase) {}
+  constructor(
+    private readonly db: SQLiteBunDatabase,
+    private readonly gate: Gate,
+  ) {}
 
   /**
    * This project's five bands in rank order, or the default five where it holds
@@ -98,30 +102,32 @@ export class PriorityBandRepository implements PriorityBandStore {
     bands: readonly PriorityBand[],
     stamp: WriteStamp,
   ): Promise<PriorityBandsWritten> {
-    await Promise.resolve();
-    return this.db.transaction((tx) => {
-      const held = tx
-        .select({ id: project.id })
-        .from(project)
-        .where(eq(project.id, projectId))
-        .all();
-      if (held.length === 0) return { ok: false, reason: 'not_found' };
-      tx.delete(projectPriorityBand).where(eq(projectPriorityBand.projectId, projectId)).run();
-      tx.insert(projectPriorityBand)
-        .values(
-          bands.map((band, rank) => ({
-            projectId,
-            rank,
-            startsAt: band.startsAt,
-            label: band.label.trim(),
-            defaultValue: band.defaultValue,
-            // Every rung is created here, never updated: the ladder is deleted
-            // whole and written whole, which is what the delete above is for.
-            ...auditOnCreate(stamp),
-          })),
-        )
-        .run();
-      return { ok: true };
+    return await this.gate.enter(async () => {
+      await Promise.resolve();
+      return this.db.transaction((tx) => {
+        const held = tx
+          .select({ id: project.id })
+          .from(project)
+          .where(eq(project.id, projectId))
+          .all();
+        if (held.length === 0) return { ok: false, reason: 'not_found' };
+        tx.delete(projectPriorityBand).where(eq(projectPriorityBand.projectId, projectId)).run();
+        tx.insert(projectPriorityBand)
+          .values(
+            bands.map((band, rank) => ({
+              projectId,
+              rank,
+              startsAt: band.startsAt,
+              label: band.label.trim(),
+              defaultValue: band.defaultValue,
+              // Every rung is created here, never updated: the ladder is deleted
+              // whole and written whole, which is what the delete above is for.
+              ...auditOnCreate(stamp),
+            })),
+          )
+          .run();
+        return { ok: true };
+      });
     });
   }
 }

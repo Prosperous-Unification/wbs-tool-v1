@@ -6,6 +6,7 @@ import type { SQLiteBunDatabase } from 'drizzle-orm/bun-sqlite';
 
 import { auditOnCreateBesidesCreatedAt, auditOnUpdate } from './audit';
 import { isUniqueViolation, UNIQUE_INDEXES } from './constraint';
+import type { Gate } from './gate';
 import type { User, UserStore, WriteStamp } from './index';
 import { users } from './schema';
 
@@ -41,7 +42,10 @@ const USER_COLUMNS = {
 };
 
 export class UserRepository implements UserStore {
-  constructor(private readonly db: SQLiteBunDatabase) {}
+  constructor(
+    private readonly db: SQLiteBunDatabase,
+    private readonly gate: Gate,
+  ) {}
 
   /**
    * Makes the fixed local-mode identity a real owner before any project write
@@ -88,13 +92,15 @@ export class UserRepository implements UserStore {
   }
 
   async create(user: User, stamp: WriteStamp): Promise<User | null> {
-    try {
-      await this.db.insert(users).values({ ...user, ...auditOnCreateBesidesCreatedAt(stamp) });
-      return user;
-    } catch (err) {
-      if (isUniqueViolation(err, UNIQUE_INDEXES.username)) return null;
-      throw err;
-    }
+    return await this.gate.enter(async () => {
+      try {
+        await this.db.insert(users).values({ ...user, ...auditOnCreateBesidesCreatedAt(stamp) });
+        return user;
+      } catch (err) {
+        if (isUniqueViolation(err, UNIQUE_INDEXES.username)) return null;
+        throw err;
+      }
+    });
   }
 
   async findByUsername(username: string): Promise<User | null> {
@@ -117,81 +123,83 @@ export class UserRepository implements UserStore {
    * username is that verified address. `null` is an identity collision, not
    * "not found": the caller must stop rather than silently reassign it.
    */
-  resolveOidcIdentity(
+  async resolveOidcIdentity(
     identity: Pick<OidcIdentity, 'issuer' | 'subject' | 'email' | 'emailVerified'>,
     create: { id: string },
     stamp: WriteStamp,
   ): Promise<User | null> {
-    return Promise.resolve(
-      this.db.transaction((tx) => {
-        const subject = tx
-          .select(USER_COLUMNS)
-          .from(users)
-          .where(and(eq(users.idpIssuer, identity.issuer), eq(users.idpSub, identity.subject)))
-          .limit(1)
-          .all();
-        const subjectAccount = subject.at(0) ?? null;
-        if (subjectAccount !== null) return subjectAccount;
-
-        const normalizedEmail = identity.email === null ? null : normalizeEmail(identity.email);
-        const trustedEmail = identity.emailVerified ? normalizedEmail : null;
-        if (trustedEmail !== null) {
-          const emailOwner = tx
+    return await this.gate.enter(async () => {
+      return Promise.resolve(
+        this.db.transaction((tx) => {
+          const subject = tx
             .select(USER_COLUMNS)
             .from(users)
-            .where(sql`lower(${users.email}) = ${trustedEmail}`)
+            .where(and(eq(users.idpIssuer, identity.issuer), eq(users.idpSub, identity.subject)))
             .limit(1)
             .all();
-          if ((emailOwner.at(0) ?? null) !== null) return null;
+          const subjectAccount = subject.at(0) ?? null;
+          if (subjectAccount !== null) return subjectAccount;
 
-          const legacy = tx
-            .select(USER_COLUMNS)
-            .from(users)
-            .where(sql`lower(${users.username}) = ${trustedEmail}`)
-            .limit(1)
-            .all();
-          const candidate = legacy.at(0) ?? null;
-          if (
-            candidate?.idpIssuer === null &&
-            candidate.idpSub === null &&
-            looksLikeEmail(candidate.username)
-          ) {
-            const linked = tx
-              .update(users)
-              .set({
-                email: trustedEmail,
-                idpIssuer: identity.issuer,
-                idpSub: identity.subject,
-                // Only the update clock moves: this row's author is whoever
-                // registered the password account, and a first OIDC login
-                // linking to it is not that act. The stamp's `by` names the id
-                // this login would have minted, which is deliberately not
-                // written anywhere here.
-                ...auditOnUpdate(stamp),
-              })
-              .where(eq(users.id, candidate.id))
-              .returning(USER_COLUMNS)
+          const normalizedEmail = identity.email === null ? null : normalizeEmail(identity.email);
+          const trustedEmail = identity.emailVerified ? normalizedEmail : null;
+          if (trustedEmail !== null) {
+            const emailOwner = tx
+              .select(USER_COLUMNS)
+              .from(users)
+              .where(sql`lower(${users.email}) = ${trustedEmail}`)
+              .limit(1)
               .all();
-            return linked[0] ?? null;
-          }
-        }
+            if ((emailOwner.at(0) ?? null) !== null) return null;
 
-        const username = availableOidcUsername(tx, identity);
-        const created: User = {
-          id: create.id,
-          username,
-          passwordHash: null,
-          email: trustedEmail,
-          idpIssuer: identity.issuer,
-          idpSub: identity.subject,
-          createdAt: stamp.at,
-        };
-        tx.insert(users)
-          .values({ ...created, ...auditOnCreateBesidesCreatedAt(stamp) })
-          .run();
-        return created;
-      }),
-    );
+            const legacy = tx
+              .select(USER_COLUMNS)
+              .from(users)
+              .where(sql`lower(${users.username}) = ${trustedEmail}`)
+              .limit(1)
+              .all();
+            const candidate = legacy.at(0) ?? null;
+            if (
+              candidate?.idpIssuer === null &&
+              candidate.idpSub === null &&
+              looksLikeEmail(candidate.username)
+            ) {
+              const linked = tx
+                .update(users)
+                .set({
+                  email: trustedEmail,
+                  idpIssuer: identity.issuer,
+                  idpSub: identity.subject,
+                  // Only the update clock moves: this row's author is whoever
+                  // registered the password account, and a first OIDC login
+                  // linking to it is not that act. The stamp's `by` names the id
+                  // this login would have minted, which is deliberately not
+                  // written anywhere here.
+                  ...auditOnUpdate(stamp),
+                })
+                .where(eq(users.id, candidate.id))
+                .returning(USER_COLUMNS)
+                .all();
+              return linked[0] ?? null;
+            }
+          }
+
+          const username = availableOidcUsername(tx, identity);
+          const created: User = {
+            id: create.id,
+            username,
+            passwordHash: null,
+            email: trustedEmail,
+            idpIssuer: identity.issuer,
+            idpSub: identity.subject,
+            createdAt: stamp.at,
+          };
+          tx.insert(users)
+            .values({ ...created, ...auditOnCreateBesidesCreatedAt(stamp) })
+            .run();
+          return created;
+        }),
+      );
+    });
   }
 }
 

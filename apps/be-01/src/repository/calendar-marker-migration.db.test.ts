@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { projectRow } from '../testing/project-fixture';
 import { openConnection, openDatabase } from './db';
+import { OPEN } from './gate';
 import type { WriteStamp } from './index';
 import { runMigrations } from './migrate';
 import { duplicateMigrationStamps, rollbackTo } from './migrate-down';
@@ -44,7 +45,7 @@ const PAST_THE_WEEKEND = '2026-08-24';
 
 async function seedProjectWithMarkers(path: string): Promise<void> {
   const seed = openConnection(path);
-  await new UserRepository(seed.db).create(
+  await new UserRepository(seed.db, OPEN).create(
     { id: 'owner', username: 'owner', passwordHash: 'x', createdAt: 1 },
     wrote,
   );
@@ -57,7 +58,7 @@ async function seedProjectWithMarkers(path: string): Promise<void> {
   // would still be red with the cascade in place. The project is left bare so
   // that the only reference standing between the delete and success is the one
   // this migration adds.
-  await new ProjectRepository(seed.db).create(
+  await new ProjectRepository(seed.db, OPEN).create(
     projectRow({ id: 'p1', name: 'Rewire the shed', ownerId: 'owner' }),
     [],
     wrote,

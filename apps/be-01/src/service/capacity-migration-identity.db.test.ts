@@ -9,6 +9,7 @@ import type { Project, Step, StoredDependency, WorkItem, WriteStamp } from '../r
 import { STEP_POSITION_STEP } from '../repository';
 import { CapacityRepository } from '../repository/capacity';
 import { openDatabase, openDrizzle } from '../repository/db';
+import { OPEN } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { rollbackTo } from '../repository/migrate-down';
 import { inMemoryActuals } from '../testing/actual-fixture';
@@ -540,7 +541,7 @@ describe('every plan schedules identically across the migration', () => {
 
     runMigrations(path, FOLDER);
 
-    const store = new CapacityRepository(openDrizzle(path));
+    const store = new CapacityRepository(openDrizzle(path), OPEN);
     const seeded = new Map<string, Map<string, number>>();
     for (const plan of oracle.plans)
       seeded.set(plan.projectId, await store.slotsFor(plan.projectId));

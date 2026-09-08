@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import type { SQLiteBunDatabase } from 'drizzle-orm/bun-sqlite';
 
 import { rowsChanged } from './changes';
+import type { Gate } from './gate';
 
 export interface RecordedEvent {
   subscription: string;
@@ -36,7 +37,10 @@ export interface EventLogRepo {
 }
 
 export class DrizzleEventLogRepo implements EventLogRepo {
-  constructor(private readonly db: SQLiteBunDatabase) {}
+  constructor(
+    private readonly db: SQLiteBunDatabase,
+    private readonly gate: Gate,
+  ) {}
 
   recordEventIn(
     tx: EventLogTransaction,
@@ -64,9 +68,15 @@ export class DrizzleEventLogRepo implements EventLogRepo {
     return { subscription, seq: row.next_seq, message, createdAt };
   }
 
-  recordEvent(subscription: string, message: unknown, createdAt: number): Promise<RecordedEvent> {
-    return Promise.resolve(
-      this.db.transaction((tx) => this.recordEventIn(tx, subscription, message, createdAt)),
+  async recordEvent(
+    subscription: string,
+    message: unknown,
+    createdAt: number,
+  ): Promise<RecordedEvent> {
+    return await this.gate.enter(() =>
+      Promise.resolve(
+        this.db.transaction((tx) => this.recordEventIn(tx, subscription, message, createdAt)),
+      ),
     );
   }
 
@@ -109,14 +119,15 @@ export class DrizzleEventLogRepo implements EventLogRepo {
   }
 
   async pruneBeyond(maxPerSubscription: number): Promise<number> {
-    await Promise.resolve();
-    // One transaction over the delete and its count, for the reason
-    // `PlanEventRepository.pruneOlderThan` states: `changes()` answers about
-    // the last statement **this connection** ran, and the retention sweep does
-    // not hold the write lock.
-    return this.db.transaction((tx) => {
-      tx.run(
-        sql`DELETE FROM event_log
+    return await this.gate.enter(async () => {
+      await Promise.resolve();
+      // One transaction over the delete and its count, for the reason
+      // `PlanEventRepository.pruneOlderThan` states: `changes()` answers about
+      // the last statement **this connection** ran; the sweep's turn at the
+      // coordinator keeps a batch's statements out of that count.
+      return this.db.transaction((tx) => {
+        tx.run(
+          sql`DELETE FROM event_log
           WHERE id IN (
             SELECT id FROM (
               SELECT id, ROW_NUMBER() OVER (PARTITION BY subscription ORDER BY seq DESC) AS rn
@@ -124,12 +135,13 @@ export class DrizzleEventLogRepo implements EventLogRepo {
             )
             WHERE rn > ${maxPerSubscription}
           )`,
-      );
-      // The count is what the retention sweep reports, so no row back throws
-      // rather than reading as zero: `?? 0` stood here until 2026-09-02, which
-      // is a default for an unknown in the one place a caller acts on the
-      // number. See {@link rowsChanged}.
-      return rowsChanged(tx, 'pruning event_log');
+        );
+        // The count is what the retention sweep reports, so no row back throws
+        // rather than reading as zero: `?? 0` stood here until 2026-09-02, which
+        // is a default for an unknown in the one place a caller acts on the
+        // number. See {@link rowsChanged}.
+        return rowsChanged(tx, 'pruning event_log');
+      });
     });
   }
 }
