@@ -190,9 +190,12 @@ describe('with-heavy-lock', () => {
     // Proof: this reaches the production wrapper and distinguishes contention
     // from command failure by its dedicated conflict exit code.
     expect(refused.exitCode).toBe(75);
-    // Proof: pass `'1'` instead of `'0'` above and the wrapper waits a second
-    // for a lock it will still be refused, exit code unchanged at 75 — this is
-    // the only assertion that goes red.
+    // Proof: put a `sleep 0.9` in front of the `return 75` in
+    // `bin/heavy-lock-lib.sh` and this is the only assertion in the two suites
+    // that goes red (measured 922ms). The exit code stays 75 and the case's own
+    // duration stays ~2018ms, unchanged, which is the whole point: the runner
+    // timeout above cannot see a delayed refusal, because it is not what
+    // dominates the case.
     expect(refusalMs).toBeLessThan(IMMEDIATE_REFUSAL_BUDGET_MS);
   }, 11000);
 

@@ -144,9 +144,11 @@ describe('dev MCP deployment probe', () => {
     // 2066, 2083, 2085, 2088, 2126ms on h2puni at head 653ecbdd. The bound is
     // the deadline itself rather than a multiple of that observation, because
     // the claim being checked is the case's own — inside 3s — not "fast".
-    // Proof: delay the metadata server ~700ms per request and the probe still
-    // exits 0 after ~3.4s, because the deadline is only re-read before a
-    // retry; this assertion is the one that goes red.
+    // Proof: `await Bun.sleep(700)` at the top of `metadataServer`'s handler and
+    // the probe still exits 0, after 5604ms — a success well outside the 3s it
+    // was given, and still inside the 11000ms runner timeout, so nothing but
+    // this assertion notices. It is the only one of the two suites' ten cases
+    // that goes red.
     expect(elapsedMs).toBeLessThan(RETRY_DEADLINE_SECONDS * 1000);
   }, 11000);
 
