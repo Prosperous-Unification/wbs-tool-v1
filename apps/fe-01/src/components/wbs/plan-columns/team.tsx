@@ -21,7 +21,7 @@ export function createTeamColumn({ live }: { live: PlanLive }) {
       // No write copies a label down. This is a reading of the tree and it
       // is recomputed from the tree every render; the day somebody moves
       // the row, its answer changes with it.
-      const inherited = live.current.effectiveTeamLabelOf(row.original);
+      const inherited = row.original.readings.teamLabel;
       return (
         <ReferenceSetStrip
           label={`Service or team for ${row.original.number}`}
@@ -34,7 +34,7 @@ export function createTeamColumn({ live }: { live: PlanLive }) {
           }
           adapter={{
             kind: 'team',
-            entries: live.current.teams,
+            entries: row.original.readings.teams,
             ownIds: row.original.teamIds,
             inheritedLabel: inherited.state === 'inherited' ? inherited.name : undefined,
             replace: (teamIds) => live.current.setTeamOf(row.original.id, teamIds),

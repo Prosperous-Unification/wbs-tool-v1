@@ -31,7 +31,7 @@ export function createPlanColumns(
   return (
     [
       createDragColumn({ live }),
-      createNumberColumn({ live }),
+      createNumberColumn(),
       createRefsColumn({ live }),
       createNameColumn({ live }),
       createDependsColumn({ live }),

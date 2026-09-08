@@ -37,12 +37,11 @@ export function createDependsColumn({ live }: { live: PlanLive }) {
       // failed on `Unable to find an accessible element with the role
       // "tooltip"` — the hidden dependency dropped, the cell left with
       // nothing to say. Watched, 2026-08-10.
-      const waitingFor = live.current.dependenciesOf(row.original.dependsOn);
+      const waitingFor = row.original.readings.dependencies;
       const dependsCell = cellKey(row.original.id, 'depends');
       // This cell's picker, or null while it is closed or under another row.
-      const picker =
-        live.current.depPicker?.rowId === row.original.id ? live.current.depPicker : null;
-      const entries = picker === null ? [] : live.current.depEntriesFor(row.original, picker.typed);
+      const picker = row.original.readings.dependencyPicker;
+      const entries = row.original.readings.dependencyEntries;
       // The entries a click or an Enter may actually take. A marked entry
       // is on screen to be read, not to be picked: be-01 would refuse it,
       // and the mark is this cell saying so before the click rather than

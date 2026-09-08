@@ -344,6 +344,38 @@ The check first proves its `flexibleCellStyle` counter moved during setup, then 
 opens a real folded estimate card through the production pointer path. The tooltip assertion
 makes the tested window explicit; a zero from a hover that opened nothing cannot satisfy it.
 
+## 2.2, sixth part — explicit row readings and stable cell identities, 2026-09-08
+
+Every value a table cell renders outside its `TreeRow` is now attached as a typed
+`PlanRowReadings` projection. `PlanLive` retains event capabilities and the three external stores;
+the column family has no render-time getter through the ref. Estimate readings are discriminated
+by folded/unfolded layout, and missing visible-step or mismatched-layout values throw rather than
+becoming empty UI. Hidden steps are not projected.
+
+The projection is memoised from its complete input list. `PlanCellContent` is a stable memo
+boundary comparing the explicit row identity plus the two TanStack expansion readings used by
+Number. The Start sentence is the sole cyclic input: its Gantt floor is computed after TanStack's
+shown-row model exists, so it crosses the same boundary through `StartSentenceProvider` rather
+than returning to `PlanLive`. Each Start row now asks for the sentence once, not three times.
+
+### Failure proof table
+
+| Check                                                                   | Injected fault                                               | Observed failure                                                |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------- |
+| `keeps explicit unchanged cells behind their stable component boundary` | replace memoised `PlanCellContent` with its view             | `expected 4 to be +0`                                           |
+| unchanged row projection rebuilds no spans                              | add toolbar-only `freezeMenuOpen` to projection dependencies | `expected 3 to be +0`                                           |
+| Start cannot render without its explicit late Gantt reading             | omit `StartSentenceProvider` at the production cell boundary | `Start cell rendered without its sentence`; Name 010 was absent |
+
+Fresh focused verification:
+
+- Explicit boundary, estimates, dependency peer update, focus/read-write, cell and layout suites:
+  **6 files / 299 tests passed**, 84.94s.
+- Estimate/dependency/read-write subset before the late Start input moved:
+  **4 files / 125 tests passed**, 36.09s.
+- `bunx nx typecheck fe-01`: passed. Nx used its documented in-process plugin fallback because
+  this sandbox denies its worker socket.
+- Scoped ESLint and Prettier: passed after import sorting.
+
 Fresh verification on this branch:
 
 - `TZ=UTC bunx vitest run src/components/wbs/plan-row-render-cost.test.tsx

@@ -24,8 +24,8 @@ export function createNotBeforeColumn({ live }: { live: PlanLive }) {
       // be-01 ignores the constraint entirely. A rendered disabled state
       // rather than an editor that opens onto nothing: a date that saves
       // and does nothing is worse than a field that will not take one.
-      const noCalendar = live.current.startDate === null;
-      const editing = live.current.editingNotBefore === row.original.id;
+      const noCalendar = row.original.readings.startDate === null;
+      const editing = row.original.readings.editingNotBefore;
       const open = (): void => {
         if (noCalendar) return;
         live.current.openNotBefore(row.original.id);

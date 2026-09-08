@@ -23,7 +23,7 @@ export function createTagColumn({ live }: { live: PlanLive }) {
       // wear `↳` and no ✕ — see `REFERENCE_SET_INHERITED_CHIP_CLASS` — and
       // `inheritedLabel` is deliberately not passed beside them, or the
       // same claim would be on screen twice.
-      const tagging = live.current.effectiveTagLabelOf(row.original);
+      const tagging = row.original.readings.tagLabel;
       const own = row.original.tagIds;
       return (
         <ReferenceSetStrip
@@ -40,7 +40,7 @@ export function createTagColumn({ live }: { live: PlanLive }) {
           }
           adapter={{
             kind: 'tag',
-            entries: live.current.tags,
+            entries: row.original.readings.tags,
             ownIds: own,
             inheritedEntries: tagging.inherited,
             replace: (tagIds) => live.current.setTagsOf(row.original.id, tagIds),

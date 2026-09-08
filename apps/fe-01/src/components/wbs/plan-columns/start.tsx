@@ -2,6 +2,7 @@ import { useCardOpenOn } from '../cell-card-store';
 import { cellKey } from '../editable-grid';
 import { HoverCard } from '../hover-card';
 import { startCardId } from '../plan-cell-props';
+import { useStartSentence } from '../plan-cell-reading-context';
 import type { PlanLive } from '../plan-live';
 import { rowWords } from '../work-item-words';
 import { column } from './column';
@@ -24,9 +25,10 @@ export function createStartColumn({ live }: { live: PlanLive }) {
       // name `cell` and cannot see the call site.
       // eslint-disable-next-line react-hooks/rules-of-hooks
       const cardOpen = useCardOpenOn(live.current.cellCards, cellKey(row.original.id, 'start'));
-      const start = live.current.spanOf(row.original).start;
-      const said = live.current.startSentence(row.original);
-      // The open card is a mutable reading under the PlanLive contract.
+      const { start } = row.original.readings;
+      // eslint-disable-next-line react-hooks/rules-of-hooks -- TanStack flexRender invokes this cell as a React component.
+      const said = useStartSentence();
+      // The open card is the cell store's own mutable reading.
       const carded = said !== null && cardOpen;
       return (
         // The positioned ancestor the card opens from, `display: block` so

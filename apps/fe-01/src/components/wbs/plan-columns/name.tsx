@@ -33,7 +33,7 @@ export function createNameColumn({ live }: { live: PlanLive }) {
       // a matched parent` failed — the second because it is the mark that
       // says the parent is the hit and the subtree is not. Watched,
       // 2026-08-06.
-      const matched = live.current.matchIds.has(row.original.id);
+      const { matched } = row.original.readings;
       const nameCell = cellKey(row.original.id, 'name');
       const hovered = cardOpen;
       return (

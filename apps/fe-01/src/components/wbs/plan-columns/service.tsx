@@ -28,7 +28,7 @@ export function createServiceColumn({ live }: { live: PlanLive }) {
       // nullable column. The 2026-08-21 scope change made it a set and
       // task 10.2 made the store a join table, so a single-select was by
       // then a control that could not express what the row already held.
-      const inherited = live.current.effectiveServiceLabelOf(row.original);
+      const inherited = row.original.readings.serviceLabel;
       const own = row.original.serviceIds;
       // Task 7.2's first marker, on the cell its signal is about. The
       // **effective** reading, so a leaf inheriting a service it is not
@@ -36,7 +36,7 @@ export function createServiceColumn({ live }: { live: PlanLive }) {
       // which is why the note comes off `nonOwnerNoteOf` and not off
       // `own` above it, and why a row stating no service of its own can
       // still wear it.
-      const nonOwner = live.current.nonOwnerNoteOf(row.original);
+      const nonOwner = row.original.readings.nonOwnerNote;
       return (
         // The mark and the strip share **one** line, and this is the
         // wrapper 4b found standing two lines tall.
@@ -78,7 +78,7 @@ export function createServiceColumn({ live }: { live: PlanLive }) {
             }
             adapter={{
               kind: 'service',
-              entries: live.current.services,
+              entries: row.original.readings.services,
               ownIds: own,
               inheritedLabel:
                 inherited.state === 'inherited' ? inherited.names.join(', ') : undefined,

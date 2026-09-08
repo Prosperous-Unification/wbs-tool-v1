@@ -34,8 +34,8 @@ export function createRefsColumn({ live }: { live: PlanLive }) {
       // name `cell` and cannot see the call site.
       // eslint-disable-next-line react-hooks/rules-of-hooks
       const cardOpen = useCardOpenOn(live.current.cellCards, cellKey(row.original.id, 'refs'));
-      // The vocabulary is a mutable reading under the PlanLive contract.
-      const marks = refMarksOf(row.original.externalRefs, live.current.externalSystems);
+      // The vocabulary is the immutable directory reading for this render.
+      const marks = refMarksOf(row.original.externalRefs, row.original.readings.externalSystems);
       const refsCell = cellKey(row.original.id, 'refs');
       const carded = marks.length > 0 && cardOpen;
       const sentenceId = `refs-${row.original.id}`;
@@ -117,7 +117,7 @@ export function createRefsColumn({ live }: { live: PlanLive }) {
             <ExternalRefsCard
               number={row.original.number}
               refs={row.original.externalRefs}
-              systems={live.current.externalSystems}
+              systems={row.original.readings.externalSystems}
             />
           )}
         </span>

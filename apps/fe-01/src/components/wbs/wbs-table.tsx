@@ -1,6 +1,7 @@
-import { flexRender, useTable } from '@tanstack/react-table';
+import { type Cell as TableCell, flexRender, useTable } from '@tanstack/react-table';
 import {
   type ComponentProps,
+  memo,
   type ReactNode,
   useCallback,
   useEffect,
@@ -29,13 +30,14 @@ import {
   readStartSentence,
   startCardId,
 } from './plan-cell-props';
+import { StartSentenceProvider } from './plan-cell-reading-context';
 import { usePlanChartInput, usePlanSchedule } from './plan-chart-input';
-import { PLAN_TABLE_FEATURES } from './plan-columns/column';
+import { PLAN_TABLE_FEATURES, type PlanTableFeatures } from './plan-columns/column';
 import { createPlanColumns } from './plan-columns/columns';
 import { usePlanExportActions, usePlanOnScreenExport } from './plan-export-actions';
 import type { PlanLiveValues } from './plan-live';
 import { showDay } from './plan-number-format';
-import { attachRowReadings } from './plan-render-rows';
+import { attachRowReadings, type EstimateReadings, type PlanRenderRow } from './plan-render-rows';
 import { useRendererForViewport } from './plan-renderer';
 import { PlanToolbar } from './plan-toolbar';
 import { PlanToolbarSheet } from './plan-toolbar-sheet';
@@ -127,17 +129,14 @@ interface PlanRowProps {
  * enter and leave, and the **row light** from its own subscription.
  *
  * A component of its own so the light can move without the table rendering.
- * {@link WbsTable}'s cells read their live state through its `live` ref and
- * rely on every parent render reaching every cell, so the pointed row must not
- * be that component's state — held there it cost a render of all ~500 cells
- * and the whole chart per row the pointer crossed (75–120ms each, measured in
- * Chromium, `pointed-row-render-cost`). The shell subscribes to
+ * Before explicit row readings, cells relied on every parent render reaching
+ * them through `live`; holding the pointed row there cost a render of all ~500
+ * cells and the whole chart per row the pointer crossed (75–120ms each,
+ * measured in Chromium, `pointed-row-render-cost`). The shell subscribes to
  * {@link PointedRows} for the one boolean it draws; when only that changes,
  * React re-renders this `<tr>` and **bails on the unchanged cell elements**
  * handed in as `children`, so moving the light renders two shells and not one
- * cell. The cells stay the parent's render exactly so their `live` contract is
- * untouched — this is deliberately not `memo`, which would have to enumerate
- * everything a cell reads and would go silently stale on the first miss.
+ * cell. Cell content has its own explicit memo boundary one level down.
  *
  * `data-row-lit` says this is the **pointed row**, whichever face pointed it:
  * a bar or a row's line on the chart, a bar's focus, or the pointer resting on
@@ -267,6 +266,40 @@ function PlanCell({
     </td>
   );
 }
+
+interface PlanCellContentProps {
+  cell: TableCell<PlanTableFeatures, PlanRenderRow>;
+  expandable: boolean;
+  expanded: boolean;
+  startSentence: string | null;
+}
+
+/**
+ * One stable boundary around a column cell's explicit row input.
+ *
+ * TanStack rebuilds its Cell wrappers with the table model. The rendered
+ * component must therefore compare the row value it actually receives rather
+ * than Cell identity; expansion is separate because Number renders it from the
+ * model rather than from {@link PlanRenderRow}.
+ */
+function PlanCellContentView({ cell, startSentence }: PlanCellContentProps) {
+  const content = flexRender(cell.column.columnDef.cell, cell.getContext());
+  return cell.column.id === 'start' ? (
+    <StartSentenceProvider sentence={startSentence}>{content}</StartSentenceProvider>
+  ) : (
+    content
+  );
+}
+
+const PlanCellContent = memo(
+  PlanCellContentView,
+  (before, after) =>
+    before.cell.column.id === after.cell.column.id &&
+    before.cell.row.original === after.cell.row.original &&
+    before.expandable === after.expandable &&
+    before.expanded === after.expanded &&
+    before.startSentence === after.startSentence,
+);
 
 /**
  * The work breakdown: one grid that is a table and a nested list at once.
@@ -910,12 +943,122 @@ export function WbsTable({
    * The chart is handed the unmemoised `spanOf`: it lays out in a `useMemo` of
    * its own and may render on a commit this map was not rebuilt for.
    */
-  const spanByRow = new Map<string, ReturnType<typeof spanOf>>();
+  const { rowsWithReadings, spanByRow } = useMemo(() => {
+    const assigneeEntries = people.map((person) => ({
+      id: person.id,
+      name: person.name,
+      detail:
+        person.teamIds.length === 0
+          ? 'free agent'
+          : person.teamIds
+              .map((id) => teams.find((team) => team.id === id)?.name ?? '?')
+              .join(', '),
+    }));
+    const spans = new Map<string, ReturnType<typeof spanOf>>();
+    const rows = attachRowReadings(workItems, (row) => {
+      const dependencyPicker = depPicker?.rowId === row.id ? depPicker : null;
+      const estimateReadings = new Map<string, EstimateReadings>();
+      for (const step of steps) {
+        if (hiddenColumnIds.includes(step.id)) continue;
+        const doing = assigneeOn(row, step.id);
+        const anyAssignee = anyAssigneeOn(step.id);
+        if (unfoldedSteps.includes(step.id)) {
+          estimateReadings.set(step.id, {
+            layout: 'unfolded',
+            anyAssignee,
+            doing,
+            estimateValues: {
+              optimistic: estimateValue(row, step.id, 'optimistic'),
+              realistic: estimateValue(row, step.id, 'realistic'),
+              pessimistic: estimateValue(row, step.id, 'pessimistic'),
+            },
+            trioProblem: trioProblemFor(row, step.id),
+          });
+          continue;
+        }
+        estimateReadings.set(step.id, {
+          layout: 'folded',
+          anyAssignee,
+          combinedProblem: combinedProblem(row, step.id),
+          combinedValue: combinedValue(row, step.id),
+          doing,
+          mentionOptions: mentionOptions(row, step.id),
+          mentioning: mention?.rowId === row.id && mention.stepId === step.id,
+        });
+      }
+      const span = spanOf(row);
+      spans.set(row.id, span);
+      return {
+        actionsOpen: openMenuRowId === row.id,
+        assigneeEntries,
+        busy,
+        dependencies: dependenciesOf(row.dependsOn),
+        dependencyEntries:
+          dependencyPicker === null ? [] : depEntriesFor(row, dependencyPicker.typed),
+        dependencyPicker,
+        editingDeadline: editingDeadline === row.id,
+        editingNotBefore: editingNotBefore === row.id,
+        externalSystems,
+        estimateReadings,
+        filtering,
+        hasSchedule: hasSchedule(),
+        finish: span.finish,
+        matched: search.matchIds.has(row.id),
+        nonOwnerNote: nonOwnerNoteOf(row),
+        priorityBands,
+        serviceLabel: effectiveServiceLabelOf(row),
+        services,
+        start: span.start,
+        startDate,
+        tagLabel: effectiveTagLabelOf(row),
+        tags,
+        teamLabel: effectiveTeamLabelOf(row),
+        teams,
+        workItemTypes,
+      };
+    });
+    return { rowsWithReadings: rows, spanByRow: spans };
+  }, [
+    anyAssigneeOn,
+    assigneeOn,
+    busy,
+    combinedProblem,
+    combinedValue,
+    depEntriesFor,
+    dependenciesOf,
+    depPicker,
+    editingDeadline,
+    editingNotBefore,
+    effectiveServiceLabelOf,
+    effectiveTagLabelOf,
+    effectiveTeamLabelOf,
+    estimateValue,
+    externalSystems,
+    filtering,
+    hasSchedule,
+    hiddenColumnIds,
+    mention,
+    mentionOptions,
+    nonOwnerNoteOf,
+    openMenuRowId,
+    people,
+    priorityBands,
+    search.matchIds,
+    services,
+    spanOf,
+    startDate,
+    steps,
+    tags,
+    teams,
+    trioProblemFor,
+    unfoldedSteps,
+    workItems,
+    workItemTypes,
+  ]);
+
   const spanOfOnce = (row: TreeRow): ReturnType<typeof spanOf> => {
-    const known = spanByRow.get(row.id);
-    if (known !== undefined) return known;
-    const span = spanOf(row);
-    spanByRow.set(row.id, span);
+    const span = spanByRow.get(row.id);
+    if (span === undefined) throw new Error(`Missing rendered span for row ${row.id}`);
     return span;
   };
 
@@ -927,11 +1070,6 @@ export function WbsTable({
     saidByRow.set(row.id, said);
     return said;
   };
-
-  const rowsWithReadings = attachRowReadings(workItems, (row) => ({
-    hasSchedule: hasSchedule(),
-    finish: spanOfOnce(row).finish,
-  }));
 
   /**
    * The current cell values, built once.
@@ -951,10 +1089,8 @@ export function WbsTable({
   const liveNow: PlanLiveValues = {
     focusIntent,
     gridElement,
-    startSentence,
     api,
     run,
-    busy,
     duplicateRow,
     deleteRow,
     commitNameCell,
@@ -965,52 +1101,30 @@ export function WbsTable({
     onCommandKey,
     setDragging,
     setDropHint,
-    dependenciesOf,
     dependOn,
-    depPicker,
     setDepPicker,
     depLights,
-    openMenuRowId,
     setOpenMenuRowId,
     depEntriesFor,
     pickDependency,
     moveDepHighlight,
-    estimateValue,
-    trioProblemFor,
     commitEstimate,
-    combinedValue,
-    combinedProblem,
     commitCombinedEstimate,
-    mention,
     enterFoldedCell,
     readFoldedCell,
     closeMention,
     leaveFoldedCell,
-    mentionOptions,
     cellCards,
     setNotBefore,
     setNotBeforeReason,
     setDeadline,
     setPriority,
-    priorityBands,
     setParallelism,
-    effectiveTeamLabelOf,
-    effectiveTagLabelOf,
-    effectiveServiceLabelOf,
-    editingNotBefore,
     openNotBefore,
     closeNotBefore,
-    editingDeadline,
     openDeadline,
     closeDeadline,
-    startDate,
-    teams,
-    tags,
-    services,
-    workItemTypes,
-    externalSystems,
     setRefsEditing,
-    people,
     setTeamOf,
     setTagsOf,
     setServicesOf,
@@ -1022,12 +1136,6 @@ export function WbsTable({
     assignTo,
     createPersonFor,
     toggleStep,
-    spanOf: spanOfOnce,
-    assigneeOn,
-    anyAssigneeOn,
-    nonOwnerNoteOf,
-    matchIds: search.matchIds,
-    filtering,
   };
 
   const live = useRef(liveNow);
@@ -1148,7 +1256,6 @@ export function WbsTable({
     depLights,
     depPicker,
     cellCards,
-    startSentence,
   });
   const { ganttPlan } = usePlanChartInput({
     shownRows,
@@ -1849,53 +1956,58 @@ export function WbsTable({
                       );
                     }}
                   >
-                    {row.getAllCells().map((cell) => (
-                      <PlanCell
-                        key={cell.id}
-                        cards={cellCards}
-                        cell={cellKey(row.original.id, cell.column.id)}
-                        describedBy={
-                          cell.column.id === 'start' && startSentence(row.original) !== null
-                            ? startCardId(row.original.id)
-                            : undefined
-                        }
-                        raiseWhenOpen={cell.column.id === 'name'}
-                        // See the `th` above: the layout gate measures these boxes
-                        // and has to be able to name the one that moved.
-                        data-column={cell.column.id}
-                        // The dependency light's own cell-level reading, on the
-                        // cell. See {@link dependsCellHoverProps}: it is the
-                        // whole `<td>` and not a wrapper inside it, because the
-                        // gesture the spec names is "the pointer is in this
-                        // cell" and a wrapper stands inside the padding.
-                        {...(cell.column.id === 'depends'
-                          ? dependsCellHoverProps(row.original)
-                          : {})}
-                        {...(cell.column.id === 'start' ? startCellProps(row.original) : {})}
-                        style={{
-                          ...CELL,
-                          // The exception to the cell clip. See
-                          // {@link opensAPopover}: a popover's containing block is
-                          // the wrapper span *inside* this `<td>`, so this `<td>`
-                          // clips it unless it is told not to.
-                          ...(opensAPopover(cell.column.id)
-                            ? { overflow: 'visible' as const }
-                            : {}),
-                          ...(cell.column.id === 'start' && startSentence(row.original) !== null
-                            ? { cursor: 'help' as const }
-                            : {}),
-                          ...flexibleCellStyle(cell.column.id, frameState),
-                          ...pinnedCellStyle(layout, cell.column.id, 'body'),
-                          // After the pinned background, so the warning is visible
-                          // on the three columns that hold the left edge too.
-                          ...(armedDelete?.rowId === row.original.id
-                            ? { background: ARMED_TINT }
-                            : {}),
-                        }}
-                      >
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </PlanCell>
-                    ))}
+                    {row.getAllCells().map((cell) => {
+                      const sentence =
+                        cell.column.id === 'start' ? startSentence(row.original) : null;
+                      return (
+                        <PlanCell
+                          key={cell.id}
+                          cards={cellCards}
+                          cell={cellKey(row.original.id, cell.column.id)}
+                          describedBy={sentence === null ? undefined : startCardId(row.original.id)}
+                          raiseWhenOpen={cell.column.id === 'name'}
+                          // See the `th` above: the layout gate measures these boxes
+                          // and has to be able to name the one that moved.
+                          data-column={cell.column.id}
+                          // The dependency light's own cell-level reading, on the
+                          // cell. See {@link dependsCellHoverProps}: it is the
+                          // whole `<td>` and not a wrapper inside it, because the
+                          // gesture the spec names is "the pointer is in this
+                          // cell" and a wrapper stands inside the padding.
+                          {...(cell.column.id === 'depends'
+                            ? dependsCellHoverProps(row.original)
+                            : {})}
+                          {...(cell.column.id === 'start'
+                            ? startCellProps(row.original, sentence)
+                            : {})}
+                          style={{
+                            ...CELL,
+                            // The exception to the cell clip. See
+                            // {@link opensAPopover}: a popover's containing block is
+                            // the wrapper span *inside* this `<td>`, so this `<td>`
+                            // clips it unless it is told not to.
+                            ...(opensAPopover(cell.column.id)
+                              ? { overflow: 'visible' as const }
+                              : {}),
+                            ...(sentence !== null ? { cursor: 'help' as const } : {}),
+                            ...flexibleCellStyle(cell.column.id, frameState),
+                            ...pinnedCellStyle(layout, cell.column.id, 'body'),
+                            // After the pinned background, so the warning is visible
+                            // on the three columns that hold the left edge too.
+                            ...(armedDelete?.rowId === row.original.id
+                              ? { background: ARMED_TINT }
+                              : {}),
+                          }}
+                        >
+                          <PlanCellContent
+                            cell={cell}
+                            expandable={row.getCanExpand()}
+                            expanded={row.getIsExpanded()}
+                            startSentence={sentence}
+                          />
+                        </PlanCell>
+                      );
+                    })}
                   </PlanRow>
                 ))}
               </tbody>

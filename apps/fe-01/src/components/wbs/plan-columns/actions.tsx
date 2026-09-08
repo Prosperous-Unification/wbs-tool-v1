@@ -11,8 +11,8 @@ export function createActionsColumn({ live }: { live: PlanLive }) {
       <ActionsMenu
         number={row.original.number}
         // Menu state follows the PlanLive contract, so opening one preserves cells.
-        open={live.current.openMenuRowId === row.original.id}
-        busy={live.current.busy}
+        open={row.original.readings.actionsOpen}
+        busy={row.original.readings.busy}
         onOpen={() => {
           live.current.setOpenMenuRowId(row.original.id);
         }}

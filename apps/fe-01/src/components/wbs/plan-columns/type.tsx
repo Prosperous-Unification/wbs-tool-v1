@@ -33,7 +33,7 @@ export function createTypeColumn({ live }: { live: PlanLive }) {
           placeholder={own.length > 0 ? 'add' : 'search'}
           adapter={{
             kind: 'type',
-            entries: live.current.workItemTypes,
+            entries: row.original.readings.workItemTypes,
             ownIds: own,
             replace: (typeIds) => live.current.setTypesOf(row.original.id, typeIds),
             create: (name, current) => live.current.createTypeFor(row.original.id, name, current),

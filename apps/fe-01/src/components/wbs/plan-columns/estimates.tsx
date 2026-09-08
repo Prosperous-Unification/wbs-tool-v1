@@ -13,7 +13,27 @@ import { flushCell, unsent } from '../live-editing';
 import type { PlanLive } from '../plan-live';
 import { MismatchMark } from '../plan-mismatch';
 import { showDays, showFinal } from '../plan-number-format';
+import {
+  type EstimateReadings,
+  type FoldedEstimateReadings,
+  type PlanRenderRow,
+} from '../plan-render-rows';
 import { column } from './column';
+
+function estimateReading(row: PlanRenderRow, stepId: string): EstimateReadings {
+  const reading = row.readings.estimateReadings.get(stepId);
+  if (reading === undefined) {
+    throw new Error(`Missing estimate reading for visible step ${stepId} on row ${row.id}`);
+  }
+  return reading;
+}
+
+function foldedReading(reading: EstimateReadings, stepId: string): FoldedEstimateReadings {
+  if (reading.layout !== 'folded') {
+    throw new Error(`Expected folded estimate reading for step ${stepId}`);
+  }
+  return reading;
+}
 
 /** Builds the estimates column family against the stable live cell contract. */
 export function createEstimatesColumns({
@@ -73,6 +93,10 @@ export function createEstimatesColumns({
           </button>
         ),
         cell: ({ row }) => {
+          const reading = estimateReading(row.original, step.id);
+          if (reading.layout !== (unfolded ? 'unfolded' : 'folded')) {
+            throw new Error(`Estimate reading layout disagrees for step ${step.id}`);
+          }
           // A subscription and not a reading off `live`: this cell is a
           // component, so it can be told about its own card without the table
           // rendering. First, and unconditionally, because it is a hook.
@@ -87,7 +111,7 @@ export function createEstimatesColumns({
           // A folded step must not be able to hide a complaint: a typed
           // trio that saves nothing stays visible as a mark on the figure
           // the fold leaves behind.
-          const problem = unfolded ? null : live.current.combinedProblem(row.original, step.id);
+          const problem = reading.layout === 'folded' ? reading.combinedProblem : null;
           // The whole trio in one cell, but only where both halves of that
           // sentence hold: a folded step, so the three boxes are not on
           // screen to disagree with it, and a leaf, because a parent's
@@ -131,11 +155,11 @@ export function createEstimatesColumns({
           // column has, in the cell that is always on screen — which is the
           // whole reason the assignee stopped folding away. Read through
           // {@link assigneeOn}, which is where a card reads it too.
-          const doing = live.current.assigneeOn(row.original, step.id);
+          const doing = reading.doing;
           // Only while this step is folded: unfolded, the assignee has a
           // column of its own with a picker in it, and two ways to assign
           // one person side by side is two things to keep in step.
-          const options = unfolded ? [] : live.current.mentionOptions(row.original, step.id);
+          const options = reading.layout === 'folded' ? reading.mentionOptions : [];
           const listId = `mention-${row.original.id}-${step.id}`;
           const finalCell = cellKey(row.original.id, `${step.id}-final`);
           // The card opens on the cell itself — not on a marker, the way
@@ -156,9 +180,7 @@ export function createEstimatesColumns({
           // Proof: put back to `options.length === 0`, `keeps the cell to a
           // mention that has nobody to offer` failed on `expected 'Dev…' to
           // contain 'QA'`. Watched, 2026-08-09.
-          const openMention = live.current.mention;
-          const mentioning =
-            openMention?.rowId === row.original.id && openMention.stepId === step.id;
+          const mentioning = reading.layout === 'folded' && reading.mentioning;
           const cardable = !unfolded && !mentioning;
           const carded = cardable && cardOpen;
           // The card's own id, which the box below points
@@ -389,7 +411,7 @@ export function createEstimatesColumns({
                           borderColor: 'var(--destructive)',
                         }),
                   }}
-                  value={live.current.combinedValue(row.original, step.id)}
+                  value={foldedReading(reading, step.id).combinedValue}
                   commit={(typed, baseline) =>
                     live.current.commitCombinedEstimate(row.original, step.id, typed, baseline)
                   }
@@ -538,7 +560,7 @@ export function createEstimatesColumns({
                   · {doing.assumed ? `(${initialsOf(doing.name)})` : initialsOf(doing.name)}
                 </span>
               )}
-              {doing === null && live.current.anyAssigneeOn(step.id) && (
+              {doing === null && reading.anyAssignee && (
                 // The empty half of {@link ASSIGNEE_SLOT_PX}: a row with
                 // nobody on it still gives up the slot, **but only in a
                 // column where somebody is assigned**. That condition is
@@ -653,7 +675,11 @@ export function createEstimatesColumns({
                 meta: { spokenHeading: point },
                 header: () => <span>{point.slice(0, 1)}</span>,
                 cell: ({ row }) => {
-                  const problem = live.current.trioProblemFor(row.original, step.id);
+                  const reading = estimateReading(row.original, step.id);
+                  if (reading.layout !== 'unfolded') {
+                    throw new Error(`Expected unfolded estimate reading for step ${step.id}`);
+                  }
+                  const problem = reading.trioProblem;
                   const wrong = problem?.points.includes(point) ?? false;
                   return (
                     <CellInput
@@ -713,7 +739,7 @@ export function createEstimatesColumns({
                               }
                             : {}),
                       }}
-                      value={live.current.estimateValue(row.original, step.id, point)}
+                      value={reading.estimateValues[point]}
                       commit={(typed) =>
                         // A rolled-up figure is a sum of the rows below it:
                         // the box is read-only and there is nothing to send.
@@ -730,6 +756,10 @@ export function createEstimatesColumns({
               id: `${step.id}-assignee`,
               header: 'by',
               cell: ({ row }) => {
+                const reading = estimateReading(row.original, step.id);
+                if (reading.layout !== 'unfolded') {
+                  throw new Error(`Expected unfolded estimate reading for step ${step.id}`);
+                }
                 const assigned = row.original.assignees[step.id];
                 // Nobody on this step, and exactly one person on another: they are
                 // assumed to be doing this step too, so the cell says so rather
@@ -742,9 +772,10 @@ export function createEstimatesColumns({
                 // or the assumed one — and a marker computed from
                 // `assigned` alone would go quiet on exactly the assumed
                 // case, where nobody has looked at the assignment at all.
-                const doing = live.current.assigneeOn(row.original, step.id);
+                const doing = reading.doing;
                 const nameOf = (id: string) =>
-                  live.current.people.find((each) => each.id === id)?.name ?? '(unknown)';
+                  row.original.readings.assigneeEntries.find((each) => each.id === id)?.name ??
+                  '(unknown)';
                 return (
                   // A flex row because the picker inside it is one now: the
                   // assumed name has to sit beside the box and shrink with
@@ -760,19 +791,7 @@ export function createEstimatesColumns({
                     <CreatablePicker
                       label={`${step.name} assignee for ${row.original.number}`}
                       placeholder="search or add"
-                      entries={live.current.people.map((each) => ({
-                        id: each.id,
-                        name: each.name,
-                        detail:
-                          each.teamIds.length === 0
-                            ? 'free agent'
-                            : each.teamIds
-                                .map(
-                                  (id) =>
-                                    live.current.teams.find((team) => team.id === id)?.name ?? '?',
-                                )
-                                .join(', '),
-                      }))}
+                      entries={row.original.readings.assigneeEntries}
                       value={assigned ?? null}
                       onChoose={(id) => {
                         live.current.assignTo(row.original.id, step.id, id);

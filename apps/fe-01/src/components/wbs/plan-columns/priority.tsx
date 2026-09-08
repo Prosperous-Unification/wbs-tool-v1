@@ -28,7 +28,7 @@ export function createPriorityColumn({ live }: { live: PlanLive }) {
         cellKey={cellKey(row.original.id, 'priority')}
         rowNumber={row.original.number}
         rowId={row.original.id}
-        bands={live.current.priorityBands}
+        bands={row.original.readings.priorityBands}
         priority={row.original.priority}
         commit={(typed) => live.current.setPriority(row.original.id, typed)}
         // A picked line is the same write a typed number is — one `patch`,

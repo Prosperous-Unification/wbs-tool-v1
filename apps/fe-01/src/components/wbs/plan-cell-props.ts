@@ -21,17 +21,11 @@ export function createPlanCellProps({
   depLights,
   depPicker,
   cellCards,
-  startSentence,
 }: {
   dependenciesOf: (ids: readonly string[]) => { id: string; number: string; name: string }[];
   depLights: DepLights;
   depPicker: { rowId: string; typed: string; highlightId: string | null } | null;
   cellCards: CellCards;
-  /**
-   * One row's Start sentence, remembered for this render — {@link WbsTable}
-   * builds it, because the `<td>` here and the cell inside it both ask.
-   */
-  startSentence: (row: TreeRow) => string | null;
 }) {
   /**
    * What one row's Depends on `<td>` does with a pointer arriving and leaving.
@@ -161,11 +155,11 @@ export function createPlanCellProps({
    */
   const startCellProps = (
     row: TreeRow,
+    said: string | null,
   ): Pick<
     ComponentProps<'td'>,
     'tabIndex' | 'onMouseEnter' | 'onMouseLeave' | 'onFocus' | 'onBlur'
   > & { 'data-start-said'?: string } => {
-    const said = startSentence(row);
     if (said === null) return {};
     const startCell = cellKey(row.id, 'start');
     // The same-cell guard every surface here clears with: a leave fires after

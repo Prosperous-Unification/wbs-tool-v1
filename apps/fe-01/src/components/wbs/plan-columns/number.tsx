@@ -1,9 +1,8 @@
-import type { PlanLive } from '../plan-live';
 import { CARET_GUTTER_PX, NUMBER_ENVELOPE, numberIndentFor } from '../table-frame';
 import { column } from './column';
 
-/** Builds the number column family against the stable live cell contract. */
-export function createNumberColumn({ live }: { live: PlanLive }) {
+/** Builds the number column from its row and immutable filter reading. */
+export function createNumberColumn() {
   return column.display({
     id: 'number',
     // `#`, which is what a column of work item numbers is called on every
@@ -54,7 +53,7 @@ export function createNumberColumn({ live }: { live: PlanLive }) {
               touch, so a click here would appear to do nothing.
             */}
         <span data-caret-gutter style={{ display: 'inline-block', width: CARET_GUTTER_PX }}>
-          {row.getCanExpand() && !live.current.filtering ? (
+          {row.getCanExpand() && !row.original.readings.filtering ? (
             <button
               type="button"
               aria-label={`${row.getIsExpanded() ? 'Collapse' : 'Expand'} ${row.original.number}`}
