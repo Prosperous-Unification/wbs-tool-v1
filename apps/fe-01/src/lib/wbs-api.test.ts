@@ -1178,4 +1178,84 @@ describe('what a full-scope read puts on the wire', () => {
     expect(fetched).toHaveBeenCalledTimes(FULL_SCOPE_PUTS_ON_THE_WIRE.length);
     expect(settled.filter((read) => read.status === 'rejected')).toEqual([]);
   });
+
+  /**
+   * The case above is unconditional by construction: one fresh client, one
+   * unoptimized tree, one pass. A request that is CONDITIONAL therefore slips
+   * past it — Sol's mutant on TASK-342 round 2 adds a second
+   * `getApiProjectsByIdWork-items` inside `httpProjectApi.tree` guarded by
+   * `tree.optimization !== undefined`, or by that client having already
+   * completed one tree read, and both the case above and the two method-level
+   * cases in `optimization-integration.test.tsx` — which use `fakeProjectApi`
+   * and never reach the wire — stay green while a real optimized project sends
+   * ten requests for one full-scope refresh.
+   *
+   * Both guards are exercised here rather than in a third file. The branch is
+   * selected by the parsed tree body and by client lifetime, and nothing in
+   * socket delivery, `createPlanRefresh` or invalidation timing participates in
+   * selecting it, so an end-to-end socket fixture would buy this same assertion
+   * at several times the cost and with more ways to go flaky. Keeping it beside
+   * `FULL_SCOPE_PUTS_ON_THE_WIRE` also keeps the claim readable as two places
+   * rather than three.
+   */
+  it('spends the same nine on an optimized project, and again on the same client', async () => {
+    const optimized = JSON.parse(TREE('p1', [])) as Record<string, unknown>;
+    optimized['optimization'] = {
+      enabled: true,
+      engine: 'optimized',
+      objective: 'pri',
+      inputHash: 'same-input',
+      generation: 1,
+      contractVersion: '1.5+test',
+      budgetMs: 60_000,
+      displayed: 'pri',
+      variants: { pri: { state: 'ready' }, time: { state: 'idle' } },
+      comparison: { deltaDays: -2, sameOrder: true },
+    };
+    const bodies: Record<string, string | undefined> = {
+      '/api/projects/p1/work-items': JSON.stringify(optimized),
+      '/api/projects/p1': JSON.stringify({ project: PROJECT, steps: [] }),
+      '/api/projects/p1/calendar-markers': '{"markers":[]}',
+      '/api/teams': '{"teams":[]}',
+      '/api/tags': '{"tags":[]}',
+      '/api/services': '{"services":[]}',
+      '/api/work-item-types': '{"workItemTypes":[]}',
+      '/api/external-systems': '{"externalSystems":[]}',
+      '/api/people': '{"people":[]}',
+    };
+    let requests: string[] = [];
+    stub((path, init) => {
+      requests.push(`${init?.method ?? 'GET'} ${path}`);
+      const body = bodies[path.split('?')[0] ?? path];
+      return response(body === undefined ? 404 : 200, body ?? '{}');
+    });
+    const project = httpProjectApi('t');
+    const fullScope = (): Promise<PromiseSettledResult<unknown>[]> =>
+      Promise.allSettled([
+        project.tree('p1'),
+        project.steps('p1'),
+        project.listCalendarMarkers('p1'),
+        project.listTeams(),
+        project.listTags(),
+        project.listServices(),
+        project.listWorkItemTypes(),
+        project.listExternalSystems(),
+        project.listPeople(),
+      ]);
+
+    const first = await fullScope();
+
+    expect([...requests].sort()).toEqual([...FULL_SCOPE_PUTS_ON_THE_WIRE].sort());
+
+    // Cleared rather than summed, so the second refresh is measured on its own.
+    // Summing would still go red under a second-read-only guard — nineteen
+    // actual against eighteen expected — so this is about the failure being
+    // readable, not about catching it at all: an aggregate mismatch names
+    // neither pass, while a cleared log points at the refresh that grew.
+    requests = [];
+    const second = await fullScope();
+
+    expect([...requests].sort()).toEqual([...FULL_SCOPE_PUTS_ON_THE_WIRE].sort());
+    expect([...first, ...second].filter((read) => read.status === 'rejected')).toEqual([]);
+  });
 });
