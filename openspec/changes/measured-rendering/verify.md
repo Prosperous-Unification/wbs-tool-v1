@@ -197,3 +197,35 @@ failing at the **wired-check** rather than at the assertion first:
 
 Each case asserts the counter moved during setup before asserting it is still zero after the
 gesture. Without that, a mock that never ran satisfies the assertion.
+
+## 2.2, third part — the directory lookups behind the two markers, 2026-09-08
+
+`indexById(items)` joins `plan-indexes.ts`, and the three lookups `useReferenceSets` already
+built by hand use it. `usePlanAssignments` — a separate hook with its own arguments — gains its
+own three, and the two markers stop scanning a directory per row: `nonOwnerNoteOf` did
+`services.find` per unowned service, `assigneeOn` did `people.find` per call (once per step per
+row), and `teamNamesOn`, which both of them call, did `teams.find` per team on the row.
+
+### Failure proof table
+
+| Injected fault                           | Observed failure      |
+| ---------------------------------------- | --------------------- |
+| `teamsById` rebuilt inside `teamNamesOn` | `expected 2 to be +0` |
+
+**Two forms of that fault were watched passing first, and both are the same mistake: injecting
+where the code does not go.** The first put `indexById(teams)` inside `teamNamesOn`'s `.map`
+callback — a plan whose rows carry no team maps over an empty list, so the rebuild was never
+reached. The second moved it out of the map but left the fixture with nobody assigned, and
+`teamNamesOn` is only ever called from inside the two markers, both of which return before it on
+a plan nobody is named on. The fixture now assigns a person through `api.addPerson` and
+`api.assignPerson`, and the fault is hoisted above the map.
+
+### Still open in 2.2
+
+`spanOf(row)` is called three times per row per render — the Start cell, the Finish cell, and
+once inside the Start sentence — and allocates a `Date` and two `printedDay` calls each time. It
+is not memoised here: the per-render `Map` that would do it has to live where `spanOf` is built,
+and the counting seam for its negative does not exist yet. Named so the next slice does not have
+to find it again. The three `effective*LabelOf` readings are called once per row and allocate two
+arrays each; that is a per-row cost 2.2's explicit render inputs are meant to own, not another
+memo.

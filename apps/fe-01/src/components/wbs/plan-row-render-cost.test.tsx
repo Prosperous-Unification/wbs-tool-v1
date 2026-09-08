@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { fakeProjectApi as fakeApi } from '@/testing/fake-project-api';
+import { DEV, fakeProjectApi as fakeApi } from '@/testing/fake-project-api';
 
 import type * as PlanCellPropsModule from './plan-cell-props';
 import type * as PlanIndexesModule from './plan-indexes';
@@ -27,7 +27,7 @@ const cellStyleCalls = vi.hoisted(() => ({ count: 0 }));
 const startSentenceCalls = vi.hoisted(() => ({ count: 0 }));
 
 /** How many times each index over the whole plan was rebuilt. */
-const indexBuilds = vi.hoisted(() => ({ rowsById: 0, assignedSteps: 0 }));
+const indexBuilds = vi.hoisted(() => ({ rowsById: 0, assignedSteps: 0, byId: 0 }));
 
 vi.mock('./table-frame', async (importOriginal) => {
   const real = await importOriginal<typeof TableFrameModule>();
@@ -52,6 +52,10 @@ vi.mock('./plan-indexes', async (importOriginal) => {
       indexBuilds.assignedSteps += 1;
       return real.assignedSteps(...args);
     },
+    indexById: (...args: Parameters<typeof real.indexById>) => {
+      indexBuilds.byId += 1;
+      return real.indexById(...args);
+    },
   };
 });
 
@@ -72,6 +76,7 @@ beforeEach(() => {
   startSentenceCalls.count = 0;
   indexBuilds.rowsById = 0;
   indexBuilds.assignedSteps = 0;
+  indexBuilds.byId = 0;
 });
 
 /** Every column on screen, so the Depends on cell is one of the readers. */
@@ -129,7 +134,9 @@ describe('what one row costs per render', () => {
     // dropped so it is rebuilt inside the callback it feeds: `expected 1 to be
     // +0` for the row index — one rebuild for the one dependency on screen —
     // and `expected 8 to be +0` for the assigned steps, for a gesture that
-    // touched no row at all.
+    // touched no row at all. The directory index is the third: `teamsById`
+    // rebuilt inside `teamNamesOn` failed on `expected 2 to be +0`, one rebuild
+    // per assignee on screen.
     showEveryColumn();
     const api = fakeApi();
     render(<WbsTable projectId="p1" api={api} />);
@@ -145,6 +152,13 @@ describe('what one row costs per render', () => {
     const third = api.rows.at(2);
     if (first === undefined || third === undefined) throw new Error('the plan has no three rows');
     await api.addDependency(third.id, first.id);
+    // And somebody assigned, because the two directory lookups sit behind the
+    // markers: `assigneeOn` answers null and `teamNamesOn` is never reached on a
+    // plan nobody is named on, which would leave the `byId` count at zero
+    // whatever the memo does. Watched: with the team index rebuilt per call and
+    // no assignee in the fixture, this case passed.
+    const dana = await api.addPerson('Dana', []);
+    await api.assignPerson(first.id, DEV.id, dana.id);
     click('Add work item');
     await screen.findByLabelText('Name of 040');
 
@@ -152,14 +166,17 @@ describe('what one row costs per render', () => {
     // Without this the assertion below is satisfied by a mock that never ran.
     expect(indexBuilds.rowsById).toBeGreaterThan(0);
     expect(indexBuilds.assignedSteps).toBeGreaterThan(0);
+    expect(indexBuilds.byId).toBeGreaterThan(0);
 
     indexBuilds.rowsById = 0;
     indexBuilds.assignedSteps = 0;
+    indexBuilds.byId = 0;
     cellStyleCalls.count = 0;
     click('Freeze #');
 
     expect(cellStyleCalls.count).toBeGreaterThan(0);
     expect(indexBuilds.rowsById).toBe(0);
     expect(indexBuilds.assignedSteps).toBe(0);
+    expect(indexBuilds.byId).toBe(0);
   });
 });

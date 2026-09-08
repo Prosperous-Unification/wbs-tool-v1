@@ -17,7 +17,7 @@ import {
 } from './gantt-geometry';
 import { type CommitOutcome } from './live-editing';
 import { type CardAssignee } from './plan-cards';
-import { assignedSteps } from './plan-indexes';
+import { assignedSteps, indexById } from './plan-indexes';
 import { assigneesOf, listed, MISMATCH_TAIL } from './plan-mismatch';
 import { type TreeRow } from './wbs-rows';
 import { rowWords } from './work-item-words';
@@ -67,14 +67,11 @@ export function usePlanLabels({
    * every row it draws — so naming a plan's labels was O(rows × directory) three
    * times over. They change when a directory read lands, which is rarely.
    */
-  const teamsById = useMemo(() => new Map(teams.map((team) => [team.id, team])), [teams]);
+  const teamsById = useMemo(() => indexById(teams), [teams]);
 
-  const tagsById = useMemo(() => new Map(tags.map((tag) => [tag.id, tag])), [tags]);
+  const tagsById = useMemo(() => indexById(tags), [tags]);
 
-  const servicesById = useMemo(
-    () => new Map(services.map((service) => [service.id, service])),
-    [services],
-  );
+  const servicesById = useMemo(() => indexById(services), [services]);
 
   /**
    * The service team a work item is labelled with, resolved against the
@@ -575,6 +572,18 @@ export function usePlanAssignments({
   flat: TreeRow[];
 }) {
   /**
+   * The three vocabularies these two markers read, as lookups.
+   *
+   * Its own copies rather than the ones {@link useReferenceSets} holds: this is
+   * a separate hook with its own arguments, and threading three maps through the
+   * call site to save three `Map` builds per directory read would be paying for
+   * the coupling twice.
+   */
+  const teamsById = useMemo(() => indexById(teams), [teams]);
+  const servicesById = useMemo(() => indexById(services), [services]);
+  const peopleById = useMemo(() => indexById(people), [people]);
+
+  /**
    * The teams in force for a row, as a sentence names them — the directory's
    * word where it has one, the id where it does not.
    *
@@ -584,10 +593,8 @@ export function usePlanAssignments({
    */
   const teamNamesOn = useCallback(
     (row: TreeRow): string[] =>
-      (effectiveTeams.get(row.id)?.teamIds ?? []).map(
-        (id) => teams.find((team) => team.id === id)?.name ?? id,
-      ),
-    [effectiveTeams, teams],
+      (effectiveTeams.get(row.id)?.teamIds ?? []).map((id) => teamsById.get(id)?.name ?? id),
+    [effectiveTeams, teamsById],
   );
 
   /**
@@ -606,15 +613,13 @@ export function usePlanAssignments({
     (row: TreeRow): string | null => {
       const unowned = mismatchByRow.get(row.id)?.unownedServices ?? [];
       if (unowned.length === 0) return null;
-      const named = listed(
-        unowned.map((id) => services.find((service) => service.id === id)?.name ?? id),
-      );
+      const named = listed(unowned.map((id) => servicesById.get(id)?.name ?? id));
       const owners = teamNamesOn(row);
       return `Built by a non-owner: ${listed(owners)} ${
         owners.length === 1 ? 'does' : 'do'
       } not own ${named}.${MISMATCH_TAIL}`;
     },
-    [mismatchByRow, services, teamNamesOn],
+    [mismatchByRow, servicesById, teamNamesOn],
   );
 
   /**
@@ -638,7 +643,7 @@ export function usePlanAssignments({
       const named = row.assignees[stepId];
       const shows = named ?? row.doesEveryStep;
       if (shows === null) return null;
-      const name = people.find((each) => each.id === shows)?.name ?? '(unknown)';
+      const name = peopleById.get(shows)?.name ?? '(unknown)';
       // The row's own answer, filtered to the person this cell shows — and that
       // covers the assumed assignee too, which is not obvious and is the reason
       // this is written down. An assumption is `assumedAssignee(row.assignees)`
@@ -664,7 +669,7 @@ export function usePlanAssignments({
           : null,
       };
     },
-    [people, mismatchByRow, teamNamesOn],
+    [peopleById, mismatchByRow, teamNamesOn],
   );
 
   /**
