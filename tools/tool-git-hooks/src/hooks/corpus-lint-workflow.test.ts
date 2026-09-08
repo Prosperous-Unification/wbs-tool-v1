@@ -34,14 +34,17 @@ import { describe, expect, test } from 'bun:test';
  *     empty-slice guard in the boundary test.
  *   - `cancel-in-progress` returned to exactly its pre-fix `github.ref !=
  *     'refs/heads/main'` → 1 fail, and only that one.
- *   - `group` returned to its pre-TASK-386 `ci-${{ github.ref }}` → 1 fail, and
- *     only the per-commit assertion.
+ * The first three controls each move a DIFFERENT assertion, which is what
+ * distinguishes them from restatements of one fact. The last two are a
+ * different kind and are described as such rather than counted with them:
+ *   - `group` returned to its pre-TASK-386 `ci-${{ github.ref }}` → 1 fail.
  *   - `group` set to `ci-${{ github.ref }}-${{ github.sha }}` unconditionally,
  *     the plausible over-fix that would stop pull-request runs superseding each
- *     other → 1 fail, the same one. A `toContain('github.sha')` check would have
- *     passed this mutant, which is why the assertion is a whole string.
- * Each control moves a different assertion, which is what distinguishes them
- * from six restatements of one fact.
+ *     other → 1 fail, THE SAME assertion. These two do not isolate two
+ *     different facts; they show that one exact-string check rejects both the
+ *     old key and the over-fix, where a `toContain('github.sha')` would have
+ *     passed the second. That is why the assertion is a whole string, and it is
+ *     the reason to write it this way rather than evidence of two behaviours.
  */
 
 interface WorkflowStep {

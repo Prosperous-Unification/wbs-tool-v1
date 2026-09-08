@@ -144,11 +144,24 @@ on:
 # too and needs nothing added — a queue entry's ref is unique to that entry, so
 # the ref-only key is already per-commit there.
 #
-# The cost, stated at the same strength as the trade above: `main` runs now
-# overlap without bound rather than two at a time. At this repo's merge rate
-# that is a few concurrent 20-minute runs, and when the account's concurrency
-# limit is reached GitHub QUEUES the surplus instead of cancelling it — the
-# verdict is delayed, never lost, which is the whole point.
+# The cost, stated at the same strength as the trade above and stated exactly:
+# the old key never ran two `main` runs at once — it ran ONE and held ONE
+# pending behind it, and only the running member consumed a runner. The change
+# is from one executing `main` run to several. At this repo's merge rate that is
+# a few concurrent 20-minute runs, and when the account's concurrency limit is
+# reached GitHub QUEUES the surplus instead of cancelling it — that verdict is
+# delayed, never lost, which is the whole point.
+#
+# Known and NOT closed by this key: two runs of the SAME commit still share a
+# group, because the suffix carries no event or run identity. A
+# `workflow_dispatch` on `main` at commit S joins `ci-refs/heads/main-S` with S's
+# push run, and those two are not interchangeable — a dispatch supplies its own
+# `base_ref` while the push run compares `github.event.before`. Three same-SHA
+# entrants therefore still evict the middle one. TASK-386 peer review I1
+# (`queue/reviews/t386-r1-sol.txt`, openai/gpt-5.6-sol); filed as its own task
+# because keying on run identity instead has to be PROVED to render inside
+# `concurrency:` rather than assumed, and this change is already a strict
+# improvement without it.
 #
 # Overlapping runs are safe here for a reason that was checked rather than
 # assumed: this workflow has no deploy job. `gate` and `pixels_shard` read the
