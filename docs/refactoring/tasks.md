@@ -42,13 +42,14 @@ ran its own.
 
 Nothing below has an owning task in the external queue (`backlog/tasks/task-NNN …`) unless named.
 
-- [ ] **R10 `measured-rendering`** — 15/17 tasks. Explicit row readings and stable cell identities,
+- [x] **R10 `measured-rendering`** — **done, 2026-09-08**, 17/17 tasks. Explicit row readings and stable cell identities,
       deferred Find criteria, logical navigation, variable-height row and column windows, active-editor
       retention, drag/accessibility geometry, complete Gantt correspondence and the measured Chromium
       budgets are implemented. The optimized 12-configuration matrix and complete browser gate are
       recorded in the change's `verify.md`. A direct Chromium case now covers evicted-editor
-      commit, Escape and refused-draft remounting. A fully provisioned workspace gate, final
-      independent review, validation and parent integration remain.
+      commit, Escape and refused-draft remounting. PR #353's exact implementation head passed the
+      fully provisioned workspace gate and all four pixel shards; independent review found no
+      Critical or Important issues, and the change validates cleanly against its parent.
 - [ ] **W4-4 tasks 3.4–3.5** — the independent review and coordinated full browser gate the
       change asked for before its `live` contract is handed to R1/R10. `main`'s green runs cover
       the gate; the review is unrecorded.

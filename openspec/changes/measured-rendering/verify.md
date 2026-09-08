@@ -773,3 +773,29 @@ The image leg was also run independently with Bun1.4.2 and
 authenticated and bound the solver supervisor, and passed **3 tests / 0 failed** across the
 real-Docker orphan and lifecycle suites in1m05s. The canonical combined gate remains required;
 this result closes only the image-smoke evidence that the earlier chained command never reached.
+
+## 5.2–5.3 — canonical integration and final review, 2026-09-08
+
+GitHub Actions run
+[`34249944955`](https://github.com/Prosperous-Unification/wbs-tool-v1/actions/runs/34249944955)
+tested PR #353's exact implementation head `4c2c3b1e7d8868f8a6e8505f25202d3ef47965c0` on the
+canonical provisioned runners. The workspace `gate` passed in13m42s, all four Chromium pixel
+shards passed (12m45s,11m44s,5m14s and4m33s), and their aggregate passed. This supersedes the
+workstation-pressure diagnosis above: the required complete frozen command, solver dependencies,
+solver image smoke and browser coverage all ran successfully in the repository's own gate.
+
+Independent final review found no Critical or Important issues. It initially reopened4.2 because
+the existing browser coverage did not directly exercise editor outcomes after viewport eviction;
+the direct commit, Escape and refused-draft-remount case above closed that finding. The reviewer
+then confirmed that the new Chromium case fully covers the task and reported no remaining blocker.
+
+### Final verification scorecard
+
+| Dimension    | Result | Evidence                                                                                 |
+| ------------ | ------ | ---------------------------------------------------------------------------------------- |
+| Completeness | 17/17  | Every ordered task is checked; the direct4.2 closure and canonical5.2 gate are recorded. |
+| Correctness  | 5/5    | All five delta-spec requirements and all seven scenarios have production-path evidence.  |
+| Coherence    | Pass   | Implementation follows the design's row readings, logical identity and bounded windows.  |
+
+The documentation-only closure commit is subject to the same PR checks before the authorized
+merge. No implementation or evidence artifact changes after the exact implementation head above.

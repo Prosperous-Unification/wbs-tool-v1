@@ -27,5 +27,5 @@
 ## 5. Integrate and review
 
 - [x] 5.1 Run focused/unit/host/root type/lint checks and mutation table; every Proof must match observed output.
-- [ ] 5.2 Freeze source and run complete Chromium and workspace gates, including shared CSS, keyboard, names/references, hover, drag, mobile, markers and Auckland timezone coverage.
-- [ ] 5.3 Independent implementation review, OpenSpec validation and parent integration; no commit before review.
+- [x] 5.2 Freeze source and run complete Chromium and workspace gates, including shared CSS, keyboard, names/references, hover, drag, mobile, markers and Auckland timezone coverage.
+- [x] 5.3 Independent implementation review, OpenSpec validation and parent integration; no commit before review.
