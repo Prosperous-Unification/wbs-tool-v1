@@ -20,7 +20,7 @@ const roots: string[] = [];
 // Peer review, 2026-09-08: on a readiness or marker timeout the release file
 // is never written, so the holder's inner `bash` — which outlives
 // `holder.kill()`, as this file already measured — polls for it forever.
-const cleanups: Array<() => void | Promise<void>> = [];
+const cleanups: (() => void | Promise<void>)[] = [];
 
 // A file that is not there yet reads as empty rather than throwing, because
 // every caller below is polling for it to appear.
@@ -38,7 +38,8 @@ function readIfPresent(path: string): string {
 async function until(ready: () => boolean, timeoutMs = 10_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!ready()) {
-    if (Date.now() >= deadline) throw new Error(`condition not observed within ${timeoutMs}ms`);
+    if (Date.now() >= deadline)
+      throw new Error(`condition not observed within ${String(timeoutMs)}ms`);
     await Bun.sleep(10);
   }
 }
@@ -271,7 +272,7 @@ describe('with-heavy-lock', () => {
         }
       };
       throw new Error(
-        `holder never claimed ${lockDir} (exitCode ${holder.exitCode}); it said: ${said || '(nothing)'}; root has ${listed(root)}; lock has ${listed(lockDir)}`,
+        `holder never claimed ${lockDir} (exitCode ${String(holder.exitCode)}); it said: ${said || '(nothing)'}; root has ${listed(root)}; lock has ${listed(lockDir)}`,
         { cause },
       );
     }
