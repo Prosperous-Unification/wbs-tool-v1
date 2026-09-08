@@ -1,12 +1,12 @@
 ## Status
 
-R10 starts from the pre-optimization source preserved by93259b43. Approved refactoring plan§67R10 is authority. The complete latency/render-count matrix and bounded Gantt stress observations are measured below. Budgets are now published in proposal.md; independent review remains pending.
+R10 starts from the pre-optimization source preserved by93259b43. Approved refactoring plan§67R10 is authority. The complete latency/render-count matrix and bounded Gantt stress observations are measured below. Budgets are now published in proposal.md; independent re-review approved their corrected derivation and protocol scope with no Critical or Important findings.
 
 Locked Bun install passed after sandbox temp/cache permission escalation (102packages,1.95s). Browser skill was read and runtime initialized; `agent.browsers.get("iab")` reported unavailable and documented discovery returned an empty list. Interactive in-app browser is unavailable. Parent confirmed canonical Playwright Chromium is appropriate for repeatable measurements. Measurement ports5500/5600/6600 are assigned to this worker, subject to actual listener verification. Parent must grant a quiet heavy-check window before timed runs.
 
 ## Commands and measurements
 
-`bun run dev:setup` passed, using repository example configuration. No private environment was copied. FE root typecheck passed after correcting dataset index access; fixture ESLint passed after correcting numeric template interpolation and unknown JSON boundary typing. The later eight-step geometry addition still needs types/lint.
+`bun run dev:setup` passed, using repository example configuration. No private environment was copied. FE root typecheck passed after correcting dataset index access; fixture ESLint passed after correcting numeric template interpolation and unknown JSON boundary typing. The later eight-step geometry addition passed the same checks in the fresh verification recorded below.
 
 Canonical smoke: `bin/with-heavy-lock.sh -- env CI=1 E2E_PORT_SHIFT=2400 R10_BASELINE=1 R10_BASELINE_SMOKE=1 bunx playwright test --config apps/fe-01/playwright.config.ts apps/fe-01/e2e/rendering-baseline.spec.ts --grep '100 rows / 2 steps / sparse'`. Initial run failed on the fixture's accessible-name locator: `Name of 010` matched the hundred-row number0100, receiving Row0009 instead of Row0000. Readiness now uses the exact seeded row identity. Repeated smoke passed:1test8.5s, stack-inclusive20.0s. No measurements from the failed smoke are accepted.
 
@@ -64,10 +64,37 @@ required matrix observation. This bounded failure is the1,000-row unfolded stres
 
 The published fixed-viewport budgets follow the measured fault shape: old work grows linearly to
 21,000 mounted cells and42,042 style calls while only450 cells intersect the folded viewport.
-Budgets allow explicit overscan and a pinned editor but remain independent of total project rows.
-Latency ceilings are generous development-stack regression limits below roughly one sixth of the
-worst ready-paint sample and one third of the worst broad-Find sample. They require every optimized
-sample to pass; they are not averages or production claims.
+The independent DOM readings establish30 intersecting rows at1400×900 without Gantt. Every sampled
+flat row is26.1875px high. A300px vertical overscan therefore admits at most
+`ceil(300 / 26.1875) = 12` extra flat rows per side. One complete extra row is the active-editor
+allowance: `30 + 12 + 12 = 54` ordinary mounted rows plus that separate complete row.
+
+The folded eight-step fixture has21 columns, so its derived maximum is `54 × 21 + 21 = 1,155` cells,
+rounded upward to the **1,200-cell** ceiling. The unfolded Gantt observation independently measured
+384 intersecting cells across16 rows, hence24 intersecting columns. The narrowest scrolling data
+column is32px;256px horizontal overscan admits at most8 columns per side. The ordinary viewport
+maximum is `54 × (24 + 8 + 8) = 2,160` cells. The unfolded table has53 columns, so one complete
+offscreen editor row raises that to2,213, rounded upward to the **2,250-cell** ceiling. A broad Find's
+**2,250-call** ceiling deliberately permits every mounted cell to perform layout once; Task3.2's
+two filter-sensitive cells per row are a stronger current observation, not an assumption the
+structural budget needs in order to pass. All counts come from DOM intersections rather than a
+virtualizer range and remain independent of total project rows.
+
+The retained100-row Darwin samples observed input-paint opportunities through222.4ms; the **250ms**
+ceiling rounds that measured fixed-viewport maximum upward by27.6ms. The **10s** ready-paint and
+**5s** filter-completion ceilings are generous development-stack regression limits below roughly
+one sixth of the worst ready-paint sample and one third of the worst broad-Find sample. They require
+every optimized sample to pass; they are not averages or production claims. The Darwin/Chromium151 traced baseline
+and Linux/Chromium153 trace-off baseline are separate protocols. Optimized samples may claim a
+relative change only against a baseline rerun under their exact protocol and environment; either
+protocol may independently demonstrate the absolute ceilings.
+
+Independent review first refused this slice because the published ceilings lacked the explicit
+overscan/editor arithmetic and because the proposal treated the two incompatible measurement
+protocols as one comparison environment. After the corrections above, final re-review found no
+Critical or Important issues and verified the arithmetic, the222.4ms source for250ms, direct DOM
+intersection counts and limited-sample language. Its sole Minor finding was the stale eight-step
+type/lint sentence corrected in the command summary above.
 
 ## Failure proof table
 

@@ -26,11 +26,9 @@ Windowing changes DOM identity and keyboard assumptions; parent-only memoization
 
 Measurement → explicit row dependencies and logical navigation → search isolation → viewport windowing/editor pinning → geometry/drag/accessibility → complete browser gate and independent review. Each slice has observed negative proof before its check is trusted.
 
-### Bounded remaining measurement work
+### Completed measurement protocol
 
-The next single case is 1000 rows / 2 steps / sparse, using the existing R10_BASELINE_SMOKE=1 switch for one cold context plus one warm reload. Parent selected the larger sparse plan to clarify the need for viewport rendering. The completed 500-row sparse counterpart took 6.2 minutes for ten navigation/Find samples plus separate coverage/Gantt observations. Allow roughly 4–6 minutes for this next case plus stack startup, with an explicit stop/report at the bounded window if the estimate is wrong; the existing test cap is10 minutes. This is a low-confidence estimate, not measured 1000-row completion. Run only this case after the parent grants the next quiet window. Preserve its JSON immediately before another Playwright invocation overwrites test-results.
-
-Then schedule each remaining configuration separately, retaining the complete set of 12 configurations without reserving a 30–60 minute uninterrupted run. All five accepted configurations keep their existing repeated raw samples. New limited samples cannot establish p95 or variance. Measurements already show full cell mounting grows from 1,500 to 7,500 at the same viewport; structural budgets must therefore count actual mounted cells against independently observed viewport rows/columns and an explicit overscan/editor allowance. Numeric acceptance budgets remain pending the remaining configurations and review; no application optimization has started.
+The first five configurations retain3cold+7warm samples from Chromium151 on Darwin/M1 with tracing. The remaining seven retain1cold+1warm samples from Chromium153 on Linux/i7 with tracing off and an exact fixture hash. Those two protocols establish absolute ceilings but are not direct A/B pairs. An optimized result is compared only with a rerun on its own protocol and environment; cross-environment results may establish that a ceiling passed, never a speedup. `verify.md` records the complete matrix, bounded unfolded-Gantt stress and the explicit viewport-budget derivation.
 
 ### Explicit input and logical grid seams
 
@@ -44,4 +42,4 @@ The first dependency negative should change a predecessor's displayed name or an
 
 ## Open Questions
 
-Latency, mounted-cell and overscan budgets await actual baseline measurements; no implementation optimization begins before those values are recorded.
+None before viewport implementation. Optimized latency samples still need same-environment baseline pairs before any relative speed claim.
