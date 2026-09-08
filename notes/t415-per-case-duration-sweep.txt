@@ -9,7 +9,7 @@ TIGHTEST 15 CASES BY MARGIN TO 5000ms
     1361ms      3.7x  apps/be-01  SavedPlanService.save answers snapshot_busy without holding up an edit > refuses at once and lets a live edit issued in the same window complete
     1313ms      3.8x  tools/tool-bootstrap  configure.sh Caddyfile merge, executed > runs the merge block at every point of the environment product
     1230ms      4.1x  tools/tool-bootstrap  configure.sh Caddyfile merge, executed > is caught somewhere in the environment product when disconnected by a condition on the configured site ad
-    1151ms      4.3x  tools/tool-bootstrap  configure.sh Caddyfile merge, executed > is caught somewhere in the environment product when disconnected by a condition spanning the environment 
+    1151ms      4.3x  tools/tool-bootstrap  configure.sh Caddyfile merge, executed > is caught somewhere in the environment product when disconnected by a condition spanning the environment
     1125ms      4.4x  libs/contracts   > the compiler enforces closed refusal codes, detail variants and command context
      982ms      5.1x  tools/tool-devsync  durable dev poller > runs the target deployer against the contract the target commit carries
      920ms      5.4x  tools/tool-git-hooks  the corpus comparison boundary used by CI > uses the pull request event SHA when the named base ref has moved

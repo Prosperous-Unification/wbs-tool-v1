@@ -124,13 +124,13 @@ describe('dev MCP deployment probe', () => {
   // case configures is what makes a slow success fail.
   const RETRY_DEADLINE_SECONDS = 3;
 
-  // Case budget stated, not defaulted (TASK-415). Observed duration 2122ms on
-  // h2puni at load 7-9, a 2.4x margin on the 5000ms default -- and its own
-  // probe deadline is 3s, so 5000ms left 1.7x for everything around it. The
-  // rule is 5x the observed duration, rounded up to the next second. One
-  // observation, not a floor: re-derive it from
-  // notes/t415-per-case-duration-sweep.txt and the harness in
-  // notes/t415-sweep.sh rather than trusting this number.
+  // Case budget stated, not defaulted (TASK-415). Two observations, not a
+  // floor: 2122ms on h2puni at load 7-9, and 2077ms in the sweep recorded in
+  // notes/t415-per-case-duration-sweep.txt -- a 2.4x margin on the 5000ms
+  // default either way, and 5x either, rounded up to the next second, is
+  // 11000ms. Its own probe deadline is 3s, so the 5000ms default left only
+  // 1.7x for everything around it. Re-derive with notes/t415-sweep.sh rather
+  // than trusting either number.
   it('retries the semantic probe within the deployment restart deadline', async () => {
     const server = metadataServer('correct', 'correct', 1);
     const startedAt = Bun.nanoseconds();

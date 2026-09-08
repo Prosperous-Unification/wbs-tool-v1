@@ -141,13 +141,12 @@ describe('a save that meets a held write lock is refused, not queued behind it',
     expect(await headerIds()).toEqual(['sp-other']);
   });
 
-  // Case budget stated, not defaulted (TASK-415). Observed duration 1647ms on
-  // h2puni at load 7-9, a 3.0x margin on the 5000ms default -- and a real
-  // second process must commit before this one is allowed to proceed. The rule
-  // is 5x the observed duration, rounded up to the next second. One
-  // observation, not a floor: re-derive it from
-  // notes/t415-per-case-duration-sweep.txt and the harness in
-  // notes/t415-sweep.sh rather than trusting this number.
+  // Case budget stated, not defaulted (TASK-415). Two observations, not a
+  // floor: 1647ms on h2puni at load 7-9, and 1658ms in the sweep recorded in
+  // notes/t415-per-case-duration-sweep.txt. Both give a 3.0x margin on the
+  // 5000ms default, and 5x either, rounded up to the next second, is 9000ms. A
+  // real second process must commit before this one is allowed to proceed.
+  // Re-derive with notes/t415-sweep.sh rather than trusting either number.
   it('writes normally once the other process has committed, on a fresh attempt', async () => {
     const { finished } = await otherProcessHoldsTheLock('sp-other');
     expect(await finished).toBe(0);

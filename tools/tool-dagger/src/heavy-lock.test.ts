@@ -150,12 +150,14 @@ describe('with-heavy-lock', () => {
   // would cost, which is 4x the other side of this bound.
   const IMMEDIATE_REFUSAL_BUDGET_MS = 500;
 
-  // Case budget stated, not defaulted (TASK-415). Observed duration 2016ms on
-  // h2puni at load 7-9, a 2.5x margin on the 5000ms default -- and TASK-288
-  // timed out on exactly this case; dfe395fd fixed inheritance, not the margin.
-  // The rule is 5x the observed duration, rounded up to the next second. One
-  // observation, not a floor: re-derive it from notes/t415-per-case-duration-sweep.txt
-  // and the harness in notes/t415-sweep.sh rather than trusting this number.
+  // Case budget stated, not defaulted (TASK-415). Two observations, not a
+  // floor: 2016ms on h2puni at load 7-9, and 2020ms in the sweep recorded in
+  // notes/t415-per-case-duration-sweep.txt. Both give a ~2.5x margin on the
+  // 5000ms default, and 5x either, rounded up to the next second, is 11000ms.
+  // TASK-288 timed out on exactly this case; dfe395fd fixed inheritance, not
+  // the margin. Re-derive with notes/t415-sweep.sh rather than trusting either
+  // number -- two passes over the same tree disagree by whatever the host was
+  // doing at the time.
   it('refuses immediately with exit 75 while another heavy operation owns the lock', async () => {
     const root = mkdtempSync(join(tmpdir(), 'wbs-heavy-lock-'));
     roots.push(root);
