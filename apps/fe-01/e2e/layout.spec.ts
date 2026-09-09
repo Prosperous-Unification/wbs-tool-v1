@@ -975,7 +975,7 @@ test.describe('the table, measured by a browser', () => {
     const shown = await measuredLefts(page, PINNED_IDS);
     expect(shown['refs'] - shown['number']).toBe(widthFor('number', SEEDED_PLAN));
     expect(shown['name'] - shown['refs']).toBe(widthFor('refs', SEEDED_PLAN));
-    expect(shown['name']).toBe(169);
+    expect(shown['name']).toBe(161);
 
     await page.evaluate(() => {
       const projectId = localStorage.getItem('wbs.project');
@@ -992,7 +992,7 @@ test.describe('the table, measured by a browser', () => {
     expect(hidden['drag']).toBe(shown['drag']);
     expect(hidden['number']).toBe(shown['number']);
     expect(hidden['name']).toBe(shown['name'] - widthFor('refs', SEEDED_PLAN));
-    expect(hidden['name']).toBe(129);
+    expect(hidden['name']).toBe(121);
   });
 
   test('leaves a picture of the table for the eye that has to judge the widths', async ({
@@ -2669,15 +2669,16 @@ test.describe('the table, measured by a browser', () => {
       refs: declaredLeft('refs'),
       name: declaredLeft('name'),
     });
-    // Written out as well as derived, because 166 is the number the change is
+    // Written out as well as derived, because 161 is the number the change is
     // judged by and a geometry that agreed with itself about 0 would satisfy
     // the comparison above.
     //
-    // 129 until `external-refs`: it was `drag` 24 + `number` 105, and it is
-    // 24 + 105 + the 40px `refs` column now — a fourth pinned column between
+    // 129 until `external-refs`: it was `drag` 24 + `number` 105, then 169
+    // with the 40px `refs` column. The 16px drag column puts it at 161 now —
+    // a fourth pinned column between
     // `#` and Name. `number` is unchanged: the column's 40px is paid by
     // `depends`, which sits behind Name and moves no offset in front of it.
-    expect(declaredLeft('name')).toBe(169);
+    expect(declaredLeft('name')).toBe(161);
   });
 
   test('keeps the page from scrolling sideways at 125% zoom', async ({ page }) => {
@@ -3487,6 +3488,49 @@ async function seedTwoTopRowsOneWithAChild(page: Page): Promise<void> {
 }
 
 test.describe('the Number column keeps its figures in a line', () => {
+  test('keeps the drag handle close to the printed number without clipping it', async ({
+    page,
+  }, testInfo) => {
+    // Proof: `COLUMN_WIDTHS`'s drag width restored to 24px, this failed on
+    // `the drag-to-number spacing is still too wide: Expected: 28, Received: 36`.
+    // Watched 2026-09-09.
+    await seedTwoTopRowsOneWithAChild(page);
+    await page.screenshot({ path: testInfo.outputPath('drag-number-spacing.png') });
+
+    for (const number of ['010', '020']) {
+      const grip = page.getByRole('button', { name: `Reorder ${number}`, exact: true });
+      await expect(grip).toHaveAttribute('draggable', 'true');
+      const geometry = await grip.evaluate((element) => {
+        const cell = element.closest('td');
+        const printed = element.closest('tr')?.querySelector('[data-number]');
+        if (cell === null || printed === undefined || printed === null) {
+          throw new Error('The drag control has no cell or printed number');
+        }
+        const gripBox = element.getBoundingClientRect();
+        const cellBox = cell.getBoundingClientRect();
+        const numberBox = printed.getBoundingClientRect();
+        return {
+          distance: numberBox.left - gripBox.left,
+          gap: numberBox.left - gripBox.right,
+          width: gripBox.width,
+          height: gripBox.height,
+          leadingRoom: gripBox.left - cellBox.left,
+          trailingRoom: cellBox.right - gripBox.right,
+        };
+      });
+      await testInfo.attach(`spacing-${number}`, {
+        body: JSON.stringify(geometry),
+        contentType: 'application/json',
+      });
+      expect(geometry.width).toBeGreaterThan(0);
+      expect(geometry.height).toBeGreaterThan(0);
+      expect(geometry.leadingRoom).toBeGreaterThanOrEqual(0);
+      expect(geometry.trailingRoom).toBeGreaterThanOrEqual(0);
+      expect(geometry.gap).toBeGreaterThanOrEqual(8);
+      expect(geometry.distance, 'the drag-to-number spacing is still too wide').toBeCloseTo(28, 1);
+    }
+  });
+
   test('lines up the number of a parent and a childless sibling', async ({ page }) => {
     // The fault, in one sentence: the caret used to sit inline in front of the
     // number, so `030` — which has children — printed a caret's width right of

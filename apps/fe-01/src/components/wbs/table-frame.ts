@@ -190,7 +190,7 @@ const DATE_COLUMN_WIDTH = 98;
 const COLUMN_WIDTHS = new Map<string, number>([
   // The handle and nothing else. 28 was room for a handle and a hover target;
   // the glyph is the hover target.
-  ['drag', 24],
+  ['drag', 16],
   // {@link NUMBER_ENVELOPE} says what this number is sized to hold, and
   // `e2e/layout.spec.ts`'s `the Number column fits its envelope` is the
   // browser that picked it. It is not a guess at the longest number — there is
@@ -738,7 +738,7 @@ export const WIDEST_COLUMN = 600;
  * taken into account.
  *
  * A cell that can still be aimed at with a pointer. Columns whose default is
- * already narrower than this — the drag handle's 24px — stop at their default
+ * already narrower than this — the drag handle's 16px — stop at their default
  * instead; see {@link floorFor}.
  */
 const NARROWEST_COLUMN = 36;
