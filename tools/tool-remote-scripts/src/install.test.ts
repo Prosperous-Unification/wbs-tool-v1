@@ -152,7 +152,7 @@ describe('host-wide solver supervisor contract', () => {
     expect(jsdoc).toMatch(/^\/\*\*[\s\S]*\*\/\s*$/);
     expect(
       [SOLVER_SUPERVISOR_BUN, '{@link SOLVER_SUPERVISOR_BUN}'].some((spelling) =>
-        jsdoc?.includes(spelling),
+        jsdoc.includes(spelling),
       ),
     ).toBe(true);
     expect(jsdoc).not.toMatch(/\$\{[^}]*\}/);
