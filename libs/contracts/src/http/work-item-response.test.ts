@@ -62,7 +62,9 @@ test('checks deadline and slice lateness while retaining additive nested respons
     tagIds: [],
     serviceIds: [],
     typeIds: [],
-    externalRefs: [{ id: 'ref', systemId: 'jira', url: 'https://example.test/issue/1' }],
+    externalRefs: [
+      { id: 'ref', systemId: 'jira', url: 'https://example.test/issue/1', name: 'AB-1 Wiring' },
+    ],
     number: '010',
     estimates: { s: { optimistic: 1, realistic: 1, pessimistic: 1 } },
     rolledUp: false,
@@ -131,6 +133,30 @@ test('checks deadline and slice lateness while retaining additive nested respons
         {
           ...row,
           externalRefs: [{ id: 1, systemId: 'jira', url: 'https://example.test/issue/1' }],
+        },
+      ],
+    },
+    // A read is where `name` is **not** optional: the column is
+    // `NOT NULL DEFAULT ''`, so a row that came back without the field is a
+    // be-01 that did not select it, and the client's fallback would draw the
+    // derived label over a name somebody typed.
+    {
+      ...tree,
+      workItems: [
+        {
+          ...row,
+          externalRefs: [{ id: 'ref', systemId: 'jira', url: 'https://example.test/issue/1' }],
+        },
+      ],
+    },
+    {
+      ...tree,
+      workItems: [
+        {
+          ...row,
+          externalRefs: [
+            { id: 'ref', systemId: 'jira', url: 'https://example.test/issue/1', name: 7 },
+          ],
         },
       ],
     },

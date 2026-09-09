@@ -288,14 +288,19 @@ interface PlanCellProps extends ComponentProps<'td'> {
  *
  * The lift is last in the style order, so it wins over the pinned layer it is
  * raising. A pinned cell is sticky *with a z-index*, which makes it a stacking
- * context — so the preview hanging off this one is trapped inside it and the
- * next row's pinned Name cell paints over it, whatever the preview's own
- * z-index says. The Name column is the only cell in the table that is both
- * pinned and holds a popover.
+ * context — so a popover hanging off this one is trapped inside it and the
+ * next row's pinned cell paints over it, whatever the popover's own z-index
+ * says. Which columns need the lift is {@link PlanTableCellView}'s question and
+ * it asks the two facts — pinned, and opens a popover — rather than naming a
+ * column: the Name column was named here alone until 2026-09-09 and the Links
+ * column had the same fault, unseen, for its whole life.
  *
  * Proof of that one: found in a browser rather than reasoned about — `4px below
  * the name cell is <textarea> in the name column, not the preview`, on h2puni
- * 2026-08-08, with `opensAPopover` and every other rule already correct.
+ * 2026-08-08, with `opensAPopover` and every other rule already correct. And
+ * the Links column's own, in Chromium on 2026-09-09: the card measured
+ * `[94, 229, 284, 68]` with `elementFromPoint` at its middle answering the next
+ * row's `<textarea>`.
  */
 function PlanCell({
   cards,
@@ -396,7 +401,19 @@ function PlanTableCellView({
       cards={cards}
       cell={cellKey(cell.row.original.id, columnId)}
       describedBy={sentence === null ? undefined : startCardId(cell.row.original.id)}
-      raiseWhenOpen={columnId === 'name'}
+      // **Pinned and popovered, whichever column that is** — read off the two
+      // facts rather than named, because `columnId === 'name'` was the whole of
+      // this line until 2026-09-09 and the Links column has been pinned and
+      // carded since `external-refs` shipped. Its card really did open, and was
+      // painted over by the Name cell beside it: measured in Chromium at
+      // `[94, 229, 284, 68]` with `elementFromPoint` at its own middle
+      // answering the *next* row's name `<textarea>`. A reader hovering the
+      // marks saw nothing at all.
+      //
+      // The pin comes from the layout the cell is placed by rather than from a
+      // constant, so a column that becomes pinned — or stops being — cannot
+      // leave a card trapped again without this line moving with it.
+      raiseWhenOpen={layout.pinned.has(columnId) && opensAPopover(columnId)}
       {...attributes}
       data-column={columnId}
       style={{

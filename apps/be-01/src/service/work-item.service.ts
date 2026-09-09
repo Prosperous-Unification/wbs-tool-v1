@@ -1239,6 +1239,17 @@ function revertTo(before: LabelledWorkItem, patch: WorkItemPatch): WorkItemPatch
     out.externalRefs = before.externalRefs.map((each) => ({
       systemId: each.systemId,
       url: each.url,
+      // The name goes back with the link it belongs to. It is stated rather
+      // than left off because the store's write is a **replacement**: an
+      // inverse that named only the system and the URL would put the list back
+      // and take every name off it, which reads as a successful undo that lost
+      // a column.
+      //
+      // Proof: this line deleted and `puts a ref's name back, not just its
+      // address` failed on `- "name": "SHED-9 Strip the walls" / + "name": ""`
+      // — the link restored to the right address with nobody's words on it.
+      // Watched 2026-09-09.
+      name: each.name,
     }));
   }
   // `before.maxParallel` is a number and never null — the column is `NOT NULL`

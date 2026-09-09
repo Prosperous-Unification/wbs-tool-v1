@@ -37,6 +37,13 @@ const READ_ORDER_INDEX = '20260906003000_add_work_item_read_order_index';
  * prediction being right.
  */
 const WORK_ITEM_DEADLINE = '20260906090000_add_work_item_deadline';
+/**
+ * The newest: `work_item_external_ref.name`, the `NOT NULL DEFAULT ''` column
+ * `link-names-and-card` adds. Additive forward and `DROP COLUMN` on the way
+ * back, so it heads every descending reversal list here, exactly as
+ * {@link WORK_ITEM_DEADLINE} did while it was newest.
+ */
+const EXTERNAL_REF_NAME = '20260909120000_add_external_ref_name';
 
 const wrote: WriteStamp = { at: 1, by: 'owner' };
 
@@ -166,7 +173,12 @@ describe('20260905090000_add_calendar_marker', () => {
 
     const reversed = rollbackTo(path, FOLDER, PREVIOUS);
 
-    expect(reversed).toEqual([WORK_ITEM_DEADLINE, READ_ORDER_INDEX, CALENDAR_MARKER]);
+    expect(reversed).toEqual([
+      EXTERNAL_REF_NAME,
+      WORK_ITEM_DEADLINE,
+      READ_ORDER_INDEX,
+      CALENDAR_MARKER,
+    ]);
     const afterRollback = tableNames(path);
     expect(afterRollback).not.toContain('calendar_marker');
     // Nothing else moved: the forward migration is additive, so its reversal

@@ -1996,3 +1996,74 @@ describe('secondary team removal invalidates undo', () => {
     expect(await teamIdsOf(strip)).toEqual(['aaa']);
   });
 });
+
+describe('a ref list is undone whole, names and all', () => {
+  /** The refs the plan read gives for one row, in the order they were stated. */
+  async function refsOn(id: string): Promise<readonly { url: string; name: string }[]> {
+    const row = (await workItemStore.listByProject(projectId)).find((each) => each.id === id);
+    if (row === undefined) throw new Error(`no work item ${id}`);
+    return row.externalRefs.map((ref) => ({ url: ref.url, name: ref.name }));
+  }
+
+  it("puts a ref's name back, not just its address", async () => {
+    // **The seam the name column adds to a field that was already replaced
+    // whole.** The store's write is a replacement, so an inverse that named the
+    // system and the URL and not the name would put the list back and take
+    // every name off it — an undo that reports done and quietly loses a column.
+    //
+    // Proof: `revertTo`'s `name: each.name` deleted — failed on
+    // `- "name": "SHED-9 Strip the walls" / + "name": ""`, the link restored to
+    // the right address with nobody's words on it. Watched 2026-09-09.
+    const id = await root('Strip the roof');
+
+    await workItems.patch(id, ownerId, {
+      externalRefs: [
+        {
+          systemId: 'sys-jira-issue',
+          url: 'https://acme.atlassian.net/browse/SHED-9',
+          name: 'SHED-9 Strip the walls',
+        },
+      ],
+    });
+    expect(await refsOn(id)).toEqual([
+      { url: 'https://acme.atlassian.net/browse/SHED-9', name: 'SHED-9 Strip the walls' },
+    ]);
+
+    await workItems.patch(id, ownerId, {
+      externalRefs: [
+        { systemId: 'sys-github-pr', url: 'https://github.com/o/r/pull/1', name: '#1 Roof' },
+      ],
+    });
+    expect(await refsOn(id)).toEqual([{ url: 'https://github.com/o/r/pull/1', name: '#1 Roof' }]);
+
+    expectDone(await undone());
+
+    expect(await refsOn(id)).toEqual([
+      { url: 'https://acme.atlassian.net/browse/SHED-9', name: 'SHED-9 Strip the walls' },
+    ]);
+  });
+
+  it('takes a first named ref off again, rather than leaving the name behind', async () => {
+    // The empty before-value, which is the arm any `if (before.externalRefs
+    // .length)` guard would quietly drop: the row had no links, so the inverse
+    // of adding one is `[]` and an absent field would leave the link the undo
+    // exists to remove.
+    const id = await root('Strip the roof');
+    expect(await refsOn(id)).toEqual([]);
+
+    await workItems.patch(id, ownerId, {
+      externalRefs: [
+        {
+          systemId: 'sys-jira-issue',
+          url: 'https://acme.atlassian.net/browse/SHED-1',
+          name: 'SHED-1',
+        },
+      ],
+    });
+    expect(await refsOn(id)).toHaveLength(1);
+
+    expectDone(await undone());
+
+    expect(await refsOn(id)).toEqual([]);
+  });
+});

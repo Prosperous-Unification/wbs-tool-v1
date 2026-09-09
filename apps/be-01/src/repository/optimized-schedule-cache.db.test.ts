@@ -54,6 +54,13 @@ const READ_ORDER_INDEX = '20260906003000_add_work_item_read_order_index';
  * {@link READ_ORDER_INDEX} did while it was newest.
  */
 const WORK_ITEM_DEADLINE = '20260906090000_add_work_item_deadline';
+/**
+ * The newest: `work_item_external_ref.name`, the `NOT NULL DEFAULT ''` column
+ * `link-names-and-card` adds. Additive forward and `DROP COLUMN` on the way
+ * back, so it heads every descending reversal list here, exactly as
+ * {@link WORK_ITEM_DEADLINE} did while it was newest.
+ */
+const EXTERNAL_REF_NAME = '20260909120000_add_external_ref_name';
 
 /** The one below it, which is where every rollback here stops. */
 const LOOKUP_INDEXES = '20260902120000_add_lookup_indexes';
@@ -271,6 +278,7 @@ describe('the optimizer migration', () => {
       // Newest first, so the settings columns come off before the tables they
       // steer — this migration is no longer the only thing above LOOKUP_INDEXES.
       expect(rollbackTo(db.path, FOLDER, LOOKUP_INDEXES)).toEqual([
+        EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
         CALENDAR_MARKER,

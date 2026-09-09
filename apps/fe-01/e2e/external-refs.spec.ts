@@ -110,9 +110,19 @@ async function seed(page: Page): Promise<Seed> {
       workItemId: first,
       patch: {
         externalRefs: [
-          { systemId: systemOf['jira-issue'], url: 'https://acme.atlassian.net/browse/AB-1' },
+          // Two named and two not, so one card holds both readings: the words a
+          // reader typed, and `refLabelOf(url)` where nobody has typed any.
+          {
+            systemId: systemOf['jira-issue'],
+            url: 'https://acme.atlassian.net/browse/AB-1',
+            name: 'AB-1 Strip the walls',
+          },
           { systemId: systemOf['confluence-page'], url: 'https://acme.atlassian.net/wiki/spec' },
-          { systemId: systemOf['github-pr'], url: 'https://github.com/acme/tool/pull/7' },
+          {
+            systemId: systemOf['github-pr'],
+            url: 'https://github.com/acme/tool/pull/7',
+            name: '#7 Rewire the shed',
+          },
           { systemId: systemOf['slack-message'], url: 'https://acme.slack.com/archives/C1/p1' },
           // The fault the scheme guard exists for, stored the way it really
           // arrives. It rides on an existing system so that it is a *link* the
@@ -268,7 +278,14 @@ test.describe('the ref column, in a browser', () => {
         if (!(td instanceof HTMLElement)) throw new Error(`no cell for ${number}`);
         return td.getBoundingClientRect();
       };
-      const box = cellOf('010').getBoundingClientRect();
+      // The marks' own 12px box, not the button. The button fills the whole
+      // `<td>` since 2026-09-09 (Dany: *"i want hover over the whole cell
+      // surface to trigger the tooltip"*), so measuring containment against it
+      // would be a claim the design cannot break — the marks are its children
+      // however they are placed.
+      const marksBox = cellOf('010').querySelector('[data-ref-marks-box]');
+      if (marksBox === null) throw new Error('no marks box in the links cell');
+      const box = marksBox.getBoundingClientRect();
       return {
         wiredRow: rowOf('010').height,
         bareRow: rowOf('020').height,
@@ -487,5 +504,293 @@ test.describe('the ref column, in a browser', () => {
     await expect(editor).toBeVisible();
     await expect(editor.locator('a[data-refs-editor-url]')).toHaveCount(4);
     await expect(editor.locator('span[data-refs-editor-url]')).toHaveText(['javascript:alert(1)']);
+  });
+
+  test('the card is drawn on top of the rows below it, not under them', async ({ page }) => {
+    // **The fault this whole change started from, and only a browser can see
+    // it.** The Links column is pinned, a pinned cell is `position: sticky`
+    // *with* a `z-index`, and that makes it a stacking context — so the card
+    // inside it was trapped there and the Name cell beside it painted straight
+    // over it. The card was in the DOM, the right size, in the right place, and
+    // invisible: measured in Chromium on 2026-09-09 at `[94, 229, 284, 68]`
+    // with `elementFromPoint` at its own middle answering the *next* row's name
+    // `<textarea>`. Every one of the 2000-odd jsdom cases stayed green through
+    // it, because jsdom paints nothing at all.
+    //
+    // **This test does not distinguish the lift, and that was measured rather
+    // than assumed.** With `raiseWhenOpen` narrowed back to
+    // `columnId === 'name'` it still **passes** — because the hover surface
+    // this change also added is `position: absolute`, and an absolutely
+    // positioned wrapper paints its own descendants late enough to keep the
+    // card on top by itself. Two fixes, either sufficient, and the browser can
+    // only see that the card is visible.
+    //
+    // So the negative for the lift is the jsdom one — `lifts the links cell
+    // over the pinned layer while its card is open` in `plan-cells.test.tsx`,
+    // watched failing on `expected 1 to be 2` — and this is the end-to-end
+    // guarantee that no arrangement of the two leaves the card painted over.
+    // The lift stays because it is the general rule: the Name column's own
+    // 2026-08-08 fault is the same one, and that column has no absolutely
+    // positioned wrapper to save it.
+    await seed(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+
+    await page.getByLabel('Links for 010').hover();
+    const card = page.getByRole('tooltip', { name: 'Where 010 also exists' });
+    await expect(card).toBeVisible();
+
+    const painted = await page.evaluate(() => {
+      const found = document.querySelector('[role="tooltip"]');
+      if (found === null) throw new Error('no card on the page');
+      const box = found.getBoundingClientRect();
+      // Or this is a claim about a box with nothing in it, which is
+      // `G gantt-view`'s zero-width bar wearing a third hat.
+      if (box.width === 0 || box.height === 0) throw new Error('the card has no area');
+      const at = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      return {
+        inside: at !== null && found.contains(at),
+        instead: at === null ? 'nothing' : at.tagName,
+        box: { width: box.width, height: box.height },
+      };
+    });
+    expect(
+      painted.inside,
+      `the element painted at the middle of the card is not part of it: ${painted.instead}`,
+    ).toBe(true);
+  });
+
+  test('a card line says what the link is called, and tints under the pointer', async ({
+    page,
+  }) => {
+    // Dany, 2026-09-09: *"i can then hover over the dropdown and see the link's
+    // summary + link to click to follow it"*. Two facts, and both are the
+    // browser's: that the pointer can travel from a 6px dot onto the card
+    // without the card closing, and that the line it comes to rest on is the
+    // line that lights up.
+    await seed(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+
+    await page.getByLabel('Links for 010').hover();
+    const card = page.getByRole('tooltip', { name: 'Where 010 also exists' });
+    await expect(card).toBeVisible();
+
+    // The names a reader typed, and the labels their URLs carry where nobody
+    // typed one. Asserted as the whole list rather than one line, because a
+    // fallback that answered for every ref — named or not — would still make
+    // any single assertion pass.
+    await expect(card.locator('[data-refs-card-name]')).toHaveText([
+      'AB-1 Strip the walls',
+      'acme.atlassian.net/spec',
+      '#7 Rewire the shed',
+      'acme.slack.com/p1',
+      'javascript:alert(1)',
+    ]);
+
+    // The travel, and then the tint. Read **while the pointer is on the line**,
+    // which is the window the fault lives in: a colour read after the pointer
+    // has moved on is a colour about nothing.
+    //
+    // Proof: the `[data-refs-card-line]:hover` rule deleted from `styles.css` —
+    // this failed on `the pointed line of the card does not tint ·
+    // Expected: not "rgba(0, 0, 0, 0)"`. Watched 2026-09-09.
+    const line = card.locator('[data-refs-card-line]').first();
+    const atRest = await line.evaluate((node) => getComputedStyle(node).backgroundColor);
+    await line.hover();
+    await expect(card, 'the card closed on the way to it').toBeVisible();
+    const pointed = await line.evaluate((node) => getComputedStyle(node).backgroundColor);
+    expect(pointed, 'the pointed line of the card does not tint').not.toBe(atRest);
+
+    // And the link under the pointer is the one a click would follow. The name
+    // is the anchor, which is what makes the line's own words the thing a
+    // reader aims at.
+    const name = card.locator('a[data-refs-card-name]').first();
+    await expect(name).toHaveAttribute('href', 'https://acme.atlassian.net/browse/AB-1');
+    await expect(name).toHaveAttribute('target', '_blank');
+    await expect(name).toHaveAttribute('rel', 'noreferrer noopener');
+  });
+
+  test('a name typed into the editor is what the card then says', async ({ page }) => {
+    // The whole round trip through the real stack: the editor states the list,
+    // be-01 writes the column, the tree read carries it back and the card draws
+    // it. The one assertion in this file that would fail if any single layer of
+    // this change were missing.
+    await seed(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+
+    await page.getByLabel('Links for 010').click();
+    const editor = page.getByRole('dialog', { name: 'Links for 010' });
+    await expect(editor).toBeVisible();
+    // The second link is the unnamed Confluence page, and its box shows the
+    // derived label as a placeholder rather than as a value.
+    const second = editor.getByLabel('Name of link 2');
+    await expect(second).toHaveValue('');
+    await expect(second).toHaveAttribute('placeholder', 'acme.atlassian.net/spec');
+
+    await second.fill('The wiring spec');
+    await second.blur();
+    // **This box is uncontrolled, and it is still the answer's** — which is
+    // worth stating, because an uncontrolled box normally holds what was typed
+    // whatever the server said, and asserting on one is
+    // `estimate-triple-visible`'s trap. What saves it here is that the store
+    // mints a fresh `crypto.randomUUID()` per ref on every replacement, so a
+    // write changes every `ref.id`, so the `key` changes, so React remounts the
+    // input and its `defaultValue` is the name be-01 sent back.
+    await expect(editor.getByLabel('Name of link 2')).toHaveValue('The wiring spec');
+
+    await page.keyboard.press('Escape');
+    await expect(editor).toBeHidden();
+    // And the card, which reads the row rather than any box: this is the
+    // assertion no keystroke could satisfy.
+    await page.getByLabel('Links for 010').hover();
+    const card = page.getByRole('tooltip', { name: 'Where 010 also exists' });
+    await expect(card.locator('[data-refs-card-name]').nth(1)).toHaveText('The wiring spec');
+  });
+
+  test('the pointer opens the card from anywhere in the cell, not just off a dot', async ({
+    page,
+  }) => {
+    // Dany, 2026-09-09: *"i want hover over the whole cell surface to trigger
+    // the tooltip"*. The hover target was a 28×12 button inside a 40×26 cell,
+    // so a pointer resting in the column's own empty room got nothing — found
+    // by hovering the column by hand and watching the card not open, twice,
+    // before the button was measured.
+    //
+    // Both corners, because one of them is inside the old 28×12 box and the
+    // other never was: the bottom-right of the cell is the room the button did
+    // not cover.
+    //
+    // Proof, and it took three watched failures to get the mechanism right,
+    // all on 2026-09-09:
+    //   - the surface sized to the cell's **content** box: `the top left of the
+    //     cell opened no card`, because `x + 1` is inside the `<td>`'s 4px
+    //     horizontal padding.
+    //   - the surface given `position: relative; height: 100%`: `the bottom
+    //     right of the cell opened no card`, because Chromium does not resolve
+    //     a percentage height against a `table-cell` and the box fell back to
+    //     the marks' 12px.
+    //   - the pointer parked 200px below the cell between cases: `the card
+    //     stayed open after the pointer left it`, for 30s — that point is
+    //     *inside* the card, which is a child of the span that owns the
+    //     `mouseleave`. The design working, not failing.
+    // With the surface back to `MARK_BOX_PX` tall the bottom-right case fails
+    // again, which is the standing negative.
+    await seed(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+
+    const cell = page.locator('td[data-column="refs"]').first();
+    const box = await cell.boundingBox();
+    if (box === null) throw new Error('the links cell has no box');
+    // Or this is a claim about a corner of nothing.
+    expect(box.width, 'the links cell has no width').toBeGreaterThan(20);
+    expect(box.height, 'the links cell has no height').toBeGreaterThan(20);
+
+    // **The surface and the cell are the same rectangle**, which is the
+    // mechanism the two corner cases exercise — and asserting it here is what
+    // keeps the design's one assumption honest: the hover surface is
+    // `position: absolute; inset: 0`, so it fills the nearest *positioned*
+    // ancestor, and that is the `<td>` only because every cell in this column
+    // is `position: sticky`. A layout change that unpinned the column would
+    // move the surface somewhere else entirely, and this line is what would
+    // say so.
+    const surface = await page.getByLabel('Links for 010').boundingBox();
+    if (surface === null) throw new Error('the links surface has no box');
+    expect(
+      {
+        x: Math.round(surface.x),
+        y: Math.round(surface.y),
+        width: Math.round(surface.width),
+        height: Math.round(surface.height),
+      },
+      'the hover surface is not the cell',
+    ).toEqual({
+      x: Math.round(box.x),
+      y: Math.round(box.y),
+      width: Math.round(box.width),
+      height: Math.round(box.height),
+    });
+    const card = page.getByRole('tooltip', { name: 'Where 010 also exists' });
+
+    // A pixel in from each corner of the cell's **own** rectangle, padding
+    // included. `CELL` gives every `<td>` `padding: 1px 4px`, so a surface
+    // sized to the content box leaves a 4px strip down each side that arms
+    // nothing — which is exactly what a hover at `x + 3` found before the
+    // button was given negative margins.
+    for (const [where, at] of [
+      ['top left', { x: 1, y: 1 }],
+      ['bottom right', { x: box.width - 1, y: box.height - 1 }],
+    ] as const) {
+      // Away first, and **waited on**, so each case opens the card rather than
+      // finding one the previous case left open: the claim has to be about this
+      // corner.
+      //
+      // **Away has to be clear of the card, not just of the cell**, and that
+      // took two goes to get right. A one-shot `count()` read the card at the
+      // instant of the move, before React had unmounted it (`Expected: 0 ·
+      // Received: 1`). Waiting on it then failed for 30 seconds on the *second*
+      // case — because a point 200px right and 200px down from a 40px cell is
+      // inside the card itself: five refs make it about 185px tall, and the
+      // card is a child of the span that owns the `mouseleave`, so resting on
+      // it is resting on the cell. That is the design working, not failing.
+      // `+800` clears the card's own 400px ceiling on a 1280px viewport.
+      //
+      // `toHaveCount(0)` is the retrying matcher `AGENTS.md` warns about, and
+      // this is the one shape it is right for: the absence is a **precondition**
+      // that holds until the pointer moves back, not a temporary silence being
+      // asserted. The claim below is the `toBeVisible`.
+      await page.mouse.move(box.x + 800, box.y + 5);
+      await expect(card, 'the card stayed open after the pointer left it').toHaveCount(0);
+      await page.mouse.move(box.x + at.x, box.y + at.y);
+      await expect(card, `the ${where} of the cell opened no card`).toBeVisible();
+    }
+  });
+
+  test('the pointer walks onto the card and follows a link', async ({ page, context }) => {
+    // Dany, 2026-09-09: *"i want to then be able to hover over the tooltip to
+    // click and go to the linked item"*. Every part of that is the browser's:
+    // the card must survive the pointer leaving the cell, it must take the
+    // pointer at all — it is `pointer-events: none` but for its lines — and the
+    // click must really open the page.
+    //
+    // A real click and a real popup, not an `href` assertion: the card hangs
+    // over the rows below, so "the anchor is there" and "the anchor is what the
+    // pointer reaches" are two different facts, and `AGENTS.md`'s
+    // `name-links-and-height` note is a proof that guessed the second one.
+    //
+    // Proof: `pointerEvents: 'auto'` removed from the card's line — this failed
+    // on `page.waitForEvent: Test timeout of 120000ms exceeded while waiting
+    // for event "page"`, no tab opened at all. Watched 2026-09-09.
+    await seed(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+
+    await page.getByLabel('Links for 010').hover();
+    const card = page.getByRole('tooltip', { name: 'Where 010 also exists' });
+    await expect(card).toBeVisible();
+
+    const name = card.locator('a[data-refs-card-name]').first();
+    await name.hover();
+    await expect(card, 'the card closed on the way to the link').toBeVisible();
+
+    const [opened] = await Promise.all([context.waitForEvent('page'), name.click()]);
+    await expect.poll(() => opened.url()).toBe('https://acme.atlassian.net/browse/AB-1');
+    await opened.close();
+    // The plan is still where it was: a link that opened in a new context did
+    // not take the reader off their own page.
+    expect(page.url()).toContain('localhost');
+  });
+
+  test('the card as a reader sees it', async ({ page }, testInfo) => {
+    // Not an assertion — a picture, attached to the run so a person can look at
+    // the thing rather than at a list of numbers about it. Dany judges rendered
+    // output, and this change exists because five months of green tests never
+    // showed anybody that the card was invisible.
+    await seed(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.getByLabel('Links for 010').hover();
+    const card = page.getByRole('tooltip', { name: 'Where 010 also exists' });
+    await expect(card).toBeVisible();
+    await testInfo.attach('links-card.png', {
+      body: await page.screenshot({ clip: { x: 0, y: 80, width: 700, height: 260 } }),
+      contentType: 'image/png',
+    });
   });
 });

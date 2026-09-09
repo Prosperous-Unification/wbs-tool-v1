@@ -1,0 +1,40 @@
+-- What a link is called, in the words of the person who put it there.
+--
+-- Dany, 2026-09-09: *"every link must have a name — for jira tickets it can be
+-- ticket key + summary for example, for PRs it can be PR# + title"*. Before this
+-- column the ref card read `jira-issue — https://…/browse/WCN-3887`, which names
+-- neither the ticket nor the work.
+--
+-- **This is not the fetched title `work_item_external_ref` refuses, and the
+-- distinction is the whole reason the column is allowed to exist.** That table's
+-- own comment says "no status, no title, no fetched state", and it is still
+-- true: nothing in this release reads an external system, and no column here can
+-- hold a cached answer from one. A `name` is a *reader's* words about a link —
+-- typed, stored as typed, and stale only in the way every other name in this
+-- database is stale, which is to say when the person who wrote it has changed
+-- their mind. A column filled from Jira would go quietly wrong on its own; this
+-- one cannot.
+--
+-- **`NOT NULL DEFAULT ''` rather than nullable, and that is what makes it
+-- additive.** Blue and green share one SQLite file mid-swap, and the outgoing
+-- release's `INSERT INTO work_item_external_ref (id, work_item_id, system_id,
+-- url, position, …)` does not name this column — so SQLite applies the default
+-- and every row the old release writes arrives with `''`. Nullable would have
+-- worked identically at the swap and worse afterwards: `''` and `NULL` would be
+-- two spellings of "nobody has named this link", and every reader would have to
+-- collapse them. There is one spelling.
+--
+-- `''` is a **stated absence, not a placeholder**. Every surface that shows a
+-- ref draws `refLabelOf(url)` in its place — `WCN-3887` for a Jira issue,
+-- `#4178` for a pull request, a Confluence page's title — computed at render, so
+-- the fallback improves for every existing row the day a rule is added and no
+-- stored row changes. That is deliberately the opposite bargain from
+-- `system_id`, which is derived **once at the write** and frozen because a
+-- reader may override it (design D1 of `external-refs`). A label nobody can
+-- override needs no freezing.
+--
+-- No length is declared, because SQLite declares none: the cap belongs to the
+-- boundary that accepts the write (`MOST_CHARACTERS_IN_A_REF_NAME` in
+-- `work-item.routes.ts`), where an over-long name is a typed 4xx rather than a
+-- row nobody can read back.
+ALTER TABLE `work_item_external_ref` ADD `name` text DEFAULT '' NOT NULL;

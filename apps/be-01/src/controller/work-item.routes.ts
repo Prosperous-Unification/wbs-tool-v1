@@ -143,6 +143,18 @@ export const MOST_TYPES_ON_ONE_ITEM = 10;
 export const MOST_REFS_ON_ONE_ITEM = 50;
 
 /**
+ * How long a link's name may be.
+ *
+ * A name is one line on a card beside a URL, and Dany's own example — a Jira
+ * key and its summary — is about sixty characters. 300 is far past any of them
+ * and small enough that reaching it is a paste into the wrong box rather than a
+ * name somebody wrote. It is **not** {@link MOST_REFS_ON_ONE_ITEM}'s kind of
+ * bound: that one is a count of things, this one is a length of text, and a
+ * shared number would tie a card's line width to a list's size.
+ */
+export const MOST_CHARACTERS_IN_A_REF_NAME = 300;
+
+/**
  * The refs a patch states, validated at this boundary and precise afterwards.
  *
  * Each entry must be an object with a `systemId` and a `url`, both non-empty
@@ -151,12 +163,33 @@ export const MOST_REFS_ON_ONE_ITEM = 50;
  * a mismatch would make an override impossible. What the store still refuses is
  * a `systemId` the directory does not hold.
  *
- * @throws {BadRequest} for a non-list, an over-long list, or an entry that is
- * not `{ systemId, url }` — a malformed request, never a 500.
+ * `name` is optional on the wire and required off it. An entry that names none
+ * becomes `''` here — the column's own spelling of "nobody has named this link"
+ * — so nothing downstream carries an optional field and no insert can reach
+ * SQLite with the column missing. An empty string sent deliberately is the same
+ * fact and is accepted as it stands, which is what makes clearing a name
+ * possible at all.
+ *
+ * **Both the type and the length are this function's to refuse, and that was
+ * measured rather than assumed.** `plan-command-shapes.ts` declares the field as
+ * `'name?': 'string'`, which looks like it would refuse a number before this
+ * ran — it does not. Probed against `buildApp` on 2026-09-09: a ref entry
+ * carrying an **unknown key** is refused by the shape (`{"error":
+ * "invalid_body"}`), and a ref entry carrying `name: 7`, `true`, `{}`, `[]` or
+ * `null` reaches this parser untouched. So the shape guards the *keys* and this
+ * guards the *values*, and a name that is not text gets its own refusal because
+ * answering `..._is_too_long` for `name: 7` would be a wrong reason reported
+ * confidently. `takes a name per external ref, and bounds its length` in
+ * `work-item.controller.test.ts` holds both boundaries, with the probe's own
+ * answers written into it.
+ *
+ * @throws {BadRequest} for a non-list, an over-long list, an entry that is not
+ * `{ systemId, url }`, a `name` that is not text, or one longer than
+ * {@link MOST_CHARACTERS_IN_A_REF_NAME} — a malformed request, never a 500.
  */
 function asOptionalExternalRefs(
   value: unknown,
-): readonly { systemId: string; url: string }[] | undefined {
+): readonly { systemId: string; url: string; name: string }[] | undefined {
   if (value === undefined) return undefined;
   if (!Array.isArray(value)) throw new BadRequest('externalRefs_must_be_a_list');
   if (value.length > MOST_REFS_ON_ONE_ITEM) throw new BadRequest('too_many_externalRefs');
@@ -164,13 +197,25 @@ function asOptionalExternalRefs(
     const record = asRecord(entry);
     const systemId = record['systemId'];
     const url = record['url'];
+    const named = record['name'];
     if (typeof systemId !== 'string' || systemId === '') {
       throw new BadRequest('externalRefs_entry_needs_a_systemId');
     }
     if (typeof url !== 'string' || url === '') {
       throw new BadRequest('externalRefs_entry_needs_a_url');
     }
-    return { systemId, url };
+    // Absent is the one non-value that means something, and it means `''` — the
+    // column's own spelling of "nobody has named this link". Every other
+    // non-string is a client sending a name where the field takes text, and
+    // coercing one would store `[object Object]` as what a reader calls their
+    // link.
+    if (named !== undefined && typeof named !== 'string') {
+      throw new BadRequest('externalRefs_entry_name_is_not_text');
+    }
+    if (named !== undefined && named.length > MOST_CHARACTERS_IN_A_REF_NAME) {
+      throw new BadRequest('externalRefs_entry_name_is_too_long');
+    }
+    return { systemId, url, name: named ?? '' };
   });
 }
 
@@ -465,7 +510,7 @@ function parsePatch(body: unknown): {
   maxParallel?: number | null;
   tagIds?: readonly string[];
   typeIds?: readonly string[];
-  externalRefs?: readonly { systemId: string; url: string }[];
+  externalRefs?: readonly { systemId: string; url: string; name: string }[];
 } {
   const raw = asRecord(body);
   refuseDerivedFields(raw);

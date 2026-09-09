@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import { EXTERNAL_SYSTEMS, systemOfUrl } from './external-system';
+import { EXTERNAL_SYSTEMS, refLabelOf, systemOfUrl } from './external-system';
 
 describe('systemOfUrl', () => {
   it('types a GitHub pull request, and an issue on the same host differently', () => {
@@ -119,5 +119,90 @@ describe('systemOfUrl', () => {
       expect(names.length).toBeGreaterThan(0);
       expect([...names].sort()).toEqual([...EXTERNAL_SYSTEMS].sort());
     });
+  });
+});
+
+describe('refLabelOf', () => {
+  it('reads a Jira issue as its key', () => {
+    // The half of Dany's `ticket key + summary` a URL actually carries. The
+    // summary is the reader's to type; this is what stands in until they do.
+    //
+    // Proof: the `browse` arm removed — this failed on `expected
+    // 'newsiteam.atlassian.net/WCN-3887' to be 'WCN-3887'`, falling through to
+    // the host rule. Watched 2026-09-09.
+    expect(refLabelOf('https://newsiteam.atlassian.net/browse/WCN-3887')).toBe('WCN-3887');
+    // A query and a fragment are Jira's own furniture and say nothing about
+    // which issue this is, so neither reaches the label.
+    expect(refLabelOf('https://acme.atlassian.net/browse/AB-1?filter=x#comment')).toBe('AB-1');
+  });
+
+  it('reads a pull request and an issue as their number', () => {
+    // `#4178` and not `4178`: the number alone reads as a count beside a name,
+    // and `#` is how both GitHub and every person here writes one.
+    //
+    // Proof: the GitHub arm removed — this failed on `expected
+    // 'github.com/4178' to be '#4178'`. Watched 2026-09-09.
+    expect(refLabelOf('https://github.com/o/r/pull/4178')).toBe('#4178');
+    expect(refLabelOf('https://github.com/o/r/issues/12')).toBe('#12');
+  });
+
+  it('reads a Confluence page as its title, however the title was encoded', () => {
+    // Two Confluence generations spell one title two ways, and a card showing
+    // `Cache+warm-up+plan` beside `Cache warm-up plan` reads as two pages.
+    //
+    // Proof: `readableSegment` reduced to the segment itself — this failed on
+    // `expected 'Cache+warm-up+plan' to be 'Cache warm-up plan'`. Watched
+    // 2026-09-09.
+    expect(
+      refLabelOf('https://acme.atlassian.net/wiki/spaces/ENG/pages/9911/Cache+warm-up+plan'),
+    ).toBe('Cache warm-up plan');
+    expect(
+      refLabelOf('https://acme.atlassian.net/wiki/spaces/ENG/pages/9911/Cache%20warm-up%20plan'),
+    ).toBe('Cache warm-up plan');
+  });
+
+  it('reads a wiki URL with no page in it as its host and last segment', () => {
+    // A space's home is a `/wiki/` URL with no title in it. That is a URL with
+    // nothing to read rather than one whose title this failed to find, so it
+    // takes the general rule instead of an empty label.
+    expect(refLabelOf('https://acme.atlassian.net/wiki/spaces/ENG/overview')).toBe(
+      'acme.atlassian.net/overview',
+    );
+  });
+
+  it('reads an unclaimed URL as its host and last segment', () => {
+    // The host **and** the segment: two links into one unrecognised host are
+    // two different addresses, and a label that says only the host for both
+    // makes the card a list of one word repeated.
+    //
+    // Proof: the last segment dropped from the fallback — this failed on
+    // `expected 'example.test' to be 'example.test/thing'`. Watched 2026-09-09.
+    expect(refLabelOf('https://example.test/a/thing')).toBe('example.test/thing');
+    // A host with no path at all has only the host to give.
+    expect(refLabelOf('https://example.test/')).toBe('example.test');
+  });
+
+  it('hands back a URL it cannot parse', () => {
+    // Total, because a stored ref may hold anything a reader typed — be-01
+    // refuses an empty URL and nothing else — and a label is the last place in
+    // this app that should be able to throw.
+    //
+    // Proof: the `catch` arm changed to rethrow, and this failed on
+    // `TypeError: Invalid URL`. Watched 2026-09-09.
+    expect(refLabelOf('WCN-3887')).toBe('WCN-3887');
+    expect(refLabelOf('')).toBe('');
+  });
+
+  it('names a scheme the renderer will not follow rather than hiding it', () => {
+    // `followableHref` is what stops a `javascript:` URL being a link, on every
+    // surface. This is only the words beside it, and words that said nothing
+    // would leave a reader unable to see what the refusal is about.
+    //
+    // Proof: the empty-host arm removed — this failed on `expected
+    // '/alert(1)' to be 'javascript:alert(1)'`, the host rule reading a URL
+    // that has no host and putting a bare `/` in front of the payload. Watched
+    // 2026-09-09.
+    expect(refLabelOf('javascript:alert(1)')).toBe('javascript:alert(1)');
+    expect(refLabelOf('mailto:someone@example.test')).toBe('mailto:someone@example.test');
   });
 });

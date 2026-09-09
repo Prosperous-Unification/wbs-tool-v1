@@ -2,7 +2,7 @@
 
 ### Requirement: A work item carries one nullable date-only deadline under one name
 
-Any work item, leaf or parent, SHALL carry an optional constraint named `deadline`: nullable, date-only `IsoDate` (`YYYY-MM-DD`), with no time-of-day and no timezone. `null` SHALL mean "no deadline" and SHALL be the value of every work item that exists before this change. The name `deadline` SHALL be used in the domain argument, the database column, the API field, the canonical scheduling input, the event payloads and the solver wire; the UI SHALL label it **Work item deadline**. No alias — `finishNoLaterThan`, `dueDate`, `targetDate`, `endBy` — SHALL be introduced anywhere.
+Any work item, leaf or parent, SHALL carry an optional constraint named `deadline`: nullable, date-only `IsoDate` (`YYYY-MM-DD`), with no time-of-day and no timezone. `null` SHALL mean "no deadline" and SHALL be the value of every work item that exists before this change. The name `deadline` SHALL be used in the domain argument, the database column, the API field, the canonical scheduling input, the event payloads and the solver wire. The compact table heading and its matching Columns-control entry SHALL be labelled exactly **Deadline**; every other reader-facing occurrence SHALL name the value **Work item deadline**. No alias — `finishNoLaterThan`, `dueDate`, `targetDate`, `endBy` — SHALL be introduced anywhere.
 
 The existing start floor SHALL NOT be renamed by this change: its column stays `work_item.start_no_earlier_than` and its domain argument stays `notBefore`, and that two-names-for-one-fact asymmetry is out of scope rather than a prerequisite.
 
@@ -394,8 +394,8 @@ All four of the schedule comparison indicator's project-finish strings SHALL nam
 - **WHEN** the indicator renders
 - **THEN** it reads `Same project deadline + reordered`
 
-#### Scenario: no unqualified deadline copy remains
+#### Scenario: only the exact column labels use unqualified Deadline
 
 - **GIVEN** the shipped UI strings
 - **WHEN** they are searched for the word "deadline"
-- **THEN** every occurrence is qualified as either **Project deadline** or **Work item deadline**
+- **THEN** only the deadline column's table heading and its matching Columns-control entry read exactly **Deadline**, and every other occurrence is qualified as either **Project deadline** or **Work item deadline**

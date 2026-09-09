@@ -27,6 +27,9 @@ const refsTo = (...systemIds: string[]): ExternalRefView[] =>
     id: `ref${String(at)}`,
     systemId,
     url: `https://example.com/${String(at)}`,
+    // The marks are drawn from the system alone; a name changes none of them,
+    // which is why every fixture here is unnamed.
+    name: '',
   }));
 
 describe('which marks a row’s links draw', () => {

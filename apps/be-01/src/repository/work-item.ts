@@ -250,6 +250,7 @@ export class WorkItemRepository implements WorkItemStore {
         workItemId: workItemExternalRef.workItemId,
         systemId: workItemExternalRef.systemId,
         url: workItemExternalRef.url,
+        name: workItemExternalRef.name,
       })
       .from(workItemExternalRef)
       .innerJoin(workItem, eq(workItemExternalRef.workItemId, workItem.id))
@@ -259,7 +260,7 @@ export class WorkItemRepository implements WorkItemStore {
     for (const each of referenced) {
       refsOf.set(each.workItemId, [
         ...(refsOf.get(each.workItemId) ?? []),
-        { id: each.id, systemId: each.systemId, url: each.url },
+        { id: each.id, systemId: each.systemId, url: each.url, name: each.name },
       ]);
     }
     return rows.map((row) => ({
@@ -702,6 +703,7 @@ export class WorkItemRepository implements WorkItemStore {
                   workItemId: id,
                   systemId: each.systemId,
                   url: each.url,
+                  name: each.name,
                   position: at,
                   ...auditOnCreate(stamp),
                 })),

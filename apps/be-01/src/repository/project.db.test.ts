@@ -112,6 +112,7 @@ describe('ProjectRepository', () => {
     await repo.create(shed, steps(shed.id, 'Dev'), wrote());
 
     expect(rollbackTo(join(dir, 'test.db'), FOLDER, '20260824010000_add_oidc_identity')).toEqual([
+      '20260909120000_add_external_ref_name',
       '20260906090000_add_work_item_deadline',
       '20260906003000_add_work_item_read_order_index',
       '20260905090000_add_calendar_marker',

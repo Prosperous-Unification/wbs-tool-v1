@@ -257,12 +257,23 @@ const PROJECT_SETTINGS = '20260904140000_add_project_settings';
  */
 const READ_ORDER_INDEX = '20260906003000_add_work_item_read_order_index';
 /**
- * The newest: `work_item.deadline`, the nullable date-only column slice 1 adds.
- * Additive forward and `DROP COLUMN` on the way back, so it heads every
- * descending reversal list here and tails every ascending one, exactly as
- * {@link READ_ORDER_INDEX} did while it was newest.
+ * `work_item.deadline`, the nullable date-only column slice 1 adds. Additive
+ * forward and `DROP COLUMN` on the way back, exactly as
+ * {@link READ_ORDER_INDEX} was.
  */
 const WORK_ITEM_DEADLINE = '20260906090000_add_work_item_deadline';
+/**
+ * The newest: `work_item_external_ref.name`, the `NOT NULL DEFAULT ''` column
+ * `link-names-and-card` adds. Additive forward and `DROP COLUMN` on the way
+ * back, so it heads every descending reversal list here and tails every
+ * ascending one, exactly as {@link WORK_ITEM_DEADLINE} did while it was newest.
+ *
+ * **Both directions, and that is the trap this constant exists inside.** The
+ * lists below are the same ledger written twice, once each way, and a migration
+ * added to the ascending ones alone leaves six green-looking assertions about a
+ * rollback order that no longer exists.
+ */
+const EXTERNAL_REF_NAME = '20260909120000_add_external_ref_name';
 const AUDIT_COLUMNS = '20260901120000_add_audit_columns';
 
 function tempDb(): { path: string; cleanup: () => void } {
@@ -539,6 +550,7 @@ describe('readMigrationFolders', () => {
       CALENDAR_MARKER,
       READ_ORDER_INDEX,
       WORK_ITEM_DEADLINE,
+      EXTERNAL_REF_NAME,
     ]);
     for (const f of folders) expect(f.downSql.trim()).not.toBe('');
   });
@@ -654,11 +666,13 @@ describe('rollbackTo, against a real database', () => {
         CALENDAR_MARKER,
         READ_ORDER_INDEX,
         WORK_ITEM_DEADLINE,
+        EXTERNAL_REF_NAME,
       ]);
 
       const reversed = rollbackTo(db.path, FOLDER, INIT);
 
       expect(reversed).toEqual([
+        EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
         CALENDAR_MARKER,
@@ -765,6 +779,7 @@ describe('rollbackTo, against a real database', () => {
         CALENDAR_MARKER,
         READ_ORDER_INDEX,
         WORK_ITEM_DEADLINE,
+        EXTERNAL_REF_NAME,
       ]);
     } finally {
       db.cleanup();
@@ -835,6 +850,7 @@ describe('rollbackTo, against a real database', () => {
       const reversed = rollbackTo(db.path, FOLDER, ROLLBACK_ALL);
 
       expect(reversed).toEqual([
+        EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
         CALENDAR_MARKER,
@@ -922,6 +938,7 @@ describe('rollbackTo, against a real database', () => {
       expect(newest).toBeDefined();
       expect(rollbackTo(db.path, FOLDER, newest ?? '')).toEqual([]);
       expect(rollbackTo(db.path, FOLDER, AUDIT_COLUMNS)).toEqual([
+        EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
         CALENDAR_MARKER,
@@ -994,6 +1011,7 @@ describe('rollbackTo, against a real database', () => {
       // Descending — newest reversed first — so the audit columns come off
       // before the rename they were written against.
       expect(rollbackTo(db.path, FOLDER, WEIGHTS_AND_ROUNDING)).toEqual([
+        EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
         CALENDAR_MARKER,

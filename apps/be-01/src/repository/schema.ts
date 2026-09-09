@@ -1305,12 +1305,33 @@ export const workItemWorkItemType = sqliteTable(
 export type WorkItemWorkItemTypeRow = typeof workItemWorkItemType.$inferSelect;
 
 /**
- * Where one work item's work also exists: a link, and deliberately nothing else.
+ * Where one work item's work also exists: a link, what a reader calls it, and
+ * deliberately nothing else.
  *
- * **No status, no title, no fetched state.** Nothing in this release reads an
- * external system, and there is no column here that could hold a cached answer
- * from one — a stale `state` would make the plan claim something about a Jira
- * issue it has not looked at since.
+ * **No status and no fetched state.** Nothing in this release reads an external
+ * system, and there is no column here that could hold a cached answer from one —
+ * a stale `state` would make the plan claim something about a Jira issue it has
+ * not looked at since.
+ *
+ * **`name` is not that, and the distinction is the whole reason it is allowed to
+ * exist.** It is the *reader's* words about a link — typed, stored as typed, and
+ * stale only in the way every other name in this database is stale, which is to
+ * say when the person who wrote it has changed their mind. Dany asked for it on
+ * 2026-09-09 (*"every link must have a name — for jira tickets it can be ticket
+ * key + summary"*); the summary is theirs to type, because a column filled from
+ * Jira would go quietly wrong on its own and this one cannot.
+ *
+ * `''` is a **stated absence** and the only spelling of one — `NOT NULL DEFAULT
+ * ''` rather than nullable, so no reader has to collapse two ways of saying
+ * nobody has named this link. Every surface draws `refLabelOf(url)` in its
+ * place, at render, so a rule added to that function improves every unnamed ref
+ * at once and rewrites no row. That is the opposite bargain from `systemId` one
+ * line down, and deliberately: a derived *system* is overridable and so is
+ * frozen at the write, while a derived *label* only ever fills a gap.
+ *
+ * No length is declared here because SQLite declares none. The cap belongs to
+ * the boundary that accepts the write (`MOST_CHARACTERS_IN_A_REF_NAME`), where
+ * an over-long name is a typed 4xx rather than a row nobody can read back.
  *
  * **`id` is the key, not the pair, and that is where this stops resembling
  * {@link workItemTag}.** A labelling is either stated or not, so the pair is the
@@ -1343,6 +1364,7 @@ export const workItemExternalRef = sqliteTable(
       .notNull()
       .references(() => externalSystem.id, { onDelete: 'cascade' }),
     url: text('url').notNull(),
+    name: text('name').notNull().default(''),
     position: integer('position').notNull(),
     ...auditColumns(),
   },

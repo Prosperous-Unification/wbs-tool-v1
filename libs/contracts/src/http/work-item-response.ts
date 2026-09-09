@@ -36,7 +36,9 @@ const numberedWorkItem = type({
   typeIds: type('string[]').readonly(),
   // Proof: removing id made the direct production-client boundary test resolve a tree
   // containing numeric external-reference ids instead of rejecting.
-  externalRefs: type({ id: 'string', systemId: 'string', url: 'string' }).array().readonly(),
+  externalRefs: type({ id: 'string', systemId: 'string', url: 'string', name: 'string' })
+    .array()
+    .readonly(),
   number: 'string',
   estimates: type({ '[string]': triple }),
   rolledUp: 'boolean',

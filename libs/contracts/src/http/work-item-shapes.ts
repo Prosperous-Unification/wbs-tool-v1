@@ -71,6 +71,16 @@ const parserArms = {
     at: 'number',
     kind: commandKindsType,
   }),
+  externalRefs_entry_name_is_not_text: type({
+    error: "'externalRefs_entry_name_is_not_text'",
+    at: 'number',
+    kind: commandKindsType,
+  }),
+  externalRefs_entry_name_is_too_long: type({
+    error: "'externalRefs_entry_name_is_too_long'",
+    at: 'number',
+    kind: commandKindsType,
+  }),
   invalid_actual: type({ error: "'invalid_actual'", at: 'number', kind: commandKindsType }),
   invalid_measure: type({ error: "'invalid_measure'", at: 'number', kind: commandKindsType }),
   invalid_progress: type({ error: "'invalid_progress'", at: 'number', kind: commandKindsType }),

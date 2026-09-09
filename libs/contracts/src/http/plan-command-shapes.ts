@@ -36,7 +36,7 @@ const workItemPatch = type({
   'tagRefs?': 'string[]',
   'serviceRefs?': 'string[]',
   'typeRefs?': 'string[]',
-  'externalRefs?': type({ systemId: 'string', url: 'string' }).array(),
+  'externalRefs?': type({ systemId: 'string', url: 'string', 'name?': 'string' }).array(),
 });
 
 /**

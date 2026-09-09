@@ -2957,6 +2957,40 @@ describe('the links column', () => {
     }
   });
 
+  itDom('lifts the links cell over the pinned layer while its card is open', async () => {
+    // The Links column is pinned — it stands between the number and the name —
+    // and a pinned cell is `position: sticky` **with a z-index**, which makes it
+    // a stacking context. So this card was trapped in it and the Name cell
+    // beside it painted straight over it, for the whole life of the column:
+    // measured in Chromium on 2026-09-09 at `[94, 229, 284, 68]`, with
+    // `elementFromPoint` at its own middle answering the *next* row's name
+    // `<textarea>`. `raiseWhenOpen` was `columnId === 'name'` and the Name
+    // column's own fault, found in 2026-08-08, is the same one.
+    //
+    // Proof: the predicate narrowed back to `columnId === 'name'` — this failed
+    // on `expected 1 to be 2`, the cell left on the pinned layer with the card
+    // open. Watched 2026-09-09.
+    const api = await twoRows();
+    api.linkTo(api.first, [{ systemId: JIRA, url: 'https://acme.atlassian.net/browse/AB-1' }]);
+    await drawn(api);
+
+    const cell = (): HTMLElement => {
+      const found = screen.getByLabelText('Links for 010').closest('td');
+      if (found === null) throw new Error('the links cell is not in a cell');
+      return found;
+    };
+    // At rest it is an ordinary pinned cell, or the lift would be a rule that
+    // was always on and could not be seen to do anything.
+    expect(cell().style.zIndex).toBe('1');
+
+    fireEvent.mouseEnter(screen.getByLabelText('Links for 010'));
+    await screen.findByRole('tooltip', { name: 'Where 010 also exists' });
+
+    expect(Number(cell().style.zIndex)).toBe(POPOVER_ROW_LAYER);
+    fireEvent.mouseLeave(screen.getByLabelText('Links for 010'));
+    expect(cell().style.zIndex).toBe('1');
+  });
+
   itDom('a non-http URL is not a link, on the card or in the editor', async () => {
     // The fault the rule exists for, arranged the way it really arrives: the URL
     // is written **through the store** rather than typed, because be-01 does not
@@ -2983,6 +3017,186 @@ describe('the links column', () => {
     expect(editor.querySelector('span[data-refs-editor-url]')?.textContent).toBe(
       'javascript:alert(1)',
     );
+  });
+
+  itDom(
+    'a card line leads with the link’s name, with the system and address under it',
+    async () => {
+      // Dany, 2026-09-09: *"i can then hover over the dropdown and see the link's
+      // summary + link to click to follow it"*, and *"every link must have a
+      // name"*. Before this the line read `jira-issue —
+      // https://…/browse/AB-1`, which names neither the ticket nor the work.
+      //
+      // The name is the **anchor**, which is the half a reader aims at: the URL
+      // stays followable underneath, quietly, so the row has an answer to "which
+      // one do I click".
+      const api = await twoRows();
+      api.linkTo(api.first, [
+        {
+          systemId: JIRA,
+          url: 'https://acme.atlassian.net/browse/AB-1',
+          name: 'AB-1 Strip the walls',
+        },
+      ]);
+      await drawn(api);
+
+      fireEvent.mouseEnter(screen.getByLabelText('Links for 010'));
+      const card = await screen.findByRole('tooltip', { name: 'Where 010 also exists' });
+      const name = card.querySelector<HTMLAnchorElement>('a[data-refs-card-name]');
+      expect(name?.textContent).toBe('AB-1 Strip the walls');
+      expect(name?.getAttribute('href')).toBe('https://acme.atlassian.net/browse/AB-1');
+      expect(name?.getAttribute('target')).toBe('_blank');
+      expect(name?.getAttribute('rel')).toBe('noreferrer noopener');
+      // The system and the address, both still on the line: the name says what
+      // the link is and these two say where it goes.
+      expect(card.querySelector('[data-refs-card-system]')?.textContent).toBe('jira-issue');
+      expect(card.querySelector('a[data-refs-card-url]')?.textContent).toBe(
+        'https://acme.atlassian.net/browse/AB-1',
+      );
+      // And the family's own disc, the same paint the cell draws.
+      expect(card.querySelector('[data-ref-mark]')?.getAttribute('data-ref-mark')).toBe('jira');
+    },
+  );
+
+  itDom('an unnamed link reads as the label its URL carries', async () => {
+    // `''` is a stated absence — nobody has named this link — and the card
+    // draws `refLabelOf(url)` in its place: the issue key, the pull request's
+    // number. Computed at render rather than stored, so the 40-odd refs already
+    // on a plan read as something the day this ships.
+    //
+    // Proof: the fallback replaced by `ref.name` alone — this failed on
+    // `expected '' to be 'AB-1'`, a card line with a blank where its name goes.
+    // Watched 2026-09-09.
+    const api = await twoRows();
+    api.linkTo(api.first, [
+      { systemId: JIRA, url: 'https://acme.atlassian.net/browse/AB-1' },
+      { systemId: GH_PR, url: 'https://github.com/o/r/pull/4178' },
+    ]);
+    await drawn(api);
+
+    fireEvent.mouseEnter(screen.getByLabelText('Links for 010'));
+    const card = await screen.findByRole('tooltip', { name: 'Where 010 also exists' });
+    expect(
+      [...card.querySelectorAll('[data-refs-card-name]')].map((each) => each.textContent),
+    ).toEqual(['AB-1', '#4178']);
+  });
+
+  itDom('a name of nothing but spaces reads as the URL’s label, not as a blank', async () => {
+    // The label is the line's **anchor text**, so a name of spaces is not a
+    // quiet oddity — it is a link with nothing to click. The stored value is
+    // left exactly as typed; only what is drawn falls back.
+    //
+    // Proof: `ref.name.trim() === ''` narrowed back to `ref.name === ''` — this
+    // failed on `expected ' ' to be '#4178'`, a card line whose only link is
+    // one space wide. Watched 2026-09-09.
+    const api = await twoRows();
+    api.linkTo(api.first, [
+      { systemId: GH_PR, url: 'https://github.com/o/r/pull/4178', name: ' ' },
+    ]);
+    await drawn(api);
+
+    fireEvent.mouseEnter(screen.getByLabelText('Links for 010'));
+    const card = await screen.findByRole('tooltip', { name: 'Where 010 also exists' });
+    expect(card.querySelector('[data-refs-card-name]')?.textContent).toBe('#4178');
+  });
+
+  itDom('a non-http URL puts no link on the name either', async () => {
+    // The name is not a safer place to put a `javascript:` href than the URL
+    // is, and `followableHref` is asked once for both.
+    //
+    // Proof: the name rendered as an `<a href={ref.url}>` regardless — this
+    // failed on `expected <a data-refs-card-name="ref1" …> to be null`.
+    // Watched 2026-09-09.
+    const api = await twoRows();
+    api.linkTo(api.first, [{ systemId: JIRA, url: 'javascript:alert(1)', name: 'Looks safe' }]);
+    await drawn(api);
+
+    fireEvent.mouseEnter(screen.getByLabelText('Links for 010'));
+    const card = await screen.findByRole('tooltip', { name: 'Where 010 also exists' });
+    expect(card.querySelector('a[data-refs-card-name]')).toBeNull();
+    expect(card.querySelector('span[data-refs-card-name]')?.textContent).toBe('Looks safe');
+  });
+
+  itDom('the editor names a link, and offers the URL’s own label for a new one', async () => {
+    // The stored box holds what was typed and shows the derived label as a
+    // **placeholder**; the add row's box holds the derived label as a real
+    // value, because Dany's example is `ticket key + summary` and the key is the
+    // half a URL carries — the reader types the summary after it rather than
+    // retyping a key they can already see.
+    const api = await twoRows();
+    api.linkTo(api.first, [{ systemId: JIRA, url: 'https://acme.atlassian.net/browse/AB-1' }]);
+    await drawn(api);
+
+    fireEvent.click(screen.getByLabelText('Links for 010'));
+    const editor = await screen.findByRole('dialog', { name: 'Links for 010' });
+    const stored = within(editor).getByLabelText('Name of link 1');
+    expect(stored).toHaveValue('');
+    expect(stored.getAttribute('placeholder')).toBe('AB-1');
+
+    // Naming it states the whole list, as every act in this editor does, and
+    // the round trip is what the card then reads.
+    fireEvent.change(stored, { target: { value: 'AB-1 Strip the walls' } });
+    fireEvent.blur(stored);
+    await waitFor(() => {
+      expect(within(editor).getByLabelText('Name of link 1')).toHaveValue('AB-1 Strip the walls');
+    });
+    // Read off the row rather than off the box: the box is uncontrolled and
+    // holds what was typed from the keystroke onwards, so asserting on it alone
+    // is satisfied before the answer it is about ever arrives.
+    expect(api.rows.find((row) => row.id === api.first)?.externalRefs?.[0]?.name).toBe(
+      'AB-1 Strip the walls',
+    );
+
+    // The add row, filled from the URL being typed.
+    //
+    // Proof: `addingName` reduced to `typedName ?? ''` — this failed on
+    // `expect(element).toHaveValue(#4178) · Received:` with nothing after it,
+    // an empty box beside a pasted pull-request URL. Watched 2026-09-09.
+    const pasted = within(editor).getByLabelText('Paste a URL');
+    fireEvent.change(pasted, { target: { value: 'https://github.com/o/r/pull/4178' } });
+    expect(within(editor).getByLabelText('Name of the new link')).toHaveValue('#4178');
+  });
+
+  itDom('a name typed into the editor outlives the URL it was typed beside', async () => {
+    // The reader's own words win over the derivation from the keystroke
+    // onwards, which is why the add row holds `null` for "nobody has typed
+    // here" rather than `''`: a `''` sentinel puts the derived label straight
+    // back under the cursor of somebody who cleared the box on purpose.
+    //
+    // **The clearing is the case the sentinel exists for, and the case a
+    // `typedName === ''` reading cannot see.** A reader who typed words and
+    // then changed the URL keeps their words either way — the words are
+    // non-empty, so both readings prefer them — and a test that stopped there
+    // was watched **passing** with the `''` sentinel put back. What separates
+    // the two is a box the reader **emptied on purpose**: `null` means nobody
+    // has typed here and `''` means they said *no name*, and an `=== ''`
+    // reading collapses the two and puts the derived label back under their
+    // cursor.
+    //
+    // Proof: `typedName` initialised to `''` and read as `typedName === '' ?
+    // refLabelOf(typedUrl) : typedName` — the cleared-box assertion failed on
+    // `expect(element).toHaveValue() · Received: #4178`, the label of the URL
+    // pasted after the box was emptied. Watched 2026-09-09.
+    const api = await twoRows();
+    await drawn(api);
+
+    fireEvent.click(screen.getByLabelText('Links for 010'));
+    const editor = await screen.findByRole('dialog', { name: 'Links for 010' });
+    const pasted = within(editor).getByLabelText('Paste a URL');
+    const named = within(editor).getByLabelText('Name of the new link');
+
+    fireEvent.change(pasted, { target: { value: 'https://acme.atlassian.net/browse/AB-1' } });
+    expect(named).toHaveValue('AB-1');
+    fireEvent.change(named, { target: { value: 'My own words' } });
+    fireEvent.change(pasted, { target: { value: 'https://github.com/o/r/pull/4178' } });
+    expect(within(editor).getByLabelText('Name of the new link')).toHaveValue('My own words');
+
+    // Emptied on purpose, and it stays empty across the next URL.
+    fireEvent.change(within(editor).getByLabelText('Name of the new link'), {
+      target: { value: '' },
+    });
+    fireEvent.change(pasted, { target: { value: 'https://github.com/o/r/pull/4178' } });
+    expect(within(editor).getByLabelText('Name of the new link')).toHaveValue('');
   });
 
   itDom('taking the cell opens the editor holding the row’s links', async () => {

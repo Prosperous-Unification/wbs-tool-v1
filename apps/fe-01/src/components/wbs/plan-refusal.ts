@@ -227,6 +227,8 @@ function commandCode(refusal: RefusalOf<'postApiProjectsByIdCommands'>): string 
     case 'too_many_externalRefs':
     case 'externalRefs_entry_needs_a_systemId':
     case 'externalRefs_entry_needs_a_url':
+    case 'externalRefs_entry_name_is_not_text':
+    case 'externalRefs_entry_name_is_too_long':
     case 'invalid_actual':
     case 'invalid_measure':
     case 'invalid_progress':

@@ -104,8 +104,8 @@ describe('a work item\u2019s external refs', () => {
         itemId,
         {
           externalRefs: [
-            { systemId: GITHUB_PR, url: 'https://github.com/acme/shed/pull/1' },
-            { systemId: GITHUB_PR, url: 'https://github.com/acme/shed/pull/2' },
+            { systemId: GITHUB_PR, url: 'https://github.com/acme/shed/pull/1', name: '' },
+            { systemId: GITHUB_PR, url: 'https://github.com/acme/shed/pull/2', name: '' },
           ],
         },
         wrote(),
@@ -172,8 +172,8 @@ describe('a work item\u2019s external refs', () => {
       itemId,
       {
         externalRefs: [
-          { systemId: JIRA, url: 'https://acme.atlassian.net/browse/SHED-9' },
-          { systemId: GITHUB_PR, url: 'https://github.com/acme/shed/pull/1' },
+          { systemId: JIRA, url: 'https://acme.atlassian.net/browse/SHED-9', name: '' },
+          { systemId: GITHUB_PR, url: 'https://github.com/acme/shed/pull/1', name: '' },
         ],
       },
       wrote(),
@@ -186,13 +186,61 @@ describe('a work item\u2019s external refs', () => {
     ]);
   });
 
+  it('stores the name a link was given, as typed', async () => {
+    // Dany, 2026-09-09: *"every link must have a name"*. The name is the
+    // reader's own words — nothing fetches anything — so the only thing this
+    // column has to promise is that what went in comes back.
+    //
+    // Proof: `name` dropped from the insert's values so the column takes its
+    // `DEFAULT ''`, and this failed on `- "SHED-9 Strip the walls" / + ""`.
+    // Watched 2026-09-09.
+    await workItems.patch(
+      itemId,
+      {
+        externalRefs: [
+          {
+            systemId: JIRA,
+            url: 'https://acme.atlassian.net/browse/SHED-9',
+            name: 'SHED-9 Strip the walls',
+          },
+        ],
+      },
+      wrote(),
+    );
+
+    const row = (await workItems.listByProject(projectId)).find((each) => each.id === itemId);
+    expect(row?.externalRefs.map((each) => each.name)).toEqual(['SHED-9 Strip the walls']);
+  });
+
+  it('reads a link nobody has named as an empty name, never as null', async () => {
+    // `''` is the one spelling of "nobody has named this link", which is the
+    // whole reason the column is `NOT NULL DEFAULT ''` rather than nullable: a
+    // reader that had to collapse `''` and `null` would be a reader that could
+    // get it wrong. Asserted with `toBe` rather than a falsy check, so a null
+    // arriving here fails rather than passing as the same thing.
+    await workItems.patch(
+      itemId,
+      {
+        externalRefs: [
+          { systemId: JIRA, url: 'https://acme.atlassian.net/browse/SHED-1', name: '' },
+        ],
+      },
+      wrote(),
+    );
+
+    const row = (await workItems.listByProject(projectId)).find((each) => each.id === itemId);
+    expect(row?.externalRefs[0]?.name).toBe('');
+  });
+
   it('replaces the list whole, never merging', async () => {
     // Proof: the `tx.delete(workItemExternalRef)` removed so the write is
     // additive, watched 2026-08-30 failing on the removed ref coming back.
     await workItems.patch(
       itemId,
       {
-        externalRefs: [{ systemId: JIRA, url: 'https://acme.atlassian.net/browse/SHED-1' }],
+        externalRefs: [
+          { systemId: JIRA, url: 'https://acme.atlassian.net/browse/SHED-1', name: '' },
+        ],
       },
       wrote(),
     );
@@ -200,7 +248,9 @@ describe('a work item\u2019s external refs', () => {
     await workItems.patch(
       itemId,
       {
-        externalRefs: [{ systemId: GITHUB_PR, url: 'https://github.com/acme/shed/pull/1' }],
+        externalRefs: [
+          { systemId: GITHUB_PR, url: 'https://github.com/acme/shed/pull/1', name: '' },
+        ],
       },
       wrote(),
     );
@@ -219,9 +269,9 @@ describe('a work item\u2019s external refs', () => {
       itemId,
       {
         externalRefs: [
-          { systemId: GITHUB_PR, url: 'https://github.com/acme/shed/pull/1' },
-          { systemId: GITHUB_PR, url: 'https://github.com/acme/shed/pull/1' },
-          { systemId: GITHUB_PR, url: 'https://github.com/acme/shed/pull/2' },
+          { systemId: GITHUB_PR, url: 'https://github.com/acme/shed/pull/1', name: '' },
+          { systemId: GITHUB_PR, url: 'https://github.com/acme/shed/pull/1', name: '' },
+          { systemId: GITHUB_PR, url: 'https://github.com/acme/shed/pull/2', name: '' },
         ],
       },
       wrote(),
@@ -235,7 +285,9 @@ describe('a work item\u2019s external refs', () => {
     await workItems.patch(
       itemId,
       {
-        externalRefs: [{ systemId: JIRA, url: 'https://acme.atlassian.net/browse/SHED-1' }],
+        externalRefs: [
+          { systemId: JIRA, url: 'https://acme.atlassian.net/browse/SHED-1', name: '' },
+        ],
       },
       wrote(),
     );
@@ -250,7 +302,9 @@ describe('a work item\u2019s external refs', () => {
     await workItems.patch(
       itemId,
       {
-        externalRefs: [{ systemId: JIRA, url: 'https://acme.atlassian.net/browse/SHED-1' }],
+        externalRefs: [
+          { systemId: JIRA, url: 'https://acme.atlassian.net/browse/SHED-1', name: '' },
+        ],
       },
       wrote(),
     );
@@ -269,7 +323,9 @@ describe('a work item\u2019s external refs', () => {
     const outcome = await workItems.patch(
       itemId,
       {
-        externalRefs: [{ systemId: JIRA, url: 'https://acme.atlassian.net/browse/SHED-1' }],
+        externalRefs: [
+          { systemId: JIRA, url: 'https://acme.atlassian.net/browse/SHED-1', name: '' },
+        ],
       },
       wrote(),
     );
@@ -290,7 +346,7 @@ describe('a work item\u2019s external refs', () => {
       itemId,
       {
         name: 'Renamed',
-        externalRefs: [{ systemId: 'sys-nobody-has-this', url: 'https://example.com/x' }],
+        externalRefs: [{ systemId: 'sys-nobody-has-this', url: 'https://example.com/x', name: '' }],
       },
       wrote(),
     );
@@ -309,7 +365,9 @@ describe('a work item\u2019s external refs', () => {
     await workItems.patch(
       itemId,
       {
-        externalRefs: [{ systemId: JIRA, url: 'https://acme.atlassian.net/browse/SHED-1' }],
+        externalRefs: [
+          { systemId: JIRA, url: 'https://acme.atlassian.net/browse/SHED-1', name: '' },
+        ],
       },
       wrote(),
     );
@@ -331,7 +389,7 @@ describe('a work item\u2019s external refs', () => {
     await workItems.patch(
       itemId,
       {
-        externalRefs: [{ systemId: JIRA, url: 'https://github.com/acme/shed/pull/1' }],
+        externalRefs: [{ systemId: JIRA, url: 'https://github.com/acme/shed/pull/1', name: '' }],
       },
       wrote(),
     );
@@ -350,7 +408,9 @@ describe('a work item\u2019s external refs', () => {
     await workItems.patch(
       childId,
       {
-        externalRefs: [{ systemId: JIRA, url: 'https://acme.atlassian.net/browse/SHED-1' }],
+        externalRefs: [
+          { systemId: JIRA, url: 'https://acme.atlassian.net/browse/SHED-1', name: '' },
+        ],
       },
       wrote(),
     );

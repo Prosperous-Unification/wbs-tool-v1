@@ -183,6 +183,7 @@ function usageRowsIn(
       workItemId: workItemExternalRef.workItemId,
       systemId: workItemExternalRef.systemId,
       url: workItemExternalRef.url,
+      name: workItemExternalRef.name,
     })
     .from(workItemExternalRef)
     .innerJoin(workItem, eq(workItemExternalRef.workItemId, workItem.id))
@@ -193,7 +194,7 @@ function usageRowsIn(
   for (const each of referenced) {
     refsOf.set(each.workItemId, [
       ...(refsOf.get(each.workItemId) ?? []),
-      { id: each.id, systemId: each.systemId, url: each.url },
+      { id: each.id, systemId: each.systemId, url: each.url, name: each.name },
     ]);
   }
   const workItems = rows.map((row) => ({

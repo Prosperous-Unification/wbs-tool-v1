@@ -609,6 +609,20 @@ export interface ExternalRefView {
   id: string;
   systemId: string;
   url: string;
+  /**
+   * What a reader calls this link, or `''` where nobody has said.
+   *
+   * **A stated absence and the only spelling of one** — the column is
+   * `NOT NULL DEFAULT ''` — so no surface here has to collapse two ways of
+   * saying the same thing. Where it is `''`, `refLabelOf(url)` is drawn in its
+   * place, computed at render rather than stored, so a rule added to that
+   * function improves every unnamed ref at once.
+   *
+   * Never fetched. Dany asked for it on 2026-09-09 as *"ticket key + summary"*;
+   * the summary is the reader's half, because a field filled from Jira would go
+   * quietly stale and this one cannot.
+   */
+  name: string;
 }
 
 /**

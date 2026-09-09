@@ -68,6 +68,19 @@ export function planInputRowsOf(reads: PlanInputReads): PlanInputRows {
       // spelling to disagree with. Ranking here is also the stabler of the two:
       // were a row ever spaced in gaps, two plans identical in every visible way
       // would hash apart on the spacing alone.
+      // **A ref's `name` is deliberately not captured**, and this is the only
+      // place that decision is visible, so it is written here. A snapshot exists
+      // to compare *schedules*: `CANONICAL_PLAN_INPUT_SCHEMA_VERSION` is the
+      // hashed shape, adding a field to it bumps the version and every stored
+      // plan needs a normaliser for the reader — and what the field would buy is
+      // a compare that mentions a label. A name moves no date, orders no queue
+      // and is read by nothing in `libs/domain`.
+      //
+      // Nothing can lose a name by this, which is the half that makes the
+      // omission safe rather than merely cheap: no path restores a saved plan
+      // over live rows. Saved plans are written, listed, read and compared
+      // (`saved-plan.controller.db.test.ts`), and a restore would be the change
+      // that has to revisit this line.
       externalRefs: row.externalRefs.map((ref, at): CanonicalExternalRef => ({
         externalSystemId: ref.systemId,
         url: ref.url,

@@ -56,6 +56,8 @@ export type ParserRefusalCode =
   | 'too_many_externalRefs'
   | 'externalRefs_entry_needs_a_systemId'
   | 'externalRefs_entry_needs_a_url'
+  | 'externalRefs_entry_name_is_not_text'
+  | 'externalRefs_entry_name_is_too_long'
   | 'invalid_actual'
   | 'invalid_measure'
   | 'invalid_progress'

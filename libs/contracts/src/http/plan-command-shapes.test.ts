@@ -149,7 +149,19 @@ test('emits inline MCP-readable command branches with real nested patch and esti
     branches.find((branch) => branch.properties?.['kind']?.const === kind);
   expect(
     find('patchWorkItem')?.properties?.['patch']?.properties?.['externalRefs']?.items?.properties,
-  ).toEqual({ systemId: { type: 'string' }, url: { type: 'string' } });
+  ).toEqual({
+    systemId: { type: 'string' },
+    url: { type: 'string' },
+    name: { type: 'string' },
+  });
+  // And `name` is the one of the three an MCP consumer may leave out: naming a
+  // link is the reader's to do, and be-01 stores `''` for a ref stated without
+  // one. Asserted rather than left to the shape's spelling, because `'name?'`
+  // and `name` differ by one character in the source and by a required field on
+  // the wire.
+  expect(
+    find('patchWorkItem')?.properties?.['patch']?.properties?.['externalRefs']?.items?.required,
+  ).toEqual(['systemId', 'url']);
   expect(find('setEstimate')?.properties?.['days']?.required).toEqual([
     'optimistic',
     'pessimistic',

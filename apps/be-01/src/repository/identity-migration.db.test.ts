@@ -68,6 +68,13 @@ const READ_ORDER_INDEX = '20260906003000_add_work_item_read_order_index';
  * {@link READ_ORDER_INDEX} did while it was newest.
  */
 const WORK_ITEM_DEADLINE = '20260906090000_add_work_item_deadline';
+/**
+ * The newest: `work_item_external_ref.name`, the `NOT NULL DEFAULT ''` column
+ * `link-names-and-card` adds. Additive forward and `DROP COLUMN` on the way
+ * back, so it heads every descending reversal list here, exactly as
+ * {@link WORK_ITEM_DEADLINE} did while it was newest.
+ */
+const EXTERNAL_REF_NAME = '20260909120000_add_external_ref_name';
 const AUDIT_COLUMNS = '20260901120000_add_audit_columns';
 
 function tempDb(): { path: string; cleanup: () => void } {
@@ -83,6 +90,7 @@ function tempDb(): { path: string; cleanup: () => void } {
 function beforeIdentity(dbPath: string): void {
   runMigrations(dbPath, FOLDER);
   expect(rollbackTo(dbPath, FOLDER, PERSON_KIND)).toEqual([
+    EXTERNAL_REF_NAME,
     WORK_ITEM_DEADLINE,
     READ_ORDER_INDEX,
     CALENDAR_MARKER,
@@ -182,6 +190,7 @@ describe('the OIDC identity migration', () => {
       beforeIdentity(db.path);
       runMigrations(db.path, FOLDER);
       expect(rollbackTo(db.path, FOLDER, PERSON_KIND)).toEqual([
+        EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
         CALENDAR_MARKER,
@@ -246,6 +255,7 @@ describe('the OIDC identity migration', () => {
       }
 
       expect(rollbackTo(db.path, FOLDER, PERSON_KIND)).toEqual([
+        EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
         CALENDAR_MARKER,

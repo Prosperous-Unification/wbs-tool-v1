@@ -1,0 +1,32 @@
+-- Reverses `20260909120000_add_external_ref_name`.
+--
+-- **What is lost is words somebody typed, and nothing else at all.** No date
+-- moves, no placement changes, no number is derived from this column: a ref's
+-- name is read by the links card and the links editor and by nothing in
+-- `libs/domain`. Every ref keeps its system, its URL and its position, and every
+-- surface goes back to drawing `refLabelOf(url)` for all of them — which is what
+-- it already draws for a ref nobody has named. The visible difference after this
+-- runs is that a named link reads as `WCN-3887` instead of as
+-- `WCN-3887 Cache warm-up`.
+--
+-- The names themselves are not recoverable from the schema. `plan_event` holds
+-- the `patch` commands that wrote them, for as long as retention keeps them
+-- (365 days), so a name could in principle be read back out of a plan's events
+-- by hand. Nothing replays them and this rollback does not try.
+--
+-- Undo and redo are unaffected in shape and lossy in one arm, the position every
+-- rollback of an additive column leaves its own kind in: `command_journal` is
+-- not touched, so every entry stays pressable, but a `patch` entry whose forward
+-- or inverse states a ref list with a `name` in it names a column that is no
+-- longer there and fails when applied.
+--
+-- Reversed **before** `20260906090000_add_work_item_deadline`: rollback order is
+-- the reverse of application order, which is what `migrate-down-cli.ts
+-- --to=<name>` does with the applied set.
+--
+-- `DROP COLUMN` and not a table rebuild, for `20260906090000`'s reason one table
+-- over: SQLite has supported it since 3.35. It runs solely when the release that
+-- added the column is being taken away — a forward migration here is additive so
+-- blue and green can share one file mid-swap, and reversing an additive change is
+-- destructive by definition, which is why it lives here and not there.
+ALTER TABLE `work_item_external_ref` DROP COLUMN `name`;

@@ -1330,6 +1330,28 @@
       stroke-dashoffset: 50%;
     }
   }
+
+  /*
+   * The line of the links card the pointer is resting on.
+   *
+   * A rule and not an inline style, for the two reasons an inline style cannot
+   * cover: a `style` prop cannot say `:hover` at all, and a React
+   * `onMouseEnter` per line would re-render the card on every row the pointer
+   * crosses on its way to the one it wants. `ExternalRefsCard` gives each line
+   * `pointer-events: auto` — the card itself takes no pointer — which is what
+   * lets this selector match anything.
+   *
+   * `--accent` and not a hand-mixed colour: it flips with the palette, and the
+   * card's ground is `--popover`, so the two stay a step apart on a light page
+   * and on a dark one.
+   *
+   * This is deliberately **not** in the banded-hover `:not()` chain the table
+   * rows share (see `[data-grid] tbody tr:hover` above): a card line is not a
+   * `<tr>`, nothing else tints it, and there is no rule here for it to lose to.
+   */
+  [data-refs-card-line]:hover {
+    background: var(--accent);
+  }
 }
 
 /*

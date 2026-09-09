@@ -214,23 +214,46 @@ export function markStyle(kind: SystemFamily | 'overflow', at: number): CSSPrope
     position: 'absolute',
     left: at * (MARK_PX + MARK_GAP_PX),
     top: (MARK_BOX_PX - MARK_PX) / 2,
-    width: MARK_PX,
-    height: MARK_PX,
-    boxSizing: 'border-box',
   };
   if (kind === 'overflow') {
     return {
       ...placed,
+      width: MARK_PX,
+      height: MARK_PX,
+      boxSizing: 'border-box',
       color: 'var(--muted-foreground)',
       fontSize: MARK_PX + 3,
       lineHeight: `${String(MARK_PX)}px`,
       textAlign: 'center',
     };
   }
-  const { paint, filled } = FAMILY_PAINT[kind];
+  return { ...placed, ...familyDotStyle(kind) };
+}
+
+/**
+ * One family's disc, with no placement — the two channels of design D3 and
+ * nothing about where the mark stands.
+ *
+ * Split out of {@link markStyle} for the links card, which draws the same disc
+ * beside a name in ordinary flow rather than absolutely inside a 40px cell. The
+ * _paint_ is the fact both surfaces share and the placement is not, so this is
+ * where the fill/ring split lives and {@link markStyle} adds its own `position`
+ * on top. Two copies of `FAMILY_PAINT[kind].filled` would be two answers to
+ * "which of these is a ring", and the day one of them changed the cell and the
+ * card would disagree about what a reader is looking at.
+ *
+ * `flexShrink: 0` because this disc is a flex child on the card: a 6px box in a
+ * row with a long URL in it is the first thing a flex layout takes width from,
+ * and a squashed mark is a mark that says nothing.
+ */
+export function familyDotStyle(family: SystemFamily): CSSProperties {
+  const { paint, filled } = FAMILY_PAINT[family];
   return {
-    ...placed,
+    width: MARK_PX,
+    height: MARK_PX,
+    boxSizing: 'border-box',
     borderRadius: '50%',
+    flexShrink: 0,
     ...(filled
       ? { background: paint, border: 'none' }
       : { background: 'transparent', border: `1px solid ${paint}` }),

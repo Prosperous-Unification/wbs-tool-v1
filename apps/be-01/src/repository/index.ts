@@ -508,11 +508,18 @@ export interface LabelledWorkItem extends WorkItem {
  * `url` is a string and not a parsed URL: it is stored as typed, and every
  * surface that renders it as a link checks the scheme first. A `javascript:`
  * URL written by a peer edit is the fault that rule exists for.
+ *
+ * `name` is what a reader calls this link, and `''` means they have not said.
+ * That is a stated absence rather than a missing value — the column is
+ * `NOT NULL DEFAULT ''`, so there is one spelling of it — and every surface
+ * draws `refLabelOf(url)` in its place. Never fetched: see the table's own
+ * JSDoc for why a typed name is not the cached title this table refuses.
  */
 export interface ExternalRef {
   id: string;
   systemId: string;
   url: string;
+  name: string;
 }
 
 /**
@@ -760,10 +767,20 @@ export interface WorkItemPatch {
   externalRefs?: readonly ExternalRefWrite[];
 }
 
-/** A ref as a caller states it — no `id`, because the store mints one per row. */
+/**
+ * A ref as a caller states it — no `id`, because the store mints one per row.
+ *
+ * `name` is required rather than optional, and the boundary that parses the
+ * request is what supplies `''` for a caller that named nothing
+ * (`asOptionalExternalRefs`). An optional field here would let the store's own
+ * insert reach SQLite without the column, which is the same row written two
+ * ways — and the way that skips it is the one no reader can tell from a name
+ * somebody deleted.
+ */
 interface ExternalRefWrite {
   systemId: string;
   url: string;
+  name: string;
 }
 
 /**

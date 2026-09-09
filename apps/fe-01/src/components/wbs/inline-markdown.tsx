@@ -95,8 +95,13 @@ const RENDERED_AS_SOURCE = [
  * Not the user agent's link colour, which is `-webkit-link` blue on a light
  * page and a periwinkle nothing names on a dark one — the same fault
  * `dark-mode.spec.ts` holds the header's links to.
+ *
+ * Exported since 2026-09-09 for {@link ExternalRefsCard}, which draws a link
+ * per line and had the user agent's blue on every one of them until it asked
+ * here instead. One answer to "how does a link look in this app", in the file
+ * that first needed one.
  */
-const LINK_INK: CSSProperties = { color: 'var(--primary)', textDecoration: 'underline' };
+export const LINK_INK: CSSProperties = { color: 'var(--primary)', textDecoration: 'underline' };
 
 /** What a link renders as, which is not the same on every face — see {@link InlineMarkdownProps}. */
 interface LinkProps {

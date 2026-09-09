@@ -254,12 +254,18 @@ const PROJECT_SETTINGS = '20260904140000_add_project_settings';
  */
 const READ_ORDER_INDEX = '20260906003000_add_work_item_read_order_index';
 /**
- * The newest: `work_item.deadline`, the nullable date-only column slice 1 adds.
- * Additive forward and `DROP COLUMN` on the way back, so it heads every
- * descending reversal list here and tails every ascending one, exactly as
- * {@link READ_ORDER_INDEX} did while it was newest.
+ * `work_item.deadline`, the nullable date-only column slice 1 adds. Additive
+ * forward and `DROP COLUMN` on the way back, exactly as
+ * {@link READ_ORDER_INDEX} was.
  */
 const WORK_ITEM_DEADLINE = '20260906090000_add_work_item_deadline';
+/**
+ * The newest: `work_item_external_ref.name`, the `NOT NULL DEFAULT ''` column
+ * `link-names-and-card` adds. Additive forward and `DROP COLUMN` on the way
+ * back, so it heads every descending reversal list here and tails every
+ * ascending one, exactly as {@link WORK_ITEM_DEADLINE} did while it was newest.
+ */
+const EXTERNAL_REF_NAME = '20260909120000_add_external_ref_name';
 const AUDIT_COLUMNS = '20260901120000_add_audit_columns';
 
 // `step` since 20260831120000_rename_role_to_step. Every raw statement in this
@@ -364,6 +370,7 @@ describe('the WBS domain migration', () => {
       // ahead of the column it was seeded from, which is the only order in
       // which its foreign keys still have something to point at.
       expect(reversed).toEqual([
+        EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
         CALENDAR_MARKER,
@@ -700,6 +707,7 @@ describe('the capacity migrations', () => {
       const reversed = rollbackTo(db.path, FOLDER, PRIORITY);
 
       expect(reversed).toEqual([
+        EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
         CALENDAR_MARKER,
@@ -1174,6 +1182,7 @@ describe('the work item team migration', () => {
       // migration's business, and named rather than filtered out so the list stays
       // the literal answer `rollbackTo` gave.
       expect(reversed).toEqual([
+        EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
         CALENDAR_MARKER,
@@ -1415,6 +1424,7 @@ describe('the priority band migration', () => {
       // filtered, so the list is the literal answer `rollbackTo` gave and not a
       // subset somebody chose.
       expect(rollbackTo(db.path, FOLDER, PER_PROJECT_CAPACITY)).toEqual([
+        EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
         CALENDAR_MARKER,
@@ -1708,6 +1718,7 @@ describe('the plan event migration', () => {
       }
 
       expect(rollbackTo(db.path, FOLDER, PRIORITY_BANDS)).toEqual([
+        EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
         CALENDAR_MARKER,
@@ -1939,6 +1950,7 @@ describe('the actual migration', () => {
       seeded(db.path);
 
       expect(rollbackTo(db.path, FOLDER, PLAN_EVENT)).toEqual([
+        EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
         CALENDAR_MARKER,
@@ -2214,6 +2226,7 @@ describe('the step progress migration', () => {
       seeded(db.path);
 
       expect(rollbackTo(db.path, FOLDER, ACTUAL)).toEqual([
+        EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
         CALENDAR_MARKER,
@@ -2473,6 +2486,7 @@ describe('the not-before reason migration', () => {
       }
 
       expect(rollbackTo(db.path, FOLDER, STEP_PROGRESS)).toEqual([
+        EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
         CALENDAR_MARKER,
@@ -2723,6 +2737,7 @@ describe('the tag migration', () => {
       seeded(db.path);
 
       expect(rollbackTo(db.path, FOLDER, NOT_BEFORE_REASON)).toEqual([
+        EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
         CALENDAR_MARKER,
@@ -3078,6 +3093,7 @@ describe('the service migration', () => {
       seeded(db.path);
 
       expect(rollbackTo(db.path, FOLDER, TAG)).toEqual([
+        EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
         CALENDAR_MARKER,
@@ -3225,6 +3241,7 @@ describe('the work-item-service migration', () => {
   function atTheColumnOnly(dbPath: string): void {
     runMigrations(dbPath, FOLDER);
     expect(rollbackTo(dbPath, FOLDER, SERVICE)).toEqual([
+      EXTERNAL_REF_NAME,
       WORK_ITEM_DEADLINE,
       READ_ORDER_INDEX,
       CALENDAR_MARKER,
@@ -3383,6 +3400,7 @@ describe('the work-item-service migration', () => {
       }
 
       expect(rollbackTo(db.path, FOLDER, SERVICE)).toEqual([
+        EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
         CALENDAR_MARKER,
@@ -3674,6 +3692,7 @@ describe('the step measure migration', () => {
       seeded(db.path);
 
       expect(rollbackTo(db.path, FOLDER, WORK_ITEM_SERVICE)).toEqual([
+        EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
         CALENDAR_MARKER,
@@ -3764,6 +3783,7 @@ describe('the person kind migration', () => {
   function beforeTheColumn(dbPath: string): void {
     runMigrations(dbPath, FOLDER);
     expect(rollbackTo(dbPath, FOLDER, STEP_MEASURE)).toEqual([
+      EXTERNAL_REF_NAME,
       WORK_ITEM_DEADLINE,
       READ_ORDER_INDEX,
       CALENDAR_MARKER,
@@ -3994,6 +4014,7 @@ describe('the person kind migration', () => {
       }
 
       expect(rollbackTo(db.path, FOLDER, STEP_MEASURE)).toEqual([
+        EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
         CALENDAR_MARKER,

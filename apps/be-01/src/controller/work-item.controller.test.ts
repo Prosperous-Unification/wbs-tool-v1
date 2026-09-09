@@ -1106,6 +1106,137 @@ describe('work item routes', () => {
     expect(workItems[0]?.priority).toBe(3);
   });
 
+  it('takes a name per external ref, and bounds its length', async () => {
+    // Dany, 2026-09-09: *"every link must have a name"*. The round trip is the
+    // whole of what the wire has to promise — the name is the reader's own words
+    // and nothing derives, fetches or normalises it — plus the one thing the
+    // shape cannot say, which is how long it may be.
+    const { token, send, projectId } = await setup();
+    const id = await addWorkItem(send, token, projectId, { parentId: null, name: 'Strip' });
+    const patch = (fields: Record<string, unknown>) =>
+      command(send, token, projectId, { kind: 'patchWorkItem', workItemId: id, patch: fields });
+    const refs = async (): Promise<
+      { id: string; systemId: string; url: string; name: string }[]
+    > => {
+      const row = await firstRow(send, token, projectId);
+      return row['externalRefs'] as {
+        id: string;
+        systemId: string;
+        url: string;
+        name: string;
+      }[];
+    };
+
+    const named = await patch({
+      externalRefs: [
+        {
+          systemId: 'sys-jira-issue',
+          url: 'https://acme.atlassian.net/browse/SHED-9',
+          name: 'SHED-9 Strip the walls',
+        },
+      ],
+    });
+    expect(named.status).toBe(200);
+    // The minted id is the store's and this route never states one, so it is
+    // read off the row rather than asserted: what the round trip has to promise
+    // is the three fields the caller sent.
+    expect((await refs()).map(({ systemId, url, name }) => ({ systemId, url, name }))).toEqual([
+      {
+        systemId: 'sys-jira-issue',
+        url: 'https://acme.atlassian.net/browse/SHED-9',
+        name: 'SHED-9 Strip the walls',
+      },
+    ]);
+    expect((await refs())[0]?.id).toMatch(/./);
+
+    // A ref stated with no name at all is stored with `''` rather than refused:
+    // naming a link is the reader's to do, and the card draws `refLabelOf(url)`
+    // until they do.
+    const unnamed = await patch({
+      externalRefs: [{ systemId: 'sys-github-pr', url: 'https://github.com/o/r/pull/1' }],
+    });
+    expect(unnamed.status).toBe(200);
+    expect((await refs()).map((each) => each.name)).toEqual(['']);
+
+    // The cap, which is the only thing this route asserts about a name. The
+    // `typeof` beside it in `asOptionalExternalRefs` is narrowing — the command
+    // shape refuses a non-string first, and the case below records which of the
+    // two answers a client actually meets.
+    //
+    // Proof: the length arm removed, and this failed on `Expected: 400 /
+    // Received: 200` — the 301-character name accepted and stored. Watched
+    // 2026-09-09.
+    const tooLong = await patch({
+      externalRefs: [
+        {
+          systemId: 'sys-github-pr',
+          url: 'https://github.com/o/r/pull/2',
+          name: 'x'.repeat(301),
+        },
+      ],
+    });
+    expect(tooLong.status).toBe(400);
+    expect(await tooLong.json()).toEqual({
+      error: 'externalRefs_entry_name_is_too_long',
+      at: 0,
+      kind: 'patchWorkItem',
+    });
+    // Exactly at the cap is a name somebody may honestly have, so it is stored.
+    const atCap = await patch({
+      externalRefs: [
+        {
+          systemId: 'sys-github-pr',
+          url: 'https://github.com/o/r/pull/3',
+          name: 'y'.repeat(300),
+        },
+      ],
+    });
+    expect(atCap.status).toBe(200);
+    expect((await refs()).map((each) => each.name.length)).toEqual([300]);
+
+    // **Which boundary answers what, measured rather than assumed.** The command
+    // shape declares `'name?': 'string'`, which looks like it would refuse a
+    // number before the parser ran. It does not: the shape refuses an unknown
+    // **key** and lets a mistyped **value** through, so the parser is where a
+    // non-text name stops. Both answers below came off `buildApp` in a probe on
+    // 2026-09-09 and are written here so the next reader does not have to guess
+    // which layer owns which.
+    //
+    // Proof: the `typeof` arm removed, and this failed on `- "error":
+    // "externalRefs_entry_name_is_not_text" / + "error": "invalid_body"`. The
+    // fault does not fall through to the length refusal, which is the third
+    // thing this probe corrected: `(7).length` is `undefined`, `undefined >
+    // 300` is false, so the ref is **written** with a number in its name column
+    // and the tree read then fails its own response schema. A 400 either way and
+    // a stored row that no reader can name. Watched 2026-09-09.
+    for (const notText of [7, true, { key: 'SHED-9' }, ['SHED-9'], null]) {
+      const res = await patch({
+        externalRefs: [
+          { systemId: 'sys-github-pr', url: 'https://github.com/o/r/pull/9', name: notText },
+        ],
+      });
+      expect([res.status, JSON.stringify(notText)]).toEqual([400, JSON.stringify(notText)]);
+      expect(await res.json()).toEqual({
+        error: 'externalRefs_entry_name_is_not_text',
+        at: 0,
+        kind: 'patchWorkItem',
+      });
+    }
+    // The key the shape does own, kept beside it so the split is visible rather
+    // than described.
+    const surprising = await patch({
+      externalRefs: [
+        { systemId: 'sys-github-pr', url: 'https://github.com/o/r/pull/9', surprise: true },
+      ],
+    });
+    expect(surprising.status).toBe(400);
+    expect(await surprising.json()).toEqual({ error: 'invalid_body' });
+
+    // And nothing the refusals touched was written: the row still holds the ref
+    // the last accepted patch left on it.
+    expect((await refs()).map((each) => each.url)).toEqual(['https://github.com/o/r/pull/3']);
+  });
+
   it('takes teamIds as a bounded whole set, including empty and duplicate payloads', async () => {
     // Dropping the parser arm makes the first write return 200 while the tree
     // remains empty. Dropping the cap makes the eleven-id request return 404

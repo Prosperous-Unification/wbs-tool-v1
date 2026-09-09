@@ -123,7 +123,7 @@ Checks that cannot fail have shipped here six times. This is the rule that stops
 
 ## Checks that cannot fail
 
-R5 exists because this failure keeps recurring — twenty-one times so far. Fixed: `assertPragmas` with no runtime
+R5 exists because this failure keeps recurring — twenty-two times so far. Fixed: `assertPragmas` with no runtime
 caller, the migration lint's unreachable `ALTER TABLE ... RENAME COLUMN` branch, `readRemoteState`
 reading an unreadable file as never-deployed, `shellcheck … || echo`, the secrets scanner's
 `.catch(() => '')` (an unreadable file scanned as clean — in a CI gate), and `dev:setup` skipping a
@@ -505,6 +505,51 @@ unfolded columns mount, so the node focused (`…7eaef440…`) was not the node 
 (`…c25249bc…`). It had passed for as long as nothing between the two resolutions asserted
 identity. An assertion added to a helper is a cheap way to find every caller that was relying on
 something it never said.
+
+One on 2026-09-09 in `link-names-and-card`, and it **shipped** — the twenty-second, and R5
+#14/#15's fault class again: jsdom as the oracle for a fault that is a browser's. The links
+card had a whole describe block about it in `plan-cells.test.tsx` — `the card lists every ref
+and follows one`, `a non-http URL is not a link` — and every case passed while **no reader
+could see the card at all**. It was in the DOM, the right size, in the right place, and painted
+over: the Links column is pinned, a pinned cell is `position: sticky` _with_ a `z-index` and so
+a stacking context, and `raiseWhenOpen` was `columnId === 'name'` — the Name column named alone,
+by the change that discovered this exact fault in 2026-08-08 and fixed it for one column.
+Measured in Chromium on 2026-09-09: the card's rectangle `[94, 229, 284, 68]`, with
+`elementFromPoint` at its own middle answering the _next_ row's name `<textarea>`. The lift now
+asks the two facts — `layout.pinned.has(columnId) && opensAPopover(columnId)` — and
+`e2e/external-refs.spec.ts` asserts the element painted at the card's middle is part of the
+card. **A jsdom test can see a popover exist and can never see it be invisible.**
+
+Three more the same day and in the same change, and **none shipped**. The first is a negative
+watched **passing**: the add row's name box holds `null` for "nobody has typed here" so that a
+box a reader **emptied on purpose** is not refilled with the URL's derived label, and the test
+written for it typed `My own words` and then changed the URL. Both readings keep non-empty
+words — that is what makes them both correct about that case — so the `''` sentinel was put back
+and the test stayed green. The case the sentinel exists for is the box cleared to empty, and
+rewritten that way it failed on `expect(element).toHaveValue() · Received: #4178`.
+**A sentinel that distinguishes "unset" from "empty" can only be tested with the empty one.**
+
+The third is the browser proof written for the shipped fault above, and it **passed** with the
+fault injected. `raiseWhenOpen` narrowed back to `columnId === 'name'` and
+`e2e/external-refs.spec.ts`'s `the card is drawn on top of the rows below it` was watched green
+— because the same change had also made the cell's hover surface
+`position: absolute; inset: 0`, and an absolutely positioned wrapper keeps the card on top by
+itself. Two fixes, either sufficient, and a browser can only see that the card is visible. The
+lift's real negative is the jsdom one (`expected 1 to be 2`); the browser check is the
+end-to-end guarantee and now says so. **When two edits in one change fix one fault, the
+negative for either of them passes — inject them together or prove them apart.**
+
+The second is a claim about **which boundary refuses what**, written from the code's shape
+rather than from the wire. `plan-command-shapes.ts` declares `'name?': 'string'`, so the JSDoc
+said a mistyped name is refused by the shape before the parser runs, the parser's `typeof` was
+demoted to "narrowing", and the two refusals were collapsed into one. Probed against `buildApp`:
+the shape refuses an unknown **key** (`{"error":"invalid_body"}`) and lets a mistyped **value**
+straight through, so `name: 7` was answered `externalRefs_entry_name_is_too_long` — `(7).length`
+is `undefined`, `undefined > 300` is false, the ref is **written** with a number in its name
+column, and the tree read then fails its own response schema. A 400 either way, a wrong reason,
+and a stored row no reader can name. Two codes now, both watched failing, and the probe's own
+answers are assertions in `work-item.controller.test.ts` rather than a sentence in a comment.
+**Which layer refuses a bad field is a measurement, not a reading.**
 
 Prove your check fails when the thing is broken, and say so in the comment. A check whose
 failure mode has never been observed is a claim, not a gate.

@@ -38,6 +38,13 @@ const READ_ORDER_INDEX = '20260906003000_add_work_item_read_order_index';
  * {@link READ_ORDER_INDEX} did while it was newest.
  */
 const WORK_ITEM_DEADLINE = '20260906090000_add_work_item_deadline';
+/**
+ * The newest: `work_item_external_ref.name`, the `NOT NULL DEFAULT ''` column
+ * `link-names-and-card` adds. Additive forward and `DROP COLUMN` on the way
+ * back, so it heads every descending reversal list here, exactly as
+ * {@link WORK_ITEM_DEADLINE} did while it was newest.
+ */
+const EXTERNAL_REF_NAME = '20260909120000_add_external_ref_name';
 
 let dir: string;
 let path: string;
@@ -130,6 +137,7 @@ describe('saved_plan.created_by_id', () => {
     expect(nullable()).toBe(0);
 
     expect(rollbackTo(path, FOLDER, SAVED_PLAN)).toEqual([
+      EXTERNAL_REF_NAME,
       WORK_ITEM_DEADLINE,
       READ_ORDER_INDEX,
       CALENDAR_MARKER,
@@ -218,6 +226,7 @@ describe('saved_plan.created_by_id', () => {
    */
   it('leaves a row written before the column reading null', () => {
     expect(rollbackTo(path, FOLDER, SAVED_PLAN)).toEqual([
+      EXTERNAL_REF_NAME,
       WORK_ITEM_DEADLINE,
       READ_ORDER_INDEX,
       CALENDAR_MARKER,

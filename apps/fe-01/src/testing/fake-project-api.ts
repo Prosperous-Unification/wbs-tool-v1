@@ -85,7 +85,10 @@ export function fakeProjectApi(): ProjectApi & {
    * that needs a row already wired up is arranging a screen, not driving the
    * editor.
    */
-  linkTo: (workItemId: string, refs: readonly { systemId: string; url: string }[]) => void;
+  linkTo: (
+    workItemId: string,
+    refs: readonly { systemId: string; url: string; name?: string }[],
+  ) => void;
   /**
    * Every Retry the screen asked for, in order.
    *
@@ -329,12 +332,21 @@ export function fakeProjectApi(): ProjectApi & {
       renumber();
     },
     retries,
-    linkTo(workItemId: string, refs: readonly { systemId: string; url: string }[]) {
+    linkTo(workItemId: string, refs: readonly { systemId: string; url: string; name?: string }[]) {
       const row = rows.find((r) => r.id === workItemId);
       if (row === undefined) throw new Error(`no work item ${workItemId}`);
       row.externalRefs = refs.map((ref) => {
         nextRefId += 1;
-        return { id: `ref${String(nextRefId)}`, systemId: ref.systemId, url: ref.url };
+        // `''` where a fixture states no name, which is what be-01's own
+        // boundary supplies for a ref stated without one: a fake that left the
+        // field off would be the one surface where `name` is optional, and the
+        // card's fallback would be exercised by nothing but an accident.
+        return {
+          id: `ref${String(nextRefId)}`,
+          systemId: ref.systemId,
+          url: ref.url,
+          name: ref.name ?? '',
+        };
       });
     },
     labelWithTag(workItemId: string, tagIds: readonly string[]) {
@@ -803,13 +815,22 @@ export function fakeProjectApi(): ProjectApi & {
       // wire shape has no `id` and a spread would put `{systemId, url}` on the
       // view where every reader expects an `ExternalRefView`.
       const { externalRefs: statedRefs, ...restOfPatch } = written as Record<string, unknown> & {
-        externalRefs?: readonly { systemId: string; url: string }[];
+        externalRefs?: readonly { systemId: string; url: string; name?: string }[];
       };
       if (row !== undefined) Object.assign(row, restOfPatch);
       if (row !== undefined && statedRefs !== undefined) {
         row.externalRefs = statedRefs.map((ref) => {
           nextRefId += 1;
-          return { id: `ref${String(nextRefId)}`, systemId: ref.systemId, url: ref.url };
+          // `''` for an entry that names nothing, which is exactly what
+          // `asOptionalExternalRefs` supplies at be-01's boundary. A fake that
+          // stored `undefined` would let the card's fallback be reached by a
+          // row shape be-01 can never send.
+          return {
+            id: `ref${String(nextRefId)}`,
+            systemId: ref.systemId,
+            url: ref.url,
+            name: ref.name ?? '',
+          };
         });
       }
       // The dual write be-01 performs: the column and the join, in one act, and
