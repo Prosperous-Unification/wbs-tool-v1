@@ -1299,6 +1299,17 @@ describe('the work item deadline cell', () => {
     return screen.getByLabelText<HTMLInputElement>(`Work item deadline for ${number}`);
   };
 
+  itDom('labels the column Deadline while the editable cell keeps the deadline id', async () => {
+    await datedPlanWithDeadlineColumn();
+
+    // Proof: with the shipped `Due` header this failed at this query after 101/102 cases passed.
+    expect(screen.getByText('Deadline', { selector: 'span' })).toBeVisible();
+    expect(screen.getByLabelText('Work item deadline for 010')).toHaveAttribute(
+      'data-cell',
+      expect.stringMatching(/::deadline$/),
+    );
+  });
+
   itDom('is the short date as text at rest, and an em-dash where nobody has said', async () => {
     const api = await datedPlanWithDeadlineColumn();
 

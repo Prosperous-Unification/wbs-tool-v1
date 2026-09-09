@@ -175,9 +175,15 @@ const IDENTIFIER_TOKEN = /^[a-z][a-z0-9_-]*$/;
 const couldBeCopy = (run: Run): boolean =>
   HAS_OCCURRENCE.test(run.text) && (run.shown || !IDENTIFIER_TOKEN.test(run.text.trim()));
 
+/** TASK-242's exact compact heading; every sentence and accessible cell name stays qualified. */
+const isDeadlineColumnHeading = (run: Run): boolean =>
+  run.file === 'src/components/wbs/plan-columns/deadline.tsx' &&
+  run.shown &&
+  run.text.trim() === 'Deadline';
+
 /** The occurrences in one run that do not say which deadline they mean. */
 function unqualifiedIn(run: Run): string[] {
-  if (!couldBeCopy(run)) return [];
+  if (!couldBeCopy(run) || isDeadlineColumnHeading(run)) return [];
   const bare: string[] = [];
   for (const match of run.text.matchAll(OCCURRENCE)) {
     if (!QUALIFIER.test(run.text.slice(0, match.index))) {
@@ -237,6 +243,14 @@ describe('the scan, on sources written to fail it', () => {
     expect(runsIn('src/x.tsx', asJsxText).flatMap(unqualifiedIn)).toHaveLength(1);
     expect(runsIn('src/x.tsx', asAttribute).flatMap(unqualifiedIn)).toHaveLength(1);
     expect(runsIn('src/x.ts', acrossAPlus).flatMap(unqualifiedIn)).toHaveLength(1);
+  });
+
+  it('exempts only the exact Deadline column heading', () => {
+    const source = 'const heading = <span>Deadline</span>;\n';
+    expect(
+      runsIn('src/components/wbs/plan-columns/deadline.tsx', source).flatMap(unqualifiedIn),
+    ).toEqual([]);
+    expect(runsIn('src/x.tsx', source).flatMap(unqualifiedIn)).toHaveLength(1);
   });
 
   it('ignores a quoted key even when it reads like a sentence', () => {

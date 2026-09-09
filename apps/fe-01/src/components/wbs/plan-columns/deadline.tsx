@@ -14,7 +14,7 @@ export function createDeadlineColumn({ live }: { live: PlanLive }) {
   return column.display({
     id: 'deadline',
     meta: { isEditable: (row) => row.readings.startDate !== null },
-    header: () => <span>Due</span>,
+    header: () => <span>Deadline</span>,
     cell: ({ row }) => {
       const day = row.original.deadline;
       const noCalendar = row.original.readings.startDate === null;
