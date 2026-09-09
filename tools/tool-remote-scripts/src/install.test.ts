@@ -144,15 +144,14 @@ describe('host-wide solver supervisor contract', () => {
     ).text();
     const declaration = 'export const SOLVER_SUPERVISOR_BUN_VERSIONS';
     const declarationAt = source.indexOf(declaration);
-    const jsdoc = source
-      .slice(0, declarationAt)
-      .match(/\/\*\*[\s\S]*?\*\/\s*$/)?.[0];
+    const jsdoc = /\/\*\*[\s\S]*?\*\/\s*$/.exec(source.slice(0, declarationAt))?.[0];
 
     expect(declarationAt).toBeGreaterThan(-1);
     expect(jsdoc).toBeDefined();
     expect(
-      jsdoc?.includes(SOLVER_SUPERVISOR_BUN) ||
-        jsdoc?.includes('{@link SOLVER_SUPERVISOR_BUN}'),
+      [SOLVER_SUPERVISOR_BUN, '{@link SOLVER_SUPERVISOR_BUN}'].some((spelling) =>
+        jsdoc?.includes(spelling),
+      ),
     ).toBe(true);
     expect(jsdoc).not.toMatch(/\$\{[^}]*\}/);
   });
