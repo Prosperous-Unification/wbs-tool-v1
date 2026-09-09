@@ -710,10 +710,11 @@ describe('how wide the steps make the table', () => {
     // `configurable-columns`: the default column set is the same on every
     // deployment, whatever its directory holds. Teams off pays for Tags on —
     // both 120px — so neither figure moved when `configurable-columns` replaced
-    // the old rule. The **figures themselves** have moved twice since: to 1107
-    // and 1299 when `external-refs` added its column, to 1083 and 1275 when
-    // `depends` paid for it, and to 1035 and 1227 with the narrower drag
-    // column. None of those moves is this test's subject — it is about
+    // the old rule. The **figures themselves** moved to 1107 and 1299 when
+    // `external-refs` added its column, to 1083 and 1275 when `depends` paid
+    // for it, and to 1043 and 1235 when Links became hidden by default. The
+    // narrower drag column made the final 1043 → 1035 and 1235 → 1227 moves.
+    // None of those moves is this test's subject — it is about
     // Teams and Services costing nothing — and the literals are restated rather
     // than relaxed so that a *third* column quietly joining the default set is
     // visible here.
