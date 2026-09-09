@@ -3637,6 +3637,9 @@ test.describe('the marker rule, measured in the columns it paints', () => {
   /** Half the strip's width, in columns either side of the rule. */
   const STRIP_REACH_PX = 6;
 
+  /** Shared-runner noise ceiling, kept below half the smallest full-height line fault. */
+  const BODY_CHANGED_PIXEL_LIMIT = 40;
+
   /** A clip of the chart, as the page can carry it back in. */
   interface Strip {
     readonly x: number;
@@ -3935,16 +3938,20 @@ test.describe('the marker rule, measured in the columns it paints', () => {
         bodyDifference.greatestChannelDelta,
         `at ${String(rung)}px the marker leaves body ink the queried rule does not account for`,
       ).toBeLessThanOrEqual(8);
-      // Two margins, with the bound between them. Three h2puni repeats across
-      // all rungs found eight identical body pairs and one with three changed
-      // pixels at delta 5, so 40 is over thirteen times the observed noise.
+      // Two margins, with the bound between them. Three repeated h2puni browser
+      // cases across all rungs found eight identical body pairs and one with
+      // three changed pixels at delta 5, so 40 is over thirteen times the noise.
       // The smallest fault this axis must catch is one full body-height column:
       // 84 changed pixels at the measured 472x84 body, so 40 remains under half
       // that fault while tolerating shared-runner raster jitter.
       expect(
+        bodyDifference.height,
+        'the body is too short to keep the changed-area ceiling below half a line fault',
+      ).toBeGreaterThan(BODY_CHANGED_PIXEL_LIMIT * 2);
+      expect(
         bodyDifference.changedPixels,
         `at ${String(rung)}px the low-contrast body difference covers too much area`,
-      ).toBeLessThanOrEqual(40);
+      ).toBeLessThanOrEqual(BODY_CHANGED_PIXEL_LIMIT);
       // `ruleInk` is non-empty by `isContiguousRun` above, so the marker really
       // did draw body ink; a second exact-PNG check here would let the same
       // raster jitter satisfy that positive assertion by itself.
