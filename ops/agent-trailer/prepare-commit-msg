@@ -14,9 +14,9 @@
 # Installed through this repository's `lefthook.yml`, which preserves the
 # existing lefthook wrapper while invoking this script at both message stages.
 #
-# agent-trailer-hook-v1 — the installer's ownership signature. A hook carrying
-# this exact line is a copy of this file and may be replaced by a newer one;
-# anything else is somebody else's hook and is refused.
+# agent-trailer-hook-v1 — the hook's provenance signature. This repository's
+# lefthook stages invoke the versioned source directly, so the line is a human-
+# auditable fleet marker rather than permission to replace `.git/hooks` files.
 #
 # This hook must never fail a commit. Every failure path falls through to a
 # clean exit, because a broken measurement is not worth a blocked commit.
@@ -33,6 +33,15 @@ msg_source="${2:-}"
 case "$msg_source" in
 	merge|squash) exit 0 ;;
 esac
+
+# `commit-msg` receives no source argument, so repeat the generated-message
+# decision from repository state. Without this second-stage guard the
+# prepare-commit-msg invocation declines a merge/squash and commit-msg stamps it
+# immediately afterwards.
+for generated_marker in MERGE_HEAD SQUASH_MSG; do
+	generated_path=$(git rev-parse --git-path "$generated_marker" 2>/dev/null) || continue
+	[ -f "$generated_path" ] && exit 0
+done
 
 # Explicit override first, so a wrapper can name the exact model.
 #
@@ -54,6 +63,15 @@ if [ -z "$label" ]; then
 		label="openclaw"
 	fi
 fi
+
+# One bounded trailer value, never another body/trailer line. An explicit
+# override is operational metadata, not free-form commit text; fail silent on
+# control characters, whitespace, punctuation outside model refs, or an
+# unexpectedly long value.
+case "$label" in
+	*[!A-Za-z0-9._/-]*) exit 0 ;;
+esac
+[ "${#label}" -le 64 ] || exit 0
 
 # No agent marker means a human is committing. Say nothing: a false positive
 # here is worse than a missing data point, because it inflates the very number
