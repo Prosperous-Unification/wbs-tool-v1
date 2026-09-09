@@ -1,6 +1,6 @@
 # LLM_README — read this, then only the doc your task needs
 
-TASK-494 browser coverage is on `test/task494-deadline-browser`: PR, green CI, merge, dev deploy, then verify both downloaded formats.
+TASK-305 marker-oracle review follow-up is on `change/marker-pixel-oracle-review`: repeated browser measurement, controlled area fault, full gate, PR, CI, review, merge, deploy.
 **wbs-tool-v1** — collaborative real-time WBS tool. `be-01` (API, Elysia+Drizzle+bun:sqlite, :3100),
 `gw-01` (WS gateway, :3200), `fe-01` (Vite+React, :80 in the image, :4200 under `vite dev`),
 `mcp-01` (MCP server over be-01, stdio, spawned by its client). Nx monorepo, Bun — never npm.
