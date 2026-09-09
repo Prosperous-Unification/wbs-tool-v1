@@ -1,6 +1,6 @@
 # LLM_README — read this, then only the doc your task needs
 
-TASK-364 restored the archived multi-team-engine record in PR #313; its reconciled history and h2puni red/green evidence are in `openspec/changes/archive/2026-09-08-multi-team-engine/verify.md`.
+TASK-299 clean-console follow-up is on `fix/task299-favicon-console` (PR #362): h2puni gate, exact-head reviews, CI, merge, deploy, then two fresh Browser Use Cloud probes.
 
 **wbs-tool-v1** — collaborative real-time WBS tool. `be-01` (API, Elysia+Drizzle+bun:sqlite, :3100),
 `gw-01` (WS gateway, :3200), `fe-01` (Vite+React, :80 in the image, :4200 under `vite dev`),
