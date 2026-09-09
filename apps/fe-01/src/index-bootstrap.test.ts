@@ -72,7 +72,12 @@ beforeEach(() => {
  * `openspec/changes/dark-mode/verify.md`.
  */
 describe('the palette applied before the first paint', () => {
-  itDom('declares a favicon so a first visit does not request the absent default asset', () => {
+  /**
+   * Pins the document mechanism; Browser Use Cloud is the oracle for whether Chromium stays quiet.
+   *
+   * Proof: removing the link at 04a01c63 failed this case on h2puni while the other 14 passed.
+   */
+  itDom('declares the intentional empty favicon', () => {
     const html = readFileSync(indexHtml, 'utf8');
     const parsed = new DOMParser().parseFromString(html, 'text/html');
 
