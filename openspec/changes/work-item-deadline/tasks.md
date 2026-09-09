@@ -614,7 +614,8 @@ effectiveDeadlineOffset`, evaluated on the materialised schedule in the
 - [x] 8.9 TASK-221 copy: `Same deadline + reordered` → `Same project deadline +
 reordered` and `Same deadline + same order` → `Same project deadline + same
 order`, with their tests. A repository assertion that no unqualified
-      "deadline" string remains in shipped UI copy.
+      "deadline" string remains in shipped UI copy outside the exact
+      **Deadline** table heading and matching Columns-control label.
       **Closed both halves.** The rename shipped in PR 246 (`9a1f79e7`) and
       8.9b brought the normative text to it; the assertion is
       `apps/fe-01/src/deadline-copy.test.ts`, and closing it needed the five
