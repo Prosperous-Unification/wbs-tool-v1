@@ -45,6 +45,8 @@ After implementation, the production drag width was explicitly restored to 24px 
 
 While this work was in progress, PRs #365/#366 merged into `main`. Their current main head `a82d437f` was integrated without conflicts. The earlier local results above describe the spacing implementation before that integration; final PR CI verifies the composed tree.
 
+The composed head `46955134` was then checked locally with the related-browser command above plus the hidden-Links case and `NX_DAEMON=false`: all 9 tests passed in 38.3 seconds, using a fresh isolated stack. The final whole-branch reviewer found no critical or important issue and approved the code conditional on full green CI, retaining the explicit nonblocking real-pointer coverage limitation.
+
 Complete CI and merge remain pending. Full workspace test/lint/typecheck/build and the complete Chromium suite will be checked by the PR's `gate` and all four `pixels` shards before merge; the focused checks above do not replace them. Delivery evidence belongs to the PR checks and merge record so this pre-merge verification snapshot does not claim a future result.
 
 ## Failure-proof table
