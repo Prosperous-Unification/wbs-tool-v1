@@ -35,7 +35,7 @@ export interface ClipPixels {
 export interface PixelDifference {
   readonly width: number;
   readonly height: number;
-  readonly differingColumns: number[];
+  readonly differingColumns: readonly number[];
   readonly greatestChannelDelta: number;
   readonly changedPixels: number;
 }
@@ -43,9 +43,11 @@ export interface PixelDifference {
 /**
  * Reduces two same-sized RGBA clips without retaining or copying their pixels.
  *
- * The tuple-shaped argument lets Playwright serialize this self-contained
- * reducer into the page and pass it a handle to decoded pixels. Only this
- * compact result then crosses CDP; the multi-megabyte buffers stay in Chromium.
+ * **This function is serialized into the page by `toString()`. Its body may
+ * reference only ECMAScript globals — never an import, a module constant, or
+ * another function in this file.** The tuple-shaped argument lets Playwright
+ * pass it a handle to decoded pixels. Only this compact result then crosses
+ * CDP; the multi-megabyte buffers stay in Chromium.
  *
  * @throws If the clips are not the same size. A mismatch means either the page
  * reflowed between photographs or a decode canvas kept its default dimensions.
@@ -101,9 +103,10 @@ export function pixelDifference([baseline, after]: readonly [
  * object, so a mismatch means the page reflowed between them or a canvas was
  * left at its default 300×150 — a measurement that did not happen, and a
  * measurement that did not happen must never read as an empty difference.
+ * A named facade over {@link pixelDifference}; the browser tier reads the field directly.
  */
 export function differingColumns(baseline: ClipPixels, after: ClipPixels): number[] {
-  return pixelDifference([baseline, after]).differingColumns;
+  return [...pixelDifference([baseline, after]).differingColumns];
 }
 
 /**
@@ -117,6 +120,7 @@ export function differingColumns(baseline: ClipPixels, after: ClipPixels): numbe
  *
  * @throws If the clips are not the same size. A mismatch means either the page
  * reflowed between photographs or a decode canvas kept its default dimensions.
+ * A named facade over {@link pixelDifference}; the browser tier reads the field directly.
  */
 export function greatestChannelDelta(baseline: ClipPixels, after: ClipPixels): number {
   return pixelDifference([baseline, after]).greatestChannelDelta;
