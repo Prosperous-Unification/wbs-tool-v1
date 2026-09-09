@@ -71,7 +71,6 @@ describe('how far a raster channel moved', () => {
 
     expect(greatestChannelDelta(blankStrip(5, 3), after)).toBe(127);
   });
-
 });
 
 describe('one compact raster comparison', () => {
@@ -148,7 +147,6 @@ describe('what two clips of one strip disagree about', () => {
     // columns move is how the coincident untagged line is caught.
     expect(differingColumns(blankStrip(4, 4), blankStrip(4, 4))).toEqual([]);
   });
-
 });
 
 describe('whether the differing columns are a rule', () => {
