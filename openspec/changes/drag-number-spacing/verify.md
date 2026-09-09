@@ -49,6 +49,25 @@ The composed head `46955134` was then checked locally with the related-browser c
 
 Complete CI and merge remain pending. Full workspace test/lint/typecheck/build and the complete Chromium suite will be checked by the PR's `gate` and all four `pixels` shards before merge; the focused checks above do not replace them. Delivery evidence belongs to the PR checks and merge record so this pre-merge verification snapshot does not claim a future result.
 
+## Full-gate follow-up
+
+PR #367 run `34345854884` at `620d2e5c` exposed a missed derived-width expectation in `e2e/steps.spec.ts:201`. The test waited for `3 steps need ≥1303px`; the retained DOM snapshot showed `3 steps need ≥1295px`. The 8px difference is the intended shared drag-width reduction, also consumed by the steps dialog through `foldedTableMinWidth`. Shard 4 finished with 50 passed, 1 failed and 36 skipped opt-in rendering benchmarks. The failure is not waived or retried unchanged; the remaining affected expectations and the full frontend suite are being verified before the next push.
+
+The complete run was retained rather than cancelled. Its only failed Nx target was `fe-01:test`: 2593 passed and 5 failed, all old width literals (`1711→1703`, `1459→1451`, `1207→1199` twice, `1111→1103`). The other browser shards passed 98, 118 and 54 tests, including the new spacing regression on Linux. The failed Nx stage meant subsequent smoke/lock/secrets/docs/compose/migration/corpus/OpenSpec CI stages did not run; the corrected push must earn those verdicts too.
+
+The browser suite's existing skips were unchanged: 36 opt-in `R10_BASELINE` experiments and the recorded Gantt `dragging up moves the boundary up` `test.fixme`. The pointer-driven row-reorder coverage limitation remains separate from those skips.
+
+Correction `dd94a30d` changes only the four affected frontend test files, retaining independent literal expectations and historical Proof output. All five failures were reproduced in focused component runs before the correction; afterward all 152 affected component tests passed. Later assertions in the two plan tests were corrected too, rather than stopping at their first failure.
+
+The full frontend target was then run, not only its node-unit subset:
+
+```sh
+NX_DAEMON=false HEAVY_LOCK_WAIT_SECONDS=1200 bin/with-heavy-lock.sh -- bunx nx run fe-01:test
+CI=1 E2E_PORT_SHIFT=3900 NX_DAEMON=false HEAVY_LOCK_WAIT_SECONDS=1200 bin/with-heavy-lock.sh -- bun run e2e -- steps.spec.ts
+```
+
+`fe-01:test` passed all 102 UTC files / 2598 tests and both Pacific/Auckland files / 3 tests, exiting 0 in 6m35s. The complete steps browser file passed all 7 Chromium cases in 20.1s. Changed-file lint/format and normal commit hooks passed. Vite's existing between-case WebSocket `EPIPE` noise remained visible. The corrected PR still requires a new full CI verdict before merge.
+
 ## Failure-proof table
 
 | Check                  | Injected fault                                         | Observed outcome                                                                         |
