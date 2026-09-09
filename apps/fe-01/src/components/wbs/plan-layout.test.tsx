@@ -1954,8 +1954,9 @@ describe('the columns a reader has hidden', () => {
       // Unticked for the reason Types is: `work-item-deadline` 9.1 put
       // `deadline` in `INITIAL_HIDDEN_COLUMNS` so the folded table at 1280
       // stays the width it was, and the whole words are here because this
-      // control has the room the 84px `Due` heading does not.
-      { label: 'Work item deadline', checked: false },
+      // control uses the same exact product label as the compact heading.
+      // Proof: with `Work item deadline` this one filtered case failed on this entry.
+      { label: 'Deadline', checked: false },
       { label: 'Start', checked: true },
       { label: 'End', checked: true },
       { label: 'Slack', checked: true },

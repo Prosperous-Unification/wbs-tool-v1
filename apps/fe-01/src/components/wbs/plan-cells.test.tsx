@@ -1303,7 +1303,7 @@ describe('the work item deadline cell', () => {
     await datedPlanWithDeadlineColumn();
 
     // Proof: with the shipped `Due` header this failed at this query after 101/102 cases passed.
-    expect(screen.getByText('Deadline', { selector: 'span' })).toBeVisible();
+    expect(screen.getByRole('columnheader', { name: /^Deadline/ })).toBeVisible();
     expect(screen.getByLabelText('Work item deadline for 010')).toHaveAttribute(
       'data-cell',
       expect.stringMatching(/::deadline$/),
