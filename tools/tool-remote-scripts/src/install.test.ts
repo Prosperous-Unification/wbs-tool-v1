@@ -138,6 +138,21 @@ describe('the install target must build what it ships', () => {
 });
 
 describe('host-wide solver supervisor contract', () => {
+  it('documents the measured Bun path without an uninterpolated placeholder', async () => {
+    const source = await Bun.file(
+      new URL('./lib/solver-supervisor-install-contract.ts', import.meta.url),
+    ).text();
+    const declaration = 'export const SOLVER_SUPERVISOR_BUN_VERSIONS';
+    const declarationAt = source.indexOf(declaration);
+    const jsdocAt = source.lastIndexOf('/**', declarationAt);
+    const jsdoc = source.slice(jsdocAt, declarationAt);
+
+    expect(declarationAt).toBeGreaterThan(-1);
+    expect(jsdocAt).toBeGreaterThan(-1);
+    expect(jsdoc).toContain(SOLVER_SUPERVISOR_BUN);
+    expect(jsdoc).not.toContain('${SOLVER_SUPERVISOR_BUN}');
+  });
+
   it('keeps the singleton artifact and config outside both environment roots', () => {
     for (const layout of [envLayout('prod'), envLayout('dev')]) {
       expect(SOLVER_SUPERVISOR_BUNDLE.remote).not.toStartWith(`${layout.root}/`);
