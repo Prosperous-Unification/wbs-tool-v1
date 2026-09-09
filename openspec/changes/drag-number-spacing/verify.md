@@ -68,6 +68,19 @@ CI=1 E2E_PORT_SHIFT=3900 NX_DAEMON=false HEAVY_LOCK_WAIT_SECONDS=1200 bin/with-h
 
 `fe-01:test` passed all 102 UTC files / 2598 tests and both Pacific/Auckland files / 3 tests, exiting 0 in 6m35s. The complete steps browser file passed all 7 Chromium cases in 20.1s. Changed-file lint/format and normal commit hooks passed. Vite's existing between-case WebSocket `EPIPE` noise remained visible. The corrected PR still requires a new full CI verdict before merge.
 
+The next PR run, `34348412528`, passed the full workspace gate and browser shards 1, 2 and 4, then exposed an existing test-cleanup race in shard 3. The retained trace for `asks be-01 for the schedule the reader picked` shows a routed plan GET beginning before its payload assertion passed, context teardown beginning while that refetch was still active, and the callback later reaching `apiResponse.json()` after Playwright had disposed its `APIResponse`. The observed failure was `apiResponse.json: Response has been disposed`; it was not a spacing failure.
+
+PR #374 / commit `0d2c3c5c` subsequently landed the six-line test-only cleanup on main: the `optimization-cue.spec.ts` describe now awaits `page.unrouteAll({ behavior: 'wait' })` in `afterEach`, matching Playwright's contract to drain active route handlers before page disposal. This records the landed fix, not a landed negative proof. A local temporary experiment held a route for 500ms after `route.fetch()` and returned from its test on the old path; it passed 1/1 while emitting Vite's teardown `EPIPE`, did **not** reproduce `Response has been disposed`, was removed, and is not proof of the cleanup.
+
+Current main `634656b4` was integrated into the corrected branch as composed head `412654d7`. Fresh isolated-browser verification used API 7000, gateway 7100 and frontend 8100:
+
+```sh
+CI=1 E2E_PORT_SHIFT=3900 NX_DAEMON=false HEAVY_LOCK_WAIT_SECONDS=1200 bin/with-heavy-lock.sh -- bun run e2e -- optimization-cue.spec.ts steps.spec.ts
+CI=1 E2E_PORT_SHIFT=3900 NX_DAEMON=false HEAVY_LOCK_WAIT_SECONDS=1200 bin/with-heavy-lock.sh -- bun run e2e -- layout.spec.ts --grep 'keeps the drag handle close'
+```
+
+The complete optimization-cue and steps files passed all 15 Chromium cases in 44.1s; Nx exited 0 in 44.6s. That includes the formerly failing schedule-selection case and the corrected three-step width case. The focused drag-spacing regression passed 1/1 in 12.1s; Nx exited 0 in 12.6s. Existing Vite WebSocket `EPIPE`/`ECONNRESET` teardown noise appeared during the combined run without a Playwright failure. A new full CI verdict and merge remain pending; these focused local runs do not replace them.
+
 ## Failure-proof table
 
 | Check                  | Injected fault                                         | Observed outcome                                                                         |
