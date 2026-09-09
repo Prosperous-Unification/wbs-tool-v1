@@ -197,8 +197,9 @@ test.describe('the steps surface, in a browser', () => {
 
     // The arithmetic the surface prints, while it is still open to print it.
     // 1343 → 1303 with contextual Links: a fresh plan has no references, so
-    // its base layout no longer pays the Links column's 40px folded width.
-    await expect(page.getByText('3 steps need ≥1303px of width to sit side by side')).toBeVisible();
+    // its base layout no longer pays the Links column's 40px folded width. The
+    // narrower drag column then takes the current 8px, 1303 → 1295.
+    await expect(page.getByText('3 steps need ≥1295px of width to sit side by side')).toBeVisible();
     await page.keyboard.press('Escape');
 
     const threeSteps = await columnsOnScreen(page);

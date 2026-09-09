@@ -207,12 +207,13 @@ describe('step columns fold away', () => {
     //
     // The arithmetic it quoted is unchanged and is still pinned in
     // `table-frame.test.ts`: a folded step costs 96px and an unfolded one 348,
-    // so two folded need 1207px, one open 1459 and both open 1711 (1219 →
+    // so two folded need 1199px, one open 1451 and both open 1703 (1219 →
     // 1231 → 1483 → 1735 in `number-column-widen`, 93 → 105 in
     // `COLUMN_WIDTHS`; each 40px larger again in `external-refs`, and each 24
     // back on 2026-08-31 when `depends` paid for that column, 110 → 86), then
-    // each 40px narrower when Links joined the initial hide-list. What changed
-    // at `unfolding-may-scroll` is that the
+    // each 40px narrower when Links joined the initial hide-list and each 8px
+    // narrower when the drag column moved from 24px to 16px. What changed at
+    // `unfolding-may-scroll` is that the
     // third of those is now reachable, and the frame scrolling is what pays
     // for it — `e2e/layout.spec.ts` measures that half.
     await oneRow();
@@ -222,17 +223,17 @@ describe('step columns fold away', () => {
 
     expect(screen.getByLabelText('QA optimistic for 010')).toBeDefined();
     expect(screen.getByLabelText('Dev optimistic for 010')).toBeDefined();
-    expect(screen.getByRole('table').style.minWidth).toBe('1711px');
+    expect(screen.getByRole('table').style.minWidth).toBe('1703px');
 
     // Folding one leaves the other open, rather than leaving nothing open.
     fireEvent.click(screen.getByRole('button', { name: 'Fold QA estimates' }));
     expect(screen.queryByLabelText('QA optimistic for 010')).toBeNull();
     expect(screen.getByLabelText('Dev optimistic for 010')).toBeDefined();
-    expect(screen.getByRole('table').style.minWidth).toBe('1459px');
+    expect(screen.getByRole('table').style.minWidth).toBe('1451px');
 
     fireEvent.click(screen.getByRole('button', { name: 'Fold Dev estimates' }));
     expect(screen.queryByLabelText('Dev optimistic for 010')).toBeNull();
-    expect(screen.getByRole('table').style.minWidth).toBe('1207px');
+    expect(screen.getByRole('table').style.minWidth).toBe('1199px');
   });
 
   itDom('says what the fold button does, which is no longer hiding the assignee', async () => {
