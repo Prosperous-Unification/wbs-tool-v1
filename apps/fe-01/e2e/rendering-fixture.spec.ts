@@ -3,6 +3,12 @@ import { expect, test } from '@playwright/test';
 import { createProject } from './create-project';
 import { renderingGeometry, renderingRequest, seedRenderingPlan } from './rendering-fixture';
 
+test.afterEach(async ({ page }) => {
+  // Wait for route.fetch() and response.json() before Playwright tears down
+  // the page and disposes the handler's APIResponse underneath that read.
+  await page.unrouteAll({ behavior: 'wait' });
+});
+
 test('rendering setup reports an actual backend refusal', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();
