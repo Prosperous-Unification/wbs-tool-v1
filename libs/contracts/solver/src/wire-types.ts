@@ -126,6 +126,7 @@ export interface SolverEdge {
 
 /** `#/$defs/slice`. Every member is required; two of them are nullable. */
 export const SOLVER_SLICE_KEYS = [
+  'workItemKey',
   'key',
   'durationUnits',
   'width',
@@ -134,8 +135,11 @@ export const SOLVER_SLICE_KEYS = [
   'priorityWeight',
   'notBeforeUnits',
   'deadlineUnits',
+  'workItemIsMilestone',
 ] as const;
 export interface SolverSlice {
+  /** Opaque work-item identity, carried separately so consumers never parse {@link key}. */
+  readonly workItemKey: string;
   readonly key: string;
   readonly durationUnits: number;
   /** People, so at least 1: duration is effort divided by width and 0 is Infinity days. */
@@ -147,6 +151,8 @@ export interface SolverSlice {
   readonly notBeforeUnits: number;
   /** The **effective** deadline, already folded over the tree. `null` is unconstrained. */
   readonly deadlineUnits: number | null;
+  /** True only when every slice of this work item has zero duration. */
+  readonly workItemIsMilestone: boolean;
 }
 
 /**

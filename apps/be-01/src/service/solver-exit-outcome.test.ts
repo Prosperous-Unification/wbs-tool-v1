@@ -160,6 +160,7 @@ describe('evaluateSolverOutcome', () => {
       slices: deadlined.request.slices.map((slice) => ({
         ...slice,
         durationUnits: 0,
+        workItemIsMilestone: true,
         notBeforeUnits: 1,
         deadlineUnits,
       })),

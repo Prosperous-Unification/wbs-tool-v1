@@ -9,7 +9,7 @@ import type { SolverRequest } from './wire-types';
  * The pin between `SCHEDULER_CONTRACT_VERSION` and the corpus that already
  * spends it.
  *
- * Both request fixtures carry `"8+0.1.1"`, so a domain or solver bump that
+ * Both request fixtures carry `"9+0.1.3"`, so a domain or solver bump that
  * forgets the corpus makes every one of them wrong. They were checked in at
  * `"7+0.1.0"` before the constant existed, and this test is what has moved them
  * with it since. Written as a

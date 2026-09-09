@@ -208,6 +208,7 @@ test.describe('the project settings control, in a browser', () => {
         response.request().method() === 'POST' &&
         response.url().includes('/commands') &&
         (response.request().postData() ?? '').includes('"kind":"patchWorkItem"') &&
+        (response.request().postData() ?? '').includes(longWorkItemName) &&
         response.ok(),
     );
     await name.fill(longWorkItemName);
@@ -215,10 +216,22 @@ test.describe('the project settings control, in a browser', () => {
     await nameSaved;
     await expect(name).toHaveValue(longWorkItemName);
 
+    let resolvePersistedName: (name: string | undefined) => void = () => undefined;
+    const persistedName = new Promise<string | undefined>((resolve) => {
+      resolvePersistedName = resolve;
+    });
     await page.route('**/api/projects/*/work-items', async (route) => {
+      // Only reads are synthetic. The long name above is a real persisted
+      // command round trip; startDate and optimization below are renderer
+      // fixtures because this is a layout/keyboard case, not a solver e2e.
+      if (route.request().method() !== 'GET') {
+        await route.continue();
+        return;
+      }
       const response = await route.fetch();
       const plan = (await response.json()) as PlanRead;
-      const first = plan.workItems[0];
+      const first = plan.workItems.at(0);
+      const firstId = first?.id ?? 'missing-persisted-work-item';
       const optimization: PlanOptimizationView = {
         enabled: true,
         engine: 'optimized',
@@ -229,13 +242,13 @@ test.describe('the project settings control, in a browser', () => {
         budgetMs: 60_000,
         displayed: 'fast',
         variants: {
-          pri: { state: 'ready' },
+          pri: { state: 'ready', proof: 'proven' },
           time: {
             state: 'plan-infeasible',
             items: [
               {
-                ownerWorkItemId: first.id,
-                boundWorkItemId: first.id,
+                ownerWorkItemId: firstId,
+                boundWorkItemId: firstId,
                 effectiveDeadlineOffset: 4,
               },
             ],
@@ -248,10 +261,18 @@ test.describe('the project settings control, in a browser', () => {
         sameOrderAsFast: { pri: true },
       };
       await route.fulfill({ response, json: { ...plan, startDate: '2026-09-07', optimization } });
+      resolvePersistedName(first?.name);
     });
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.reload();
+    // The route must settle first. An assertion inside its callback leaves the
+    // request unresolved and hides this diagnostic behind a navigation timeout.
+    const reloadedName = await persistedName;
+    expect(reloadedName, 'the persisted plan has no first work item').toBeDefined();
+    expect(reloadedName, 'the long-name command was not persisted before reload').toBe(
+      longWorkItemName,
+    );
     await expect(page.getByRole('article', { name: 'Work item 010' })).toBeVisible();
 
     const cue = page.locator('[data-optimization-cue]');
@@ -274,11 +295,13 @@ test.describe('the project settings control, in a browser', () => {
     await expect(card).toBeVisible();
     const described = (await pill.getAttribute('aria-describedby'))?.split(/\s+/) ?? [];
     expect(described).toContain('hint-card');
-    // The row's own name is in the card, with the work item deadline it cannot
-    // meet — this row's name being 192 characters of one unbroken token, which
-    // is what a card has to be able to wrap.
+    // Proof: before the persisted-write wait, CI's first complete pixels run
+    // was red 1/294 here: the 192-character locator was absent and the snapshot
+    // showed an empty textbox plus an orphan deadline bullet. The row's own
+    // name is in the card now, with the effective workday deadline it cannot
+    // meet — one unbroken token, which is what the overflow checks exercise.
     await expect(card).toContainText(longWorkItemName);
-    await expect(card).toContainText('Work item deadline 11 Sep');
+    await expect(card).toContainText('Work item deadline (effective workday) 11 Sep');
     const overflow = await card.evaluate((element) => ({
       clientWidth: element.clientWidth,
       scrollWidth: element.scrollWidth,

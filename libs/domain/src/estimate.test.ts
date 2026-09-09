@@ -12,6 +12,7 @@ import {
   finalDays,
   isEstimateMethod,
   isEstimateRounding,
+  MAX_ESTIMATE_DAYS,
   PertWeights,
   ThreePointEstimate,
 } from './estimate';
@@ -35,6 +36,31 @@ describe('ThreePointEstimate', () => {
       pessimistic: 1.5,
     });
     expect(v.optimistic).toBe(0.5);
+  });
+
+  it('ends at the largest duration one solver slice can represent', () => {
+    expect(MAX_ESTIMATE_DAYS).toBe(44_739_242);
+    expect(
+      parseOrThrow(ThreePointEstimate, {
+        optimistic: MAX_ESTIMATE_DAYS,
+        realistic: MAX_ESTIMATE_DAYS,
+        pessimistic: MAX_ESTIMATE_DAYS,
+      }).realistic,
+    ).toBe(MAX_ESTIMATE_DAYS);
+    expect(() =>
+      parseOrThrow(ThreePointEstimate, {
+        optimistic: MAX_ESTIMATE_DAYS + 1,
+        realistic: MAX_ESTIMATE_DAYS + 1,
+        pessimistic: MAX_ESTIMATE_DAYS + 1,
+      }),
+    ).toThrow(ValidationError);
+    expect(() =>
+      parseOrThrow(ThreePointEstimate, {
+        optimistic: 4_000_000_000,
+        realistic: 4_000_000_000,
+        pessimistic: 4_000_000_000,
+      }),
+    ).toThrow(ValidationError);
   });
 });
 

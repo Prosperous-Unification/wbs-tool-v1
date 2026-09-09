@@ -68,8 +68,12 @@ export function buildSolverSlices(
   slices: readonly Slice[],
   leaf: LeafConstraintMaps,
 ): readonly SolverSlice[] {
+  const durations = slices.map(durationUnits);
+  const workItemsWithDuration = new Set(
+    slices.filter((_, at) => durations[at] > 0).map((slice) => slice.workItemId),
+  );
   const seen = new Set<string>();
-  return slices.map((slice) => {
+  return slices.map((slice, at) => {
     const key = sliceKey(slice.workItemId, slice.stepId);
     if (seen.has(key)) {
       // `offsets`, `baselineOffsets` and `fastHint` are all keyed by this
@@ -99,8 +103,11 @@ export function buildSolverSlices(
     }
 
     return {
+      // Group identity is explicit because `key` is opaque outside this
+      // builder; neither validator may split it to rediscover the work item.
+      workItemKey: slice.workItemId,
       key,
-      durationUnits: durationUnits(slice),
+      durationUnits: durations[at],
       width: slice.width,
       personId: slice.personId,
       // A SET, sorted, because the canonical input must hash stably and
@@ -110,6 +117,9 @@ export function buildSolverSlices(
       priorityWeight: priorityWeightOf(leaf.weights, slice.workItemId),
       notBeforeUnits: notBeforeUnitsOf(leaf.floors, slice.workItemId),
       deadlineUnits: deadlineUnitsOf(leaf.deadlines, slice.workItemId),
+      // A zero step after real work does not extend the projected work-item
+      // span into the next workday. An all-zero work item is itself a milestone.
+      workItemIsMilestone: !workItemsWithDuration.has(slice.workItemId),
     };
   });
 }

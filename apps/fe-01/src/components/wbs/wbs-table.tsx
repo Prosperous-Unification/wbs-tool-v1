@@ -22,7 +22,7 @@ import { type DropZone, zoneFor } from './drag-drop';
 import { cellIn, cellKey, type CellLanding, cellRefOf, focusCellAt } from './editable-grid';
 import { ExternalRefsModal } from './external-refs-modal';
 import { GanttFaultBoundary } from './gantt-fault';
-import { appliedGanttHeight, DAY_PX, GanttPanel } from './gantt-panel';
+import { appliedGanttHeight, DAY_PX, GanttPanel, isoToday } from './gantt-panel';
 import { KeyboardCheatSheet } from './keyboard-cheat-sheet';
 import { logicalGrid } from './logical-grid';
 import { OptimizationCue } from './optimization-cue';
@@ -499,6 +499,18 @@ const PlanHeaderCell = memo(
 );
 
 /**
+ * The reader's local day at noon, stable until the first render after local midnight.
+ *
+ * No timer forces a midnight render: the date is presentation context and the
+ * next ordinary table render refreshes it. Local noon keeps a zone/DST change
+ * from moving the calendar day that {@link shortIsoDate} reads.
+ */
+export function useToday(): Date {
+  const todayIso = isoToday(new Date());
+  return useMemo(() => new Date(`${todayIso}T12:00:00`), [todayIso]);
+}
+
+/**
  * The work breakdown: one grid that is a table and a nested list at once.
  *
  * TanStack Table owns exactly one thing here — which branches are open. Ordering
@@ -518,6 +530,7 @@ export function WbsTable({
   subscribe,
   savedPlansShelf,
 }: WbsTableProps) {
+  const today = useToday();
   const {
     activeProject,
     workItems,
@@ -1779,7 +1792,7 @@ export function WbsTable({
         optimization={chartRead.optimization}
         stale={treeMayBeStale}
         projectStart={startDate}
-        today={new Date()}
+        today={today}
         workItemName={(id) => flat.find((row) => row.id === id)?.name ?? null}
         menuOpen={cueMenuOpen}
         onMenuOpen={() => {

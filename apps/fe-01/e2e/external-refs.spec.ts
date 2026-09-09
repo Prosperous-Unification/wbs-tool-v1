@@ -766,6 +766,77 @@ test.describe('the ref column, in a browser', () => {
     const card = page.getByRole('tooltip', { name: 'Where 010 also exists' });
     await expect(card).toBeVisible();
 
+    // **Walked, not teleported, and that is the whole of this test.**
+    // `locator.hover()` puts the pointer straight on an element's centre, so it
+    // never crosses the card's own 6px padding — and that padding was
+    // `pointer-events: none`, so a real cursor hit-tested the row *beneath* the
+    // card on its way in, fired the cell wrapper's `mouseleave`, and the card
+    // vanished under the hand reaching for it. Dany found it in the running app
+    // on 2026-09-09; this file's `.hover()` had passed over it twice.
+    //
+    // Proof: `takesPointer` taken off `ExternalRefsCard`'s `HoverCard` — this
+    // failed on `the card closed on the way over to it`. Watched 2026-09-09
+    // against **this** design; while a 200ms grace period was still in the cell
+    // (since deleted) the same injection got as far as the padding probe one
+    // assertion later and failed there instead. The guard that is gone was
+    // hiding what this one is for.
+    const cellBox = await page.getByLabel('Links for 010').boundingBox();
+    const cardBox = await card.boundingBox();
+    if (cellBox === null || cardBox === null) throw new Error('no box to walk between');
+    // **The card opens beside the cell**, which is what Dany asked for on
+    // 2026-09-09: _"move the on-hover hint to the right of the cell - so that i
+    // can move my cursor down to look at each item one by one uninterrupted"_.
+    // Its left edge is the cell's right edge, so the pointer crosses straight
+    // from one to the other with nothing in between, and can then walk down the
+    // list without ever leaving the card.
+    //
+    // Proof: `opensSideways` taken off `ExternalRefsCard`'s `HoverCard` — this
+    // failed on `the card does not open beside the cell`. Watched 2026-09-09.
+    expect(Math.round(cardBox.x), 'the card does not open beside the cell').toBeGreaterThanOrEqual(
+      Math.round(cellBox.x + cellBox.width) - 1,
+    );
+    expect(cardBox.y, 'the card is not aligned with its own row').toBeLessThanOrEqual(
+      cellBox.y + 1,
+    );
+    // **Right first, at the cell's own height, and only then down** — which is
+    // both what a hand does and the one path with nothing in between. The card
+    // is taller than the cell, so the region *below* the cell and *left* of the
+    // card belongs to neither: a single diagonal to the card's vertical middle
+    // cuts that corner, and the first version of this test did exactly that and
+    // failed on `the card closed on the way over to it`.
+    await page.mouse.move(cellBox.x + cellBox.width / 2, cellBox.y + cellBox.height / 2);
+    await page.mouse.move(cardBox.x + 2, cellBox.y + cellBox.height / 2, { steps: 8 });
+    await expect(card, 'the card closed on the way over to it').toBeVisible();
+    await page.mouse.move(cardBox.x + 2, cardBox.y + cardBox.height / 2, { steps: 8 });
+    await expect(card, 'the card closed while moving down inside it').toBeVisible();
+    // And the card's own padding is hit-testable, which is the mechanism rather
+    // than the symptom: this is the pixel the cursor fell through before.
+    expect(
+      await page.evaluate(
+        ([x, y]) => {
+          const found = document.querySelector('[role="tooltip"]');
+          const at = document.elementFromPoint(x, y);
+          return found !== null && at !== null && (at === found || found.contains(at));
+        },
+        [cardBox.x + 2, cardBox.y + cardBox.height / 2],
+      ),
+      'the card does not take the pointer in its own padding',
+    ).toBe(true);
+
+    // **And down the list, one item at a time, which is what the placement is
+    // for.** Every step of this stays inside the card. Asserted after **each**
+    // item rather than at the end, because a card that survived the first step
+    // and died on the third would pass a check made only once.
+    const lines = card.locator('[data-refs-card-line]');
+    const many = await lines.count();
+    expect(many, 'a walk down one line proves nothing').toBeGreaterThan(2);
+    for (let at = 0; at < many; at += 1) {
+      const line = await lines.nth(at).boundingBox();
+      if (line === null) throw new Error(`line ${String(at)} has no box`);
+      await page.mouse.move(line.x + 20, line.y + line.height / 2, { steps: 4 });
+      await expect(card, `the card closed while walking to item ${String(at + 1)}`).toBeVisible();
+    }
+
     const name = card.locator('a[data-refs-card-name]').first();
     await name.hover();
     await expect(card, 'the card closed on the way to the link').toBeVisible();

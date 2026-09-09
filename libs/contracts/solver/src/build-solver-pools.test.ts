@@ -4,6 +4,7 @@ import { buildSolverPools, poolIdsNamedBy } from './build-solver-pools';
 import type { SolverSlice } from './wire-types';
 
 const sliceOf = (poolIds: readonly string[]): SolverSlice => ({
+  workItemKey: 'work',
   key: `k${poolIds.join('')}`,
   durationUnits: 48,
   width: 1,
@@ -12,6 +13,7 @@ const sliceOf = (poolIds: readonly string[]): SolverSlice => ({
   priorityWeight: 0,
   notBeforeUnits: 0,
   deadlineUnits: null,
+  workItemIsMilestone: false,
 });
 
 describe('poolIdsNamedBy', () => {

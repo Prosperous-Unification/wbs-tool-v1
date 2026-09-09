@@ -5,7 +5,7 @@
     "A\u0000three": 20
   },
   "budgetMs": 30000,
-  "contractVersion": "8+0.1.1",
+  "contractVersion": "9+0.1.3",
   "edges": [
     {
       "predecessorKey": "A\u0000one",
@@ -28,7 +28,9 @@
   "slices": [
     {
       "deadlineUnits": null,
+      "workItemIsMilestone": false,
       "durationUnits": 10,
+      "workItemKey": "A",
       "key": "A\u0000one",
       "notBeforeUnits": 0,
       "personId": null,
@@ -38,7 +40,9 @@
     },
     {
       "deadlineUnits": null,
+      "workItemIsMilestone": false,
       "durationUnits": 10,
+      "workItemKey": "A",
       "key": "A\u0000two",
       "notBeforeUnits": 0,
       "personId": null,
@@ -48,7 +52,9 @@
     },
     {
       "deadlineUnits": null,
+      "workItemIsMilestone": false,
       "durationUnits": 10,
+      "workItemKey": "A",
       "key": "A\u0000three",
       "notBeforeUnits": 0,
       "personId": null,
@@ -57,7 +63,7 @@
       "width": 5
     }
   ],
-  "solverVersion": "0.1.1",
+  "solverVersion": "0.1.3",
   "stageBudgetSplit": [0.6, 0.25, 0.15],
   "wireVersion": 1
 }

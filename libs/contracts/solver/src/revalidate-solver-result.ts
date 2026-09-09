@@ -278,11 +278,21 @@ export const revalidateSolverResult = (
   response: SolverResponse,
 ): RevalidatedSolverResult => {
   const slices = new Map<string, SolverSlice>();
+  const workItems = new Map<string, SolverSlice[]>();
   for (const slice of request.slices) {
     if (slices.has(slice.key)) {
       return refuse('malformed-request', `duplicate slice key ${JSON.stringify(slice.key)}`);
     }
     slices.set(slice.key, slice);
+    if (typeof slice.workItemKey !== 'string' || slice.workItemKey.length === 0) {
+      return refuse(
+        'malformed-request',
+        `slice ${JSON.stringify(slice.key)} has workItemKey ${JSON.stringify(slice.workItemKey)}`,
+      );
+    }
+    const peers = workItems.get(slice.workItemKey) ?? [];
+    peers.push(slice);
+    workItems.set(slice.workItemKey, peers);
     // The objective arithmetic below converts these three to `bigint`, and
     // `BigInt(1.5)` throws. A re-validator that crashes on a malformed request
     // reports nothing at all, so the domain is proved before it is used.
@@ -293,6 +303,12 @@ export const revalidateSolverResult = (
           `slice ${JSON.stringify(slice.key)} has ${field} ${JSON.stringify(slice[field])}`,
         );
       }
+    }
+    if (typeof slice.workItemIsMilestone !== 'boolean') {
+      return refuse(
+        'malformed-request',
+        `slice ${JSON.stringify(slice.key)} has workItemIsMilestone ${JSON.stringify(slice.workItemIsMilestone)}`,
+      );
     }
     // MOVEMENT is measured against the baseline, so a slice with no baseline is
     // a term that cannot be computed rather than a term that is zero. ONE check
@@ -322,6 +338,19 @@ export const revalidateSolverResult = (
           `slice ${JSON.stringify(slice.key)} draws on pool ${JSON.stringify(poolId)}, which has no capacity`,
         );
       }
+    }
+  }
+  for (const [workItemKey, peers] of workItems) {
+    // Proof: deleting this group comparison admits an all-zero work item whose
+    // flag is false; `an all-zero work item denying that it is a milestone`
+    // observed that acceptance on h2puni 2026-09-09.
+    const isMilestone = peers.every((slice) => slice.durationUnits === 0);
+    const disagrees = peers.find((slice) => slice.workItemIsMilestone !== isMilestone);
+    if (disagrees !== undefined) {
+      return refuse(
+        'malformed-request',
+        `slice ${JSON.stringify(disagrees.key)} has workItemIsMilestone ${JSON.stringify(disagrees.workItemIsMilestone)}, but work item ${JSON.stringify(workItemKey)} milestone fact is ${JSON.stringify(isMilestone)}`,
+      );
     }
   }
   for (const edge of request.edges) {
@@ -484,8 +513,11 @@ export const revalidateSolverResult = (
  * about the seam, not a convenience.
  *
  * The clause is stated on the MATERIALISED schedule in the real fractional
- * domain — `lastWorkdayOf(start, finish) <= effectiveDeadlineOffset` for every
- * slice — and deliberately not in quantised units, because checking it in units
+ * domain. For a work item containing positive work, the projected span's last
+ * occupied day is driven by each slice's finish; a zero step at that finish
+ * does not mint another day. For an all-zero work item, the start is the
+ * milestone's occupied day. Both readings go through {@link isOnTime}, and the
+ * check is deliberately not in quantised units, because checking it in units
  * would re-implement the inclusive-ceiling rounding a second time and could
  * disagree with the End date the column prints. Materialising needs
  * `materialiseOptimized`, and that needs `rows`, `edges`, `slices`,
@@ -534,8 +566,8 @@ export const revalidateOptimizedDeadlines = (
     // not the independent guard either of them is here to be. Without the
     // division below on a non-multiple, the due day is a FRACTION — 49 units is
     // day 1/48 — which `isOnTime` was never written to take, and the CP-SAT
-    // model and this side then disagree about the same placement: `start +
-    // max(duration, 1) <= deadlineUnits` admits it there while
+    // model and this side then disagree about the same placement: `end +
+    // int(workItemIsMilestone) <= deadlineUnits` admits it there while
     // `deadline-violated` refuses it here, naming a plan for a fault in the
     // request and sending the reader to the wrong file.
     const malformedDeadline = refuseMalformedDeadlineUnits(slice);
@@ -548,8 +580,12 @@ export const revalidateOptimizedDeadlines = (
       );
     }
     const dueDay = slice.deadlineUnits / SOLVER_QUANTUM - 1;
-    if (!isOnTime(timing.earliestStart, timing.earliestFinish, dueDay)) {
-      const lastDay = lastWorkdayOf(timing.earliestStart, timing.earliestFinish);
+    // `isOnTime(0, finish, due)` asks which day the work-item span is still on.
+    // Only an all-zero item needs its real start so the instant itself occupies
+    // a day. TASK-501's trailing zero step is the case these two readings split.
+    const deadlineStart = slice.workItemIsMilestone ? timing.earliestStart : 0;
+    if (!isOnTime(deadlineStart, timing.earliestFinish, dueDay)) {
+      const lastDay = lastWorkdayOf(deadlineStart, timing.earliestFinish);
       return refuse(
         'deadline-violated',
         `slice ${JSON.stringify(slice.key)} last works on day ${String(lastDay)}, past its deadline day ${String(dueDay)}`,

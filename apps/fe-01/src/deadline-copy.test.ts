@@ -176,9 +176,19 @@ function runsIn(file: string, source: string): Run[] {
         ts.isEnumMember(node.parent)
           ? node.parent.name === node
           : false;
+      const parent = node.parent;
       const isModuleSpecifier =
-        (ts.isImportDeclaration(node.parent) || ts.isExportDeclaration(node.parent)) &&
-        node.parent.moduleSpecifier === node;
+        ((ts.isImportDeclaration(parent) || ts.isExportDeclaration(parent)) &&
+          parent.moduleSpecifier === node) ||
+        (ts.isCallExpression(parent) &&
+          parent.expression.kind === ts.SyntaxKind.ImportKeyword &&
+          parent.arguments.at(0) === node) ||
+        (ts.isExternalModuleReference(parent) && parent.expression === node) ||
+        (ts.isLiteralTypeNode(parent) &&
+          parent.literal === node &&
+          ts.isImportTypeNode(parent.parent) &&
+          parent.parent.argument === parent) ||
+        (ts.isModuleDeclaration(parent) && parent.name === node);
       if (!isQuotedKey && !isModuleSpecifier) {
         const { line } = tree.getLineAndCharacterOfPosition(node.getStart(tree));
         runs.push({
@@ -336,13 +346,20 @@ describe('the scan, on sources written to fail it', () => {
     expect(runsIn('src/x.ts', source).flatMap(unqualifiedIn)).toEqual([]);
   });
 
-  it('ignores a module specifier even when its path names a deadline module', () => {
+  it('ignores every module specifier while still reading adjacent ordinary copy', () => {
     const source = [
       "import { offset } from '@wbs/domain/deadline-offsets';",
-      "export { offset } from './project deadline adapter';",
+      "export { offset } from './deadline-adapter';",
+      "const lazy = import('./deadline-lazy');",
+      "import deadlinePort = require('./deadline-port');",
+      "type DeadlinePort = import('./deadline-type').Port;",
+      "declare module './deadline-ambient' {}",
+      "const copy = 'Move the deadline.';",
       '',
     ].join('\n');
-    expect(runsIn('src/x.ts', source).flatMap(unqualifiedIn)).toEqual([]);
+    const findings = runsIn('src/x.ts', source).flatMap(unqualifiedIn);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toContain('Move the deadline.');
   });
 
   it('ignores the column ids and cell keys this app is full of', () => {

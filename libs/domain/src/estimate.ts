@@ -3,6 +3,18 @@ import { type } from '@wbs/validation';
 import { snapWorkdays } from './workday';
 
 /**
+ * The largest duration one slice can put on the optimized solver's 48-unit
+ * workday axis without crossing its signed 32-bit horizon.
+ *
+ * This is deliberately a bound on each authored point, even though capacity
+ * can shorten a slice: assignments change after estimates are stored, and a
+ * legal estimate must remain representable when the work returns to one
+ * person. Plans whose individually legal slices overflow in aggregate are
+ * still handled by the solver preflight as a plan-level refusal.
+ */
+export const MAX_ESTIMATE_DAYS = 44_739_242;
+
+/**
  * Three durations in days for one work item and one step.
  *
  * Days, not hours, and fractional days are allowed: half a day is a real
@@ -19,10 +31,13 @@ export const ThreePointEstimate = type({
   realistic: 'number>=0',
   pessimistic: 'number>=0',
 }).narrow((estimate, ctx) => {
-  if (estimate.optimistic <= estimate.realistic && estimate.realistic <= estimate.pessimistic) {
-    return true;
+  if (!(estimate.optimistic <= estimate.realistic && estimate.realistic <= estimate.pessimistic)) {
+    return ctx.mustBe('ordered optimistic <= realistic <= pessimistic');
   }
-  return ctx.mustBe('ordered optimistic <= realistic <= pessimistic');
+  if (estimate.pessimistic > MAX_ESTIMATE_DAYS) {
+    return ctx.mustBe(`no point above ${String(MAX_ESTIMATE_DAYS)} days`);
+  }
+  return true;
 });
 export type ThreePointEstimate = typeof ThreePointEstimate.infer;
 

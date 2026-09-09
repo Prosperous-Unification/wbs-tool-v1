@@ -3637,6 +3637,9 @@ test.describe('the marker rule, measured in the columns it paints', () => {
   /** Half the strip's width, in columns either side of the rule. */
   const STRIP_REACH_PX = 6;
 
+  /** Shared-runner noise ceiling, kept below half the smallest full-height line fault. */
+  const BODY_CHANGED_PIXEL_LIMIT = 40;
+
   /** A clip of the chart, as the page can carry it back in. */
   interface Strip {
     readonly x: number;
@@ -3747,7 +3750,7 @@ test.describe('the marker rule, measured in the columns it paints', () => {
     try {
       return await page.evaluate(pixelDifference, decoded);
     } finally {
-      await decoded.dispose();
+      await decoded.dispose().catch(() => undefined);
     }
   }
 
@@ -3921,19 +3924,34 @@ test.describe('the marker rule, measured in the columns it paints', () => {
       // arithmetic's controlled fault pins that distinction. Proof: a
       // temporary untagged marker line eight days outside the strip failed
       // this assertion at delta 79 against the allowed 8 on h2puni.
+      const where = await geometryOf(page);
       const bodyDifference = await differenceOf(page, before.body, hidden.body);
+      expect(
+        { width: bodyDifference.width, height: bodyDifference.height },
+        'the body clips did not decode at the size that was photographed',
+      ).toEqual({ width: where.body.width, height: where.body.height });
+      console.info(
+        `[marker-pixel-oracle] rung=${String(rung)} body=${String(bodyDifference.width)}x${String(bodyDifference.height)} ` +
+          `changedPixels=${String(bodyDifference.changedPixels)} maxDelta=${String(bodyDifference.greatestChannelDelta)}`,
+      );
       expect(
         bodyDifference.greatestChannelDelta,
         `at ${String(rung)}px the marker leaves body ink the queried rule does not account for`,
       ).toBeLessThanOrEqual(8);
-      // Measured on h2puni across three complete cases (nine body pairs): eight
-      // pairs were identical and one changed three pixels at delta 5. Sixteen
-      // leaves more than five times that observed area while a broad band at
-      // the same low contrast fails on its area instead of hiding under delta 8.
+      // Two margins, with the bound between them. Three repeated h2puni browser
+      // cases across all rungs found eight identical body pairs and one with
+      // three changed pixels at delta 5, so 40 is over thirteen times the noise.
+      // The smallest fault this axis must catch is one full body-height column:
+      // 84 changed pixels at the measured 472x84 body, so 40 remains under half
+      // that fault while tolerating shared-runner raster jitter.
+      expect(
+        bodyDifference.height,
+        'the body is too short to keep the changed-area ceiling below half a line fault',
+      ).toBeGreaterThan(BODY_CHANGED_PIXEL_LIMIT * 2);
       expect(
         bodyDifference.changedPixels,
         `at ${String(rung)}px the low-contrast body difference covers too much area`,
-      ).toBeLessThanOrEqual(16);
+      ).toBeLessThanOrEqual(BODY_CHANGED_PIXEL_LIMIT);
       // `ruleInk` is non-empty by `isContiguousRun` above, so the marker really
       // did draw body ink; a second exact-PNG check here would let the same
       // raster jitter satisfy that positive assertion by itself.

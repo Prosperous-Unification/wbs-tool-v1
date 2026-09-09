@@ -73,8 +73,20 @@ export function createRefsColumn({ live }: { live: PlanLive }) {
           // already was.
           style={{ position: 'absolute', inset: 0, display: 'block' }}
           onMouseLeave={() => {
-            // The same-cell guard every surface here clears with: a leave
-            // fires after the enter of whatever the pointer moved on to.
+            // Cleared the instant the pointer leaves, with no grace period —
+            // **and a grace period was written, measured and deleted.** It
+            // existed because a card *under* this 40px cell is reached by a path
+            // that leaves the cell sideways first, so the card closed under the
+            // hand reaching for it. Opening the card **beside** the cell removed
+            // the gap instead of covering it: the card's left edge is the cell's
+            // right edge, so the pointer crosses straight onto it and then walks
+            // down the list without ever leaving this wrapper. With the card
+            // beside the cell the whole timer could be taken out and
+            // `e2e/external-refs.spec.ts`'s walk still passed, which is the one
+            // reason to delete a guard rather than keep it.
+            //
+            // The same-cell guard stays: a leave fires after the enter of
+            // whatever the pointer moved on to.
             live.current.cellCards.updateHovered((current) =>
               current === refsCell ? null : current,
             );

@@ -2987,6 +2987,7 @@ describe('the links column', () => {
     await screen.findByRole('tooltip', { name: 'Where 010 also exists' });
 
     expect(Number(cell().style.zIndex)).toBe(POPOVER_ROW_LAYER);
+
     fireEvent.mouseLeave(screen.getByLabelText('Links for 010'));
     expect(cell().style.zIndex).toBe('1');
   });

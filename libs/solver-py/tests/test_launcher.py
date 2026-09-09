@@ -75,7 +75,7 @@ class LauncherProcess(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         # Proof: restoring `__version__ = "0.1.0"` failed here with
         # `b'0.1.0\n' != b'0.1.1\n'`; watched 2026-09-07.
-        self.assertEqual(done.stdout, b"0.1.1\n")
+        self.assertEqual(done.stdout, b"0.1.3\n")
 
     def test_bound_execs_the_solver_without_consuming_its_request(self) -> None:
         request = b'{"wireVersion":1}\n'

@@ -35,13 +35,22 @@ case "$msg_source" in
 esac
 
 # `commit-msg` receives no source argument, so repeat the generated-message
-# decision from repository state. Without this second-stage guard the
-# prepare-commit-msg invocation declines a merge/squash and commit-msg stamps it
-# immediately afterwards.
-for generated_marker in MERGE_HEAD SQUASH_MSG; do
-	generated_path=$(git rev-parse --git-path "$generated_marker" 2>/dev/null) || continue
-	[ -f "$generated_path" ] && exit 0
-done
+# decision from repository state. MERGE_HEAD exists only while the merge is in
+# progress. SQUASH_MSG can be left behind by an interrupted workflow, though,
+# so its mere presence is not enough: only the message Git actually copied from
+# that marker is generated. A later explicit message must still be attributed.
+merge_head=$(git rev-parse --git-path MERGE_HEAD 2>/dev/null) || merge_head=""
+[ -n "$merge_head" ] && [ -f "$merge_head" ] && exit 0
+squash_msg=$(git rev-parse --git-path SQUASH_MSG 2>/dev/null) || squash_msg=""
+if [ -n "$squash_msg" ] && [ -f "$squash_msg" ]; then
+	# prepare-commit-msg may append its editor template comments after copying
+	# SQUASH_MSG, and verbose mode appends a diff below Git's scissors line.
+	# Compare the effective messages above that line. If the committer edits the
+	# squash text, that new message is authored and should be attributed.
+	message_body=$(awk 'index($0, "------------------------ >8 ------------------------") { exit } { print }' "$msg_file" 2>/dev/null | git stripspace --strip-comments 2>/dev/null) || message_body=""
+	squash_body=$(git stripspace --strip-comments <"$squash_msg" 2>/dev/null) || squash_body=""
+	[ -n "$squash_body" ] && [ "$message_body" = "$squash_body" ] && exit 0
+fi
 
 # Explicit override first, so a wrapper can name the exact model.
 #
@@ -51,7 +60,14 @@ done
 # commits by hand, and stamping them inflates the number this trailer exists to
 # measure. `CLAUDECODE`, `CODEX_SANDBOX` and `GEMINI_CLI` are set by the CLI for
 # the duration of its own process; API keys and home directories are not.
+# Reject an unsafe override as an override, not as the whole attribution
+# attempt. A valid process marker below is still trustworthy and must be used.
 label="${AGENT_AUTHORED_BY:-}"
+case "$label" in
+	*[!A-Za-z0-9._/-]*) label="" ;;
+esac
+[ "${#label}" -le 64 ] || label=""
+
 if [ -z "$label" ]; then
 	if [ -n "${CLAUDECODE:-}${CLAUDE_CODE_ENTRYPOINT:-}" ]; then
 		label="claude-code"
@@ -64,10 +80,8 @@ if [ -z "$label" ]; then
 	fi
 fi
 
-# One bounded trailer value, never another body/trailer line. An explicit
-# override is operational metadata, not free-form commit text; fail silent on
-# control characters, whitespace, punctuation outside model refs, or an
-# unexpectedly long value.
+# One bounded trailer value, never another body/trailer line. Keep a final
+# validation boundary even though detected labels are fixed constants.
 case "$label" in
 	*[!A-Za-z0-9._/-]*) exit 0 ;;
 esac

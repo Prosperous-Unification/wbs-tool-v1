@@ -44,7 +44,7 @@ const SUGGESTING: PlanOptimizationView = {
   contractVersion: '1.5+e2e',
   budgetMs: 60_000,
   displayed: 'fast',
-  variants: { pri: { state: 'ready' }, time: { state: 'pending' } },
+  variants: { pri: { state: 'ready', proof: 'proven' }, time: { state: 'pending' } },
   finishDays: { fast: 10, pri: 7 },
   sameOrderAsFast: { pri: true },
 };
@@ -104,6 +104,12 @@ async function boxOf(page: Page, selector: string): Promise<DOMRect> {
 }
 
 test.describe('the schedule cue, in a browser', () => {
+  test.afterEach(async ({ page }) => {
+    // Wait for route.fetch() and response.json() before Playwright tears down
+    // the page and disposes the handler's APIResponse underneath that read.
+    await page.unrouteAll({ behavior: 'wait' });
+  });
+
   test('stands inside the toolbar row and takes the saving with it', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await planWithACue(page);
@@ -317,7 +323,10 @@ test.describe('the schedule cue, in a browser', () => {
       ...SUGGESTING,
       engine: 'optimized',
       displayed: 'pri',
-      variants: { pri: { state: 'ready' }, time: { state: 'ready' } },
+      variants: {
+        pri: { state: 'ready', proof: 'proven' },
+        time: { state: 'ready', proof: 'proven' },
+      },
       finishDays: { fast: 10, pri: 7, time: 10 },
       sameOrderAsFast: { pri: true, time: true },
     });

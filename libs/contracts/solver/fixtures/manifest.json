@@ -21,6 +21,12 @@
       "why": "A width is people; schedule.ts:478 refuses 0 because duration is effort divided by width and 0 is Infinity days."
     },
     {
+      "file": "request/invalid-missing-work-item-key.json",
+      "branch": "request",
+      "valid": false,
+      "why": "workItemKey is required independently of the opaque slice key so consumers can group slices without parsing that key."
+    },
+    {
       "file": "request/invalid-fractional-width.json",
       "branch": "request",
       "valid": false,

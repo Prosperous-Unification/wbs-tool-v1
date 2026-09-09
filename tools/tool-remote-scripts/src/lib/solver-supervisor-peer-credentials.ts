@@ -56,7 +56,7 @@ function linuxGetsockopt(
 
 /**
  * Reads Linux's kernel-authenticated pid/uid/gid from one accepted Unix socket.
- * Bun 1.3.14 exposes the accepted fd at runtime (verified on h2puni) although
+ * Bun 1.4.2 exposes the accepted fd at runtime (verified on h2puni) although
  * its Socket declaration omits the property, so Reflect.get is validated and
  * fails closed if that runtime contract changes.
  */

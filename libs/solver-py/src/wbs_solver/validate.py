@@ -188,7 +188,7 @@ def check_cross_field(request: dict[str, Any]) -> None:
 
     # TASK-329 AC #1. `deadlineUnits` is `(D + 1) x quantum`, so a value that is
     # not a multiple names no day at all — the due day `deadlineUnits / quantum
-    # - 1` is a fraction, and the model's `start + max(duration, 1) <=
+    # - 1` is a fraction, and the model's `end + int(workItemIsMilestone) <=
     # deadlineUnits` would then admit a placement Bun's `isOnTime` refuses.
     # Stated against THIS REQUEST'S OWN `quantum`, not against a literal, which
     # is what makes it a cross-field check and what makes it survive a wire
@@ -209,7 +209,9 @@ def check_cross_field(request: dict[str, Any]) -> None:
     # `0` stays legal: it is the unmeetable-deadline sentinel, and zero is a
     # multiple of every quantum, so no exemption is written here.
     quantum = request["quantum"]
+    work_items: dict[str, list[dict[str, Any]]] = {}
     for index, slice_ in enumerate(request["slices"]):
+        work_items.setdefault(slice_["workItemKey"], []).append(slice_)
         deadline_units = slice_.get("deadlineUnits")
         if deadline_units is None:
             continue
@@ -218,6 +220,19 @@ def check_cross_field(request: dict[str, Any]) -> None:
                 f"slices[{index}].deadlineUnits {deadline_units} is not a multiple of "
                 f"quantum {quantum}"
             )
+
+    for work_item_key, slices in work_items.items():
+        # Proof: deleting this group comparison admits an all-zero work item
+        # whose flag is false; `test_an_all_zero_work_item_cannot_deny...`
+        # observed that acceptance on h2puni 2026-09-09.
+        is_milestone = all(slice_["durationUnits"] == 0 for slice_ in slices)
+        for slice_ in slices:
+            if slice_["workItemIsMilestone"] != is_milestone:
+                raise RequestRejected(
+                    f"slice {slice_['key']!r} has workItemIsMilestone "
+                    f"{slice_['workItemIsMilestone']!r}, but work item "
+                    f"{work_item_key!r} milestone fact is {is_milestone!r}"
+                )
 
     # Invariant 8, last because everything above is about ONE STATED FIELD —
     # its shape, or the number it names — and this one is about a product

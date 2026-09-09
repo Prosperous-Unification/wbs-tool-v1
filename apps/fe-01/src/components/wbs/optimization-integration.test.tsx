@@ -29,7 +29,7 @@ const OPTIMIZATION_BASE: PlanOptimizationView = {
   contractVersion: '1.5+test',
   budgetMs: 60_000,
   displayed: 'pri',
-  variants: { pri: { state: 'ready' }, time: { state: 'idle' } },
+  variants: { pri: { state: 'ready', proof: 'proven' }, time: { state: 'idle' } },
   finishDays: { fast: 10 },
   sameOrderAsFast: {},
 };

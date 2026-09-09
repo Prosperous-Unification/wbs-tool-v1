@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ProjectApi } from '@/lib/wbs-api';
@@ -7,7 +7,7 @@ import { recordCalls } from '@/testing/record-calls';
 
 import { hintFor } from './column-hints';
 import type * as TableFrameModule from './table-frame';
-import { WbsTable } from './wbs-table';
+import { useToday, WbsTable } from './wbs-table';
 
 // fe-01 tests require jsdom; only Vitest provides it. Skip under plain `bun test`.
 const hasDom = typeof document !== 'undefined';
@@ -253,6 +253,32 @@ async function threeRoots() {
 }
 
 describe('the WBS table', () => {
+  itDom(
+    'keeps today stable within a local day and refreshes on the first render after midnight',
+    () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 8, 9, 23, 59, 59));
+      try {
+        const held = renderHook(() => useToday());
+        const beforeMidnight = held.result.current;
+
+        held.rerender();
+        expect(held.result.current).toBe(beforeMidnight);
+
+        vi.setSystemTime(new Date(2026, 8, 10, 0, 0, 1));
+        held.rerender();
+        expect(held.result.current).not.toBe(beforeMidnight);
+        expect(held.result.current).toEqual(new Date(2026, 8, 10, 12));
+
+        const afterMidnight = held.result.current;
+        held.rerender();
+        expect(held.result.current).toBe(afterMidnight);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
   itDom('types a three-level breakdown without touching the mouse', async () => {
     const api = fakeApi();
     render(<WbsTable projectId="p1" api={api} />);

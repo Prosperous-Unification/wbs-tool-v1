@@ -1124,7 +1124,10 @@ export interface ProjectOptimizationPatch {
 }
 
 export type OptimizationVariantView =
-  | { readonly state: 'ready' }
+  | {
+      readonly state: 'ready';
+      readonly proof: 'proven' | 'incomplete' | 'quantisation-floor';
+    }
   | { readonly state: 'pending' }
   | { readonly state: 'retrying' }
   | {

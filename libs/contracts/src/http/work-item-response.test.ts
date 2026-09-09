@@ -194,7 +194,7 @@ test('checks the optional optimization projection and every variant state', asyn
     budgetMs: 60_000,
     displayed: 'pri',
     variants: {
-      pri: { state: 'ready' },
+      pri: { state: 'ready', proof: 'proven' },
       time: {
         state: 'plan-infeasible',
         items: [{ ownerWorkItemId: 'owner', boundWorkItemId: 'bound', effectiveDeadlineOffset: 4 }],

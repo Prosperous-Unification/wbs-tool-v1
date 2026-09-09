@@ -8,6 +8,7 @@ import {
 } from './install-solver-supervisor';
 import {
   SOLVER_SUPERVISOR_BUN,
+  SOLVER_SUPERVISOR_BUN_SOURCE,
   SOLVER_SUPERVISOR_BUN_VERSIONS,
   SOLVER_SUPERVISOR_BUNDLE,
   SOLVER_SUPERVISOR_CONFIG,
@@ -16,7 +17,7 @@ import {
 
 const IMAGE = `registry.example/wbs-be@sha256:${'a'.repeat(64)}`;
 const SOCKET = '/run/user/1000/wbs-solver/supervisor.sock';
-const MEASURED_BUN_VERSIONS = ['1.2.20', '1.4.2'] as const;
+const MEASURED_BUN_VERSIONS = ['1.4.2'] as const;
 const CONFIG = JSON.stringify({
   socketPath: SOCKET,
   maxSearchWorkers: 2,
@@ -44,14 +45,22 @@ describe('parseSolverSupervisorInstallArgs', () => {
 describe('buildSolverSupervisorInstallPlan', () => {
   it('preflights before staging and reloads only after atomic publication', () => {
     const plan = buildSolverSupervisorInstallPlan('h2puni', '/work/config.json', SOCKET);
-    expect(plan[0]?.argv).toEqual(['ssh', 'h2puni', `${SOLVER_SUPERVISOR_BUN} --version`]);
+    expect(plan[0]?.argv).toEqual([SOLVER_SUPERVISOR_BUN_SOURCE, '--version']);
     expect(plan.filter((step) => step.argv[0] === 'scp').map((step) => step.argv[2])).toEqual([
+      `h2puni:${SOLVER_SUPERVISOR_BUN}.tmp`,
       `h2puni:${SOLVER_SUPERVISOR_BUNDLE.remote}.tmp`,
       `h2puni:${SOLVER_SUPERVISOR_CONFIG}.tmp`,
       `h2puni:${SOLVER_SUPERVISOR_UNIT}.tmp`,
     ]);
     expect(plan.findIndex((step) => step.description.includes('atomically publish'))).toBeLessThan(
       plan.findIndex((step) => step.description.includes('reload the user service manager')),
+    );
+    const publish = plan.find((step) => step.description.includes('atomically publish'));
+    const bunMove = `mv ${SOLVER_SUPERVISOR_BUN}.tmp ${SOLVER_SUPERVISOR_BUN}`;
+    const unitMove = `mv ${SOLVER_SUPERVISOR_UNIT}.tmp ${SOLVER_SUPERVISOR_UNIT}`;
+    expect(publish?.argv.at(-1)).toContain(bunMove);
+    expect(publish?.argv.at(-1)?.indexOf(bunMove)).toBeLessThan(
+      publish?.argv.at(-1)?.indexOf(unitMove) ?? -1,
     );
     expect(plan.at(-1)?.argv.join(' ')).toContain(`test -S ${SOCKET}`);
   });
@@ -60,14 +69,20 @@ describe('buildSolverSupervisorInstallPlan', () => {
 function dependencies(
   config: string,
   seen: string[],
-  bunVersion = '1.2.20\n',
+  bunVersion = '1.4.2\n',
+  stagedBunVersion = bunVersion,
 ): SolverSupervisorInstallerDependencies {
   return {
     read: () => Promise.resolve(new TextEncoder().encode(config)),
     exists: () => Promise.resolve(true),
     command: (argv) => {
-      seen.push(argv.join(' '));
-      return Promise.resolve({ code: 0, stdout: bunVersion, stderr: '' });
+      const command = argv.join(' ');
+      seen.push(command);
+      const stdout =
+        command === `ssh h2puni ${SOLVER_SUPERVISOR_BUN}.tmp --version`
+          ? stagedBunVersion
+          : bunVersion;
+      return Promise.resolve({ code: 0, stdout, stderr: '' });
     },
     verify: (_host, files) => {
       seen.push(`verify ${files.map((file) => file.remote).join(' ')}`);
@@ -127,8 +142,34 @@ describe('installSolverSupervisor', () => {
         dependencies(CONFIG, seen, '1.3.13\n'),
       ),
     );
-    expect(error.message).toContain('requires /usr/local/bin/bun at 1.2.20, 1.4.2');
-    expect(seen).toEqual([`ssh h2puni ${SOLVER_SUPERVISOR_BUN} --version`]);
+    expect(error.message).toContain(`requires ${SOLVER_SUPERVISOR_BUN_SOURCE} at 1.4.2`);
+    expect(seen).toEqual([`${SOLVER_SUPERVISOR_BUN_SOURCE} --version`]);
+  });
+
+  it('rejects Bun 1.2.20, whose shipped listener exposes no accepted socket fd', async () => {
+    const seen: string[] = [];
+    const error = await rejectionOf(
+      installSolverSupervisor(
+        { host: 'h2puni', execute: true, config: '/work/config.json' },
+        dependencies(CONFIG, seen, '1.2.20\n'),
+      ),
+    );
+    expect(error.message).toContain('got 1.2.20');
+    expect(seen).toEqual([`${SOLVER_SUPERVISOR_BUN_SOURCE} --version`]);
+  });
+
+  it('rejects a staged runtime changed after preflight before publication', async () => {
+    const seen: string[] = [];
+    const error = await rejectionOf(
+      installSolverSupervisor(
+        { host: 'h2puni', execute: true, config: '/work/config.json' },
+        dependencies(CONFIG, seen, '1.4.2\n', '1.2.20\n'),
+      ),
+    );
+    expect(error.message).toContain('got 1.2.20');
+    expect(seen).toContain(`ssh h2puni ${SOLVER_SUPERVISOR_BUN}.tmp --version`);
+    expect(seen.some((entry) => entry.includes(`mv ${SOLVER_SUPERVISOR_BUN}.tmp`))).toBe(false);
+    expect(seen.some((entry) => entry.includes('systemctl'))).toBe(false);
   });
 
   // Membership alone is vacuous: without this, either entry could be dropped or
@@ -142,8 +183,12 @@ describe('installSolverSupervisor', () => {
         { host: 'h2puni', execute: true, config: '/work/config.json' },
         dependencies(CONFIG, seen, `${version}\n`),
       );
-      expect(seen[0]).toBe(`ssh h2puni ${SOLVER_SUPERVISOR_BUN} --version`);
+      expect(seen[0]).toBe(`${SOLVER_SUPERVISOR_BUN_SOURCE} --version`);
       expect(seen.some((entry) => entry.includes('install -d'))).toBe(true);
+      expect(seen).toContain(
+        `scp ${SOLVER_SUPERVISOR_BUN_SOURCE} h2puni:${SOLVER_SUPERVISOR_BUN}.tmp`,
+      );
+      expect(seen).toContain(`ssh h2puni ${SOLVER_SUPERVISOR_BUN}.tmp --version`);
     },
   );
 
@@ -157,6 +202,7 @@ describe('installSolverSupervisor', () => {
     const reload = seen.findIndex((entry) => entry.includes('daemon-reload'));
     expect(verify).toBeGreaterThan(seen.findIndex((entry) => entry.includes('chmod 0755')));
     expect(verify).toBeLessThan(reload);
+    expect(seen[verify]).toContain(SOLVER_SUPERVISOR_BUN);
     expect(seen.at(-1)).toContain(`test -S ${SOCKET}`);
   });
 });

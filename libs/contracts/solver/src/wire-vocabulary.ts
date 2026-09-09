@@ -386,7 +386,7 @@ export const NEIGHBOUR_VOCABULARIES: readonly Vocabulary[] = [
     name: 'domain-slice',
     members: new Set(['workItemId', 'stepId', 'days', 'personId', 'width', 'poolIds']),
     source:
-      "libs/domain/src/schedule.ts:31 — `interface Slice`, the domain input tuple, which is NOT the wire slice: the wire's `key` folds the first two, and `durationUnits`, `priorityWeight`, `notBeforeUnits` and `deadlineUnits` are derived by 2.2 rather than carried in",
+      "libs/domain/src/schedule.ts:31 — `interface Slice`, the domain input tuple, which is NOT the wire slice: the wire's `key` folds the first two, and `durationUnits`, `priorityWeight`, `notBeforeUnits`, `deadlineUnits` and `workItemIsMilestone` are derived rather than carried in",
   },
   {
     name: 'canonical-row',

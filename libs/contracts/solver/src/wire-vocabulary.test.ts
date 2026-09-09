@@ -74,6 +74,8 @@ describe('the wire vocabularies come from the schema, not from prose', () => {
       'poolIds',
       'priorityWeight',
       'width',
+      'workItemIsMilestone',
+      'workItemKey',
     ]);
     expect(
       [...must(wire.get('objective-term'), 'the objective-term vocabulary').members].sort(),

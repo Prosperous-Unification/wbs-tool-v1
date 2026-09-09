@@ -117,7 +117,8 @@ function recordingReader(
   const schedules: Record<SolverObjectiveName, Schedule | null> =
     answer === null || 'slices' in answer ? { pri: answer, time: answer } : answer;
   const stateOf = (objective: SolverObjectiveName): OptimizationVariantState =>
-    states[objective] ?? (schedules[objective] === null ? { state: 'idle' } : { state: 'ready' });
+    states[objective] ??
+    (schedules[objective] === null ? { state: 'idle' } : { state: 'ready', proof: 'proven' });
   return {
     asks,
     read: (ask: OptimizedScheduleAsk) => {
@@ -206,7 +207,10 @@ describe('the plan read and the optimized cache', () => {
       contractVersion: '7+test',
       budgetMs: 60_000,
       displayed: 'pri',
-      variants: { pri: { state: 'ready' }, time: { state: 'ready' } },
+      variants: {
+        pri: { state: 'ready', proof: 'proven' },
+        time: { state: 'ready', proof: 'proven' },
+      },
       // The unestimated leaf occupies `ASSUMED_SLICE_WORKDAYS`, so Fast
       // finishes on day 2 and a slice moved to day 3 finishes on day 5.
       finishDays: { fast: 2, pri: 5, time: 5 },
@@ -237,6 +241,42 @@ describe('the plan read and the optimized cache', () => {
       finishDays: { fast: 2 },
       sameOrderAsFast: {},
     });
+  });
+
+  it('recovers a legacy out-of-range estimate when a later valid estimate replaces it', async () => {
+    const id = await leaf('Rewire');
+    await settings({
+      startDate: '2026-09-09',
+      optimizationEnabled: true,
+      scheduleEngine: 'optimized',
+    });
+    await serviceOptions.estimates.set(
+      {
+        workItemId: id,
+        stepId,
+        optimistic: 4_000_000_000,
+        realistic: 4_000_000_000,
+        pessimistic: 4_000_000_000,
+      },
+      WROTE,
+    );
+    const service = new WorkItemService({
+      ...serviceOptions,
+      optimized: recordingReader(null).read,
+    });
+
+    // Legacy rows can still reach datesOf -> addWorkdays -> Date#toISOString,
+    // which is the RangeError that made the whole plan read fail. The write
+    // path must not need that broken read in order to replace the stored trio.
+    expect(service.tree(projectId)).rejects.toBeInstanceOf(RangeError);
+    expect(
+      await service.setEstimate(id, OWNER, stepId, {
+        optimistic: 1,
+        realistic: 2,
+        pessimistic: 3,
+      }),
+    ).toEqual({ ok: true, value: null });
+    expect(await service.tree(projectId)).not.toBeNull();
   });
 
   it('reads disabled identity without serving a solver schedule', async () => {
@@ -339,7 +379,7 @@ describe('the plan read and the optimized cache', () => {
     await settings({ optimizationEnabled: true, scheduleEngine: 'fast' });
     const served = recordingReader(
       { pri: null, time: null },
-      { pri: { state: 'ready' }, time: { state: 'ready' } },
+      { pri: { state: 'ready', proof: 'proven' }, time: { state: 'ready', proof: 'proven' } },
     );
     const tree = await new WorkItemService({
       ...serviceOptions,
@@ -347,8 +387,8 @@ describe('the plan read and the optimized cache', () => {
     }).tree(projectId);
     if (tree === null) throw new Error('project vanished');
     expect(tree.optimization?.variants).toEqual({
-      pri: { state: 'ready' },
-      time: { state: 'ready' },
+      pri: { state: 'ready', proof: 'proven' },
+      time: { state: 'ready', proof: 'proven' },
     });
     expect(tree.optimization?.finishDays).toEqual({ fast: 2 });
     expect(tree.optimization?.sameOrderAsFast).toEqual({});

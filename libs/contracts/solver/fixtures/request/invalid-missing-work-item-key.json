@@ -18,7 +18,7 @@
   "horizonUnits": 30,
   "objective": "pri",
   "pools": {
-    "team-platform": 0
+    "team-platform": 2
   },
   "quantum": 48,
   "slices": [
@@ -26,7 +26,6 @@
       "deadlineUnits": null,
       "workItemIsMilestone": false,
       "durationUnits": 10,
-      "workItemKey": "wi-1",
       "key": "wi-1\u0000step-a",
       "notBeforeUnits": 0,
       "personId": null,

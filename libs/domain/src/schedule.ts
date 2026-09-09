@@ -2316,6 +2316,10 @@ export function schedule(
     if (nodes.length > first) firstNode.set(leafId, first);
   }
 
+  const workItemsWithDuration = new Set(
+    nodes.filter((node) => durationOf(node.slice) > 0).map((node) => node.slice.workItemId),
+  );
+
   /**
    * Where a leaf's slices begin among the nodes.
    *
@@ -2562,10 +2566,19 @@ export function schedule(
     const deadlineOffset = leafDeadlines.get(slice.workItemId);
     // `workdaysLateBy` answers 0 for "met it", and the field says `null` — one
     // narrowing here rather than a truthiness check in every reader.
+    // The deadline constrains the work-item projection, not every step as a
+    // fresh point. A trailing zero step at the positive span's exact end is on
+    // the same final day as that span. Only a genuinely all-zero work item uses
+    // the point's own start so the day on which its milestone stands counts.
+    // Proof: forcing every slice to use `placed.start` made
+    // `reads trailing zero steps from the positive work-item span but all-zero
+    // items as points` report the trailing QA step late by 1; watched on
+    // h2puni 2026-09-09.
+    const deadlineStart = workItemsWithDuration.has(slice.workItemId) ? 0 : placed.start;
     const missed =
       deadlineOffset === undefined
         ? 0
-        : workdaysLateBy(placed.start, placed.finish, deadlineOffset);
+        : workdaysLateBy(deadlineStart, placed.finish, deadlineOffset);
     if (placed.boundBy === 'person') waiting.add(slice.workItemId);
     // Beside the person's count, never folded into it: "waiting for a person"
     // and "waiting for a slot" are different sentences, and `boundBy` names

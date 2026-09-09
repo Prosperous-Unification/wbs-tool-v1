@@ -852,7 +852,7 @@ ReadonlyMap<string, number>` (`schedule.ts:95`) and
 - [x] 2.2 `buildSolverRequest(plan, objective, baseline)` in
       `libs/contracts/solver/src/` beside the schema it validates against —
       **Bun owns duration and graph derivation, Python owns placement only.**
-      <!-- wire-fields:slice -->A slice is `{ key, durationUnits, width, personId, poolIds, priorityWeight, notBeforeUnits, deadlineUnits }`.
+      <!-- wire-fields:slice -->A slice is `{ workItemKey, key, durationUnits, width, personId, poolIds, priorityWeight, notBeforeUnits, deadlineUnits, workItemIsMilestone }`.
       The derivation of each follows, and is deliberately **outside** that span:
       a tagged span is checked for set equality, so a paragraph that names
       `days`, `snapWorkdays` and `priorityByLeaf` while deriving a member cannot

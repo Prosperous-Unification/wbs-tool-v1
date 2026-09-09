@@ -21,7 +21,7 @@ const BASE: PlanOptimizationView = {
   contractVersion: '1.5+test',
   budgetMs: 60_000,
   displayed: 'fast',
-  variants: { pri: { state: 'ready' }, time: { state: 'ready' } },
+  variants: { pri: { state: 'ready', proof: 'proven' }, time: { state: 'ready', proof: 'proven' } },
   finishDays: { fast: 10, pri: 10, time: 10 },
   sameOrderAsFast: { pri: true, time: true },
 };
@@ -54,7 +54,7 @@ describe('what the cue suggests', () => {
       // One variant at a time: the other has no schedule, which is what a plan
       // mid-solve really looks like and keeps this case about the one finish it
       // names.
-      variants: { pri: { state: 'ready' }, time: { state: 'pending' } },
+      variants: { pri: { state: 'ready', proof: 'proven' }, time: { state: 'pending' } },
     });
     expect(view.suggestion).toBe(suggestion);
     expect(view.suggestionWords).toBe(suggestionWords);
@@ -88,7 +88,7 @@ describe('what the cue suggests', () => {
       const view = reading({
         finishDays: { fast: 10, ...finishes },
         sameOrderAsFast: { ...orders },
-        variants: { pri: { state: 'ready' }, time: { state: 'pending' } },
+        variants: { pri: { state: 'ready', proof: 'proven' }, time: { state: 'pending' } },
       });
       expect(wordsFor(view, 'pri')).toBe(expected);
       // The sentence names a suggested variant by its saving and every other
@@ -134,7 +134,7 @@ describe('what the cue suggests', () => {
     // The rule reads the state anyway, because "ready" is the claim that the
     // schedule behind the figure exists.
     const view = reading({
-      variants: { pri: { state: 'pending' }, time: { state: 'ready' } },
+      variants: { pri: { state: 'pending' }, time: { state: 'ready', proof: 'proven' } },
       finishDays: { fast: 10, pri: 2, time: 10 },
       sameOrderAsFast: { pri: true, time: true },
     });
@@ -149,7 +149,7 @@ describe('what the cue suggests', () => {
     const view = reading({
       finishDays: { fast: 10, pri: 10 + delta },
       sameOrderAsFast: { pri: true },
-      variants: { pri: { state: 'ready' }, time: { state: 'pending' } },
+      variants: { pri: { state: 'ready', proof: 'proven' }, time: { state: 'pending' } },
     });
     expect(wordsFor(view, 'pri')).toBe(expected);
     expect(view.suggestionWords).toBe(suggested);
@@ -230,11 +230,23 @@ describe('what the cue reads out', () => {
   });
 
   it.each([
-    ['one is still solving', { pri: { state: 'ready' }, time: { state: 'pending' } } as const],
-    ['one failed', { pri: { state: 'ready' }, time: { state: 'failed', reason: 'oom' } } as const],
+    [
+      'one is still solving',
+      { pri: { state: 'ready', proof: 'proven' }, time: { state: 'pending' } } as const,
+    ],
+    [
+      'one failed',
+      {
+        pri: { state: 'ready', proof: 'proven' },
+        time: { state: 'failed', reason: 'oom' },
+      } as const,
+    ],
     [
       'one is infeasible',
-      { pri: { state: 'ready' }, time: { state: 'plan-infeasible', items: [] } } as const,
+      {
+        pri: { state: 'ready', proof: 'proven' },
+        time: { state: 'plan-infeasible', items: [] },
+      } as const,
     ],
   ])('says nothing about the two variants while %s', (_what, variants) => {
     // A figure with no schedule behind it is not a comparison. The `time`
@@ -265,7 +277,7 @@ describe('what the cue reads out', () => {
             state: 'plan-infeasible',
             items: [{ ownerWorkItemId: 'a', boundWorkItemId: 'b', effectiveDeadlineOffset: 4 }],
           },
-          time: { state: 'ready' },
+          time: { state: 'ready', proof: 'proven' },
         },
       },
       true,
@@ -279,10 +291,10 @@ describe('what the cue reads out', () => {
     ['corrupt', { state: 'corrupt', message: 'bad dto' } as const, ['pri']],
     ['plan-infeasible', { state: 'plan-infeasible', items: [] } as const, []],
     ['pending', { state: 'pending' } as const, []],
-    ['ready', { state: 'ready' } as const, []],
+    ['ready', { state: 'ready', proof: 'proven' } as const, []],
     ['idle', { state: 'idle' } as const, []],
   ])('offers a retry for %s and for nothing else', (_what, state, expected) => {
-    const view = reading({ variants: { pri: state, time: { state: 'ready' } } });
+    const view = reading({ variants: { pri: state, time: { state: 'ready', proof: 'proven' } } });
     expect(view.retryable).toEqual(expected);
   });
 });

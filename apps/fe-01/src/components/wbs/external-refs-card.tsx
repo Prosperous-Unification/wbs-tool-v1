@@ -76,15 +76,20 @@ const ADDRESS: CSSProperties = {
  * **{@link DependsCard}'s passive surface, and deliberately not its pointer
  * bridge.** That bridge exists to light the *rows* a dependency names while the
  * pointer walks the card, which is a relation this card has none of: a ref
- * points out of the plan. What this card needs from the family is the other
- * half — a `HoverCard` that does not take the pointer, so it can hang over the
- * rows beneath without eating their clicks — plus a `pointer-events: auto` per
- * line, exactly as the depends card gives its own lines, or the links inside a
- * transparent card could never be clicked. Keeping the card open while the
- * pointer travels to it is the **cell wrapper's** job (the Name cell's
- * arrangement: one `position: relative` span holding both the marks and the
+ * points out of the plan. What this card does need, and the depends card does
+ * not, is to **take the pointer whole** — `takesPointer`. This is a card a
+ * reader walks onto and clicks something on, and a `pointer-events: auto` per
+ * line is not enough for that: the card's own 6px padding and the gaps between
+ * its lines stay transparent, so the cursor hit-tests the row *beneath* on the
+ * way in, the cell wrapper's `mouseleave` fires, and the card closes under the
+ * hand reaching for it. Dany, 2026-09-09: _"i cannot hover over the dropdown -
+ * it disappears when i move cursor down to it"_.
+ *
+ * Keeping it open once the pointer is on it is the **cell wrapper's** job (the
+ * Name cell's arrangement: one positioned span holding both the marks and the
  * card, with `mouseleave` on the span), which needs no bridge because the
- * pointer never leaves the wrapper on the way.
+ * pointer never leaves the wrapper on the way — provided every pixel of the way
+ * is hit-testable, which is what the paragraph above is for.
  *
  * The tint under the pointer is a rule in `styles.css` keyed on
  * `[data-refs-card-line]:hover`, and not an inline style, because an inline
@@ -100,7 +105,7 @@ const ADDRESS: CSSProperties = {
  */
 export function ExternalRefsCard({ number, refs, systems }: ExternalRefsCardProps) {
   return (
-    <HoverCard label={`Where ${number} also exists`}>
+    <HoverCard label={`Where ${number} also exists`} takesPointer opensSideways>
       {/*
         **The card is as wide as its widest address, up to `WIDEST_LINE_PX`.**
         A cell's card is `position: absolute` inside the cell's own 40px
@@ -131,11 +136,12 @@ export function ExternalRefsCard({ number, refs, systems }: ExternalRefsCardProp
             <div
               key={ref.id}
               data-refs-card-line={ref.id}
-              // The line takes the pointer, which is what lets the anchors inside
-              // a pointer-transparent card be clicked at all, and what lets the
-              // `:hover` rule in `styles.css` find this element.
+              // No `pointer-events` of its own any more: the **card** takes
+              // the pointer, which is what a reader walking down onto it needs.
+              // A per-line `auto` left the card's 6px padding and the gaps
+              // between lines transparent, and the cursor fell through them
+              // onto the row beneath.
               style={{
-                pointerEvents: 'auto',
                 display: 'flex',
                 alignItems: 'baseline',
                 gap: 6,

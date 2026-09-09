@@ -140,6 +140,28 @@ describe('a missed deadline is reported in whole workdays', () => {
       1,
     );
   });
+
+  it('reads trailing zero steps from the positive work-item span but all-zero items as points', () => {
+    const rows = [item('work'), item('milestone')];
+    const slices = [
+      slice('work', DEV, 4),
+      slice('work', 'step-qa', 0),
+      slice('milestone', DEV, 0),
+      slice('milestone', 'step-qa', 0),
+    ];
+    const deadlines = new Map([
+      ['work', 3],
+      ['milestone', 3],
+    ]);
+    const floors = new Map([['milestone', 4]]);
+
+    const found = withDeadlines(rows, slices, deadlines, floors);
+
+    expect(planned(found, 'work', DEV).lateBy).toBeNull();
+    expect(planned(found, 'work', 'step-qa').lateBy).toBeNull();
+    expect(planned(found, 'milestone', DEV).lateBy).toBe(1);
+    expect(planned(found, 'milestone', 'step-qa').lateBy).toBe(1);
+  });
 });
 
 describe('lateness is measured against the effective deadline, not the authored one', () => {

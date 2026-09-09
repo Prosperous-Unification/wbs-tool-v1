@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import type * as WorkdayModule from '@wbs/domain/workday';
 import { useState } from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { PlanOptimizationView, ProjectOptimizationPatch } from '@/lib/wbs-api';
 
@@ -8,6 +9,23 @@ import { OptimizationCue } from './optimization-cue';
 
 const hasDom = typeof document !== 'undefined';
 const itDom = hasDom ? it : it.skip;
+
+const addWorkdaysCalls = vi.hoisted(() => ({ count: 0 }));
+
+vi.mock('@wbs/domain/workday', async (importOriginal) => {
+  const real = await importOriginal<typeof WorkdayModule>();
+  return {
+    ...real,
+    addWorkdays: (...args: Parameters<typeof real.addWorkdays>) => {
+      addWorkdaysCalls.count += 1;
+      return real.addWorkdays(...args);
+    },
+  };
+});
+
+beforeEach(() => {
+  addWorkdaysCalls.count = 0;
+});
 
 afterEach(cleanup);
 
@@ -21,7 +39,7 @@ const SUGGESTING: PlanOptimizationView = {
   contractVersion: '1.5+test',
   budgetMs: 60_000,
   displayed: 'fast',
-  variants: { pri: { state: 'ready' }, time: { state: 'pending' } },
+  variants: { pri: { state: 'ready', proof: 'proven' }, time: { state: 'pending' } },
   finishDays: { fast: 10, pri: 7 },
   sameOrderAsFast: { pri: true },
 };
@@ -36,12 +54,18 @@ const SUGGESTING: PlanOptimizationView = {
 function Harness({
   optimization,
   stale = false,
+  projectStart = '2026-09-07',
+  today = new Date(2026, 8, 7),
+  workItemName = (id) => (id === 'parent' ? 'Launch' : id === 'leaf' ? 'Migration' : null),
   onChoose,
   onRetry,
   busy = false,
 }: {
   optimization: PlanOptimizationView;
   stale?: boolean;
+  projectStart?: string | null;
+  today?: Date;
+  workItemName?: (id: string) => string | null;
   onChoose?: (patch: ProjectOptimizationPatch) => void;
   onRetry?: (objective: 'pri' | 'time', inputHash: string) => void;
   busy?: boolean;
@@ -51,9 +75,9 @@ function Harness({
     <OptimizationCue
       optimization={optimization}
       stale={stale}
-      projectStart="2026-09-07"
-      today={new Date(2026, 8, 7)}
-      workItemName={(id) => (id === 'parent' ? 'Launch' : id === 'leaf' ? 'Migration' : null)}
+      projectStart={projectStart}
+      today={today}
+      workItemName={workItemName}
       menuOpen={open}
       onMenuOpen={() => {
         setOpen(true);
@@ -137,7 +161,10 @@ describe('the schedule cue', () => {
       <Harness
         optimization={{
           ...SUGGESTING,
-          variants: { pri: { state: 'ready' }, time: { state: 'ready' } },
+          variants: {
+            pri: { state: 'ready', proof: 'proven' },
+            time: { state: 'ready', proof: 'proven' },
+          },
           finishDays: { fast: 10, pri: 7, time: 10 },
           sameOrderAsFast: { pri: true, time: true },
         }}
@@ -163,21 +190,70 @@ describe('the schedule cue', () => {
     expect(document.querySelector('[data-cue-dot]')).toBeNull();
   });
 
+  itDom('marks an unfinished search without changing or disabling its served schedule', () => {
+    render(
+      <Harness
+        optimization={{
+          ...SUGGESTING,
+          variants: {
+            pri: { state: 'ready', proof: 'incomplete' },
+            time: { state: 'pending' },
+          },
+        }}
+        onChoose={() => undefined}
+      />,
+    );
+
+    expect(document.querySelector('[data-cue-dot]')).toHaveAttribute('data-cue-dot', 'incomplete');
+    expect(pill()).toHaveAccessibleName(/Search stopped before proving this schedule optimal/);
+    fireEvent.click(pill());
+    const pri = screen.getByRole('menuitem', {
+      name: /Pri · 7 days · Earlier project deadline by 3 days · Search stopped/,
+    });
+    expect(pri).toHaveAttribute('aria-disabled', 'false');
+  });
+
+  itDom.each(['proven', 'quantisation-floor'] as const)(
+    'does not show the unfinished-search marker for %s results',
+    (proof) => {
+      render(
+        <Harness
+          optimization={{
+            ...SUGGESTING,
+            variants: { pri: { state: 'ready', proof }, time: { state: 'pending' } },
+          }}
+          onChoose={() => undefined}
+        />,
+      );
+      expect(pill()).not.toHaveAccessibleName(/Search stopped/);
+    },
+  );
+
   itDom.each([
-    ['solving', { pri: { state: 'pending' }, time: { state: 'ready' } } as const, 'solving'],
+    [
+      'solving',
+      { pri: { state: 'pending' }, time: { state: 'ready', proof: 'proven' } } as const,
+      'solving',
+    ],
     [
       'a variant that could not be computed',
-      { pri: { state: 'failed', reason: 'oom' }, time: { state: 'ready' } } as const,
+      {
+        pri: { state: 'failed', reason: 'oom' },
+        time: { state: 'ready', proof: 'proven' },
+      } as const,
       'unavailable',
     ],
     [
       'a plan that cannot meet a work item deadline',
-      { pri: { state: 'plan-infeasible', items: [] }, time: { state: 'ready' } } as const,
+      {
+        pri: { state: 'plan-infeasible', items: [] },
+        time: { state: 'ready', proof: 'proven' },
+      } as const,
       'infeasible',
     ],
     [
       'a variant waiting for a solver seat',
-      { pri: { state: 'idle' }, time: { state: 'ready' } } as const,
+      { pri: { state: 'idle' }, time: { state: 'ready', proof: 'proven' } } as const,
       'solving',
     ],
   ])('paints a dot for %s', (_what, variants, expected) => {
@@ -364,7 +440,7 @@ describe('the schedule cue', () => {
   itDom.each([
     ['plan-infeasible', { state: 'plan-infeasible', items: [] } as const],
     ['pending', { state: 'pending' } as const],
-    ['ready', { state: 'ready' } as const],
+    ['ready', { state: 'ready', proof: 'proven' } as const],
   ])('offers no Retry for a %s variant', (_what, state) => {
     render(
       <Harness
@@ -443,7 +519,10 @@ describe('the schedule cue', () => {
       <Harness
         optimization={{
           ...SUGGESTING,
-          variants: { pri: { state: 'ready' }, time: { state: 'ready' } },
+          variants: {
+            pri: { state: 'ready', proof: 'proven' },
+            time: { state: 'ready', proof: 'proven' },
+          },
           finishDays: { fast: 10, pri: 7, time: 8 },
           sameOrderAsFast: { pri: true, time: false },
         }}
@@ -491,12 +570,157 @@ describe('the schedule cue', () => {
     );
     const fact = pill().getAttribute('data-fact') ?? '';
     expect(fact).toContain('Time · Plan infeasible · 3 Work item deadlines');
-    expect(fact).toContain('Launch → Migration · Work item deadline 11 Sep');
+    // Offset 4 is also what a user-entered Saturday 12 Sep folds to. The cue
+    // has only the effective offset, so it labels the reconstructed Friday
+    // honestly instead of presenting it as the date the user entered.
+    expect(fact).toContain('Launch → Migration · Work item deadline (effective workday) 11 Sep');
     // The same row on both ends of the binding is named once.
     expect(fact).toContain("Migration · Work item deadline before the project's first working day");
     // A row that has left the plan is named, never its raw id.
-    expect(fact).toContain('Work item no longer in this plan · Work item deadline 11 Sep');
+    expect(fact).toContain(
+      'Work item no longer in this plan · Work item deadline (effective workday) 11 Sep',
+    );
     expect(fact).not.toContain('gone');
+    // Proof: the two valid offsets above each reconstruct once. Reintroducing
+    // separate validity, suffix and copy reconstructions makes this 6.
+    expect(addWorkdaysCalls.count).toBe(2);
+  });
+
+  itDom('distinguishes unnamed and missing rows without an orphan deadline bullet', () => {
+    render(
+      <Harness
+        optimization={{
+          ...SUGGESTING,
+          variants: {
+            ...SUGGESTING.variants,
+            time: {
+              state: 'plan-infeasible',
+              items: [
+                { ownerWorkItemId: 'empty', boundWorkItemId: 'empty', effectiveDeadlineOffset: 4 },
+                { ownerWorkItemId: 'gone', boundWorkItemId: 'gone', effectiveDeadlineOffset: 4 },
+              ],
+            },
+          },
+        }}
+        workItemName={(id) => (id === 'empty' ? '' : id === 'leaf' ? 'Migration' : null)}
+        onChoose={() => undefined}
+      />,
+    );
+    const fact = pill().getAttribute('data-fact') ?? '';
+    expect(fact).toContain('Unnamed work item · Work item deadline (effective workday) 11 Sep');
+    expect(fact).toContain(
+      'Work item no longer in this plan · Work item deadline (effective workday) 11 Sep',
+    );
+    expect(fact).not.toContain('\n· · Work item deadline');
+  });
+
+  itDom('refuses malformed offsets at the renderer boundary without throwing', () => {
+    render(
+      <Harness
+        optimization={{
+          ...SUGGESTING,
+          variants: {
+            ...SUGGESTING.variants,
+            time: {
+              state: 'plan-infeasible',
+              items: [
+                { ownerWorkItemId: 'leaf', boundWorkItemId: 'leaf', effectiveDeadlineOffset: 1.5 },
+                {
+                  ownerWorkItemId: 'parent',
+                  boundWorkItemId: 'parent',
+                  effectiveDeadlineOffset: -2,
+                },
+                {
+                  ownerWorkItemId: 'gone',
+                  boundWorkItemId: 'gone',
+                  effectiveDeadlineOffset: Number.MAX_SAFE_INTEGER,
+                },
+              ],
+            },
+          },
+        }}
+        onChoose={() => undefined}
+      />,
+    );
+    const fact = pill().getAttribute('data-fact') ?? '';
+    expect(fact).toContain('Migration · Work item deadline date unavailable');
+    expect(fact).toContain('Launch · Work item deadline date unavailable');
+    expect(fact).toContain(
+      'Work item no longer in this plan · Work item deadline date unavailable',
+    );
+  });
+
+  itDom('refuses a malformed project start at the renderer boundary without throwing', () => {
+    render(
+      <Harness
+        optimization={{
+          ...SUGGESTING,
+          variants: {
+            ...SUGGESTING.variants,
+            time: {
+              state: 'plan-infeasible',
+              items: [
+                { ownerWorkItemId: 'leaf', boundWorkItemId: 'leaf', effectiveDeadlineOffset: 4 },
+              ],
+            },
+          },
+        }}
+        projectStart="the end of August"
+        onChoose={() => undefined}
+      />,
+    );
+    expect(pill().getAttribute('data-fact')).toContain(
+      'Migration · Work item deadline date unavailable',
+    );
+  });
+
+  itDom('does not invent sentinel copy when the project has no calendar start', () => {
+    render(
+      <Harness
+        optimization={{
+          ...SUGGESTING,
+          variants: {
+            ...SUGGESTING.variants,
+            time: {
+              state: 'plan-infeasible',
+              items: [
+                { ownerWorkItemId: 'leaf', boundWorkItemId: 'leaf', effectiveDeadlineOffset: -1 },
+              ],
+            },
+          },
+        }}
+        projectStart={null}
+        onChoose={() => undefined}
+      />,
+    );
+    expect(pill().getAttribute('data-fact')).toContain(
+      'Migration · Work item deadline date unavailable',
+    );
+  });
+
+  itDom('uses the reader local year when an effective deadline crosses New Year', () => {
+    render(
+      <Harness
+        optimization={{
+          ...SUGGESTING,
+          variants: {
+            ...SUGGESTING.variants,
+            time: {
+              state: 'plan-infeasible',
+              items: [
+                { ownerWorkItemId: 'leaf', boundWorkItemId: 'leaf', effectiveDeadlineOffset: 4 },
+              ],
+            },
+          },
+        }}
+        projectStart="2026-12-28"
+        today={new Date(2026, 11, 31, 23, 30)}
+        onChoose={() => undefined}
+      />,
+    );
+    expect(pill().getAttribute('data-fact')).toContain(
+      'Migration · Work item deadline (effective workday) 1 Jan 2027',
+    );
   });
 
   itDom('keeps one live region while the optimizer state changes under it', () => {
@@ -509,7 +733,10 @@ describe('the schedule cue', () => {
       <Harness
         optimization={{
           ...SUGGESTING,
-          variants: { pri: { state: 'failed', reason: 'oom' }, time: { state: 'ready' } },
+          variants: {
+            pri: { state: 'failed', reason: 'oom' },
+            time: { state: 'ready', proof: 'proven' },
+          },
           finishDays: { fast: 10, time: 10 },
           sameOrderAsFast: { time: true },
         }}

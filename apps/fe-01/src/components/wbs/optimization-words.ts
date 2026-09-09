@@ -1,5 +1,5 @@
 import { UNMEETABLE_DEADLINE_OFFSET } from '@wbs/domain/deadline-offsets';
-import { addWorkdays, withinDrift } from '@wbs/domain/workday';
+import { addWorkdays, isIsoDate, withinDrift } from '@wbs/domain/workday';
 
 import type { PlanOptimizationView, ScheduleObjectiveView } from '@/lib/wbs-api';
 
@@ -101,8 +101,17 @@ export function comparisonWords(deltaDays: number, sameOrder: boolean): string {
   return `Later project deadline by ${days(deltaDays)}`;
 }
 
-/** Render the stored deadline meaning without sending the legal -1 sentinel to addWorkdays. */
-export function deadlineWords(projectStart: string | null, offset: number, today: Date): string {
+export interface DeadlineWords {
+  readonly text: string;
+  readonly isEffectiveWorkday: boolean;
+}
+
+/** Render and classify the stored deadline with at most one calendar reconstruction. */
+export function deadlineWords(
+  projectStart: string | null,
+  offset: number,
+  today: Date,
+): DeadlineWords {
   // Proof: the unmeetable-deadline case throws in render when this branch is
   // removed and -1 reaches addWorkdays.
   // The words are `DEADLINE_UNREACHABLE_CELL`'s and not this file's, for the
@@ -111,9 +120,27 @@ export function deadlineWords(projectStart: string | null, offset: number, today
   // deadline on the Sunday after it is unmeetable — day zero rolls forward to
   // Monday, the deadline rolls back to Friday — and the sentence would be
   // telling the reader a *later* date came first.
-  if (offset === UNMEETABLE_DEADLINE_OFFSET) return DEADLINE_UNREACHABLE_CELL;
-  if (projectStart === null || offset < UNMEETABLE_DEADLINE_OFFSET) return 'date unavailable';
-  return shortIsoDate(addWorkdays(projectStart, offset), today);
+  if (projectStart === null || !isIsoDate(projectStart)) {
+    return { text: 'date unavailable', isEffectiveWorkday: false };
+  }
+  if (offset === UNMEETABLE_DEADLINE_OFFSET) {
+    return { text: DEADLINE_UNREACHABLE_CELL, isEffectiveWorkday: false };
+  }
+  // The DTO refuses these values too, but this is a rendering boundary fed by
+  // a plain `number` in the FE mirror. Keep a stale or hand-built payload from
+  // turning a fact card into a React render failure.
+  if (!Number.isSafeInteger(offset) || offset < 0) {
+    return { text: 'date unavailable', isEffectiveWorkday: false };
+  }
+  try {
+    const effectiveDeadline = addWorkdays(projectStart, offset);
+    if (!isIsoDate(effectiveDeadline)) {
+      return { text: 'date unavailable', isEffectiveWorkday: false };
+    }
+    return { text: shortIsoDate(effectiveDeadline, today), isEffectiveWorkday: true };
+  } catch {
+    return { text: 'date unavailable', isEffectiveWorkday: false };
+  }
 }
 
 /**
@@ -130,7 +157,9 @@ export function variantStateWords(
 ): string | null {
   switch (state.state) {
     case 'ready':
-      return null;
+      return state.proof === 'incomplete'
+        ? 'Search stopped before proving this schedule optimal'
+        : null;
     case 'idle':
       // `idle` is "absent at this key with nothing in flight", which is two
       // different situations wearing one word: a variant the cold read is about

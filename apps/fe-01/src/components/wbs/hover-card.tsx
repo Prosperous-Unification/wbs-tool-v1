@@ -188,6 +188,58 @@ export interface HoverCardProps {
    * card is pointer-transparent.
    */
   scrolls?: boolean;
+  /**
+   * Whether the **whole** card takes the pointer, rather than only the lines
+   * inside it that ask for it.
+   *
+   * **A card a reader is meant to walk onto needs this, and a per-line
+   * `pointer-events: auto` is not enough.** The card has 6px of its own padding
+   * and gaps between its lines, and every one of those pixels is
+   * pointer-transparent without this — so a cursor travelling down from the
+   * cell crosses that band, hit-tests the row *beneath* the card, fires the
+   * cell wrapper's `mouseleave`, and the card unmounts before the cursor ever
+   * reaches a line. Dany, 2026-09-09: *"i cannot hover over the dropdown - it
+   * disappears when i move cursor down to it"*.
+   *
+   * Measured in the running app at that moment: the card at `[88, 242, 370,
+   * 56]` with `pointer-events: none` and `padding: 6px 10px`, and
+   * `elementFromPoint` 1px and 4px inside its top edge both answering the next
+   * row's name `<textarea>`.
+   *
+   * **`locator.hover()` cannot see this.** Playwright puts the pointer straight
+   * on the element's centre, so it skips the band a hand has to cross — which
+   * is why `e2e/external-refs.spec.ts` walks the pointer in `steps` now.
+   *
+   * Off by default, because {@link HoverCard}'s transparency is load-bearing
+   * for every card that is only there to be read: one that takes the mouse eats
+   * a click aimed at the row it hangs over.
+   */
+  takesPointer?: boolean;
+  /**
+   * Whether this card opens **beside** its cell rather than under it, aligned
+   * with the cell's top edge.
+   *
+   * The links card's, and Dany asked for it on 2026-09-09 for a reason about
+   * the pointer rather than about looks: *"can you please move the on-hover
+   * hint to the right of the cell - so that i can move my cursor down to look
+   * at each item one by one uninterrupted"*. A card under a 40px cell is reached
+   * by a path that leaves the cell **sideways** — there is no instant at which
+   * the pointer is over both, which is what {@link CARD_GRACE_MS} in
+   * `plan-columns/refs.tsx` exists to cover. Beside it there is no such gap at
+   * all: the card's left edge **is** the cell's right edge, so the pointer
+   * crosses straight from one to the other and then walks down the list without
+   * ever leaving the card.
+   *
+   * Still an absolutely positioned child of the cell's own wrapper, not a
+   * portal — which is the whole reason to prefer it over
+   * {@link HoverCardProps.beside}: the wrapper stays the element that owns the
+   * `mouseleave`, so the cell keeps the card open with no bridge, no document
+   * listener and no second copy of the open state.
+   *
+   * It follows that a card on a row low in the table extends below its row, as
+   * a card under a cell already did. That is unchanged rather than solved here.
+   */
+  opensSideways?: boolean;
   children: ReactNode;
 }
 
@@ -297,6 +349,12 @@ export function roomForCard(
  * card, which has to be scrollable to be readable at all, and {@link
  * HoverCardProps.scrolls} is that one exception.
  *
+ * The other is {@link HoverCardProps.takesPointer}, for a card a reader is
+ * meant to walk onto and click something on. Its own JSDoc has the measurement:
+ * a card's 6px padding is pointer-transparent without it, so the cursor
+ * hit-tests the row beneath on the way in and the card closes under the hand
+ * reaching for it.
+ *
  * No delay and no follow-cursor anywhere: the state that renders one is set on
  * `mouseenter` and cleared on `mouseleave`. A fixed-size card opening from a
  * **cell** is not flipped — it opens from the wrapper's bottom edge and that is
@@ -317,6 +375,8 @@ export function HoverCard({
   label,
   id,
   scrolls = false,
+  takesPointer = false,
+  opensSideways = false,
   compact = false,
   anchor,
   beside,
@@ -436,7 +496,7 @@ export function HoverCard({
         overflowY: 'auto',
         pointerEvents: 'auto',
       }
-    : { pointerEvents: 'none' };
+    : { pointerEvents: takesPointer ? 'auto' : 'none' };
   const anchored: CSSProperties =
     besidePlaced !== null
       ? {
@@ -452,11 +512,18 @@ export function HoverCard({
       : anchor === undefined
         ? {
             position: 'absolute',
-            // Measured, so `null` is the frame before the layout effect has run
-            // rather than a card with no room: it opens downward, which is where
-            // it will stay for every row that has the room below.
-            ...(room?.side === 'above' ? { bottom: '100%' } : { top: '100%' }),
-            left: 0,
+            // Beside the cell, or under it. Sideways is `left: 100%` with the
+            // tops aligned, so the card's left edge is the cell's right edge
+            // and a pointer crosses between them with nothing in between — see
+            // {@link HoverCardProps.opensSideways}.
+            //
+            // The vertical `room` is measured, so `null` is the frame before
+            // the layout effect has run rather than a card with no room: it
+            // opens downward, which is where it will stay for every row that
+            // has the room below.
+            ...(opensSideways
+              ? { left: '100%', top: 0 }
+              : { left: 0, ...(room?.side === 'above' ? { bottom: '100%' } : { top: '100%' }) }),
             maxWidth: scrolls
               ? `min(${String(SCROLLING_MAX_WIDTH_PX)}px, 100vw)`
               : CARD_MAX_WIDTH_PX,

@@ -20,6 +20,7 @@ import type {
  */
 
 const slice = (over: Partial<SolverSlice> & { key: string }): SolverSlice => ({
+  workItemKey: over.key,
   durationUnits: 10,
   width: 1,
   personId: null,
@@ -27,6 +28,7 @@ const slice = (over: Partial<SolverSlice> & { key: string }): SolverSlice => ({
   priorityWeight: 0,
   notBeforeUnits: 0,
   deadlineUnits: null,
+  workItemIsMilestone: false,
   ...over,
 });
 
@@ -118,6 +120,45 @@ describe('revalidateSolverResult refuses the request it cannot judge', () => {
     rejects(revalidateSolverResult(unfunded, feasible({ a: 0, b: 0 })), 'malformed-request');
   });
 
+  it('a non-zero slice claiming its whole work item is a milestone', () => {
+    const malformed = request({
+      slices: [slice({ key: 'a', durationUnits: 1, workItemIsMilestone: true })],
+      baselineOffsets: { a: 0 },
+      fastHint: { a: 0 },
+    });
+    rejects(
+      revalidateSolverResult(malformed, { wireVersion: 1, status: 'unknown' }),
+      'malformed-request',
+    );
+  });
+
+  it('an all-zero work item denying that it is a milestone', () => {
+    const malformed = request({
+      slices: [slice({ key: 'opaque-a', workItemKey: 'work', durationUnits: 0 })],
+      baselineOffsets: { 'opaque-a': 0 },
+      fastHint: { 'opaque-a': 0 },
+    });
+    rejects(
+      revalidateSolverResult(malformed, { wireVersion: 1, status: 'unknown' }),
+      'malformed-request',
+    );
+  });
+
+  it('a trailing zero slice sharing a positive work item and denying milestone status', () => {
+    const legal = request({
+      slices: [
+        slice({ key: 'opaque-a', workItemKey: 'work' }),
+        slice({ key: 'opaque-b', workItemKey: 'work', durationUnits: 0 }),
+      ],
+      baselineOffsets: { 'opaque-a': 0, 'opaque-b': 10 },
+      fastHint: { 'opaque-a': 0, 'opaque-b': 10 },
+    });
+    expect(revalidateSolverResult(legal, { wireVersion: 1, status: 'unknown' })).toEqual({
+      ok: true,
+      published: false,
+    });
+  });
+
   /**
    * TASK-329 AC #1. The rule TASK-303 wrote is now stated here, above the
    * non-feasible early return, so it reaches the paths that carry no schedule.
@@ -149,7 +190,7 @@ describe('revalidateSolverResult refuses the request it cannot judge', () => {
   it('and accepts the multiples beside it on a non-publishing response', () => {
     for (const deadlineUnits of [null, 0, 48, 96]) {
       const legal = request({
-        slices: [slice({ key: 'a', durationUnits: 0, deadlineUnits })],
+        slices: [slice({ key: 'a', durationUnits: 0, deadlineUnits, workItemIsMilestone: true })],
         baselineOffsets: { a: 0 },
         fastHint: { a: 0 },
       });
@@ -424,10 +465,40 @@ describe('revalidateOptimizedDeadlines', () => {
     ).toEqual({ ok: true, published: true });
   });
 
+  it('accepts a trailing zero step at an exactly-met work-item boundary', () => {
+    expect(
+      revalidateOptimizedDeadlines(
+        request({
+          slices: [
+            slice({ key: 'work\0dev', durationUnits: 192, deadlineUnits: 192 }),
+            slice({ key: 'work\0qa', durationUnits: 0, deadlineUnits: 192 }),
+          ],
+        }),
+        placedOf({ 'work\0dev': [0, 4], 'work\0qa': [4, 4] }),
+      ),
+    ).toEqual({ ok: true, published: true });
+  });
+
+  it('still rejects that work-item boundary one unit after its deadline', () => {
+    const found = revalidateOptimizedDeadlines(
+      request({
+        slices: [
+          slice({ key: 'work\0dev', durationUnits: 192, deadlineUnits: 192 }),
+          slice({ key: 'work\0qa', durationUnits: 0, deadlineUnits: 192 }),
+        ],
+      }),
+      placedOf({ 'work\0dev': [1 / 48, 4 + 1 / 48], 'work\0qa': [4 + 1 / 48, 4 + 1 / 48] }),
+    );
+    expect(found.ok).toBe(false);
+    if (found.ok) throw new Error('unreachable');
+    expect(found.failure).toBe('deadline-violated');
+  });
+
   /**
    * The pair that proves this side and the CP-SAT side now read one predicate.
    * A zero-duration milestone is the only input on which
-   * `end <= deadlineUnits` and `start + max(duration, 1) <= deadlineUnits`
+   * `end <= deadlineUnits` and
+   * `end + int(workItemIsMilestone) <= deadlineUnits`
    * differ, and `libs/solver-py/tests/test_model.py`'s W2 pair fixes the same
    * two placements in units: unit 48 refused, unit 47 admitted. Day 1 and day
    * 47/48 are those two placements in the fractional domain this side works in.
@@ -439,7 +510,11 @@ describe('revalidateOptimizedDeadlines', () => {
    */
   it('refuses a zero-duration milestone standing on the exclusive boundary', () => {
     const found = revalidateOptimizedDeadlines(
-      request({ slices: [slice({ key: 'a', durationUnits: 0, deadlineUnits: 48 })] }),
+      request({
+        slices: [
+          slice({ key: 'a', durationUnits: 0, deadlineUnits: 48, workItemIsMilestone: true }),
+        ],
+      }),
       placedOf({ a: [1, 1] }),
     );
     expect(found.ok).toBe(false);
@@ -468,7 +543,11 @@ describe('revalidateOptimizedDeadlines', () => {
    */
   it('refuses a deadline that is not a whole number of workdays', () => {
     const found = revalidateOptimizedDeadlines(
-      request({ slices: [slice({ key: 'a', durationUnits: 0, deadlineUnits: 49 })] }),
+      request({
+        slices: [
+          slice({ key: 'a', durationUnits: 0, deadlineUnits: 49, workItemIsMilestone: true }),
+        ],
+      }),
       placedOf({ a: [1, 1] }),
     );
     expect(found.ok).toBe(false);
@@ -487,7 +566,11 @@ describe('revalidateOptimizedDeadlines', () => {
    */
   it('keeps an unmeetable zero deadline well-formed and simply missed', () => {
     const found = revalidateOptimizedDeadlines(
-      request({ slices: [slice({ key: 'a', durationUnits: 0, deadlineUnits: 0 })] }),
+      request({
+        slices: [
+          slice({ key: 'a', durationUnits: 0, deadlineUnits: 0, workItemIsMilestone: true }),
+        ],
+      }),
       placedOf({ a: [0, 0] }),
     );
     expect(found.ok).toBe(false);
@@ -498,7 +581,11 @@ describe('revalidateOptimizedDeadlines', () => {
   it('accepts the same milestone one unit inside its due day', () => {
     expect(
       revalidateOptimizedDeadlines(
-        request({ slices: [slice({ key: 'a', durationUnits: 0, deadlineUnits: 48 })] }),
+        request({
+          slices: [
+            slice({ key: 'a', durationUnits: 0, deadlineUnits: 48, workItemIsMilestone: true }),
+          ],
+        }),
         placedOf({ a: [47 / 48, 47 / 48] }),
       ),
     ).toEqual({ ok: true, published: true });

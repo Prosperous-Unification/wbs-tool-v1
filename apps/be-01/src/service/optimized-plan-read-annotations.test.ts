@@ -262,7 +262,10 @@ async function servedBy(moved: Readonly<Record<string, number>>) {
       generation: 1,
       contractVersion: '7+test',
       budgetMs: 60_000,
-      variants: { pri: { state: 'ready' }, time: { state: 'ready' } },
+      variants: {
+        pri: { state: 'ready', proof: 'proven' },
+        time: { state: 'ready', proof: 'proven' },
+      },
       schedules: { pri: materialised, time: materialised },
     }),
   });

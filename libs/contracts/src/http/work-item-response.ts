@@ -69,7 +69,11 @@ const slice = scheduled.and({
   effort: 'number',
   lateBy: 'number | null',
 });
-const optimizationVariant = type({ state: "'ready' | 'pending' | 'retrying' | 'idle'" })
+const optimizationVariant = type({ state: "'pending' | 'retrying' | 'idle'" })
+  .or({
+    state: "'ready'",
+    proof: "'proven' | 'incomplete' | 'quantisation-floor'",
+  })
   .or({
     state: "'failed'",
     reason:

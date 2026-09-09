@@ -71,15 +71,18 @@ describe('how far a raster channel moved', () => {
 
     expect(greatestChannelDelta(blankStrip(5, 3), after)).toBe(127);
   });
-
-  it('refuses differently sized clips rather than measuring their shared prefix', () => {
-    expect(() => greatestChannelDelta(blankStrip(5, 3), blankStrip(5, 4))).toThrow(
-      /cannot change size/,
-    );
-  });
 });
 
 describe('one compact raster comparison', () => {
+  it('refuses width and height mismatches at the browser-facing reducer', () => {
+    expect(() => pixelDifference([blankStrip(5, 3), blankStrip(4, 3)])).toThrow(
+      /cannot change size/,
+    );
+    expect(() => pixelDifference([blankStrip(5, 3), blankStrip(5, 4)])).toThrow(
+      /cannot change size/,
+    );
+  });
+
   it('counts changed pixels once even when several channels move', () => {
     const after = blankStrip(3, 2);
     const lastPixel = (2 * 3 - 1) * 4;
@@ -143,16 +146,6 @@ describe('what two clips of one strip disagree about', () => {
     // throwing or guessing: hiding the queried rule and seeing **zero**
     // columns move is how the coincident untagged line is caught.
     expect(differingColumns(blankStrip(4, 4), blankStrip(4, 4))).toEqual([]);
-  });
-
-  it('refuses two clips of different sizes rather than comparing them', () => {
-    // A fresh `<canvas>` is 300×150 and would crop a wider clip and pad a
-    // narrower one. Both clips come from one `strip` object, so a mismatch is
-    // a measurement that did not happen — and a measurement that did not
-    // happen must not read as an empty difference, which is a pass.
-    expect(() => differingColumns(blankStrip(8, 4), blankStrip(8, 5))).toThrow(
-      /cannot change size/,
-    );
   });
 });
 

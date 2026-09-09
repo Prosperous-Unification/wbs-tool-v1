@@ -49,6 +49,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "workItemKey",
         "key",
         "durationUnits",
         "width",
@@ -56,9 +57,15 @@
         "poolIds",
         "priorityWeight",
         "notBeforeUnits",
-        "deadlineUnits"
+        "deadlineUnits",
+        "workItemIsMilestone"
       ],
       "properties": {
+        "workItemKey": {
+          "type": "string",
+          "minLength": 1,
+          "$comment": "Opaque work-item identity shared by every slice of one work item. Carried separately so Bun and Python can prove the bidirectional workItemIsMilestone fact by grouping slices without parsing sliceKey's deliberately opaque representation."
+        },
         "key": { "$ref": "#/$defs/sliceKey" },
         "durationUnits": {
           "$ref": "#/$defs/safeInteger",
@@ -92,6 +99,10 @@
         "deadlineUnits": {
           "oneOf": [{ "$ref": "#/$defs/safeInteger", "multipleOf": 48 }, { "type": "null" }],
           "$comment": "units from day zero, or null for unconstrained. The EFFECTIVE deadline for this slice, already folded over the tree by the same leaf-upward walk and already converted to (D + 1) × quantum, so the solver applies it without seeing the tree exactly as it never sees reach. THAT MULTIPLE IS AN INVARIANT AND IT IS EXPRESSIBLE HERE, WHICH TASK-303 SAID IT WAS NOT. Its argument was that multipleOf takes a literal while the divisor is this request own quantum one object up, which JSON Schema cannot reference — both halves true, and the conclusion does not follow, because THIS FILE ALSO FIXES THE QUANTUM: quantum is const 48 one object up, so the literal and the reference are the same number by construction and 48 is that literal. The two must be edited together and the pair is the invariant, not either line. INDEPENDENT VALIDATION OF THIS INVARIANT EXISTS AND IS NOT THIS LINE (TASK-329 AC #1). Three guards state it apart from the schema: revalidateSolverResult refuses it while proving the REQUEST, above its non-feasible early return, so the rule reaches an infeasible or unknown answer; revalidateOptimizedDeadlines (TASK-303) still refuses it after materialising, because that is a separate entry point and a validator assuming its sibling already ran is not independent; and Python check_cross_field refuses it against this request own quantum rather than against the literal. What made the first of those reachable is the call-site half: evaluateSolverOutcome re-validates BEFORE it dispositions response status, where until TASK-329 it returned plan-infeasible first and a malformed request could acquire a sticky certificate. A schema is what the sender and receiver agreed to; the independent guards are for when the sender is wrong about that. Why it matters: a deadlineUnits that is not a multiple yields a FRACTIONAL due day that isOnTime was never written to take, and the CP-SAT model then admits a placement this side refuses as deadline-violated. Zero is legal and is the unmeetable deadline: due day -1, missed by every non-negative placement — and zero is a multiple of 48, so this constraint does not touch it."
+        },
+        "workItemIsMilestone": {
+          "type": "boolean",
+          "$comment": "True exactly when every slice sharing workItemKey has durationUnits 0. Such an item is a milestone and its deadline constraint gives it one solver unit of occupancy. False for every slice of an item containing positive work, including its zero-duration steps: those steps are endpoints inside the projected work-item span and do not extend an exactly-met deadline into the next workday. Both consumers independently group on workItemKey and SHALL NOT parse key to reconstruct it."
         }
       }
     },

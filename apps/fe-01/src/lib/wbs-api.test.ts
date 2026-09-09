@@ -1078,7 +1078,7 @@ describe('read ownership across API lifetimes', () => {
         contractVersion: '7+test',
         budgetMs: 60_000,
         displayed: 'fast',
-        variants: { pri: { state: 'ready' }, time: { state: 'idle' } },
+        variants: { pri: { state: 'ready', proof: 'proven' }, time: { state: 'idle' } },
         finishDays: { fast: 10 },
         sameOrderAsFast: {},
       };
@@ -1098,6 +1098,31 @@ describe('read ownership across API lifetimes', () => {
       });
     },
   );
+
+  it('rejects a ready optimization variant whose proof disposition is missing', async () => {
+    const tree = JSON.parse(TREE('p1', [])) as { optimization?: Record<string, unknown> };
+    tree.optimization = {
+      enabled: true,
+      engine: 'optimized',
+      objective: 'pri',
+      inputHash: 'input',
+      generation: 1,
+      contractVersion: '7+test',
+      budgetMs: 60_000,
+      displayed: 'fast',
+      variants: { pri: { state: 'ready' }, time: { state: 'idle' } },
+      finishDays: { fast: 10, pri: 9 },
+      sameOrderAsFast: { pri: true },
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(response(200, JSON.stringify(tree)))),
+    );
+
+    await expect(httpProjectApi('t').tree('p1')).rejects.toMatchObject({
+      problem: { kind: 'failure', failure: { code: 'invalid_response' } },
+    });
+  });
 
   it('rejects a malformed external-reference id before the tree reaches its screen', async () => {
     const tree = JSON.parse(TREE('p1', ['w1'])) as {
@@ -1257,7 +1282,7 @@ describe('what a full-scope read puts on the wire', () => {
       contractVersion: '1.5+test',
       budgetMs: 60_000,
       displayed: 'pri',
-      variants: { pri: { state: 'ready' }, time: { state: 'idle' } },
+      variants: { pri: { state: 'ready', proof: 'proven' }, time: { state: 'idle' } },
       finishDays: { fast: 10, pri: 8 },
       sameOrderAsFast: { pri: true },
     };

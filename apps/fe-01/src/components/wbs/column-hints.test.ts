@@ -90,7 +90,7 @@ describe('the hints say what changing the column does to the plan', () => {
    * deadline minus the deadline-free placement — and then `deadline` itself,
    * ahead of `priority`, so a deadline reorders who gets a person first; and
    * `libs/solver-py/src/wbs_solver/model.py` turns the same date into
-   * `start + max(duration, 1) <= deadline`, a CP-SAT constraint an optimized
+   * its projected finish plus milestone occupancy, a CP-SAT constraint an optimized
    * plan is refused for breaking. Both are shipped: the optimizer's three
    * choices are the radios in `optimization-settings.tsx`, and the date reaches
    * the solver through `buildSolverSlices`' `deadlineUnits`.

@@ -1,9 +1,35 @@
+import type { OptimizedResult } from '@wbs/contracts/solver/optimized-result';
 import { describe, expect, it } from 'bun:test';
 
 import type { CachedOutcome } from '../repository/optimized-schedule-cache';
 import { optimizationVariantState } from './optimized-schedule-reader';
 
 const STORED = { generation: 4, createdAt: 12 } as const;
+
+function result(
+  publication: OptimizedResult['publication'],
+  statuses: readonly [
+    'optimal' | 'feasible' | 'unknown',
+    'optimal' | 'feasible' | 'unknown',
+    'optimal' | 'feasible' | 'unknown',
+  ],
+): OptimizedResult {
+  const term = (status: 'optimal' | 'feasible' | 'unknown') => ({
+    value: 0,
+    stageValue: 0,
+    bound: 0,
+    status,
+  });
+  return {
+    publication,
+    objectiveValues: {
+      makespan: term(statuses[0]),
+      priority: term(statuses[1]),
+      movement: term(statuses[2]),
+    },
+    schedule: null as never,
+  };
+}
 
 describe('optimizationVariantState', () => {
   it('distinguishes a cold miss from queued or running work', () => {
@@ -27,14 +53,39 @@ describe('optimizationVariantState', () => {
     expect(optimizationVariantState(corrupt, true)).toEqual({ state: 'retrying' });
   });
 
-  it('reports ready and plan-infeasible rows independently of liveness', () => {
+  it('reports a solver result as proven only when every objective term is optimal', () => {
     const ready = {
       kind: 'ok',
-      // This mapper reads only the row discriminant; cache decoding owns the
-      // result payload and has its own round-trip suite.
-      result: null as never,
+      result: result('solver', ['optimal', 'optimal', 'optimal']),
       ...STORED,
     } satisfies CachedOutcome;
+    const stopped = {
+      ...ready,
+      result: result('solver', ['optimal', 'feasible', 'unknown']),
+    } satisfies CachedOutcome;
+    expect(optimizationVariantState(ready, false)).toEqual({
+      state: 'ready',
+      proof: 'proven',
+    });
+    expect(optimizationVariantState(stopped, false)).toEqual({
+      state: 'ready',
+      proof: 'incomplete',
+    });
+  });
+
+  it('keeps a quantisation-floor publication distinct from an unfinished search', () => {
+    const floor = {
+      kind: 'ok',
+      result: result('quantisation-floor', ['unknown', 'unknown', 'unknown']),
+      ...STORED,
+    } satisfies CachedOutcome;
+    expect(optimizationVariantState(floor, false)).toEqual({
+      state: 'ready',
+      proof: 'quantisation-floor',
+    });
+  });
+
+  it('reports plan-infeasible rows independently of liveness', () => {
     const items = [
       { ownerWorkItemId: 'parent', boundWorkItemId: 'child', effectiveDeadlineOffset: 10 },
     ];
@@ -43,7 +94,6 @@ describe('optimizationVariantState', () => {
       certificate: { items },
       ...STORED,
     };
-    expect(optimizationVariantState(ready, false)).toEqual({ state: 'ready' });
     expect(optimizationVariantState(infeasible, false)).toEqual({
       state: 'plan-infeasible',
       items,

@@ -1,4 +1,4 @@
-import { builtByNonOwner, type Schedule, schedule } from '@wbs/domain';
+import { builtByNonOwner, MAX_ESTIMATE_DAYS, type Schedule, schedule } from '@wbs/domain';
 import { describe, expect, it } from 'bun:test';
 
 import { buildApp } from '../app';
@@ -348,8 +348,8 @@ describe('work item routes', () => {
     }
 
     for (const state of [
-      { pri: { state: 'ready' }, time: { state: 'failed', reason: 'timeout' } },
-      { pri: { state: 'ready' }, time: { state: 'ready' } },
+      { pri: { state: 'ready', proof: 'proven' }, time: { state: 'failed', reason: 'timeout' } },
+      { pri: { state: 'ready', proof: 'proven' }, time: { state: 'ready', proof: 'proven' } },
     ] satisfies Variants[]) {
       variants = state;
       serve = true;
@@ -1708,6 +1708,28 @@ describe('work item routes', () => {
 
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: 'invalid_estimate', at: 0, kind: 'setEstimate' });
+  });
+
+  it('refuses the first estimate beyond the solver horizon and keeps the plan readable', async () => {
+    const { token, send, projectId, devId } = await setup();
+    const id = await addWorkItem(send, token, projectId, { parentId: null, name: 'Strip' });
+    const days = MAX_ESTIMATE_DAYS + 1;
+
+    const refused = await command(send, token, projectId, {
+      kind: 'setEstimate',
+      workItemId: id,
+      stepId: devId,
+      days: { optimistic: days, realistic: days, pessimistic: days },
+    });
+
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toEqual({ error: 'invalid_estimate', at: 0, kind: 'setEstimate' });
+    const tree = await send(`/api/projects/${projectId}/work-items`, token);
+    expect(tree.status).toBe(200);
+    expect(
+      ((await tree.json()) as { workItems: { estimates: Record<string, unknown> }[] }).workItems[0]
+        ?.estimates,
+    ).toEqual({});
   });
 
   it('accepts an ordered estimate and rolls it into the parent', async () => {

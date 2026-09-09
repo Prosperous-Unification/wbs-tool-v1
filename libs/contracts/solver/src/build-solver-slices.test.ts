@@ -65,6 +65,22 @@ describe('buildSolverSlices', () => {
     expect(built.map((slice) => slice.deadlineUnits)).toEqual([5 * SOLVER_QUANTUM, null]);
   });
 
+  it('distinguishes a milestone work item from a zero step after real work', () => {
+    const built = buildSolverSlices(
+      [
+        sliceOf({ workItemId: 'mixed', stepId: 'dev', days: 4 }),
+        sliceOf({ workItemId: 'mixed', stepId: 'qa', days: 0 }),
+        sliceOf({ workItemId: 'milestone', days: 0 }),
+      ],
+      none,
+    );
+    expect(built.map(({ workItemIsMilestone }) => workItemIsMilestone)).toEqual([
+      false,
+      false,
+      true,
+    ]);
+  });
+
   it('reads an unprioritised leaf as weight 0, which is most leaves on most plans', () => {
     const built = buildSolverSlices(
       [sliceOf({ workItemId: 'L1' }), sliceOf({ workItemId: 'L2' })],

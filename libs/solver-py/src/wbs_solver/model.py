@@ -38,10 +38,10 @@ Six clauses, in the re-validator's own order:
 5. **Assignees** — one `AddNoOverlap` per non-null `personId`
    (`assignee-double-booked`). A person is not a quantity: two slices naming one
    person overlap or they do not, whatever their widths.
-6. **Deadlines** — `start + max(duration, 1) <= deadlineUnits` when non-null.
-   Not `finish <= deadlineUnits`: those agree for every non-zero duration and
-   disagree on a milestone, which `end == start` would let stand exactly on the
-   exclusive boundary that is already the next day. Bun carries the same clause
+6. **Deadlines** — `end + int(workItemIsMilestone) <= deadlineUnits` when non-null.
+   A whole work item made only of zero-duration slices occupies the unit in
+   which it stands. A zero step beside positive work does not extend that work
+   item's projected span into the next unit. Bun carries the same clause
    in the real fractional domain, through the shared `isOnTime` predicate, in
    `revalidateOptimizedDeadlines` — a second entry point beside
    `revalidateSolverResult` rather than part of it. This is the clause that
@@ -166,13 +166,10 @@ def build_model(request: Mapping[str, Any]) -> BuiltModel:
 
         # Clause 6. `deadlineUnits` is the effective deadline, already folded
         # over the tree and already converted to (D + 1) × quantum. It bounds
-        # the work's occupancy rather than its start — for a real duration that
-        # is the finish, and for a milestone it is the synthetic one-unit
-        # endpoint below, which is the whole point of the `max`.
+        # the work item's projected finish. A work item made only of zero steps
+        # is itself a milestone and gets one synthetic unit of occupancy.
         #
-        # `start + max(duration, 1)`, NOT `end`, and the two differ on exactly
-        # one input: a zero-duration milestone. `end == start` there, so
-        # `end <= deadline` admits a milestone standing exactly ON the exclusive
+        # `end <= deadline` alone admits a milestone standing exactly ON the exclusive
         # `(D + 1) × quantum` boundary — which is the first instant of day
         # `D + 1`, a day past the deadline. The domain predicate
         # (`libs/domain/src/on-time.ts`, via `lastWorkdayOf`) reads that
@@ -181,12 +178,11 @@ def build_model(request: Mapping[str, Any]) -> BuiltModel:
         # surfaced the wrong way round: the solver called the plan feasible, Bun
         # refused the response as `deadline-violated`, and a deterministic
         # `plan-infeasible` verdict was reported as `invalid-output` and fell
-        # back. `max(duration, 1)` gives the milestone the one unit of occupancy
-        # the domain already credits it with, and leaves every non-zero duration
-        # exactly where `end <= deadline` had it.
+        # back. `workItemIsMilestone` carries the distinction Bun derives while
+        # it still has the work-item grouping; Python does not reconstruct it.
         deadline = entry["deadlineUnits"]
         if deadline is not None:
-            model.add(start + max(duration, 1) <= int(deadline))
+            model.add(end + int(entry["workItemIsMilestone"]) <= int(deadline))
 
         # Occupancy, for clauses 4 and 5 only. See the module docstring: a
         # zero-duration slice occupies nothing and gets no interval at all.

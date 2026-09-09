@@ -119,7 +119,7 @@
  * reddens until the number moves. On a direct push the lint reports after the
  * commit has landed, which is detection and not prevention.
  */
-export const SCHEDULER_CONTRACT_VERSION = 8;
+export const SCHEDULER_CONTRACT_VERSION = 9;
 
 /**
  * The composite the **wire** carries and the **cache key** stores, from one
@@ -137,6 +137,11 @@ export const SCHEDULER_CONTRACT_VERSION = 8;
  * So this is the one composer, and the composition root has one function to
  * call rather than a template literal to retype. Task 1.5's remaining clause —
  * "built where the cache key is built" — is what it exists for.
+ *
+ * The scheduler half moves when Bun changes either a published Fast schedule
+ * or its independent solver re-validation; the solver half moves when the
+ * Python package or the request facts it consumes change. TASK-508 changes
+ * both halves, so durable rows written under `8+0.1.2` cannot be reused.
  *
  * `solverVersion` is the Python package's own version and this library never
  * invents one: it arrives from the spawn that is about to run, because the
