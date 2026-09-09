@@ -144,13 +144,17 @@ describe('host-wide solver supervisor contract', () => {
     ).text();
     const declaration = 'export const SOLVER_SUPERVISOR_BUN_VERSIONS';
     const declarationAt = source.indexOf(declaration);
-    const jsdocAt = source.lastIndexOf('/**', declarationAt);
-    const jsdoc = source.slice(jsdocAt, declarationAt);
+    const jsdoc = source
+      .slice(0, declarationAt)
+      .match(/\/\*\*[\s\S]*?\*\/\s*$/)?.[0];
 
     expect(declarationAt).toBeGreaterThan(-1);
-    expect(jsdocAt).toBeGreaterThan(-1);
-    expect(jsdoc).toContain(SOLVER_SUPERVISOR_BUN);
-    expect(jsdoc).not.toContain('${SOLVER_SUPERVISOR_BUN}');
+    expect(jsdoc).toBeDefined();
+    expect(
+      jsdoc?.includes(SOLVER_SUPERVISOR_BUN) ||
+        jsdoc?.includes('{@link SOLVER_SUPERVISOR_BUN}'),
+    ).toBe(true);
+    expect(jsdoc).not.toMatch(/\$\{[^}]*\}/);
   });
 
   it('keeps the singleton artifact and config outside both environment roots', () => {
