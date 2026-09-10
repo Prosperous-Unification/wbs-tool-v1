@@ -6,7 +6,7 @@ No `verify.md` exists until implementation produces observations.
 
 ## 1. Baseline, contracts and finite inventory
 
-- [ ] 1.1 Pin the untouched baseline revision, exact Git tuples, candidate inventory and
+- [x] 1.1 Pin the untouched baseline revision, exact Git tuples, candidate inventory and
       fixed benchmark outcome/acceptance corpus under `docs/experiment-evidence/`; initialize
       the `tools/tool-wiki` project and schema fixtures under `src/contracts/`. Implement
       strict decoders for candidates, entries, policies, five independent granularity

@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "corpusId": "radical-modularity.fixed-corpus.v1",
+  "acceptanceId": "radical-modularity.acceptance.v1",
+  "repository": {
+    "revision": "7851161bf96312750d07b933ca5d42b75ce575c7",
+    "tree": "b661e693e9c6656986fd431f4654df6db8dc3afc",
+    "inventoryId": "inventory.baseline.7851161b"
+  },
+  "outcomes": [
+    {
+      "outcomeId": "outcome.command-bindings",
+      "title": "Type-correlated command bindings",
+      "stratum": "shared-contract",
+      "heldOut": true,
+      "acceptanceCriteria": [
+        "the command-bindings compile negatives reject an omitted binding, wrong command input and wrong response kind",
+        "bunx nx run-many -t test typecheck -p contracts core be-01 mcp-01 --skip-nx-cache exits 0"
+      ]
+    },
+    {
+      "outcomeId": "outcome.command-definitions",
+      "title": "One authoritative command definition registry",
+      "stratum": "shared-contract",
+      "heldOut": false,
+      "acceptanceCriteria": [
+        "all 36 independently pinned command kinds agree with their registry discriminators",
+        "bunx nx run-many -t test typecheck -p contracts core be-01 mcp-01 --skip-nx-cache exits 0"
+      ]
+    },
+    {
+      "outcomeId": "outcome.command-normalizers",
+      "title": "Typed command normalizers",
+      "stratum": "independent-module",
+      "heldOut": false,
+      "acceptanceCriteria": [
+        "priority absence, null and number remain distinct and absent assignee normalizes to null",
+        "bunx nx test core --skip-nx-cache exits 0"
+      ]
+    },
+    {
+      "outcomeId": "outcome.event-log-conformance",
+      "title": "Event-log source conformance",
+      "stratum": "independent-module",
+      "heldOut": false,
+      "acceptanceCriteria": [
+        "SQLite and memory sources pass the event-log conformance family without an undeclared capability skip",
+        "bunx nx test conformance --skip-nx-cache exits 0"
+      ]
+    },
+    {
+      "outcomeId": "outcome.import-http-boundary",
+      "title": "Mounted plan-import HTTP boundary",
+      "stratum": "shared-contract",
+      "heldOut": true,
+      "acceptanceCriteria": [
+        "the mounted import route preserves authentication, origin and write-scope precedence with typed 201, 400, 403 and 409 responses",
+        "bunx nx run-many -t test typecheck -p contracts core be-01 mcp-01 --skip-nx-cache exits 0"
+      ]
+    },
+    {
+      "outcomeId": "outcome.plan-document-export",
+      "title": "Versioned plan document export",
+      "stratum": "independent-module",
+      "heldOut": false,
+      "acceptanceCriteria": [
+        "the versioned document preserves authored project, row, deadline and optimizer fields with settings equal to the project",
+        "bunx nx run-many -t test typecheck -p contracts core be-01 --skip-nx-cache exits 0"
+      ]
+    },
+    {
+      "outcomeId": "outcome.plan-import-preparation",
+      "title": "Pure plan-import preparation",
+      "stratum": "independent-module",
+      "heldOut": false,
+      "acceptanceCriteria": [
+        "invalid identities, hierarchy, dependencies and references refuse deterministically before any unit-of-work admission",
+        "bunx nx test core --skip-nx-cache exits 0"
+      ]
+    },
+    {
+      "outcomeId": "outcome.project-store-conformance",
+      "title": "Project-store source conformance",
+      "stratum": "independent-module",
+      "heldOut": true,
+      "acceptanceCriteria": [
+        "SQLite and memory sources pass the project-store transactional conformance family without an undeclared capability skip",
+        "bunx nx run-many -t test typecheck -p conformance store-memory store-sqlite --skip-nx-cache exits 0"
+      ]
+    }
+  ]
+}

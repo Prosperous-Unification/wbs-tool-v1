@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "receiptKind": "invocation",
+  "receiptId": "receipt.invocation.example",
+  "invocationId": "invocation.example",
+  "startedAt": "2026-09-10T17:00:00.000Z",
+  "endedAt": "2026-09-10T17:01:00.000Z",
+  "status": "completed",
+  "executor": {
+    "provider": "openai",
+    "model": "gpt-5",
+    "version": "2026-09-10",
+    "effort": "high",
+    "toolchain": "codex"
+  },
+  "rawUsage": [
+    { "category": "input_tokens", "quantity": 1200, "unit": "tokens" },
+    { "category": "output_tokens", "quantity": 300, "unit": "tokens" }
+  ],
+  "priceIdentity": {
+    "priceId": "openai.gpt-5.2026-09-10",
+    "provider": "openai",
+    "model": "gpt-5",
+    "currency": "USD",
+    "source": "provider-receipt"
+  },
+  "chargedAmountMicros": 25000,
+  "inputArtifact": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "outputArtifact": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+}

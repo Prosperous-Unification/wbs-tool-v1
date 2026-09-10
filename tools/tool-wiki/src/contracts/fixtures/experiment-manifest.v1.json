@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "manifestId": "experiment.example.v1",
+  "repository": {
+    "revision": "7851161bf96312750d07b933ca5d42b75ce575c7",
+    "tree": "b661e693e9c6656986fd431f4654df6db8dc3afc",
+    "inventoryId": "inventory.baseline.7851161b"
+  },
+  "corpus": {
+    "corpusId": "radical-modularity.fixed-corpus.v1",
+    "acceptanceId": "radical-modularity.acceptance.v1",
+    "outcomes": [
+      {
+        "outcomeId": "outcome.independent.example",
+        "title": "Independent module outcome",
+        "stratum": "independent-module",
+        "heldOut": false,
+        "acceptanceCriteria": ["the outcome-specific test exits 0"]
+      },
+      {
+        "outcomeId": "outcome.shared.example",
+        "title": "Shared contract outcome",
+        "stratum": "shared-contract",
+        "heldOut": true,
+        "acceptanceCriteria": ["the contract and consumer tests exit 0"]
+      }
+    ]
+  },
+  "granularity": {
+    "policyId": "granularity.baseline.v1",
+    "mappingVersion": "baseline-layout-v1",
+    "mappingBlob": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "reviewProtocol": {
+    "protocolId": "review.cold-informed.v1",
+    "protocolBlob": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "execution": {
+    "provider": "openai",
+    "model": "gpt-5",
+    "version": "2026-09-10",
+    "effort": "high",
+    "promptHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "toolHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "resources": {
+    "resourceId": "h2puni.controlled.v1",
+    "allocationMode": "fixed-total",
+    "maxConcurrentSessions": 8,
+    "cacheCondition": "cold"
+  },
+  "seeds": [104729, 130363, 155921],
+  "retryPolicy": { "maxAttemptsPerOutcome": 3, "timeBudgetMs": 3600000 },
+  "integrationPolicy": { "maxSubmissions": 4, "maxWaitMs": 300000 },
+  "priceIdentity": {
+    "priceId": "openai.gpt-5.2026-09-10",
+    "provider": "openai",
+    "model": "gpt-5",
+    "currency": "USD",
+    "source": "provider-receipt"
+  },
+  "receiptJournal": { "journalId": "receipts.radical-modularity.v1", "schemaVersion": 1 },
+  "observation": { "postAcceptanceDefectWindowHours": 24 },
+  "hypotheses": {
+    "q2OverQ1Minimum": 1.6,
+    "q4OverQ1Minimum": 3.2,
+    "q8OverQ1Minimum": 6.4,
+    "conflictRateMaximum": 0.05,
+    "integrationReworkRateMaximum": 0.1,
+    "medianDiscoveryMsMaximum": 300000,
+    "reviewAmplificationMaximum": 3,
+    "leaseWaitFractionMaximum": 0.1
+  }
+}

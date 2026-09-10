@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "policyId": "classification.baseline.v1",
+  "contentClasses": [
+    "source",
+    "test",
+    "config",
+    "script",
+    "migration",
+    "fixture",
+    "generated",
+    "vendored",
+    "placeholder",
+    "document",
+    "openspec"
+  ],
+  "evidenceRoots": [
+    { "path": "docs/review-evidence", "allowedRecordKinds": ["review-receipt"] },
+    {
+      "path": "docs/experiment-evidence",
+      "allowedRecordKinds": ["benchmark-corpus", "candidate-inventory", "experiment-manifest"]
+    }
+  ],
+  "symlinks": "inventory-only",
+  "gitlinks": "declared-external-boundary"
+}
