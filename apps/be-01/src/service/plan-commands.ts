@@ -250,6 +250,7 @@ export class PlanCommandRunner {
           if (last === undefined)
             throw new Error('A project command batch completed without a command');
           const tree = await graph.workItems.tree(projectId);
+          if (tree === null) throw new Error(`Project ${projectId} disappeared inside its command batch`);
           if (tree.scheduleError === 'calendar_range') {
             applied = {
               ok: false,
