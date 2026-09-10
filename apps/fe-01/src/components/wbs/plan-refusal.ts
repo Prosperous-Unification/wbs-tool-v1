@@ -329,6 +329,7 @@ function commandCode(refusal: RefusalOf<'postApiProjectsByIdCommands'>): string 
     case 'too_large':
     case 'taken':
     case 'in_use':
+    case 'calendar_range':
     case 'deadline_before_project_start':
       return refusal.error;
     default:
