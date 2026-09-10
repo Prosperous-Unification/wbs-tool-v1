@@ -205,14 +205,24 @@ describe('finite evidence artifact validation production CLI', () => {
       roots: string[];
       artifacts: EvidenceArtifact[];
     };
-    extraneous.roots = [];
+    const extraArtifact: EvidenceArtifact = {
+      artifactId: '6'.repeat(64),
+      path: 'docs/review-evidence/extra.v1.json',
+      blob: '6'.repeat(40),
+      recordKind: 'opaque-transcript',
+      references: [],
+    };
+    extraneous.roots.push(extraArtifact.artifactId);
+    extraneous.artifacts.push(extraArtifact);
     const extraneousInvocation = runArtifacts(
       fixture.repository,
       fixture.revision,
       writeGraph(fixture.repository, extraneous),
     );
     expect(extraneousInvocation.exitCode, output(extraneousInvocation)).toBe(1);
-    expect(output(extraneousInvocation)).toContain('unreachable artifact');
+    expect(output(extraneousInvocation)).toContain(
+      `artifact graph path absent from candidate evidence: ${extraArtifact.path}`,
+    );
   });
 
   test('rejects missing dependency identities, self obligations and cycles without timing out', () => {

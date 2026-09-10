@@ -268,6 +268,20 @@ describe('canonical JSON', () => {
     ).toBe('{"a":"first","z":[{"alpha":null,"beta":true},2]}\n');
   });
 
+  test('orders distinct keys deterministically when their UTF-8 encodings tie', () => {
+    const ascending = Object.fromEntries([
+      ['\ud800', 'first'],
+      ['\ud801', 'second'],
+    ]);
+    const descending = Object.fromEntries([
+      ['\ud801', 'second'],
+      ['\ud800', 'first'],
+    ]);
+
+    expect(serializeCanonical(ascending)).toBe(serializeCanonical(descending));
+    expect(serializeCanonical(ascending)).toBe('{"\\ud800":"first","\\ud801":"second"}\n');
+  });
+
   test('refuses values outside the finite JSON value model', () => {
     class UnsupportedRecord {
       field = 'implementation class';

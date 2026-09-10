@@ -12,8 +12,12 @@ import type {
 
 const Sha256Pattern = /^[0-9a-f]{64}$/;
 
-function compareUtf8(left: string, right: string): number {
-  return Buffer.compare(Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8'));
+function compareCanonicalText(left: string, right: string): number {
+  const byteOrder = Buffer.compare(Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8'));
+  if (byteOrder !== 0) return byteOrder;
+  // Proof: without the code-unit tie-breaker, canonical objects containing `\ud800` and `\ud801`
+  // retained opposite insertion orders because both encode as the same UTF-8 replacement bytes.
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function serializeJson(input: unknown, ancestors: Set<object>): string {
@@ -55,7 +59,9 @@ function serializeJson(input: unknown, ancestors: Set<object>): string {
     if (Object.getOwnPropertySymbols(input).length !== 0) {
       throw new Error('canonical JSON cannot serialize symbol keys');
     }
-    const fields = Object.entries(input).sort(([left], [right]) => compareUtf8(left, right));
+    const fields = Object.entries(input).sort(([left], [right]) =>
+      compareCanonicalText(left, right),
+    );
     return `{${fields
       .map(([key, field]) => `${JSON.stringify(key)}:${serializeJson(field, ancestors)}`)
       .join(',')}}`;
@@ -128,17 +134,17 @@ export function buildContentManifest(
   // after an evidence-only edit, so the production CLI reported stale instead of current.
   const entries = candidate.entries
     .filter(isContent)
-    .sort((left, right) => compareUtf8(left.path, right.path));
+    .sort((left, right) => compareCanonicalText(left.path, right.path));
   const manifest: ContentManifest = {
     schemaVersion: 1,
     manifestKind: 'content',
     protocol: request.protocol,
     classificationPolicy: request.classificationPolicy,
     relationshipInputs: [...request.relationshipInputs].sort((left, right) =>
-      compareUtf8(left.inputId, right.inputId),
+      compareCanonicalText(left.inputId, right.inputId),
     ),
     extractors: [...request.extractors].sort((left, right) =>
-      compareUtf8(left.extractorId, right.extractorId),
+      compareCanonicalText(left.extractorId, right.extractorId),
     ),
     entries,
   };
@@ -270,13 +276,13 @@ function identifyArtifactGraph(graph: ArtifactGraph): string {
   // identity was 30b837..., and the production CLI reordering oracle failed.
   return hashCanonical({
     ...graph,
-    roots: [...graph.roots].sort(compareUtf8),
+    roots: [...graph.roots].sort(compareCanonicalText),
     artifacts: graph.artifacts
       .map((artifact) => ({
         ...artifact,
-        references: [...artifact.references].sort(compareUtf8),
+        references: [...artifact.references].sort(compareCanonicalText),
       }))
-      .sort((left, right) => compareUtf8(left.artifactId, right.artifactId)),
+      .sort((left, right) => compareCanonicalText(left.artifactId, right.artifactId)),
   });
 }
 
@@ -302,6 +308,8 @@ export function validateArtifacts(
   for (const artifact of graph.artifacts) {
     const entry = evidenceByPath.get(artifact.path);
     if (entry === undefined) {
+      // Proof: replacing this refusal with `continue` made the production CLI accept an extra
+      // reachable graph artifact with artifactCount 3, visitedCount 3 and traversalBound 4.
       throw new Error(`artifact graph path absent from candidate evidence: ${artifact.path}`);
     }
     // Proof: removing this exact descriptor comparison let a graph name blob 888... for selected

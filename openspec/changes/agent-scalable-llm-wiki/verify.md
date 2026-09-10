@@ -281,10 +281,11 @@ assertions. Pinned strict OpenSpec validation and exact formatting/diff checks p
 
 `content-manifest` selects and classifies one explicit candidate, binds the exact classification
 policy bytes, and emits canonical UTF-8 JSON over content tuples/classifications plus protocol,
-relationship-input and extractor identities. Object keys use UTF-8 byte order, identity arrays are
-sorted by their stated ids, semantic arrays retain order, and one terminal newline is hashed with
-SHA-256. Evidence tuples, candidate commit and containing tree are deliberately absent. The same
-canonical serializer now owns the diagnostic working-snapshot identities from slice 1.2.
+relationship-input and extractor identities. Object keys use UTF-8 byte order with a deterministic
+code-unit tie-breaker, identity arrays are sorted by their stated ids, semantic arrays retain order,
+and one terminal newline is hashed with SHA-256. Evidence tuples, candidate commit and containing
+tree are deliberately absent. The same canonical serializer now owns the diagnostic
+working-snapshot identities from slice 1.2.
 
 `validate-artifacts` strictly decodes a separately supplied version-1 graph, compares its paths,
 Git blobs, SHA-256 byte identities and schema kinds with the complete classified evidence set,
@@ -314,6 +315,7 @@ production reader.
 | add each evidence artifact as its own dependency | CLI exited 1 on `evidence cannot require itself: ...second.v1.json`; no timeout                          |
 | remove cycle diagnosis                           | CLI exited 1 at the explicit finite graph bound; expected named cyclic dependency, not a harness timeout |
 | omit selected evidence from graph                | exact-set diagnostic was lost to a later missing-dependency error                                        |
+| accept graph path absent from candidate evidence | CLI exited 0 with three reachable artifacts instead of refusing the extra path                           |
 | remove root reachability refusal                 | CLI exited 0 with `artifactCount: 2`, `visitedCount: 0`                                                  |
 | remove missing-edge boundary                     | diagnostic lost the referring artifact path and named only dependency `999...`                           |
 | remove selected descriptor comparison            | forged blob `888...` exited 0 with two validated artifacts                                               |
@@ -340,3 +342,23 @@ no target was skipped. Pinned strict OpenSpec validation returned
 `Change 'agent-scalable-llm-wiki' is valid` with exit 0; its optional PostHog flush could not reach
 the network after the successful validation. Exact formatting and diff checks run after this final
 documentation edit. Full repository/browser gates remain outside this isolated infrastructure slice.
+
+## Slice 1.4 Fix Round 1
+
+The previous case called extraneous graph membership set `roots` to empty and therefore exercised
+only the unreachable-artifact guard. Its replacement keeps the valid `first -> second` rooted graph
+and adds a third, separately rooted artifact whose path is absent from the selected candidate. All
+three nodes are reachable. Replacing only the graph-to-candidate refusal with `continue` made the
+production CLI exit 0 with `artifactCount: 3`, `visitedCount: 3` and `traversalBound: 4`; restoring it
+returned the exact absent-candidate-evidence diagnostic. The existing empty-root mutation remains
+the independent reachability proof.
+
+The canonical serializer RED used two objects with reversed `\ud800`/`\ud801` insertion order.
+Their distinct keys encode to the same UTF-8 replacement bytes, so byte comparison alone retained
+input order: 13 tests passed, one failed and 171 assertions ran. A code-unit tie-breaker after equal
+UTF-8 encodings made the focused pair GREEN at 14 tests, zero failures and 172 assertions, while
+preserving the keys as finite JSON strings.
+
+Record-embedded artifact-edge reconciliation remains deferred to task 3.1 and no task 2.1 behavior
+was added. Focused Nx lint, source/spec typecheck and tests passed 59 tests with zero failures and 668
+assertions before the final documentation checks.

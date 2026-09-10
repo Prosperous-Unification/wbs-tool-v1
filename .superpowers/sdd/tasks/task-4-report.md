@@ -17,9 +17,10 @@ intact; relationship extraction from task 2.1 was not started.
   membership and descriptors, validates byte identities and record schemas, then resolves every root
   and dependency within a node-plus-edge traversal bound. Missing/unreadable/malformed/extraneous,
   duplicate, unreachable, self-referential and cyclic state is refused without a default.
-- The canonical serializer recursively byte-sorts object keys, rejects non-JSON/class/cyclic values,
-  preserves semantic arrays, and emits one terminal newline. Artifact-graph identity separately
-  sorts arrays whose order is not semantic. Slice 1.2 working snapshots now reuse this serializer.
+- The canonical serializer recursively byte-sorts object keys with a deterministic code-unit
+  tie-breaker, rejects non-JSON/class/cyclic values, preserves semantic arrays, and emits one
+  terminal newline. Artifact-graph identity separately sorts arrays whose order is not semantic.
+  Slice 1.2 working snapshots now reuse this serializer.
 - Strict contracts in `contracts/records.ts` version the manifest request and artifact graph, reject
   undeclared keys and duplicate stated identities, and bind manifest policy id/blob to the policy
   actually used for classification.
@@ -56,12 +57,13 @@ One-at-a-time restored mutations observed the two required failures directly:
   `evidence cannot require itself: ...second.v1.json`. Removing the cycle diagnosis separately exited
   1 at the explicit graph bound, not a test timeout, and failed the named-cycle oracle.
 
-Additional production faults removed exact membership/reachability, missing-edge context,
-descriptor and byte comparisons, strict second-read decoding, versioning, duplicate guards,
-policy/input identities and malformed reviewed-identity refusal. Each oracle failed, including four
-faults that otherwise exited 0. Required graph files were separately made absent, mode-000,
-malformed and invalid UTF-8; a Git wrapper made the selected second evidence blob exit 23. Exact
-observations and adjacent `Proof:` comments are in source and OpenSpec `verify.md`.
+Additional production faults removed selected-evidence membership, reachability, missing-edge
+context, descriptor and byte comparisons, strict second-read decoding, versioning, duplicate
+guards, policy/input identities and malformed reviewed-identity refusal. Each oracle failed,
+including four faults that otherwise exited 0. Required graph files were separately made absent,
+mode-000, malformed and invalid UTF-8; a Git wrapper made the selected second evidence blob exit 23.
+Fix Round 1 below corrects the distinct graph-to-candidate membership proof. Exact observations and
+adjacent `Proof:` comments are in source and OpenSpec `verify.md`.
 
 ## Verification
 
@@ -92,3 +94,24 @@ recorded in the handoff.
   introduced. All temporary directories are removed by test cleanup.
 - Full repository and browser gates are disproportionate to this isolated tool-wiki slice and were
   not run; the parent integration pass can run them on the combined candidate.
+
+## Fix Round 1
+
+Review found that the case labeled extraneous graph membership only emptied `roots`; it proved the
+separate reachability refusal and never put a graph path outside the selected candidate. The revised
+production-CLI fixture keeps the original `first -> second` root and edge valid, adds a third artifact
+whose path is absent from candidate evidence, and makes that artifact a root so all three graph nodes
+remain reachable. Replacing only the candidate-membership refusal with `continue` made the CLI exit 0
+with `artifactCount: 3`, `visitedCount: 3` and `traversalBound: 4`. Restoring it produced the exact
+`artifact graph path absent from candidate evidence: docs/review-evidence/extra.v1.json` refusal.
+
+Canonical object ordering also tied distinct unpaired-surrogate keys because UTF-8 encoding replaces
+both `\ud800` and `\ud801` with the same bytes. The focused RED was 13 passed, one failed and 171
+assertions: opposite insertion orders produced opposite serialized key orders. A code-unit
+tie-breaker after byte comparison retains the finite JSON values and makes serialization independent
+of insertion order; the focused GREEN was 14 passed, zero failed and 172 assertions.
+
+Record-embedded artifact-edge reconciliation remains explicitly deferred to task 3.1's provenance
+work; this fix neither infers those edges nor begins relationship task 2.1. The focused Nx lint,
+source/spec typecheck and test gate passed 59 tests with zero failures and 668 assertions before the
+final documentation checks.
