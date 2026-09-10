@@ -8,9 +8,26 @@ const IsoInstantPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
 const OpaqueIdPattern = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
 const GitObjectId = type(/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/);
 const Sha256 = type(/^[0-9a-f]{64}$/);
-const RelativePath = type(RelativePathPattern);
+const RelativePath = type(RelativePathPattern).narrow((path, context) => {
+  // Proof: without the NUL exclusion the production CLI printed `valid candidate-entry`
+  // for `libs/domain\\u0000.ts`; the path-negative oracle received [0, 0, 0, 0].
+  if (path.includes('\u0000')) return context.mustBe('a repository path without NUL bytes');
+  // Proof: without this segment check the production CLI printed `valid`
+  // for `.`, `./libs/domain.ts`, and `libs/./domain.ts`; the oracle received four exit 0s.
+  return path.split('/').every((segment) => segment !== '.')
+    ? true
+    : context.mustBe('a canonical repository-relative path without dot segments');
+});
 const OpaqueId = type(OpaqueIdPattern);
-const IsoInstant = type(IsoInstantPattern);
+const IsoInstant = type(IsoInstantPattern).narrow((instant, context) => {
+  const epochMs = Date.parse(instant);
+  const normalized = instant.length === 20 ? `${instant.slice(0, -1)}.000Z` : instant;
+  // Proof: removing this semantic check made the production CLI print
+  // `valid invocation-receipt` for 2026-02-30T17:00:00.000Z (expected exit 1).
+  return Number.isFinite(epochMs) && new Date(epochMs).toISOString() === normalized
+    ? true
+    : context.mustBe('a real ISO 8601 UTC instant');
+});
 // Proof: widening this to any positive integer made the production CLI print
 // `valid candidate-entry` for schemaVersion 99 (expected exit 1).
 const SchemaVersion = type('1');
@@ -226,7 +243,21 @@ export const InvocationReceipt = type({
   // names source/output artifacts, and an external binding names the receipt.
   // Proof: removing undeclared-key rejection made the production CLI print
   // `valid invocation-receipt` for a self-referential receiptBlob (expected exit 1).
-}).onUndeclaredKey('reject');
+})
+  .onUndeclaredKey('reject')
+  .narrow((receipt, context) => {
+    // Proof: removing this interval check made the production CLI print
+    // `valid invocation-receipt` when endedAt preceded startedAt (expected exit 1).
+    if (Date.parse(receipt.endedAt) < Date.parse(receipt.startedAt)) {
+      return context.mustBe('an interval whose endedAt is not before startedAt');
+    }
+    // Proof: removing this completed-usage check made the production CLI print
+    // `valid invocation-receipt` for completed work with rawUsage [] (expected exit 1).
+    if (receipt.status === 'completed' && receipt.rawUsage.length === 0) {
+      return context.mustBe('completed invocation telemetry with at least one raw usage entry');
+    }
+    return true;
+  });
 export type InvocationReceipt = typeof InvocationReceipt.infer;
 
 export const ElapsedReceipt = type({
@@ -244,7 +275,17 @@ export const ElapsedReceipt = type({
   // `valid elapsed-receipt` for the missing elapsed-time fixture (expected exit 1).
   elapsedMs: NonNegativeInteger,
   status: "'completed'|'failed'|'censored'",
-}).onUndeclaredKey('reject');
+})
+  .onUndeclaredKey('reject')
+  .narrow((receipt, context) => {
+    // `elapsedMs` is the exact UTC wall-clock difference between the two
+    // recorded instants; executor time, aggregation, and rounding are not inferred.
+    // Proof: removing this check made the production CLI print `valid elapsed-receipt`
+    // for a 60-second interval carrying elapsedMs 59999 (expected exit 1).
+    return Date.parse(receipt.endedAt) - Date.parse(receipt.startedAt) === receipt.elapsedMs
+      ? true
+      : context.mustBe('elapsedMs equal to endedAt minus startedAt');
+  });
 export type ElapsedReceipt = typeof ElapsedReceipt.infer;
 
 export const CheckReceipt = type({
@@ -264,7 +305,16 @@ export const CheckReceipt = type({
   stdoutArtifact: Sha256,
   stderrArtifact: Sha256,
   skips: 'string[]',
-}).onUndeclaredKey('reject');
+})
+  .onUndeclaredKey('reject')
+  .narrow((receipt, context) => {
+    // `elapsedMs` follows the same exact UTC wall-clock rule as ElapsedReceipt.
+    // Proof: removing this check made the production CLI print `valid check-receipt`
+    // for a 60-second interval carrying elapsedMs 60001 (expected exit 1).
+    return Date.parse(receipt.endedAt) - Date.parse(receipt.startedAt) === receipt.elapsedMs
+      ? true
+      : context.mustBe('elapsedMs equal to endedAt minus startedAt');
+  });
 export type CheckReceipt = typeof CheckReceipt.infer;
 
 export const ReviewReceipt = type({
@@ -296,9 +346,13 @@ const BenchmarkOutcome = type({
   // Proof: removing this narrow made the production CLI print
   // `valid benchmark-corpus` for an outcome with no acceptance criterion (expected exit 1).
   .narrow((outcome, context) =>
-    outcome.acceptanceCriteria.length > 0
-      ? true
-      : context.mustBe('an outcome with at least one acceptance criterion'),
+    outcome.acceptanceCriteria.length === 0
+      ? context.mustBe('an outcome with at least one acceptance criterion')
+      : outcome.acceptanceCriteria.some((criterion) => criterion.trim().length === 0)
+        ? // Proof: removing this branch made both production corpus paths print `valid`
+          // for whitespace-only acceptance criteria (expected two exit 1s).
+          context.mustBe('acceptance criteria containing non-whitespace text')
+        : true,
   );
 
 export const BenchmarkCorpus = type({
@@ -313,13 +367,17 @@ export const BenchmarkCorpus = type({
   outcomes: BenchmarkOutcome.array(),
 })
   .onUndeclaredKey('reject')
-  // Proof: removing this narrow made the production CLI print
-  // `valid benchmark-corpus` for duplicate outcomeId values (expected exit 1).
-  .narrow((corpus, context) =>
-    new Set(corpus.outcomes.map((outcome) => outcome.outcomeId)).size === corpus.outcomes.length
+  .narrow((corpus, context) => {
+    // Proof: removing this branch made the production CLI print `valid benchmark-corpus`
+    // for outcomes [] (expected exit 1).
+    if (corpus.outcomes.length === 0) return context.mustBe('a nonempty benchmark outcome set');
+    // Proof: removing this narrow made the production CLI print
+    // `valid benchmark-corpus` for duplicate outcomeId values (expected exit 1).
+    return new Set(corpus.outcomes.map((outcome) => outcome.outcomeId)).size ===
+      corpus.outcomes.length
       ? true
-      : context.mustBe('a corpus with unique outcomeId values'),
-  );
+      : context.mustBe('a corpus with unique outcomeId values');
+  });
 export type BenchmarkCorpus = typeof BenchmarkCorpus.infer;
 
 export const ExperimentManifest = type({
@@ -383,6 +441,9 @@ export const ExperimentManifest = type({
   .onUndeclaredKey('reject')
   .narrow((manifest, context) => {
     const outcomeIds = manifest.corpus.outcomes.map((outcome) => outcome.outcomeId);
+    // Proof: removing this branch made the production CLI print `valid experiment-manifest`
+    // for outcomes [] (expected exit 1).
+    if (outcomeIds.length === 0) return context.mustBe('a nonempty benchmark outcome set');
     // Proof: removing this branch made the production CLI print
     // `valid experiment-manifest` for duplicate outcomeId values (expected exit 1).
     if (new Set(outcomeIds).size !== outcomeIds.length) {

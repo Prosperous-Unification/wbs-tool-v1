@@ -40,3 +40,34 @@ direct ESLint output named `@typescript-eslint/no-unused-vars`. All faults were 
 
 Nx could not create its sandbox socket and explicitly ran plugins in-process. This warning did
 not skip targets. No full repository or browser gate was run for this isolated contract slice.
+
+## Slice 1.1 fix round 1
+
+The fixed corpus replaces `outcome.event-log-conformance`, whose event-log behavior already
+existed at the baseline, with `outcome.source-certification-execution` from approved
+`source-conformance-completion` task 7.2. Its acceptance runs the SQLite and memory source
+certification targets separately. A Bun check parsed each source's `project.json` directly from
+baseline `7851161b`; both lacked `test:conformance`, proving the outcome unmet at that revision.
+
+New production CLI tests were RED before implementation: all four noncanonical path records,
+all four invalid-instant/interval records, all four empty/blank outcome records, and a completed
+invocation with `rawUsage: []` printed `valid ...` and returned exit 0. The fixed-corpus test was
+also RED because the replacement outcome was absent. Individual restored fault injections then
+observed these precise failures:
+
+| Removed check                       | Production oracle observation                                                 |
+| ----------------------------------- | ----------------------------------------------------------------------------- |
+| canonical path narrow               | `[0, 0, 0, 0]`; three `valid candidate-entry`, one `valid granularity-policy` |
+| real-instant narrow                 | invalid February instant returned 0 at position 1                             |
+| invocation interval order           | reversed invocation returned 0 at position 2                                  |
+| elapsed exact wall-clock difference | `elapsedMs: 59999` returned 0 at position 3                                   |
+| check exact wall-clock difference   | `elapsedMs: 60001` returned 0 at position 4                                   |
+| whitespace acceptance refusal       | corpus and manifest blank criteria returned 0 at positions 3/4                |
+| benchmark nonempty outcome guard    | empty benchmark corpus returned 0 at position 1                               |
+| manifest nonempty outcome guard     | empty manifest corpus returned 0 at position 2                                |
+| completed raw-usage guard           | `valid invocation-receipt`; expected 1, received 0                            |
+
+Receipt elapsed time now means exactly `Date.parse(endedAt) - Date.parse(startedAt)` in UTC
+milliseconds, with real canonical UTC instants required. Invocation intervals require nondecreasing
+end time. Completed invocation receipts require at least one raw usage entry; failed/censored
+statuses remain distinct, and aggregation remains task 7.1.

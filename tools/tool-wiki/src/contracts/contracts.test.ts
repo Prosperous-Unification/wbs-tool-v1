@@ -254,6 +254,29 @@ afterEach(() => {
   rmSync(scratchRoot, { recursive: true, force: true });
 });
 
+const validateViaCli = (kind: RecordKind, record: object, name: string) => {
+  mkdirSync(scratchRoot, { recursive: true });
+  const recordPath = join(scratchRoot, `${name}.json`);
+  writeFileSync(recordPath, `${JSON.stringify(record)}\n`, 'utf8');
+  const child = Bun.spawnSync({
+    cmd: [
+      process.execPath,
+      'run',
+      join(import.meta.dir, '..', 'cli.ts'),
+      'validate',
+      kind,
+      recordPath,
+    ],
+    cwd: join(import.meta.dir, '..', '..', '..'),
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  return {
+    exitCode: child.exitCode,
+    output: `${child.stdout.toString()}${child.stderr.toString()}`,
+  };
+};
+
 describe('strict contract decoders', () => {
   test('keeps shipped schema fixtures valid', () => {
     const fixtureCases: readonly (readonly [RecordKind, string])[] = [
@@ -272,6 +295,42 @@ describe('strict contract decoders', () => {
       ) as unknown;
       expect(() => decodeRecord(kind, parsed)).not.toThrow();
     }
+  });
+
+  test('pins the unmet source-certification outcome to both real source gates', () => {
+    const corpusPath = join(
+      import.meta.dir,
+      '..',
+      '..',
+      '..',
+      '..',
+      'docs',
+      'experiment-evidence',
+      'fixed-benchmark-corpus.v1.json',
+    );
+    const corpusRecord = decodeRecord(
+      'benchmark-corpus',
+      JSON.parse(readFileSync(corpusPath, 'utf8')) as unknown,
+    );
+    if (!('outcomes' in corpusRecord)) throw new Error('benchmark decoder returned another kind');
+    const outcome = corpusRecord.outcomes.find(
+      ({ outcomeId }) => outcomeId === 'outcome.source-certification-execution',
+    );
+
+    expect(outcome).toEqual({
+      outcomeId: 'outcome.source-certification-execution',
+      title: 'Real-source conformance certification execution',
+      stratum: 'shared-contract',
+      heldOut: false,
+      acceptanceCriteria: [
+        'both real sources independently execute every offered conformance body and refuse partial, skipped or failed certification',
+        'bunx nx run store-sqlite:test:conformance --skip-nx-cache exits 0',
+        'bunx nx run store-memory:test:conformance --skip-nx-cache exits 0',
+      ],
+    });
+    expect(
+      corpusRecord.outcomes.some(({ outcomeId }) => outcomeId === 'outcome.event-log-conformance'),
+    ).toBe(false);
   });
 
   test('accept representative records without discarding their raw receipt fields', () => {
@@ -355,6 +414,84 @@ describe('strict contract decoders', () => {
 });
 
 describe('production CLI validation boundary', () => {
+  test('rejects noncanonical candidate and membership paths', () => {
+    const dotEntry = { ...candidateEntry, path: '.' };
+    const prefixedEntry = { ...candidateEntry, path: './libs/domain.ts' };
+    const nulEntry = { ...candidateEntry, path: 'libs/domain\u0000.ts' };
+    const internalDotPolicy = structuredClone(granularityPolicy);
+    internalDotPolicy.mappings.knowledge.groups[0].memberships[0] = {
+      kind: 'path',
+      path: 'libs/./domain.ts',
+    };
+
+    const refusals = [
+      validateViaCli('candidate-entry', dotEntry, 'dot-entry'),
+      validateViaCli('candidate-entry', prefixedEntry, 'prefixed-entry'),
+      validateViaCli('candidate-entry', nulEntry, 'nul-entry'),
+      validateViaCli('granularity-policy', internalDotPolicy, 'internal-dot-policy'),
+    ];
+
+    expect(
+      refusals.map(({ exitCode }) => exitCode),
+      refusals.map(({ output }) => output).join('\n'),
+    ).toEqual([1, 1, 1, 1]);
+  });
+
+  test('rejects invalid instants, reversed intervals and inconsistent elapsed milliseconds', () => {
+    const invalidInstant = {
+      ...invocationReceipt,
+      startedAt: '2026-02-30T17:00:00.000Z',
+    };
+    const reversedInvocation = {
+      ...invocationReceipt,
+      startedAt: ISO_END,
+      endedAt: ISO_START,
+    };
+    const inconsistentElapsed = { ...elapsedReceipt, elapsedMs: 59_999 };
+    const inconsistentCheck = { ...checkReceipt, elapsedMs: 60_001 };
+
+    const refusals = [
+      validateViaCli('invocation-receipt', invalidInstant, 'invalid-instant'),
+      validateViaCli('invocation-receipt', reversedInvocation, 'reversed-invocation'),
+      validateViaCli('elapsed-receipt', inconsistentElapsed, 'inconsistent-elapsed'),
+      validateViaCli('check-receipt', inconsistentCheck, 'inconsistent-check'),
+    ];
+
+    expect(
+      refusals.map(({ exitCode }) => exitCode),
+      refusals.map(({ output }) => output).join('\n'),
+    ).toEqual([1, 1, 1, 1]);
+  });
+
+  test('rejects empty outcome sets and blank acceptance criteria on both corpus paths', () => {
+    const emptyCorpus = { ...benchmarkCorpus, outcomes: [] };
+    const emptyManifest = structuredClone(experimentManifest);
+    emptyManifest.corpus.outcomes = [];
+    const blankCorpus = structuredClone(benchmarkCorpus);
+    blankCorpus.outcomes[0].acceptanceCriteria = ['   '];
+    const blankManifest = structuredClone(experimentManifest);
+    blankManifest.corpus.outcomes[0].acceptanceCriteria = ['\t'];
+
+    const refusals = [
+      validateViaCli('benchmark-corpus', emptyCorpus, 'empty-corpus'),
+      validateViaCli('experiment-manifest', emptyManifest, 'empty-manifest'),
+      validateViaCli('benchmark-corpus', blankCorpus, 'blank-corpus'),
+      validateViaCli('experiment-manifest', blankManifest, 'blank-manifest'),
+    ];
+
+    expect(
+      refusals.map(({ exitCode }) => exitCode),
+      refusals.map(({ output }) => output).join('\n'),
+    ).toEqual([1, 1, 1, 1]);
+  });
+
+  test('rejects completed invocation receipts with empty raw usage', () => {
+    const emptyUsage = { ...invocationReceipt, rawUsage: [] };
+    const refusal = validateViaCli('invocation-receipt', emptyUsage, 'empty-usage');
+
+    expect(refusal.exitCode, refusal.output).toBe(1);
+  });
+
   test('accepts every representative record and rejects each decoder fault', () => {
     mkdirSync(scratchRoot, { recursive: true });
     const cliPath = join(import.meta.dir, '..', 'cli.ts');

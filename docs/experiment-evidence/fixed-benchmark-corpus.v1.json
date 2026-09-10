@@ -39,13 +39,14 @@
       ]
     },
     {
-      "outcomeId": "outcome.event-log-conformance",
-      "title": "Event-log source conformance",
-      "stratum": "independent-module",
+      "outcomeId": "outcome.source-certification-execution",
+      "title": "Real-source conformance certification execution",
+      "stratum": "shared-contract",
       "heldOut": false,
       "acceptanceCriteria": [
-        "SQLite and memory sources pass the event-log conformance family without an undeclared capability skip",
-        "bunx nx test conformance --skip-nx-cache exits 0"
+        "both real sources independently execute every offered conformance body and refuse partial, skipped or failed certification",
+        "bunx nx run store-sqlite:test:conformance --skip-nx-cache exits 0",
+        "bunx nx run store-memory:test:conformance --skip-nx-cache exits 0"
       ]
     },
     {
