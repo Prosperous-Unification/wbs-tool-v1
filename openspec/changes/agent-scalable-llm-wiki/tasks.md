@@ -26,7 +26,7 @@ No `verify.md` exists until implementation produces observations.
       candidate addition, or read HEAD when staged differs; assert complete tuple/selection
       mismatch on the actual selected candidate. Required absence/unreadability/malformed
       state cases must fail distinctly; no zero-entry fallback.
-- [ ] 1.3 Implement `inventory/classify-entries.ts` and evidence schema routing for ordinary
+- [x] 1.3 Implement `inventory/classify-entries.ts` and evidence schema routing for ordinary
       content versus the two reserved evidence roots. Test `classification.test.ts` includes
       source/test/config/script/migration/fixture/generated/vendor/placeholder/document/
       OpenSpec/binary/symlink cases plus declared Gitlink boundaries. Negative: hide source,

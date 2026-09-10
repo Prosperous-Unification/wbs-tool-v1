@@ -168,3 +168,53 @@ failures and 300 assertions. Nx ran plugins in-process after its sandbox socket 
 skipped. `openspec validate agent-scalable-llm-wiki --strict` returned exit 127 because the
 executable is unavailable. Full repository/browser gates remain skipped for this isolated reader
 fix.
+
+## Slice 1.3 — entry classification and evidence routing
+
+`classify-candidate` reads an explicit committed/staged/working selection through the existing
+candidate reader, retains every selected path/mode/blob tuple, and partitions it with a strict v1
+policy. Ordinary UTF-8 content uses exact path/prefix/segment/name/suffix selectors. Declared binary
+content retains its format, consumer and regeneration authority; symlink blobs are decoded without
+following them; Gitlinks require an exact pinned object and declared external boundary. The only
+evidence roots are `docs/review-evidence` and `docs/experiment-evidence`, where mode 100644 JSON must
+match exactly one root allowlist schema. `opaque-transcript` provides the positive schema envelope
+for prose while leaving invocation trust verification to slice 3.1. Content-manifest behavior from
+slice 1.4 is not implemented here.
+
+The initial focused RED was `bun test src/inventory/classification.test.ts`: exit 1, zero pass, two
+fail and 24 assertions. The positive exact-tuple oracle received the old CLI usage error and the
+negative matrix reached that same missing `classify-candidate` boundary. After implementation, two
+fixture faults were corrected before GREEN: `git hash-object <symlink path>` had followed the target
+instead of naming the committed symlink blob, and a later `git add --all` had removed the synthetic
+Gitlink. The corrected first GREEN was two pass, zero fail and 83 assertions. A separate missing-class
+policy RED exited 0 with a document-only candidate; the exact supported-class guard made it GREEN.
+
+Each fault below ran separately through the production CLI subprocess and was restored before the
+next. Adjacent `Proof:` comments record only these observed results.
+
+| Deliberate fault                                   | Observed production-oracle failure                                                        |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| remove evidence JSON-path guard                    | hidden `.ts` source exited 0 as `opaque-transcript` evidence                              |
+| remove reserved-evidence mode guard                | mode 100755 evidence exited 0 as `opaque-transcript` evidence                             |
+| remove exact-one evidence schema guard             | unknown schema exited 0 with no `recordKind` in the emitted classification                |
+| implicitly wrap JSON parse failures as transcripts | unenveloped prose exited 0 as `opaque-transcript` evidence                                |
+| substitute an implicit undeclared Gitlink boundary | `external/tool` exited 0 as `injected.undeclared`                                         |
+| remove supported-class-set comparisons             | policy omitting both source class and rule exited 0 and classified its remaining document |
+
+The versioned fixture policy was then exercised against the complete real committed candidate at
+`8d726149da9d538e2442489ed3c85acc2e10fba9`; the CLI exited 0 after explicit selectors covered the
+tree. No fallback class or count-only acceptance is present. Its new SHA-256 identity
+`8eebdfdf6195086735524fc601aba152e1bced5bbdf7c237c6d45485548d1d15` is synchronized into the
+baseline inventory evidence.
+
+Focused verification:
+
+```text
+NX_DAEMON=false bunx nx run-many -t lint typecheck test -p tool-wiki --skip-nx-cache --output-style=static
+```
+
+Exit 0: lint passed, both source/spec TypeScript projects compiled, and 34 tests passed with zero
+failures and 395 assertions. Nx ran plugins in-process after its sandbox socket denial; no target was
+skipped. `bunx @fission-ai/openspec@1.3.0 validate agent-scalable-llm-wiki --strict` returned
+`Change 'agent-scalable-llm-wiki' is valid` with exit 0. Full repository and browser gates were not
+run for this isolated classification slice.

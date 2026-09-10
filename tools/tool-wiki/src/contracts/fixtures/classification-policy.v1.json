@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "policyId": "classification.baseline.v1",
+  "selectorVersion": 1,
   "contentClasses": [
     "source",
     "test",
@@ -14,13 +15,156 @@
     "document",
     "openspec"
   ],
+  "contentRules": [
+    {
+      "contentClass": "test",
+      "include": [
+        { "kind": "suffix", "value": ".test.ts" },
+        { "kind": "suffix", "value": ".spec.ts" },
+        { "kind": "suffix", "value": ".test.sh" },
+        { "kind": "segment", "value": "e2e" },
+        { "kind": "segment", "value": "test" },
+        { "kind": "segment", "value": "tests" }
+      ],
+      "exclude": []
+    },
+    {
+      "contentClass": "generated",
+      "include": [{ "kind": "segment", "value": "generated" }],
+      "exclude": []
+    },
+    {
+      "contentClass": "vendored",
+      "include": [
+        { "kind": "segment", "value": "vendor" },
+        { "kind": "segment", "value": "third-party" }
+      ],
+      "exclude": []
+    },
+    {
+      "contentClass": "fixture",
+      "include": [
+        { "kind": "segment", "value": "fixtures" },
+        { "kind": "segment", "value": "__fixtures__" }
+      ],
+      "exclude": []
+    },
+    {
+      "contentClass": "migration",
+      "include": [
+        { "kind": "segment", "value": "migrations" },
+        { "kind": "segment", "value": "drizzle" }
+      ],
+      "exclude": []
+    },
+    {
+      "contentClass": "openspec",
+      "include": [{ "kind": "prefix", "value": "openspec" }],
+      "exclude": []
+    },
+    {
+      "contentClass": "placeholder",
+      "include": [
+        { "kind": "name", "value": ".gitkeep" },
+        { "kind": "name", "value": ".keep" }
+      ],
+      "exclude": []
+    },
+    {
+      "contentClass": "script",
+      "include": [
+        { "kind": "suffix", "value": ".sh" },
+        { "kind": "prefix", "value": "bin" },
+        { "kind": "path", "value": "ops/agent-trailer/prepare-commit-msg" }
+      ],
+      "exclude": [{ "kind": "suffix", "value": ".test.sh" }]
+    },
+    {
+      "contentClass": "config",
+      "include": [
+        { "kind": "suffix", "value": ".json" },
+        { "kind": "suffix", "value": ".yaml" },
+        { "kind": "suffix", "value": ".yml" },
+        { "kind": "suffix", "value": ".toml" },
+        { "kind": "suffix", "value": ".config.ts" },
+        { "kind": "suffix", "value": ".lock" },
+        { "kind": "suffix", "value": ".example" },
+        { "kind": "suffix", "value": ".sops" },
+        { "kind": "suffix", "value": ".service" },
+        { "kind": "suffix", "value": ".caddy" },
+        { "kind": "suffix", "value": ".candidate" },
+        { "kind": "suffix", "value": ".bootstrap" },
+        { "kind": "suffix", "value": ".tmpl" },
+        { "kind": "suffix", "value": ".Dockerfile" },
+        { "kind": "name", "value": "Dockerfile" },
+        { "kind": "name", "value": "Caddyfile" },
+        { "kind": "name", "value": ".bun-version" },
+        { "kind": "name", "value": ".dockerignore" },
+        { "kind": "name", "value": ".editorconfig" },
+        { "kind": "name", "value": ".gitignore" },
+        { "kind": "name", "value": ".nxignore" },
+        { "kind": "name", "value": ".prettierignore" }
+      ],
+      "exclude": [
+        { "kind": "segment", "value": "fixtures" },
+        { "kind": "segment", "value": "drizzle" },
+        { "kind": "segment", "value": "migrations" },
+        { "kind": "prefix", "value": "openspec" },
+        { "kind": "segment", "value": "e2e" },
+        { "kind": "segment", "value": "test" },
+        { "kind": "segment", "value": "tests" },
+        { "kind": "prefix", "value": "docs/review-evidence" },
+        { "kind": "prefix", "value": "docs/experiment-evidence" }
+      ]
+    },
+    {
+      "contentClass": "source",
+      "include": [
+        { "kind": "suffix", "value": ".ts" },
+        { "kind": "suffix", "value": ".tsx" },
+        { "kind": "suffix", "value": ".js" },
+        { "kind": "suffix", "value": ".mjs" },
+        { "kind": "suffix", "value": ".py" },
+        { "kind": "suffix", "value": ".css" },
+        { "kind": "suffix", "value": ".html" },
+        { "kind": "suffix", "value": ".svg" }
+      ],
+      "exclude": [
+        { "kind": "suffix", "value": ".test.ts" },
+        { "kind": "suffix", "value": ".spec.ts" },
+        { "kind": "suffix", "value": ".config.ts" },
+        { "kind": "segment", "value": "e2e" },
+        { "kind": "segment", "value": "test" },
+        { "kind": "segment", "value": "tests" },
+        { "kind": "segment", "value": "fixtures" },
+        { "kind": "segment", "value": "generated" },
+        { "kind": "segment", "value": "vendor" }
+      ]
+    },
+    {
+      "contentClass": "document",
+      "include": [
+        { "kind": "suffix", "value": ".md" },
+        { "kind": "suffix", "value": ".txt" }
+      ],
+      "exclude": [
+        { "kind": "prefix", "value": "openspec" },
+        { "kind": "segment", "value": "fixtures" }
+      ]
+    }
+  ],
   "evidenceRoots": [
-    { "path": "docs/review-evidence", "allowedRecordKinds": ["review-receipt"] },
+    {
+      "path": "docs/review-evidence",
+      "allowedRecordKinds": ["review-receipt", "opaque-transcript"]
+    },
     {
       "path": "docs/experiment-evidence",
       "allowedRecordKinds": ["benchmark-corpus", "candidate-inventory", "experiment-manifest"]
     }
   ],
+  "binaryDeclarations": [],
+  "gitlinkBoundaries": [],
   "symlinks": "inventory-only",
   "gitlinks": "declared-external-boundary"
 }

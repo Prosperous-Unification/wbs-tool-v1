@@ -45,21 +45,137 @@ export const CandidateEntry = type({
 }).onUndeclaredKey('reject');
 export type CandidateEntry = typeof CandidateEntry.infer;
 
+export const EvidenceRecordKind = type(
+  "'benchmark-corpus'|'candidate-inventory'|'experiment-manifest'|'opaque-transcript'|'review-receipt'",
+);
+export type EvidenceRecordKind = typeof EvidenceRecordKind.infer;
+
+export const ContentClass = type(
+  "'source'|'test'|'config'|'script'|'migration'|'fixture'|'generated'|'vendored'|'placeholder'|'document'|'openspec'",
+);
+export type ContentClass = typeof ContentClass.infer;
+const SupportedContentClasses: readonly ContentClass[] = [
+  'source',
+  'test',
+  'config',
+  'script',
+  'migration',
+  'fixture',
+  'generated',
+  'vendored',
+  'placeholder',
+  'document',
+  'openspec',
+];
+
+const SelectorValue = type('string>=1').narrow((value, context) => {
+  if (value.includes('\u0000')) return context.mustBe('a selector without NUL bytes');
+  return true;
+});
+
+const ContentSelector = type({
+  kind: "'path'|'prefix'|'segment'|'name'|'suffix'",
+  value: SelectorValue,
+})
+  .onUndeclaredKey('reject')
+  .narrow((selector, context) => {
+    if (selector.kind === 'path' || selector.kind === 'prefix') {
+      return RelativePathPattern.test(selector.value) &&
+        selector.value.split('/').every((segment) => segment !== '.')
+        ? true
+        : context.mustBe('a canonical repository-relative path selector');
+    }
+    if (selector.kind === 'segment' || selector.kind === 'name') {
+      return !selector.value.includes('/') && selector.value !== '.' && selector.value !== '..'
+        ? true
+        : context.mustBe('one canonical path segment');
+    }
+    return !selector.value.includes('/')
+      ? true
+      : context.mustBe('a path suffix without directory separators');
+  });
+
+const ContentRule = type({
+  contentClass: ContentClass,
+  include: ContentSelector.array(),
+  exclude: ContentSelector.array(),
+})
+  .onUndeclaredKey('reject')
+  .narrow((rule, context) =>
+    rule.include.length > 0 ? true : context.mustBe('at least one include selector'),
+  );
+
+const RegenerationAuthority = type({ kind: "'source'", path: RelativePath })
+  .onUndeclaredKey('reject')
+  .or(type({ kind: "'external'", authority: 'string>=1' }).onUndeclaredKey('reject'));
+
 export const ClassificationPolicy = type({
   schemaVersion: SchemaVersion,
   policyId: OpaqueId,
-  contentClasses: type(
-    "('source'|'test'|'config'|'script'|'migration'|'fixture'|'generated'|'vendored'|'placeholder'|'document'|'openspec')[]",
-  ),
+  selectorVersion: SchemaVersion,
+  contentClasses: ContentClass.array(),
+  contentRules: ContentRule.array(),
   evidenceRoots: type({
     path: RelativePath,
-    allowedRecordKinds: 'string[]',
+    allowedRecordKinds: EvidenceRecordKind.array(),
+  })
+    .onUndeclaredKey('reject')
+    .array(),
+  binaryDeclarations: type({
+    path: RelativePath,
+    format: 'string>=1',
+    consumer: RelativePath,
+    regenerationAuthority: RegenerationAuthority,
+  })
+    .onUndeclaredKey('reject')
+    .array(),
+  gitlinkBoundaries: type({
+    path: RelativePath,
+    object: GitObjectId,
+    boundaryId: OpaqueId,
+    repository: 'string>=1',
   })
     .onUndeclaredKey('reject')
     .array(),
   symlinks: "'inventory-only'",
   gitlinks: "'declared-external-boundary'",
-}).onUndeclaredKey('reject');
+})
+  .onUndeclaredKey('reject')
+  .narrow((policy, context) => {
+    const classes = [...policy.contentClasses].sort();
+    const ruleClasses = policy.contentRules.map((rule) => rule.contentClass).sort();
+    const supportedClasses = [...SupportedContentClasses].sort();
+    if (
+      new Set(classes).size !== classes.length ||
+      // Proof: removing the supported-set comparisons made the production CLI exit 0 for a
+      // policy with both the source class and source rule removed (expected exit 1).
+      classes.length !== supportedClasses.length ||
+      classes.some((contentClass, index) => contentClass !== supportedClasses[index]) ||
+      classes.length !== ruleClasses.length ||
+      classes.some((contentClass, index) => contentClass !== ruleClasses[index])
+    ) {
+      return context.mustBe('exactly one rule for every supported content class');
+    }
+    const roots = policy.evidenceRoots.map((root) => root.path).sort();
+    // The two evidence locations are reserved by the repository design, not extensible candidate input.
+    if (
+      roots.length !== 2 ||
+      roots[0] !== 'docs/experiment-evidence' ||
+      roots[1] !== 'docs/review-evidence'
+    ) {
+      return context.mustBe('the two reserved evidence roots');
+    }
+    if (policy.evidenceRoots.some((root) => root.allowedRecordKinds.length === 0)) {
+      return context.mustBe('nonempty evidence schema allowlists');
+    }
+    const declaredPaths = [
+      ...policy.binaryDeclarations.map((declaration) => declaration.path),
+      ...policy.gitlinkBoundaries.map((boundary) => boundary.path),
+    ];
+    return new Set(declaredPaths).size === declaredPaths.length
+      ? true
+      : context.mustBe('unique binary and Gitlink declaration paths');
+  });
 export type ClassificationPolicy = typeof ClassificationPolicy.infer;
 
 const InventoryEntry = type({
@@ -334,6 +450,16 @@ export const ReviewReceipt = type({
   }).onUndeclaredKey('reject'),
 }).onUndeclaredKey('reject');
 export type ReviewReceipt = typeof ReviewReceipt.infer;
+
+/** A provenance-bearing container whose payload remains opaque to classification. */
+export const OpaqueTranscript = type({
+  schemaVersion: SchemaVersion,
+  recordKind: "'opaque-transcript'",
+  invocationId: OpaqueId,
+  mediaType: "'text/plain'|'application/json'",
+  payload: 'string',
+}).onUndeclaredKey('reject');
+export type OpaqueTranscript = typeof OpaqueTranscript.infer;
 
 const BenchmarkOutcome = type({
   outcomeId: OpaqueId,

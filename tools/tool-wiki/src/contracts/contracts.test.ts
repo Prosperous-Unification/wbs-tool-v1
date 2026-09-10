@@ -35,6 +35,7 @@ const candidateEntry = {
 const classificationPolicy = {
   schemaVersion: 1,
   policyId: 'classification.baseline.v1',
+  selectorVersion: 1,
   contentClasses: [
     'source',
     'test',
@@ -48,10 +49,72 @@ const classificationPolicy = {
     'document',
     'openspec',
   ],
+  contentRules: [
+    {
+      contentClass: 'source',
+      include: [{ kind: 'suffix', value: '.ts' }],
+      exclude: [{ kind: 'suffix', value: '.test.ts' }],
+    },
+    {
+      contentClass: 'test',
+      include: [{ kind: 'suffix', value: '.test.ts' }],
+      exclude: [],
+    },
+    {
+      contentClass: 'config',
+      include: [{ kind: 'name', value: 'project.json' }],
+      exclude: [],
+    },
+    {
+      contentClass: 'script',
+      include: [{ kind: 'suffix', value: '.sh' }],
+      exclude: [],
+    },
+    {
+      contentClass: 'migration',
+      include: [{ kind: 'segment', value: 'migrations' }],
+      exclude: [],
+    },
+    {
+      contentClass: 'fixture',
+      include: [{ kind: 'segment', value: 'fixtures' }],
+      exclude: [],
+    },
+    {
+      contentClass: 'generated',
+      include: [{ kind: 'segment', value: 'generated' }],
+      exclude: [],
+    },
+    {
+      contentClass: 'vendored',
+      include: [{ kind: 'segment', value: 'vendor' }],
+      exclude: [],
+    },
+    {
+      contentClass: 'placeholder',
+      include: [{ kind: 'name', value: '.gitkeep' }],
+      exclude: [],
+    },
+    {
+      contentClass: 'document',
+      include: [{ kind: 'suffix', value: '.md' }],
+      exclude: [{ kind: 'prefix', value: 'openspec' }],
+    },
+    {
+      contentClass: 'openspec',
+      include: [{ kind: 'prefix', value: 'openspec' }],
+      exclude: [],
+    },
+  ],
   evidenceRoots: [
-    { path: 'docs/review-evidence', allowedRecordKinds: ['review-receipt'] },
+    {
+      path: 'docs/review-evidence',
+      allowedRecordKinds: ['review-receipt', 'opaque-transcript'],
+    },
     { path: 'docs/experiment-evidence', allowedRecordKinds: ['experiment-manifest'] },
   ],
+  binaryDeclarations: [],
+  gitlinkBoundaries: [],
   symlinks: 'inventory-only',
   gitlinks: 'declared-external-boundary',
 };

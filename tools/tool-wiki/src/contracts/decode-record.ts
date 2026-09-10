@@ -11,11 +11,12 @@ import {
   GranularityPolicy,
   InvocationReceipt,
   ModuleMapping,
+  OpaqueTranscript,
   ReviewReceipt,
 } from './records';
 
 export const RecordKind = type(
-  "'benchmark-corpus'|'candidate-entry'|'candidate-inventory'|'check-receipt'|'classification-policy'|'elapsed-receipt'|'experiment-manifest'|'granularity-policy'|'invocation-receipt'|'module-mapping'|'review-receipt'",
+  "'benchmark-corpus'|'candidate-entry'|'candidate-inventory'|'check-receipt'|'classification-policy'|'elapsed-receipt'|'experiment-manifest'|'granularity-policy'|'invocation-receipt'|'module-mapping'|'opaque-transcript'|'review-receipt'",
 );
 export type RecordKind = typeof RecordKind.infer;
 
@@ -30,6 +31,7 @@ export type ContractRecord =
   | typeof GranularityPolicy.infer
   | typeof InvocationReceipt.infer
   | typeof ModuleMapping.infer
+  | typeof OpaqueTranscript.infer
   | typeof ReviewReceipt.infer;
 
 /** Validates one untrusted JSON record once, before internal code can observe it. */
@@ -55,6 +57,8 @@ export function decodeRecord(kind: RecordKind, input: unknown): ContractRecord {
       return parseOrThrow(InvocationReceipt, input);
     case 'module-mapping':
       return parseOrThrow(ModuleMapping, input);
+    case 'opaque-transcript':
+      return parseOrThrow(OpaqueTranscript, input);
     case 'review-receipt':
       return parseOrThrow(ReviewReceipt, input);
   }
