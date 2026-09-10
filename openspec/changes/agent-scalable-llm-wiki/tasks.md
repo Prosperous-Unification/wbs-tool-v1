@@ -48,7 +48,7 @@ No `verify.md` exists until implementation produces observations.
       negative: alter a re-exported type behind an unchanged barrel and observe structural
       evidence become stale, then restore. An unchanged internal caller with the same edge
       must not stale provider topology; a new importer must stale it.
-- [ ] 2.2 Implement `relationships/declarations.ts` and typed fact selectors for scripts,
+- [x] 2.2 Implement `relationships/declarations.ts` and typed fact selectors for scripts,
       CI/hooks, Docker/generated artifacts, ports/env, tables/migrations, HTTP contracts,
       vendored locks and external consumers. Test `selectors.test.ts` through CLI extraction;
       negative: forge a selector/edge or change a current port/route/table/target and observe

@@ -14,6 +14,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import type { RelationshipRequest } from '../contracts/records';
 import { hashCanonical } from '../evidence/content-manifest';
 import type { CandidateSnapshot } from '../inventory/read-candidate';
+import { extractDeclaredRelationships } from './declarations';
 import { extractNxRelationships } from './nx';
 import { extractTypeScriptRelationships } from './typescript';
 
@@ -162,9 +163,15 @@ export function extractRelationships(
   try {
     const typescript = extractTypeScriptRelationships(workspace, request.typescript);
     const nx = extractNxRelationships(workspace);
-    const extractors = [nx.extractor, typescript.extractor].sort((left, right) =>
-      compareText(left.extractorId, right.extractorId),
-    );
+    const declarations =
+      (request.declarationPaths?.length ?? 0) === 0
+        ? undefined
+        : extractDeclaredRelationships(repository, workspace, candidate, request, nx.relationships);
+    const extractors = [
+      nx.extractor,
+      typescript.extractor,
+      ...(declarations === undefined ? [] : [declarations.extractor]),
+    ].sort((left, right) => compareText(left.extractorId, right.extractorId));
     const relationshipInputs = [
       relationshipInput('nx.dependencies', selectorIdentities(nx.relationships.dependencies)),
       relationshipInput('nx.projects', selectorIdentities(nx.relationships.projects)),
@@ -178,6 +185,19 @@ export function extractRelationships(
         'typescript.reverse-edges',
         selectorIdentities(typescript.relationships.reverseEdges),
       ),
+      ...(declarations === undefined
+        ? []
+        : [
+            relationshipInput(
+              'declarations.edges',
+              selectorIdentities(declarations.relationships.edges),
+            ),
+            relationshipInput(
+              'declarations.facts',
+              selectorIdentities(declarations.relationships.facts),
+            ),
+            relationshipInput('declarations.unresolved', declarations.relationships.unresolved),
+          ]),
     ].sort((left, right) => compareText(left.inputId, right.inputId));
     return {
       schemaVersion: 1,
@@ -186,6 +206,12 @@ export function extractRelationships(
       manifestInputs: { relationshipInputs, extractors },
       typescript: typescript.relationships,
       nx: nx.relationships,
+      declarations: declarations?.relationships ?? {
+        coverage: [],
+        facts: [],
+        edges: [],
+        unresolved: [],
+      },
     };
   } finally {
     rmSync(workspace, { force: true, recursive: true });

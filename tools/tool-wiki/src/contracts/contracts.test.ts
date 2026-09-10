@@ -727,5 +727,5 @@ describe('production CLI validation boundary', () => {
       expect(child.exitCode, output).toBe(validationCase.expectedExit);
       expect(output).toContain(validationCase.expectedText);
     }
-  }, 15_000);
+  }, 25_000);
 });

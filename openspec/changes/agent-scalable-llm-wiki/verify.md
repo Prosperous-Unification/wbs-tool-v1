@@ -536,3 +536,62 @@ sandbox denied its socket; no target was skipped. Tasks 2.2/2.3 and all checkbox
 Full repository/browser gates remain outside this isolated extractor correction. Strict OpenSpec,
 source/spec typecheck, focused lint and exact formatting checks passed. OpenSpec's optional telemetry
 reported DNS failure after validation, without changing its successful exit.
+
+## Slice 2.2 — Declared relationships and typed facts
+
+Version-1 relationship declarations now select exact package scripts, GitHub Actions steps,
+lefthook commands, Docker instructions, generated blobs, environment values and ports, Drizzle
+tables, migration table operations, HTTP endpoint shapes, Nx targets and vendored lock blobs.
+External-consumer facts and non-derivable edges remain explicitly declared provenance; source-backed
+facts are explicitly extracted provenance. Coverage is `selected-facts-only`, so the report does not
+claim that undeclared relationships were discovered or certified. Named unresolved edges and their
+reasons are retained as a separate manifest input as well as in the edge set.
+
+The selectors run through `extract-relationships` against the already-frozen candidate. Current
+path authorities come from that materialized candidate; historical path authorities use `git show`
+at the declaration's exact, preflighted commit. The existing Nx graph supplies current target
+configuration. Historical Nx targets are refused with a named unsupported-selector diagnostic
+instead of substituting current configuration. Declaration documents and authorities distinguish
+absence, unreadability and malformed content, and unavailable Git history fails before path lookup.
+
+Initial focused RED was zero passes, five failures: every production invocation rejected the new
+`declarationPaths` field at the old strict request boundary. The first bounded selector GREEN passed
+one test with 20 assertions. The complete final selector suite passed seven tests, zero failures and
+231 assertions in 44.67 seconds. The unchanged Task 2.1 relationship suite separately passed 14
+tests and 299 assertions in 91.09 seconds, proving that an omitted declaration set preserves its
+extractor and manifest-input shape.
+
+| Deliberate one-at-a-time fault                         | Observed production-CLI failure                                              |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| bypass expected/actual fact comparison                 | forged selector exited 0; the oracle expected exit 1                         |
+| bypass fact endpoint validation                        | forged fact edge exited 0; the oracle expected exit 1                        |
+| bypass selected path endpoint validation               | forged path edge exited 0; the oracle expected exit 1                        |
+| drop unresolved projection                             | expected named `dynamic-shell-read` and reason; received `[]`                |
+| resolve historical facts from the current checkout     | `port.backend-historical` expected 3100 and received 3200                    |
+| bypass historical commit preflight                     | unavailable history was misreported as authority absent at `ffff...`         |
+| remove current-authority existence diagnosis           | missing authority was misreported as unreadable `ENOENT`                     |
+| rethrow unreadable current authority raw               | expected fact/path diagnosis; received bare `EISDIR`                         |
+| skip a malformed env line                              | expected malformed authority; received selector mismatch with `<unresolved>` |
+| remove declaration existence diagnosis                 | missing declaration was misreported as unreadable `ENOENT`                   |
+| rethrow unreadable declaration raw                     | expected declaration/path diagnosis; received bare `EISDIR`                  |
+| rethrow malformed declaration JSON raw                 | lost the `relationship declaration malformed` boundary name                  |
+| widen declaration selector version                     | selector version 99 exited 0; the oracle expected exit 1                     |
+| bypass within-document fact/edge uniqueness            | each duplicate invocation exited 0; each oracle expected exit 1              |
+| bypass duplicate request-path diagnosis                | failure moved to duplicate declaration ids instead of the request boundary   |
+| bypass cross-document declaration/fact/edge uniqueness | each corresponding invocation exited 0; each oracle expected exit 1          |
+
+Every fault above ran alone through a temporary real Git repository and the production CLI, was
+observed failing its intended oracle, and was restored before the next fault. Adjacent `Proof:`
+comments record those observed outputs. The fixtures use the repository's actual authority shapes:
+package/Nx JSON, GitHub Actions and lefthook YAML, staged Docker instructions, env examples, exported
+Drizzle and HTTP-shape calls, SQL migrations, generated bytes and lock bytes.
+
+The first uncached project aggregate exposed one integration regression: the generic decoder sweep's
+many cold CLI processes reached its old 15-second whole-loop timeout and returned a killed child's
+`null` exit. Raising that behavioral loop's timeout to 25 seconds made its focused run pass in 17.17
+seconds. The final uncached Nx lint/source-plus-spec-typecheck/test aggregate passed all 81 tool-wiki
+tests with zero failures and 1208 assertions in 210.45 seconds (3m30s target duration). Nx used its
+in-process plugin fallback after the sandbox denied its socket; no target was skipped. Full
+repository and browser gates remain outside this isolated infrastructure slice. Task 2.3 indexes
+were not started. Pinned OpenSpec 1.3.0 strict validation returned one valid change with zero issues;
+only its optional PostHog flush failed DNS after successful validation.

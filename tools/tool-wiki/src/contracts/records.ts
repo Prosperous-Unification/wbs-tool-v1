@@ -34,6 +34,7 @@ const IsoInstant = type(IsoInstantPattern).narrow((instant, context) => {
 const SchemaVersion = type('1');
 const NonNegativeInteger = type('number.integer>=0');
 const PositiveInteger = type('number.integer>=1');
+const PortNumber = type('number.integer>=1').and(type('number<=65535'));
 
 const compareGitPaths = (left: string, right: string): number =>
   Buffer.compare(Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8'));
@@ -212,6 +213,7 @@ export type ContentManifestRequest = typeof ContentManifestRequest.infer;
 
 export const RelationshipRequest = type({
   schemaVersion: SchemaVersion,
+  'declarationPaths?': RelativePath.array(),
   typescript: type({
     configPaths: RelativePath.array(),
     publicEntrypoints: RelativePath.array(),
@@ -239,8 +241,219 @@ export const RelationshipRequest = type({
         ? true
         : context.mustBe('unique TypeScript public entrypoints');
     }),
-}).onUndeclaredKey('reject');
+})
+  .onUndeclaredKey('reject')
+  .narrow((request, context) => {
+    const paths = request.declarationPaths ?? [];
+    // Proof: bypassing this guard made the duplicate-path request lose its boundary diagnosis and
+    // fail later with `relationship declarations must have unique declarationId values`.
+    return new Set(paths).size === paths.length
+      ? true
+      : context.mustBe('unique relationship declaration paths');
+  });
 export type RelationshipRequest = typeof RelationshipRequest.infer;
+
+const FactAt = type({ kind: "'current'" })
+  .onUndeclaredKey('reject')
+  .or(type({ kind: "'historical'", revision: GitObjectId }).onUndeclaredKey('reject'));
+
+const PackageScriptFact = type({
+  factId: OpaqueId,
+  family: "'scripts'",
+  at: FactAt,
+  kind: "'package-script'",
+  path: RelativePath,
+  name: 'string>=1',
+  expected: 'string',
+}).onUndeclaredKey('reject');
+
+const CiStepCommandFact = type({
+  factId: OpaqueId,
+  family: "'ci'",
+  at: FactAt,
+  kind: "'ci-step-command'",
+  path: RelativePath,
+  job: 'string>=1',
+  step: 'string>=1',
+  expected: 'string',
+}).onUndeclaredKey('reject');
+
+const HookCommandFact = type({
+  factId: OpaqueId,
+  family: "'hooks'",
+  at: FactAt,
+  kind: "'hook-command'",
+  path: RelativePath,
+  hook: 'string>=1',
+  command: 'string>=1',
+  expected: 'string',
+}).onUndeclaredKey('reject');
+
+const DockerInstructionFact = type({
+  factId: OpaqueId,
+  family: "'docker'",
+  at: FactAt,
+  kind: "'docker-instruction'",
+  path: RelativePath,
+  stage: 'string>=1',
+  instruction: "'ARG'|'CMD'|'COPY'|'ENV'|'EXPOSE'|'FROM'|'RUN'|'WORKDIR'",
+  ordinal: PositiveInteger,
+  expected: 'string',
+}).onUndeclaredKey('reject');
+
+const GeneratedBlobFact = type({
+  factId: OpaqueId,
+  family: "'generated'",
+  at: FactAt,
+  kind: "'generated-blob'",
+  path: RelativePath,
+  expectedBlob: GitObjectId,
+}).onUndeclaredKey('reject');
+
+const EnvironmentVariableFact = type({
+  factId: OpaqueId,
+  family: "'environment'",
+  at: FactAt,
+  kind: "'environment-variable'",
+  path: RelativePath,
+  name: 'string>=1',
+  expected: 'string',
+}).onUndeclaredKey('reject');
+
+const PortFact = type({
+  factId: OpaqueId,
+  family: "'ports'",
+  at: FactAt,
+  kind: "'port'",
+  path: RelativePath,
+  name: 'string>=1',
+  expected: PortNumber,
+}).onUndeclaredKey('reject');
+
+const DrizzleTableFact = type({
+  factId: OpaqueId,
+  family: "'tables'",
+  at: FactAt,
+  kind: "'drizzle-table'",
+  path: RelativePath,
+  exportName: 'string>=1',
+  expected: 'string>=1',
+}).onUndeclaredKey('reject');
+
+const MigrationTableFact = type({
+  factId: OpaqueId,
+  family: "'migrations'",
+  at: FactAt,
+  kind: "'migration-table'",
+  path: RelativePath,
+  operation: "'alter'|'create'|'drop'|'references'",
+  expected: 'string>=1',
+}).onUndeclaredKey('reject');
+
+const HttpEndpointFact = type({
+  factId: OpaqueId,
+  family: "'http'",
+  at: FactAt,
+  kind: "'http-endpoint'",
+  path: RelativePath,
+  exportName: 'string>=1',
+  expectedMethod: "'DELETE'|'GET'|'PATCH'|'POST'|'PUT'",
+  expectedPath: type(/^\/.+$/),
+}).onUndeclaredKey('reject');
+
+const NxTargetFact = type({
+  factId: OpaqueId,
+  family: "'targets'",
+  at: FactAt,
+  kind: "'nx-target'",
+  project: 'string>=1',
+  target: 'string>=1',
+  expectedConfiguration: 'unknown',
+}).onUndeclaredKey('reject');
+
+const VendoredLockFact = type({
+  factId: OpaqueId,
+  family: "'vendored-locks'",
+  at: FactAt,
+  kind: "'vendored-lock'",
+  path: RelativePath,
+  expectedBlob: GitObjectId,
+}).onUndeclaredKey('reject');
+
+const ExternalConsumerFact = type({
+  factId: OpaqueId,
+  family: "'external-consumers'",
+  at: FactAt,
+  kind: "'external-consumer'",
+  system: 'string>=1',
+  contract: 'string>=1',
+  knowledgeLimit: 'string>=1',
+}).onUndeclaredKey('reject');
+
+export const RelationshipFact = PackageScriptFact.or(CiStepCommandFact)
+  .or(HookCommandFact)
+  .or(DockerInstructionFact)
+  .or(GeneratedBlobFact)
+  .or(EnvironmentVariableFact)
+  .or(PortFact)
+  .or(DrizzleTableFact)
+  .or(MigrationTableFact)
+  .or(HttpEndpointFact)
+  .or(NxTargetFact)
+  .or(VendoredLockFact)
+  .or(ExternalConsumerFact);
+export type RelationshipFact = typeof RelationshipFact.infer;
+
+const FactEndpoint = type({ kind: "'fact'", factId: OpaqueId }).onUndeclaredKey('reject');
+const PathEndpoint = type({ kind: "'path'", path: RelativePath }).onUndeclaredKey('reject');
+const ExternalEndpoint = type({ kind: "'external'", system: 'string>=1' }).onUndeclaredKey(
+  'reject',
+);
+const RelationshipEndpoint = FactEndpoint.or(PathEndpoint).or(ExternalEndpoint);
+
+const DeclaredRelationship = type({
+  relationshipId: OpaqueId,
+  kind: OpaqueId,
+  status: "'declared'",
+  source: RelationshipEndpoint,
+  target: RelationshipEndpoint,
+}).onUndeclaredKey('reject');
+
+const UnresolvedRelationship = type({
+  relationshipId: OpaqueId,
+  kind: OpaqueId,
+  status: "'unresolved'",
+  source: RelationshipEndpoint,
+  target: RelationshipEndpoint,
+  reason: 'string>=1',
+}).onUndeclaredKey('reject');
+
+export const RelationshipDeclaration = type({
+  schemaVersion: SchemaVersion,
+  declarationId: OpaqueId,
+  // Proof: widening this to PositiveInteger made selectorVersion 99 reach the production CLI;
+  // `rejects unknown declaration versions` expected exit 1 and received 0.
+  selectorVersion: SchemaVersion,
+  coverage: "'selected-facts-only'",
+  facts: RelationshipFact.array(),
+  edges: DeclaredRelationship.or(UnresolvedRelationship).array(),
+})
+  .onUndeclaredKey('reject')
+  .narrow((declaration, context) => {
+    const factIds = declaration.facts.map((fact) => fact.factId);
+    // Proof: bypassing this guard made the duplicate-fact production CLI invocation exit 0;
+    // `rejects unknown declaration versions` expected exit 1 and received 0.
+    if (new Set(factIds).size !== factIds.length) {
+      return context.mustBe('facts with unique factId values');
+    }
+    const relationshipIds = declaration.edges.map((edge) => edge.relationshipId);
+    // Proof: bypassing this guard made the duplicate-edge production CLI invocation exit 0;
+    // `rejects unknown declaration versions` expected exit 1 and received 0.
+    return new Set(relationshipIds).size === relationshipIds.length
+      ? true
+      : context.mustBe('edges with unique relationshipId values');
+  });
+export type RelationshipDeclaration = typeof RelationshipDeclaration.infer;
 
 const EvidenceArtifact = type({
   artifactId: Sha256,
