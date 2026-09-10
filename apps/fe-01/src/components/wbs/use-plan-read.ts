@@ -451,9 +451,7 @@ export function usePlanRead({
   setStack: React.Dispatch<React.SetStateAction<{ undoable: boolean; redoable: boolean }>>;
   setTeamCapacities: React.Dispatch<React.SetStateAction<TeamCapacityView[]>>;
   setPriorityBands: React.Dispatch<React.SetStateAction<PriorityBandView[]>>;
-  setScheduleError: React.Dispatch<
-    React.SetStateAction<'calendar_range' | 'cycle' | null>
-  >;
+  setScheduleError: React.Dispatch<React.SetStateAction<'calendar_range' | 'cycle' | null>>;
   setEstimateMethod: React.Dispatch<
     React.SetStateAction<'pert' | 'optimistic' | 'realistic' | 'pessimistic'>
   >;

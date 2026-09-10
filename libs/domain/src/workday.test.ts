@@ -93,9 +93,7 @@ describe('addWorkdays', () => {
 
   it("reports an offset beyond Date's range as a calendar-range error", () => {
     expect(() => addWorkdays(MONDAY, 80_000_000)).toThrow(CalendarRangeError);
-    expect(() => addWorkdays(MONDAY, 80_000_000)).toThrow(
-      '2026-08-10 + 80000000 workdays',
-    );
+    expect(() => addWorkdays(MONDAY, 80_000_000)).toThrow('2026-08-10 + 80000000 workdays');
   });
 
   it('crosses a month and a year without drifting', () => {

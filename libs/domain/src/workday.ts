@@ -22,7 +22,9 @@ export class CalendarRangeError extends RangeError {
     readonly from: IsoDate,
     readonly workdays: number,
   ) {
-    super(`calendar date is outside the ECMAScript Date range: ${from} + ${String(workdays)} workdays`);
+    super(
+      `calendar date is outside the ECMAScript Date range: ${from} + ${String(workdays)} workdays`,
+    );
     this.name = 'CalendarRangeError';
   }
 }

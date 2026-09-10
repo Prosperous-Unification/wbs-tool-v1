@@ -10,8 +10,7 @@ that command's announcement and every later plan read surface an opaque 500.
 ## Desired outcome
 
 Calendar projection reports a named `calendar_range` state. A command batch
-that would newly leave the project in that state is refused atomically with a
-422. A project already holding such data remains readable and can commit an edit
+that would newly leave the project in that state is refused atomically with a 422. A project already holding such data remains readable and can commit an edit
 that returns it to range.
 
 ## Non-goals

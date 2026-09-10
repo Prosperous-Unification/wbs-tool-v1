@@ -1771,10 +1771,24 @@ describe('work item routes', () => {
     }
     const estimate = { optimistic: 30_000_000, realistic: 30_000_000, pessimistic: 30_000_000 };
     expect(
-      (await command(send, token, projectId, { kind: 'setEstimate', workItemId: first, stepId: devId, days: estimate })).status,
+      (
+        await command(send, token, projectId, {
+          kind: 'setEstimate',
+          workItemId: first,
+          stepId: devId,
+          days: estimate,
+        })
+      ).status,
     ).toBe(200);
     expect(
-      (await command(send, token, projectId, { kind: 'setEstimate', workItemId: second, stepId: devId, days: estimate })).status,
+      (
+        await command(send, token, projectId, {
+          kind: 'setEstimate',
+          workItemId: second,
+          stepId: devId,
+          days: estimate,
+        })
+      ).status,
     ).toBe(200);
 
     const control = await send(`/api/projects/${projectId}/work-items`, token);
@@ -1807,7 +1821,13 @@ describe('work item routes', () => {
       'calendar_range',
     );
     expect(
-      (await command(send, token, projectId, { kind: 'clearEstimate', workItemId: third, stepId: devId })).status,
+      (
+        await command(send, token, projectId, {
+          kind: 'clearEstimate',
+          workItemId: third,
+          stepId: devId,
+        })
+      ).status,
     ).toBe(200);
     const recovered = await send(`/api/projects/${projectId}/work-items`, token);
     expect(recovered.status).toBe(200);
