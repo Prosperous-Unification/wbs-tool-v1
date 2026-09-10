@@ -64,6 +64,7 @@ export type AppliedCommand =
 type PlainReason =
   | Exclude<WorkItemRefusal, 'deadline_before_project_start'>
   | DirectoryRefusal
+  | 'calendar_range'
   | 'too_many_commands'
   | 'project_required'
   | 'unknown_ref'
@@ -245,9 +246,24 @@ export class PlanCommandRunner {
           this.applyAll(graph, projectId, actorId, commands),
         );
         if (projectId !== null) {
-          await graph.workItems.recordCollected(projectId, actorId, collected.recordings);
+          const last = commands.at(-1);
+          if (last === undefined)
+            throw new Error('A project command batch completed without a command');
+          const tree = await graph.workItems.tree(projectId);
+          if (tree.scheduleError === 'calendar_range') {
+            applied = {
+              ok: false,
+              at: commands.length - 1,
+              kind: last.kind,
+              reason: 'calendar_range',
+            };
+          } else {
+            await graph.workItems.recordCollected(projectId, actorId, collected.recordings);
+            applied = collected;
+          }
+        } else {
+          applied = collected;
         }
-        applied = collected;
       } catch (cause) {
         if (cause instanceof Refused) {
           applied = { ok: false, at: cause.at, kind: cause.kind, ...cause.refusal };

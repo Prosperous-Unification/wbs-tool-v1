@@ -3,6 +3,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   addCalendarDays,
   addWorkdays,
+  CalendarRangeError,
   calendarDaysBetween,
   deadlineOffsetOf,
   firstWorkdayOf,
@@ -88,6 +89,13 @@ describe('addWorkdays', () => {
     // Nothing happens before the plan's own start, and quietly counting into
     // last week is the kind of answer that reads as deliberate.
     expect(() => addWorkdays(THURSDAY, -1)).toThrow(/zero or more/);
+  });
+
+  it("reports an offset beyond Date's range as a calendar-range error", () => {
+    expect(() => addWorkdays(MONDAY, 80_000_000)).toThrow(CalendarRangeError);
+    expect(() => addWorkdays(MONDAY, 80_000_000)).toThrow(
+      '2026-08-10 + 80000000 workdays',
+    );
   });
 
   it('crosses a month and a year without drifting', () => {

@@ -10,6 +10,23 @@ export type IsoDate = string;
 const DAY_MS = 86_400_000;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * A workday offset whose calendar day is outside ECMAScript's finite Date range.
+ *
+ * The offset is valid scheduler arithmetic; only its projection onto a calendar
+ * is impossible. Keeping that distinction typed lets the plan reader report a
+ * modeled calendar-range state without disguising unrelated defects as one.
+ */
+export class CalendarRangeError extends RangeError {
+  constructor(
+    readonly from: IsoDate,
+    readonly workdays: number,
+  ) {
+    super(`calendar date is outside the ECMAScript Date range: ${from} + ${String(workdays)} workdays`);
+    this.name = 'CalendarRangeError';
+  }
+}
+
 /** Whether `value` is a date this module can work with, and a real day. */
 export function isIsoDate(value: unknown): value is IsoDate {
   if (typeof value !== 'string' || !ISO_DATE.test(value)) return false;
@@ -355,7 +372,11 @@ export function addWorkdays(from: IsoDate, workdays: number): IsoDate {
   // with the loop it replaced for every offset 0..500 from every weekday and
   // both weekend days, plus a thousand fast-check cases.
   const start = toUtc(nextWorkday(from));
-  return asIso(dateOfWorkdayIndex(workdayIndexOf(start) + Math.floor(snapWorkdays(workdays))));
+  const answer = dateOfWorkdayIndex(workdayIndexOf(start) + Math.floor(snapWorkdays(workdays)));
+  // Proof: removing this guard makes `reports an offset beyond Date's range as
+  // a calendar-range error` fail with an untyped RangeError from toISOString.
+  if (Number.isNaN(answer.getTime())) throw new CalendarRangeError(from, workdays);
+  return asIso(answer);
 }
 
 /**

@@ -42,7 +42,7 @@ const CONFLICTS = new Set([
  * that may pass on its own, and the same body sent an hour later is refused
  * identically unless somebody moves the project.
  */
-const UNPROCESSABLE = new Set(['deadline_before_project_start']);
+const UNPROCESSABLE = new Set(['calendar_range', 'deadline_before_project_start']);
 
 /**
  * The status a refusal code is answered with, given what **this** route says

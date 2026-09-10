@@ -1,5 +1,6 @@
 # LLM_README — read this, then only the doc your task needs
 
+TASK-515's plan-level calendar horizon guard is on `task-515-calendar-horizon-guard`; next: h2puni gates and negative controls.
 TASK-304 session-response hardening is on `fix/task304-anonymous-session-hardening`: remote-gate the auth, client, and packaged-document proofs, then open the dev PR.
 TASK-496's project-settings route teardown fix is on `fix/task496-project-settings-route-teardown`; next: green CI, merge, dev verification.
 **wbs-tool-v1** — collaborative real-time WBS tool. `be-01` (API, Elysia+Drizzle+bun:sqlite, :3100),

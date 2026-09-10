@@ -23,6 +23,7 @@ import { testWrites } from '../testing/writes-fixture';
 
 function buildHarness(optimized?: OptimizedScheduleReader) {
   const plan = inMemoryServices();
+  const users = inMemoryUsers();
   const { projects: projectStore, directory: directoryStore, measures: measureStore } = plan.stores;
   const directory = testDirectoryService(directoryStore);
   const capacity = testCapacityService();
@@ -63,7 +64,7 @@ function buildHarness(optimized?: OptimizedScheduleReader) {
     priorityBands,
     history: testHistoryService(),
     calendarMarkers,
-    auth: testAuthService(inMemoryUsers()),
+    auth: testAuthService(users),
     projects,
     steps,
     workItems,
@@ -105,7 +106,7 @@ function buildHarness(optimized?: OptimizedScheduleReader) {
   // would be asserting against a read that does not exist. Every other store
   // stays private, as it should: this one is temporary and section 5 takes it
   // out again.
-  return { register, send, measures: measureStore, writes };
+  return { register, send, measures: measureStore, users, workItems, writes };
 }
 
 type Send = (
@@ -115,8 +116,10 @@ type Send = (
 ) => Promise<Response>;
 
 async function setup(optimized?: OptimizedScheduleReader) {
-  const { register, send, measures, writes } = buildHarness(optimized);
+  const { register, send, measures, users, workItems, writes } = buildHarness(optimized);
   const token = await register('owner');
+  const actor = await users.findByUsername('owner');
+  if (actor === null) throw new Error('registered owner is missing');
   const created = await send('/api/projects', token, {
     method: 'POST',
     body: JSON.stringify({ name: 'Rewire the shed' }),
@@ -131,7 +134,17 @@ async function setup(optimized?: OptimizedScheduleReader) {
   const devId = body.steps.find((each) => each.name === 'Dev')?.id;
   const qaId = body.steps.find((each) => each.name === 'QA')?.id;
   if (devId === undefined || qaId === undefined) throw new Error('a project without its steps');
-  return { token, send, measures, writes, projectId: body.project.id, devId, qaId };
+  return {
+    token,
+    send,
+    measures,
+    workItems,
+    writes,
+    actorId: actor.id,
+    projectId: body.project.id,
+    devId,
+    qaId,
+  };
 }
 
 /**
@@ -1730,6 +1743,75 @@ describe('work item routes', () => {
       ((await tree.json()) as { workItems: { estimates: Record<string, unknown> }[] }).workItems[0]
         ?.estimates,
     ).toEqual({});
+  });
+
+  it('refuses a plan-level calendar overflow while preserving its legal control and recovery', async () => {
+    const { token, send, workItems, actorId, projectId, devId } = await setup();
+    const started = await send(`/api/projects/${projectId}`, token, {
+      method: 'PATCH',
+      body: JSON.stringify({ startDate: '2026-01-05' }),
+    });
+    expect(started.status).toBe(200);
+    const first = await addWorkItem(send, token, projectId, { parentId: null, name: 'First' });
+    const second = await addWorkItem(send, token, projectId, { parentId: null, name: 'Second' });
+    const third = await addWorkItem(send, token, projectId, { parentId: null, name: 'Third' });
+    for (const [workItemId, predecessorId] of [
+      [second, first],
+      [third, second],
+    ]) {
+      expect(
+        (
+          await command(send, token, projectId, {
+            kind: 'addDependency',
+            workItemId,
+            predecessorId,
+          })
+        ).status,
+      ).toBe(200);
+    }
+    const estimate = { optimistic: 30_000_000, realistic: 30_000_000, pessimistic: 30_000_000 };
+    expect(
+      (await command(send, token, projectId, { kind: 'setEstimate', workItemId: first, stepId: devId, days: estimate })).status,
+    ).toBe(200);
+    expect(
+      (await command(send, token, projectId, { kind: 'setEstimate', workItemId: second, stepId: devId, days: estimate })).status,
+    ).toBe(200);
+
+    const control = await send(`/api/projects/${projectId}/work-items`, token);
+    expect(control.status).toBe(200);
+    const controlBody = (await control.json()) as {
+      scheduleError: string | null;
+      workItems: { id: string; dates: { endsOn: string } | null }[];
+    };
+    expect(controlBody.scheduleError).toBeNull();
+    expect(controlBody.workItems.find((row) => row.id === second)?.dates?.endsOn).toBeDefined();
+
+    // Proof: removing the transaction's calendar-range preflight makes this
+    // return 200 and leaves the following read in `calendar_range`.
+    const refused = await command(send, token, projectId, {
+      kind: 'setEstimate',
+      workItemId: third,
+      stepId: devId,
+      days: estimate,
+    });
+    expect(refused.status).toBe(422);
+    expect(await refused.json()).toEqual({ error: 'calendar_range', at: 0, kind: 'setEstimate' });
+
+    // Seed the historical state through the service, which deliberately
+    // bypasses the command transaction's new-plan guard. Its read is modeled,
+    // and clearing the estimate is the recovery path a stranded project needs.
+    expect((await workItems.setEstimate(third, actorId, devId, estimate)).ok).toBe(true);
+    const stranded = await send(`/api/projects/${projectId}/work-items`, token);
+    expect(stranded.status).toBe(200);
+    expect(((await stranded.json()) as { scheduleError: string }).scheduleError).toBe(
+      'calendar_range',
+    );
+    expect(
+      (await command(send, token, projectId, { kind: 'clearEstimate', workItemId: third, stepId: devId })).status,
+    ).toBe(200);
+    const recovered = await send(`/api/projects/${projectId}/work-items`, token);
+    expect(recovered.status).toBe(200);
+    expect(((await recovered.json()) as { scheduleError: string | null }).scheduleError).toBeNull();
   });
 
   it('accepts an ordered estimate and rolls it into the parent', async () => {

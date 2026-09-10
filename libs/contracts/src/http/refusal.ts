@@ -103,6 +103,7 @@ export type CommandRefusalCode =
   | 'forbidden'
   | 'strategy_required'
   | 'cycle'
+  | 'calendar_range'
   | 'frozen'
   | 'rolled_up'
   | 'has_children'

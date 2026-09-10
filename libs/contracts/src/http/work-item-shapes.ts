@@ -530,12 +530,15 @@ const batchRefusals = [
   {
     status: 422,
     schema: responseSchema(
-      type({
-        ...context,
-        error: "'deadline_before_project_start'",
-        workItemId: 'string',
-        projectDayZero: 'string',
-      }),
+      type.or(
+        type({ ...context, error: "'calendar_range'" }),
+        type({
+          ...context,
+          error: "'deadline_before_project_start'",
+          workItemId: 'string',
+          projectDayZero: 'string',
+        }),
+      ),
     ),
   },
 ] as const;
