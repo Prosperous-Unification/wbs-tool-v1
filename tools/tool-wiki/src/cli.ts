@@ -3,7 +3,12 @@ import { readFileSync } from 'node:fs';
 import { parseOrThrow } from '@wbs/validation';
 
 import { decodeRecord, RecordKind } from './contracts/decode-record';
-import { ArtifactGraph, ClassificationPolicy, ContentManifestRequest } from './contracts/records';
+import {
+  ArtifactGraph,
+  ClassificationPolicy,
+  ContentManifestRequest,
+  RelationshipRequest,
+} from './contracts/records';
 import {
   buildContentManifest,
   compareContentIdentity,
@@ -12,6 +17,7 @@ import {
 } from './evidence/content-manifest';
 import { type ClassifiedCandidate, classifyEntries } from './inventory/classify-entries';
 import { type CandidateRequest, readCandidate } from './inventory/read-candidate';
+import { extractRelationships } from './relationships';
 
 interface JsonDocument {
   bytes: Uint8Array;
@@ -164,6 +170,19 @@ function writeArtifactValidation(argv: string[]): void {
   process.stdout.write(`${JSON.stringify(report)}\n`);
 }
 
+function writeRelationships(argv: string[]): void {
+  const [kind, repository, revision, requestPath] = argv.slice(1);
+  if (kind !== 'committed' && kind !== 'staged' && kind !== 'working') {
+    throw new Error('relationship candidate kind must be committed, staged or working');
+  }
+  const request = parseOrThrow(RelationshipRequest, readJson(requestPath));
+  const candidateRequest: CandidateRequest =
+    kind === 'committed' ? { kind, revision } : { kind, base: revision };
+  process.stdout.write(
+    `${JSON.stringify(extractRelationships(repository, readCandidate(repository, candidateRequest), request))}\n`,
+  );
+}
+
 function run(argv: string[]): void {
   if (argv.length === 3 && argv[0] === 'validate') {
     validateRecord(argv);
@@ -185,8 +204,12 @@ function run(argv: string[]): void {
     writeArtifactValidation(argv);
     return;
   }
+  if (argv.length === 5 && argv[0] === 'extract-relationships') {
+    writeRelationships(argv);
+    return;
+  }
   throw new Error(
-    'usage: tool-wiki <validate|read-candidate|classify-candidate|content-manifest|validate-artifacts> ...',
+    'usage: tool-wiki <validate|read-candidate|classify-candidate|content-manifest|validate-artifacts|extract-relationships> ...',
   );
 }
 

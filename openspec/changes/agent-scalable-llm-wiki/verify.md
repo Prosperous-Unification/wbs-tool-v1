@@ -376,3 +376,61 @@ artifact tests pass with 126 assertions.
 There is no runtime source change in this round. Focused Nx lint, source/spec typecheck and tests
 passed 60 tests with zero failures and 678 assertions before the final documentation checks. No task
 2.1 behavior or checkbox changed.
+
+## Slice 2.1 — TypeScript and Nx relationships
+
+Relationship extraction materializes one frozen candidate from its exact Git blobs, then invokes the
+installed TypeScript compiler/configuration API and actual installed Nx project-graph CLI. It emits
+canonical identities for exact TypeScript import edges, provider reverse-edge sets, transitive emitted
+public declarations, Nx project roots, dependency edges and complete target configurations. Every
+selector names its extractor id, installed tool version and tool-package identity; the same identities
+feed the six relationship inputs accepted by the content-manifest contract.
+
+Initial focused RED:
+
+```text
+bun test --preload ../test/scratch/preload.ts src/relationships/relationships.test.ts
+```
+
+Exit 1: zero passed, five failed and 37 assertions. Every case reached the production CLI's old usage
+boundary because `extract-relationships` and both relationship adapters were absent. First complete
+GREEN was six passed, zero failed and 139 assertions. The final fixture resolves an extended nested
+`config/tsconfig.json`, a re-exported type with a transitive declaration, Node built-in and installed-
+package imports, and two Nx projects with one nested below `packages/apps/`.
+
+Each fault below ran alone through the production CLI and was restored before the next. Adjacent
+`Proof:` comments contain the observed failures.
+
+| Deliberate fault                          | Observed production-oracle failure                                                                     |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| hash only the unchanged public barrel     | initial and changed identities both remained `fc5f9f1d...`; expected stale declaration evidence        |
+| omit the newly added importer             | provider topology remained `31bdf67d...`; expected a changed reverse-edge identity                     |
+| ignore inline `type` on a named re-export | exact selector received `re-export` instead of `type-re-export`                                        |
+| remove Node built-in classification       | CLI failed with unresolved `packages/provider/src/hidden.ts -> 'node:fs'`                              |
+| remove absent TypeScript-config preflight | missing config was reported as unreadable rather than absent                                           |
+| accept an unresolved relative import      | failure lost the exact source/specifier boundary and fell through to a generic compiler diagnostic     |
+| accept TypeScript config read errors      | a directory supplied as config exited 0                                                                |
+| accept compiler diagnostics               | the `MissingType` fixture emitted declarations and exited 0                                            |
+| remove missing Nx-output check            | exit-zero/no-output was reported as unreadable ENOENT rather than missing                              |
+| remove unreadable Nx-output context       | exact diagnostic became bare EACCES                                                                    |
+| remove malformed Nx-JSON context          | exact diagnostic became bare `JSON Parse error: Expected '}'`                                          |
+| ignore Nx exit 17                         | failed graph generation was misreported as missing output rather than unresolved                       |
+| allow no TypeScript configs               | request advanced to public-entrypoint ownership instead of failing at the request boundary             |
+| allow no public entrypoints               | production request exited 0                                                                            |
+| allow duplicate TypeScript configs        | request advanced to a two-owner public-entrypoint failure instead of rejecting ambiguous configuration |
+| allow duplicate public entrypoints        | production request exited 0                                                                            |
+
+Changing the re-exported type behind an unchanged barrel changes both its public-declaration selector
+and manifest relationship input; restoring the type restores both exact identities. Editing only an
+internal caller's implementation leaves the provider reverse-edge identity current, while adding a
+second importer changes it and publishes all three exact callers.
+
+The uncached Nx aggregate ran source/spec typecheck and all 66 tool-wiki tests successfully: zero test
+failures and 817 assertions in 95.96 seconds. Its first aggregate exit was nonzero only because ESLint
+requested import sorting in the new test. After that mechanical fix, fresh standalone lint and
+source/spec typecheck both exited 0, and the relationship suite passed six tests with zero failures and
+139 assertions in 34.94 seconds. Pinned strict OpenSpec 1.3.0 validation returned
+`Change 'agent-scalable-llm-wiki' is valid`; its optional PostHog flush could not reach the network
+after successful validation. Exact changed-file formatting and diff checks run after this final edit.
+Full repository and browser gates remain outside this isolated infrastructure slice. Tasks 2.2 and 2.3
+were not started.

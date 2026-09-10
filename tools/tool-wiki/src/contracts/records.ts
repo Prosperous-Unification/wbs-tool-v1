@@ -210,6 +210,38 @@ export const ContentManifestRequest = type({
   });
 export type ContentManifestRequest = typeof ContentManifestRequest.infer;
 
+export const RelationshipRequest = type({
+  schemaVersion: SchemaVersion,
+  typescript: type({
+    configPaths: RelativePath.array(),
+    publicEntrypoints: RelativePath.array(),
+  })
+    .onUndeclaredKey('reject')
+    .narrow((request, context) => {
+      // Proof: removing this refusal reached public resolution with zero configs; the production
+      // request oracle lost `at least one TypeScript config path`.
+      if (request.configPaths.length === 0) {
+        return context.mustBe('at least one TypeScript config path');
+      }
+      // Proof: removing this refusal let the empty-public-selector production request exit 0;
+      // its exact request-boundary oracle expected exit 1.
+      if (request.publicEntrypoints.length === 0) {
+        return context.mustBe('at least one TypeScript public entrypoint');
+      }
+      // Proof: removing this refusal reached public resolution with two config owners; the
+      // production request oracle lost `unique TypeScript config paths`.
+      if (new Set(request.configPaths).size !== request.configPaths.length) {
+        return context.mustBe('unique TypeScript config paths');
+      }
+      // Proof: removing this refusal let the duplicated-public-selector production request exit 0;
+      // its exact request-boundary oracle expected exit 1.
+      return new Set(request.publicEntrypoints).size === request.publicEntrypoints.length
+        ? true
+        : context.mustBe('unique TypeScript public entrypoints');
+    }),
+}).onUndeclaredKey('reject');
+export type RelationshipRequest = typeof RelationshipRequest.infer;
+
 const EvidenceArtifact = type({
   artifactId: Sha256,
   path: RelativePath,

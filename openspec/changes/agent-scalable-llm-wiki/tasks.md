@@ -41,7 +41,7 @@ No `verify.md` exists until implementation produces observations.
 
 ## 2. Relationships, indexes and the pilot
 
-- [ ] 2.1 Implement `relationships/typescript.ts` and `relationships/nx.ts` against the
+- [x] 2.1 Implement `relationships/typescript.ts` and `relationships/nx.ts` against the
       installed compiler/configuration and actual project graph. Publish exact import,
       reverse-edge, target and resolved public-declaration selectors with extractor identity.
       Test `relationships.test.ts` on re-exported/transitive types and nested Nx projects;
