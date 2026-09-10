@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -74,7 +74,7 @@ function createRepository(): string {
         strict: true,
         target: 'ES2022',
       },
-      include: ['src/**/*.ts'],
+      include: ['src/index.ts'],
     })}\n`,
   );
   write(
@@ -129,6 +129,16 @@ function createRepository(): string {
 
 function blob(repository: string, path: string): string {
   return runGit(repository, ['hash-object', path]);
+}
+
+function blobBytes(repository: string, bytes: Uint8Array): string {
+  const invocation = Bun.spawnSync(['git', '-C', repository, 'hash-object', '--stdin'], {
+    stdin: bytes,
+    stderr: 'pipe',
+    stdout: 'pipe',
+  });
+  expect(invocation.exitCode, invocation.stderr.toString('utf8')).toBe(0);
+  return invocation.stdout.toString('utf8').trim();
 }
 
 function currentFacts(repository: string): Fact[] {
@@ -215,6 +225,7 @@ function currentFacts(repository: string): Fact[] {
       kind: 'migration-table',
       path: 'migrations/001_create_work_item/migration.sql',
       operation: 'create',
+      occurrence: 1,
       expected: 'work_item',
     },
     {
@@ -535,6 +546,190 @@ describe('declared relationship selectors through the production CLI', () => {
     }
   }, 30_000);
 
+  test('applies statically resolvable HTTP object overrides and refuses dynamic ones', () => {
+    const cases = [
+      {
+        name: 'object spread',
+        route:
+          "const defineEndpointShape = <T>(shape: T): T => shape;\nexport const listWork = defineEndpointShape({ method: 'GET', path: '/api/work-items', ...{ path: '/changed' } });\n",
+        expected:
+          'fact http.list-work authority-selector mismatch: expected {"method":"GET","path":"/api/work-items"}; received {"method":"GET","path":"/changed"}',
+      },
+      {
+        name: 'computed property',
+        route:
+          "const defineEndpointShape = <T>(shape: T): T => shape;\nexport const listWork = defineEndpointShape({ method: 'GET', path: '/api/work-items', ['path']: '/computed' });\n",
+        expected:
+          'fact http.list-work authority-selector mismatch: expected {"method":"GET","path":"/api/work-items"}; received {"method":"GET","path":"/computed"}',
+      },
+      {
+        name: 'dynamic spread',
+        route:
+          "const defineEndpointShape = <T>(shape: T): T => shape;\ndeclare const runtime: { path?: string };\nexport const listWork = defineEndpointShape({ method: 'GET', path: '/api/work-items', ...runtime });\n",
+        expected: 'fact http.list-work selector unsupported: HTTP object spread runtime',
+      },
+    ];
+    for (const boundary of cases) {
+      const repository = createRepository();
+      write(repository, 'src/routes.ts', boundary.route);
+      const fact = currentFacts(repository).find(
+        (candidate) => candidate['factId'] === 'http.list-work',
+      );
+      if (fact === undefined) throw new Error('HTTP fixture absent');
+      const requestPath = writeInputs(repository, declaration([fact], []));
+      const failed = invoke(repository, commitAll(repository, boundary.name), requestPath);
+      expect(failed.exitCode).toBe(1);
+      expect(output(failed)).toContain(boundary.expected);
+    }
+  }, 15_000);
+
+  test('reads current authorities only through exact selected candidate entries', () => {
+    const repository = createRepository();
+    const typescriptPackage = Bun.resolveSync('typescript/package.json', import.meta.dir);
+    const hostFact = {
+      factId: 'host.typescript-package',
+      family: 'generated',
+      at: { kind: 'current' },
+      kind: 'generated-blob',
+      path: 'node_modules/typescript/package.json',
+      expectedBlob: blobBytes(repository, readFileSync(typescriptPackage)),
+    };
+    const hostRequest = writeInputs(repository, declaration([hostFact], []));
+    const hostRevision = commitAll(repository, 'host authority escape');
+    const escaped = invoke(repository, hostRevision, hostRequest);
+    expect(escaped.exitCode).toBe(1);
+    expect(output(escaped)).toContain(
+      'fact host.typescript-package authority outside selected candidate: node_modules/typescript/package.json',
+    );
+
+    const linkedGitRepository = createRepository();
+    const gitlinkRevision = commitAll(linkedGitRepository, 'gitlink authority base');
+    symlinkSync('gitlink', join(linkedGitRepository, 'selected.env'));
+    const gitlinkPort = currentFacts(linkedGitRepository).find(
+      (candidate) => candidate['factId'] === 'port.backend',
+    );
+    if (gitlinkPort === undefined) throw new Error('gitlink port fixture absent');
+    gitlinkPort['path'] = 'selected.env';
+    const gitlinkRequest = writeInputs(linkedGitRepository, declaration([gitlinkPort], []));
+    runGit(linkedGitRepository, ['add', 'relationships.v1.json', 'selected.env']);
+    runGit(linkedGitRepository, [
+      'update-index',
+      '--add',
+      '--cacheinfo',
+      `160000,${gitlinkRevision},gitlink`,
+    ]);
+    runGit(linkedGitRepository, ['commit', '--message', 'selected symlink resolves to gitlink']);
+    const gitlink = invoke(
+      linkedGitRepository,
+      runGit(linkedGitRepository, ['rev-parse', 'HEAD']),
+      gitlinkRequest,
+    );
+    expect(gitlink.exitCode).toBe(1);
+    expect(output(gitlink)).toContain(
+      'fact port.backend authority resolved outside selected candidate: selected.env -> gitlink',
+    );
+
+    const linkedRepository = createRepository();
+    symlinkSync('.env.example', join(linkedRepository, 'selected.env'));
+    const port = currentFacts(linkedRepository).find(
+      (candidate) => candidate['factId'] === 'port.backend',
+    );
+    if (port === undefined) throw new Error('port fixture absent');
+    port['path'] = 'selected.env';
+    const linkedRequest = writeInputs(linkedRepository, declaration([port], []));
+    const linked = report(
+      invoke(
+        linkedRepository,
+        commitAll(linkedRepository, 'selected authority symlink'),
+        linkedRequest,
+      ),
+    );
+    expect(linked.declarations.facts.map(({ factId, actual }) => ({ factId, actual }))).toEqual([
+      { factId: 'port.backend', actual: 3100 },
+    ]);
+  }, 15_000);
+
+  test('extracts migration tables only from complete executable SQL statements', () => {
+    const cases = [
+      {
+        name: 'SQL string and comment',
+        migration:
+          "SELECT 'CREATE TABLE ghost';\n-- CREATE TABLE comment_ghost (`id` text);\n/* ALTER TABLE block_ghost ADD COLUMN name text; */\n",
+        expected:
+          'fact migration.work-item authority-selector mismatch: expected "ghost"; received <unresolved>',
+      },
+      {
+        name: 'unsupported trailing SQL',
+        migration: 'CREATE TABLE real (`id` text PRIMARY KEY);\ninvalid SQL after;\n',
+        expected:
+          'fact migration.work-item selector unsupported: migration statement 2 starts with INVALID',
+      },
+    ];
+    for (const boundary of cases) {
+      const repository = createRepository();
+      write(repository, 'migrations/001_create_work_item/migration.sql', boundary.migration);
+      const fact = currentFacts(repository).find(
+        (candidate) => candidate['factId'] === 'migration.work-item',
+      );
+      if (fact === undefined) throw new Error('migration fixture absent');
+      fact['expected'] = boundary.name === 'SQL string and comment' ? 'ghost' : 'real';
+      const requestPath = writeInputs(repository, declaration([fact], []));
+      const failed = invoke(repository, commitAll(repository, boundary.name), requestPath);
+      expect(failed.exitCode).toBe(1);
+      expect(output(failed)).toContain(boundary.expected);
+    }
+  }, 15_000);
+
+  test('selects one exact occurrence from the real four-table migration', () => {
+    const repository = createRepository();
+    const migrationPath = 'migrations/teams/migration.sql';
+    const realMigration = join(
+      import.meta.dir,
+      '..',
+      '..',
+      '..',
+      '..',
+      'apps/be-01/drizzle/20260806190000_add_teams_and_assignees/migration.sql',
+    );
+    write(repository, migrationPath, readFileSync(realMigration, 'utf8'));
+    const tables = ['service_team', 'person', 'person_team', 'assignment'];
+    const facts = tables.map((expected, index) => ({
+      factId: `migration.teams.${expected}`,
+      family: 'migrations',
+      at: { kind: 'current' },
+      kind: 'migration-table',
+      path: migrationPath,
+      operation: 'create',
+      occurrence: index + 1,
+      expected,
+    }));
+    const requestPath = writeInputs(repository, declaration(facts, []));
+    const revision = commitAll(repository, 'real multi-table migration');
+    const extracted = report(invoke(repository, revision, requestPath));
+    expect(
+      Object.fromEntries(
+        extracted.declarations.facts.map(({ factId, actual }) => [factId, actual]),
+      ),
+    ).toEqual({
+      'migration.teams.assignment': 'assignment',
+      'migration.teams.person': 'person',
+      'migration.teams.person_team': 'person_team',
+      'migration.teams.service_team': 'service_team',
+    });
+
+    facts[3].expected = 'service_team';
+    const mismatchRequest = writeInputs(repository, declaration(facts, []));
+    const mismatch = invoke(
+      repository,
+      commitAll(repository, 'forged fourth table'),
+      mismatchRequest,
+    );
+    expect(mismatch.exitCode).toBe(1);
+    expect(output(mismatch)).toContain(
+      'fact migration.teams.assignment authority-selector mismatch: expected "service_team"; received "assignment"',
+    );
+  }, 15_000);
+
   test('resolves a historical selector at its explicit Git base while checking current facts at the candidate', () => {
     const repository = createRepository();
     const historicalRevision = commitAll(repository, 'port 3100');
@@ -559,7 +754,7 @@ describe('declared relationship selectors through the production CLI', () => {
     ]);
   }, 15_000);
 
-  test('fails closed for absent, unreadable and malformed authorities and unavailable history', () => {
+  test('fails closed for absent, unselected and malformed authorities and unavailable history', () => {
     const cases: {
       name: string;
       prepare(repository: string, fact: Fact): void;
@@ -573,11 +768,11 @@ describe('declared relationship selectors through the production CLI', () => {
         expected: 'fact port.backend authority absent: missing.env',
       },
       {
-        name: 'unreadable',
+        name: 'unselected directory',
         prepare: (_repository, fact) => {
           fact['path'] = 'src';
         },
-        expected: 'fact port.backend authority unreadable: src',
+        expected: 'fact port.backend authority outside selected candidate: src',
       },
       {
         name: 'malformed',

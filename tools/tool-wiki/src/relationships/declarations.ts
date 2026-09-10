@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer';
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { join, relative } from 'node:path';
 
 import { parseOrThrow } from '@wbs/validation';
 import ts from 'typescript';
@@ -90,17 +90,45 @@ function parseJson(bytes: Uint8Array, context: string): unknown {
   }
 }
 
-function currentBytes(workspace: string, factId: string, path: string): Uint8Array {
+function currentBytes(
+  workspace: string,
+  factId: string,
+  path: string,
+  candidate: CandidateSnapshot,
+): Uint8Array {
+  const selected = candidate.entries.find((entry) => entry.path === path);
   const absolutePath = join(workspace, path);
+  if (selected === undefined && !existsSync(absolutePath)) {
+    throw new Error(`fact ${factId} authority absent: ${path}`);
+  }
+  // Proof: bypassing this guard made the host `node_modules/typescript/package.json` test
+  // receive only the later resolved-target diagnostic, not its exact source candidate boundary.
+  if (selected === undefined || selected.mode === '160000') {
+    throw new Error(`fact ${factId} authority outside selected candidate: ${path}`);
+  }
   // Proof: removing the existence branch made the absent-authority test receive
   // `authority unreadable ... ENOENT` instead of the required named absence.
   if (!existsSync(absolutePath)) throw new Error(`fact ${factId} authority absent: ${path}`);
+  let target: string;
+  try {
+    target = relative(realpathSync(workspace), realpathSync(absolutePath));
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    throw new Error(`fact ${factId} authority unreadable: ${path}: ${detail}`, { cause });
+  }
+  const selectedTarget = candidate.entries.find((entry) => entry.path === target);
+  // Proof: bypassing this guard made the selected symlink-to-Gitlink test receive
+  // `authority unreadable ... EISDIR`, not its exact resolved candidate boundary.
+  if (selectedTarget === undefined || selectedTarget.mode === '160000') {
+    throw new Error(
+      `fact ${factId} authority resolved outside selected candidate: ${path} -> ${target}`,
+    );
+  }
   try {
     return readFileSync(absolutePath);
   } catch (cause) {
     const detail = cause instanceof Error ? cause.message : String(cause);
-    // Proof: rethrowing the filesystem error made the unreadable-authority test receive only
-    // `EISDIR: illegal operation on a directory, read`, losing its fact id and authority path.
+    // Preserve the fact and authority names if the immutable materialization becomes unreadable.
     throw new Error(`fact ${factId} authority unreadable: ${path}: ${detail}`, { cause });
   }
 }
@@ -133,7 +161,12 @@ function historicalBytes(
   return selected.stdout;
 }
 
-function authorityBytes(repository: string, workspace: string, fact: RelationshipFact): Uint8Array {
+function authorityBytes(
+  repository: string,
+  workspace: string,
+  candidate: CandidateSnapshot,
+  fact: RelationshipFact,
+): Uint8Array {
   if (!('path' in fact)) {
     throw new Error(`fact ${fact.factId} has no executable authority path`);
   }
@@ -141,7 +174,7 @@ function authorityBytes(repository: string, workspace: string, fact: Relationshi
   // CLI fail with `expected 3100; received 3200` in `resolves a historical selector`.
   return fact.at.kind === 'historical'
     ? historicalBytes(repository, fact.factId, fact.at.revision, fact.path)
-    : currentBytes(workspace, fact.factId, fact.path);
+    : currentBytes(workspace, fact.factId, fact.path, candidate);
 }
 
 function malformed(fact: RelationshipFact, cause: unknown): never {
@@ -285,50 +318,378 @@ function exportedCall(
   return undefined;
 }
 
-function literalProperty(
+function unsupported(fact: RelationshipFact, detail: string): never {
+  throw new Error(`fact ${fact.factId} selector unsupported: ${detail}`);
+}
+
+function unwrapExpression(expression: ts.Expression): ts.Expression {
+  let unwrapped = expression;
+  while (
+    ts.isParenthesizedExpression(unwrapped) ||
+    ts.isAsExpression(unwrapped) ||
+    ts.isTypeAssertionExpression(unwrapped) ||
+    ts.isNonNullExpression(unwrapped) ||
+    ts.isSatisfiesExpression(unwrapped)
+  ) {
+    unwrapped = unwrapped.expression;
+  }
+  return unwrapped;
+}
+
+function constInitializer(
+  fact: RelationshipFact,
+  source: ts.SourceFile,
+  name: string,
+): ts.Expression | undefined {
+  const matches: ts.Expression[] = [];
+  for (const statement of source.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    if ((statement.declarationList.flags & ts.NodeFlags.Const) === 0) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (
+        ts.isIdentifier(declaration.name) &&
+        declaration.name.text === name &&
+        declaration.initializer !== undefined
+      ) {
+        matches.push(declaration.initializer);
+      }
+    }
+  }
+  if (matches.length > 1) unsupported(fact, `HTTP constant ${name} is declared twice`);
+  return matches.at(0);
+}
+
+function staticText(
+  fact: RelationshipFact,
+  source: ts.SourceFile,
+  expression: ts.Expression,
+  resolving: Set<string>,
+): string | undefined {
+  const selected = unwrapExpression(expression);
+  if (ts.isStringLiteral(selected) || ts.isNoSubstitutionTemplateLiteral(selected)) {
+    return selected.text;
+  }
+  if (!ts.isIdentifier(selected)) return undefined;
+  if (resolving.has(selected.text)) {
+    unsupported(fact, `HTTP constant cycle at ${selected.text}`);
+  }
+  const initializer = constInitializer(fact, source, selected.text);
+  if (initializer === undefined) return undefined;
+  resolving.add(selected.text);
+  const value = staticText(fact, source, initializer, resolving);
+  resolving.delete(selected.text);
+  return value;
+}
+
+function propertyName(
+  fact: RelationshipFact,
+  source: ts.SourceFile,
+  name: ts.PropertyName,
+  resolving: Set<string>,
+): string {
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) {
+    return name.text;
+  }
+  if (!ts.isComputedPropertyName(name)) {
+    return unsupported(fact, `HTTP property name ${name.getText(source)}`);
+  }
+  // Proof: treating a computed name as irrelevant made `['path']: '/computed'` leave the earlier
+  // route certified; its production test expected exit 1 and received 0.
+  const computed = staticText(fact, source, name.expression, resolving);
+  if (computed === undefined) {
+    return unsupported(fact, `HTTP computed property ${name.expression.getText(source)}`);
+  }
+  return computed;
+}
+
+function applyHttpObject(
+  fact: RelationshipFact,
+  source: ts.SourceFile,
+  expression: ts.Expression,
+  properties: Map<string, string>,
+  resolving: Set<string>,
+): void {
+  const selected = unwrapExpression(expression);
+  if (ts.isIdentifier(selected)) {
+    if (resolving.has(selected.text)) unsupported(fact, `HTTP constant cycle at ${selected.text}`);
+    const initializer = constInitializer(fact, source, selected.text);
+    if (initializer === undefined) {
+      // Proof: ignoring an unresolved spread made the dynamic-spread production CLI exit 0;
+      // its named unsupported-selector test expected exit 1 and received 0.
+      return unsupported(fact, `HTTP object spread ${selected.getText(source)}`);
+    }
+    resolving.add(selected.text);
+    applyHttpObject(fact, source, initializer, properties, resolving);
+    resolving.delete(selected.text);
+    return;
+  }
+  if (!ts.isObjectLiteralExpression(selected)) {
+    return unsupported(fact, `HTTP object spread ${selected.getText(source)}`);
+  }
+  for (const member of selected.properties) {
+    if (ts.isSpreadAssignment(member)) {
+      // Proof: skipping spread evaluation made the production CLI certify `/api/work-items`
+      // despite the later `/changed`; its override test expected exit 1 and received 0.
+      applyHttpObject(fact, source, member.expression, properties, resolving);
+      continue;
+    }
+    if (ts.isPropertyAssignment(member)) {
+      const name = propertyName(fact, source, member.name, resolving);
+      if (name !== 'method' && name !== 'path') continue;
+      const value = staticText(fact, source, member.initializer, resolving);
+      if (value === undefined) {
+        unsupported(fact, `HTTP property ${name} value ${member.initializer.getText(source)}`);
+      }
+      properties.set(name, value);
+      continue;
+    }
+    if (ts.isShorthandPropertyAssignment(member)) {
+      const name = member.name.text;
+      if (name !== 'method' && name !== 'path') continue;
+      const value = staticText(fact, source, member.name, resolving);
+      if (value === undefined) unsupported(fact, `HTTP property ${name} value ${name}`);
+      properties.set(name, value);
+      continue;
+    }
+    const name = propertyName(fact, source, member.name, resolving);
+    if (name === 'method' || name === 'path') {
+      unsupported(fact, `HTTP property ${name} is not a static value`);
+    }
+  }
+}
+
+function httpProperties(
   fact: RelationshipFact,
   object: ts.ObjectLiteralExpression,
-  name: string,
-): string | undefined {
-  const matches = object.properties.filter(
-    (property): property is ts.PropertyAssignment =>
-      ts.isPropertyAssignment(property) &&
-      ((ts.isIdentifier(property.name) && property.name.text === name) ||
-        (ts.isStringLiteral(property.name) && property.name.text === name)),
-  );
-  if (matches.length > 1) return malformed(fact, `property ${name} is declared twice`);
-  const match = matches.at(0);
-  if (match === undefined) return undefined;
-  const initializer = match.initializer;
-  if (!ts.isStringLiteral(initializer)) {
-    return malformed(fact, `property ${name} is not a string literal`);
+): Map<string, string> {
+  const properties = new Map<string, string>();
+  applyHttpObject(fact, object.getSourceFile(), object, properties, new Set());
+  return properties;
+}
+
+interface SqlToken {
+  kind: 'identifier' | 'string' | 'symbol' | 'word';
+  text: string;
+}
+
+function sqlStatements(fact: RelationshipFact, source: string): SqlToken[][] {
+  const statements: SqlToken[][] = [];
+  let statement: SqlToken[] = [];
+  let depth = 0;
+  let position = 0;
+  const pushStatement = (): void => {
+    if (statement.length > 0) statements.push(statement);
+    statement = [];
+  };
+  while (position < source.length) {
+    const character = source[position];
+    if (/\s/.test(character)) {
+      position += 1;
+      continue;
+    }
+    if (character === '-' && source[position + 1] === '-') {
+      const lineEnd = source.indexOf('\n', position + 2);
+      position = lineEnd === -1 ? source.length : lineEnd + 1;
+      continue;
+    }
+    if (character === '/' && source[position + 1] === '*') {
+      const commentEnd = source.indexOf('*/', position + 2);
+      if (commentEnd === -1) unsupported(fact, 'migration has an unterminated block comment');
+      position = commentEnd + 2;
+      continue;
+    }
+    if (character === "'") {
+      let value = '';
+      position += 1;
+      for (;;) {
+        if (position >= source.length) unsupported(fact, 'migration has an unterminated string');
+        if (source[position] === "'") {
+          if (source[position + 1] === "'") {
+            value += "'";
+            position += 2;
+            continue;
+          }
+          position += 1;
+          break;
+        }
+        value += source[position];
+        position += 1;
+      }
+      // Proof: restoring the raw-source CREATE regex made `SELECT 'CREATE TABLE ghost'` certify
+      // `ghost`; its production CLI test expected exit 1 and received 0.
+      statement.push({ kind: 'string', text: value });
+      continue;
+    }
+    if (character === '"' || character === '`' || character === '[') {
+      const close = character === '[' ? ']' : character;
+      let value = '';
+      position += 1;
+      for (;;) {
+        if (position >= source.length) {
+          unsupported(fact, `migration has an unterminated ${character} identifier`);
+        }
+        if (source[position] === close) {
+          if (source[position + 1] === close) {
+            value += close;
+            position += 2;
+            continue;
+          }
+          position += 1;
+          break;
+        }
+        value += source[position];
+        position += 1;
+      }
+      statement.push({ kind: 'identifier', text: value });
+      continue;
+    }
+    const word = /^[A-Za-z_][A-Za-z0-9_$]*/.exec(source.slice(position));
+    if (word !== null) {
+      statement.push({ kind: 'word', text: word[0] });
+      position += word[0].length;
+      continue;
+    }
+    if (character === '(') depth += 1;
+    if (character === ')') {
+      depth -= 1;
+      if (depth < 0) unsupported(fact, 'migration has an unmatched closing parenthesis');
+    }
+    if (character === ';' && depth === 0) {
+      pushStatement();
+    } else {
+      statement.push({ kind: 'symbol', text: character });
+    }
+    position += 1;
   }
-  return initializer.text;
+  if (depth !== 0) unsupported(fact, 'migration has an unterminated parenthesized expression');
+  pushStatement();
+  return statements;
+}
+
+function sqlWord(token: SqlToken | undefined, expected: string): boolean {
+  return token?.kind === 'word' && token.text.toUpperCase() === expected;
+}
+
+function sqlIdentifier(
+  fact: RelationshipFact,
+  statement: SqlToken[],
+  position: number,
+  statementNumber: number,
+): string {
+  if (!(position in statement)) {
+    unsupported(fact, `migration statement ${String(statementNumber)} has no table identifier`);
+  }
+  const token = statement[position];
+  if (token.kind !== 'word' && token.kind !== 'identifier') {
+    unsupported(fact, `migration statement ${String(statementNumber)} has no table identifier`);
+  }
+  return token.text;
+}
+
+function createTablePosition(statement: SqlToken[]): number | undefined {
+  if (!sqlWord(statement[0], 'CREATE')) return undefined;
+  let position = 1;
+  if (sqlWord(statement[position], 'TEMP') || sqlWord(statement[position], 'TEMPORARY'))
+    position += 1;
+  if (!sqlWord(statement[position], 'TABLE')) return undefined;
+  position += 1;
+  if (
+    sqlWord(statement[position], 'IF') &&
+    sqlWord(statement[position + 1], 'NOT') &&
+    sqlWord(statement[position + 2], 'EXISTS')
+  ) {
+    position += 3;
+  }
+  return position;
+}
+
+function statementKind(
+  fact: RelationshipFact,
+  statement: SqlToken[],
+  statementNumber: number,
+): 'alter-table' | 'create-table' | 'drop-table' | 'other' {
+  const root = statement[0];
+  if (root.kind !== 'word') {
+    unsupported(fact, `migration statement ${String(statementNumber)} has no executable keyword`);
+  }
+  const keyword = root.text.toUpperCase();
+  const createPosition = createTablePosition(statement);
+  if (createPosition !== undefined) {
+    sqlIdentifier(fact, statement, createPosition, statementNumber);
+    return 'create-table';
+  }
+  if (keyword === 'CREATE') {
+    const indexPosition = sqlWord(statement[1], 'UNIQUE') ? 2 : 1;
+    if (sqlWord(statement[indexPosition], 'INDEX')) return 'other';
+    unsupported(fact, `migration statement ${String(statementNumber)} uses unsupported CREATE`);
+  }
+  if (keyword === 'ALTER') {
+    if (!sqlWord(statement[1], 'TABLE')) {
+      unsupported(fact, `migration statement ${String(statementNumber)} uses unsupported ALTER`);
+    }
+    sqlIdentifier(fact, statement, 2, statementNumber);
+    return 'alter-table';
+  }
+  if (keyword === 'DROP') {
+    const target = statement[1];
+    if (sqlWord(target, 'INDEX')) return 'other';
+    if (!sqlWord(target, 'TABLE')) {
+      unsupported(fact, `migration statement ${String(statementNumber)} uses unsupported DROP`);
+    }
+    let position = 2;
+    if (sqlWord(statement[position], 'IF') && sqlWord(statement[position + 1], 'EXISTS')) {
+      position += 2;
+    }
+    sqlIdentifier(fact, statement, position, statementNumber);
+    return 'drop-table';
+  }
+  if (['DELETE', 'INSERT', 'PRAGMA', 'SELECT', 'UPDATE', 'WITH'].includes(keyword)) return 'other';
+  // Proof: accepting an unknown root after a valid CREATE made the partial migration certify
+  // `real`; its production CLI test expected exit 1 and received 0.
+  unsupported(
+    fact,
+    `migration statement ${String(statementNumber)} starts with ${root.text.toUpperCase()}`,
+  );
 }
 
 function migrationTables(
   fact: RelationshipFact & { kind: 'migration-table' },
   bytes: Uint8Array,
 ): string[] {
+  let source: string;
   try {
-    const source = new TextDecoder('utf-8', { fatal: true })
-      .decode(bytes)
-      .replaceAll(/\/\*[\s\S]*?\*\//g, '')
-      .replaceAll(/--[^\n]*/g, '');
-    const prefixes = {
-      alter: 'ALTER\\s+TABLE',
-      create: 'CREATE\\s+TABLE(?:\\s+IF\\s+NOT\\s+EXISTS)?',
-      drop: 'DROP\\s+TABLE(?:\\s+IF\\s+EXISTS)?',
-      references: 'REFERENCES',
-    } as const;
-    const pattern = new RegExp(
-      `${prefixes[fact.operation]}\\s+["\\x60\\[]?([A-Za-z_][A-Za-z0-9_]*)`,
-      'giu',
-    );
-    return [...source.matchAll(pattern)].map((match) => match[1]);
+    source = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   } catch (cause) {
     return malformed(fact, cause);
   }
+  const tables: string[] = [];
+  for (const [index, statement] of sqlStatements(fact, source).entries()) {
+    const number = index + 1;
+    const kind = statementKind(fact, statement, number);
+    if (fact.operation === 'create' && kind === 'create-table') {
+      const position = createTablePosition(statement);
+      if (position === undefined) throw new Error('create-table classification lost its position');
+      tables.push(sqlIdentifier(fact, statement, position, number));
+    }
+    if (fact.operation === 'alter' && kind === 'alter-table') {
+      tables.push(sqlIdentifier(fact, statement, 2, number));
+    }
+    if (fact.operation === 'drop' && kind === 'drop-table') {
+      let position = 2;
+      if (sqlWord(statement[position], 'IF') && sqlWord(statement[position + 1], 'EXISTS')) {
+        position += 2;
+      }
+      tables.push(sqlIdentifier(fact, statement, position, number));
+    }
+    if (fact.operation === 'references' && (kind === 'create-table' || kind === 'alter-table')) {
+      for (let position = 0; position < statement.length; position += 1) {
+        if (sqlWord(statement[position], 'REFERENCES')) {
+          tables.push(sqlIdentifier(fact, statement, position + 1, number));
+        }
+      }
+    }
+  }
+  return tables;
 }
 
 function blobIdentity(repository: string, fact: RelationshipFact, bytes: Uint8Array): string {
@@ -358,6 +719,7 @@ function currentTarget(
 function extractActual(
   repository: string,
   workspace: string,
+  candidate: CandidateSnapshot,
   fact: RelationshipFact,
   nx: NxRelationships,
 ): unknown {
@@ -376,7 +738,7 @@ function extractActual(
     }
     return currentTarget(fact, nx);
   }
-  const bytes = authorityBytes(repository, workspace, fact);
+  const bytes = authorityBytes(repository, workspace, candidate, fact);
   switch (fact.kind) {
     case 'package-script': {
       const scripts = record(jsonAuthority(fact, bytes)['scripts'], `fact ${fact.factId} scripts`);
@@ -429,14 +791,17 @@ function extractActual(
     }
     case 'migration-table': {
       const tables = migrationTables(fact, bytes);
-      return tables.length === 1 ? tables[0] : tables;
+      // Proof: always selecting the first CREATE made `migration.teams.person` receive
+      // `service_team` instead of `person` in the real-migration production CLI test.
+      return tables[fact.occurrence - 1];
     }
     case 'http-endpoint': {
       const call = exportedCall(fact, bytes, 'defineEndpointShape');
       const argument = call?.arguments[0];
       if (argument === undefined || !ts.isObjectLiteralExpression(argument)) return undefined;
-      const method = literalProperty(fact, argument, 'method');
-      const path = literalProperty(fact, argument, 'path');
+      const properties = httpProperties(fact, argument);
+      const method = properties.get('method');
+      const path = properties.get('path');
       return method === undefined || path === undefined ? undefined : { method, path };
     }
   }
@@ -559,7 +924,7 @@ export function extractDeclaredRelationships(
   const facts = sources
     .flatMap(({ declaration, path }) =>
       declaration.facts.map((fact) => {
-        const actual = extractActual(repository, workspace, fact, nx);
+        const actual = extractActual(repository, workspace, candidate, fact, nx);
         const expected = expectedValue(fact);
         if (actual === undefined || hashCanonical(actual) !== hashCanonical(expected)) {
           // Proof: bypassing this comparison made the forged-selector production CLI exit 0;

@@ -347,6 +347,7 @@ const MigrationTableFact = type({
   kind: "'migration-table'",
   path: RelativePath,
   operation: "'alter'|'create'|'drop'|'references'",
+  occurrence: PositiveInteger,
   expected: 'string>=1',
 }).onUndeclaredKey('reject');
 

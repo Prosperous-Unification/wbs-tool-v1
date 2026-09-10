@@ -595,3 +595,58 @@ in-process plugin fallback after the sandbox denied its socket; no target was sk
 repository and browser gates remain outside this isolated infrastructure slice. Task 2.3 indexes
 were not started. Pinned OpenSpec 1.3.0 strict validation returned one valid change with zero issues;
 only its optional PostHog flush failed DNS after successful validation.
+
+## Slice 2.2 Fix Round 1
+
+HTTP endpoint facts now evaluate bounded static object semantics in source order. Direct properties,
+object-literal or unique top-level `const` spreads, static shorthand values and literal or static
+`const` computed names participate in last-write-wins resolution. A spread, computed name or selected
+method/path value that cannot be resolved statically fails as a named unsupported selector; an
+earlier route is never certified in its place.
+
+Migration facts now use a bounded SQL lexer instead of matching raw text. It separates comments,
+strings, quoted identifiers, symbols and words; refuses unterminated lexical forms, unbalanced
+parentheses and statement families outside its declared subset; and extracts CREATE/ALTER/DROP or
+REFERENCES table identifiers only from executable statements. Every migration-table fact carries a
+positive `occurrence`, so the four CREATE statements in the real
+`20260806190000_add_teams_and_assignees` migration select `service_team`, `person`, `person_team` and
+`assignment` independently. An absent occurrence remains unresolved and a wrong expected table is a
+named mismatch. This lexer is deliberately bounded and does not claim general SQL parser coverage.
+
+Current file authorities must be exact non-Gitlink candidate entries before bytes are read. Their
+effective resolved target must independently be an exact non-Gitlink candidate entry. The
+compiler-materialization `node_modules` symlink can therefore support TypeScript without becoming
+an authority: selecting its host `typescript/package.json` fails at the source candidate boundary.
+A selected symlink to a selected regular file remains supported; a selected symlink resolving to a
+Gitlink fails at the resolved-target boundary. Missing paths remain named absent, while a directory
+prefix such as `src` is now correctly named unselected rather than being opened to manufacture an
+`EISDIR` result.
+
+Initial production-CLI RED observations were: HTTP spread override expected exit 1 and received 0;
+the host `node_modules/typescript/package.json` authority expected exit 1 and received 0;
+`SELECT 'CREATE TABLE ghost'` expected exit 1 and received 0; and the new migration occurrence was
+rejected by the strict schema as undeclared. Focused GREEN passed the HTTP case with 30 assertions,
+the candidate-boundary case with 33 assertions, and both SQL/migration cases with 33 assertions.
+
+| Deliberate one-at-a-time fault             | Observed production-CLI failure                                                       |
+| ------------------------------------------ | ------------------------------------------------------------------------------------- |
+| skip a statically resolvable object spread | `/api/work-items` was certified after `/changed`; expected exit 1, received 0         |
+| ignore a computed property name            | `/api/work-items` was certified after `/computed`; expected exit 1, received 0        |
+| ignore a dynamic object spread             | the unsupported selector was certified; expected exit 1, received 0                   |
+| bypass exact source candidate membership   | host authority lost its source-boundary name to the resolved-target diagnostic        |
+| bypass exact resolved-target membership    | symlink-to-Gitlink lost its boundary name to `authority unreadable ... EISDIR`        |
+| restore the raw-source CREATE regex        | `SELECT 'CREATE TABLE ghost'` certified `ghost`; expected exit 1, received 0          |
+| accept an unknown trailing statement root  | `CREATE TABLE real; invalid SQL after;` certified `real`; expected exit 1, received 0 |
+| always select the first CREATE occurrence  | `migration.teams.person` expected `person` and received `service_team`                |
+
+Each fault ran alone through `extract-relationships` against a temporary real Git repository, was
+observed, and was restored before the next. Adjacent `Proof:` comments record these outputs. The
+final selector suite passed 11 tests, zero failures and 327 assertions in 63.20 seconds. The Task
+2.1 relationship regression passed 14 tests, zero failures and 299 assertions in 91.56 seconds. The
+uncached Nx lint/source-plus-spec-typecheck/test aggregate passed all 85 tool-wiki tests with zero
+failures and 1304 assertions in 209.35 seconds (3m29s Nx duration). No task checkbox changed and
+Task 2.3 remains untouched.
+
+Pinned OpenSpec 1.3.0 strict validation returned `Change 'agent-scalable-llm-wiki' is valid` after
+the fix; only its optional PostHog flush failed DNS. Exact changed-file Prettier checking and
+`git diff --check` passed after the final evidence edit.
