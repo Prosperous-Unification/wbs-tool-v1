@@ -3,7 +3,7 @@
   "inventoryId": "inventory.baseline.7851161b",
   "protocol": {
     "protocolId": "inventory.v1",
-    "blob": "75a134a4ab6ab2f828d0da6e0f0da2931526c83695984c6dc594a69abbb78136"
+    "blob": "93847a367e6a32def2bac4b6ae89672a7411830711a4baf97b780547c8593d40"
   },
   "selection": {
     "kind": "committed",

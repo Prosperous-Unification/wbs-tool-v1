@@ -9,11 +9,11 @@ const OpaqueIdPattern = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
 const GitObjectId = type(/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/);
 const Sha256 = type(/^[0-9a-f]{64}$/);
 const RelativePath = type(RelativePathPattern).narrow((path, context) => {
-  // Proof: without the NUL exclusion the production CLI printed `valid candidate-entry`
-  // for `libs/domain\\u0000.ts`; the path-negative oracle received [0, 0, 0, 0].
+  // Proof: removing this entire canonical-path narrow produced [0, 0, 0, 0];
+  // removing only the NUL refusal accepted its third CLI case: [1, 1, 0, 1].
   if (path.includes('\u0000')) return context.mustBe('a repository path without NUL bytes');
-  // Proof: without this segment check the production CLI printed `valid`
-  // for `.`, `./libs/domain.ts`, and `libs/./domain.ts`; the oracle received four exit 0s.
+  // Proof: removing this entire canonical-path narrow produced [0, 0, 0, 0];
+  // removing only the dot-segment refusal accepted cases 1, 2 and 4: [0, 0, 1, 0].
   return path.split('/').every((segment) => segment !== '.')
     ? true
     : context.mustBe('a canonical repository-relative path without dot segments');
