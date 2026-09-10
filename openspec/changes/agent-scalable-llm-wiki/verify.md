@@ -218,3 +218,52 @@ failures and 395 assertions. Nx ran plugins in-process after its sandbox socket 
 skipped. `bunx @fission-ai/openspec@1.3.0 validate agent-scalable-llm-wiki --strict` returned
 `Change 'agent-scalable-llm-wiki' is valid` with exit 0. Full repository and browser gates were not
 run for this isolated classification slice.
+
+## Slice 1.3 fix round 1
+
+Six production-CLI regressions were RED at `caf85a89`: declared minimal WASM was rejected as
+ordinary UTF-8; a reserved symlink and a declared reserved Gitlink each exited 0 as content; the
+symlink decoder removed a leading BOM from both target fields; the shipped policy classified
+`apps/fe-01/src/app.test.tsx` as source; and undeclared minimal WASM at a `.ts` path exited 0 as
+source. The focused run was 6 pass, 6 fail and 160 assertions. After the corrections and independent
+refusal cases, `classification.test.ts` passed 13 tests and 188 assertions.
+
+The first complete-tree rerun found two literal NULs after the first 149 KiB of
+`apps/fe-01/e2e/gantt.spec.ts`, an otherwise valid 243 KiB TypeScript file. Scanning every byte for
+NUL therefore refused real source. The final detector uses Git's bounded first-8,000-byte NUL sniff
+and rejects invalid UTF-8 across the complete blob. A dedicated CLI regression was RED when the
+whole blob was scanned and GREEN with the bounded sniff; minimal WASM remains binary.
+
+Each mutation below ran separately through the production CLI and was restored before the next.
+Adjacent `Proof:` comments contain these observed results.
+
+| Deliberate fault                             | Observed production-oracle failure                                                   |
+| -------------------------------------------- | ------------------------------------------------------------------------------------ |
+| route symlink before reserved-root lookup    | reserved mode 120000 exited 0 as symlink content                                     |
+| route Gitlink before reserved-root lookup    | reserved mode 160000 exited 0 as declared Gitlink content                            |
+| remove bounded NUL detection                 | declared WASM was rejected as text; undeclared WASM exited 0 as source               |
+| scan the entire valid UTF-8 blob for NUL     | late-NUL TypeScript exited 1 as undeclared binary                                    |
+| omit symlink `ignoreBOM: true`               | exact `\uFEFFREADME.md` target and resolved target were both received as `README.md` |
+| remove shipped TSX test selectors/exclusions | `apps/fe-01/src/app.test.tsx` was received as source                                 |
+| remove zero-match refusal                    | contextual failure became `undefined ... matches[0].contentClass`                    |
+| remove multiple-match refusal                | a path matching test and source exited 0 as test                                     |
+| remove pinned Gitlink-object comparison      | selected object differing from its declaration exited 0 as Gitlink content           |
+| remove symlink repository-escape refusal     | `../../outside` exited 0 with resolved target `../outside`                           |
+| remove undeclared-binary refusal             | NUL-bearing minimal WASM at `src/undeclared.ts` exited 0 as source                   |
+
+The shipped policy SHA-256 is now
+`5e19ae9d54e9f907a9e7cefaa8de69c0f64437b2b1c968661c6fff932a5495f8`, synchronized into the
+baseline inventory. Complete committed classification of `caf85a89` exited 0 for 2,832 tuples;
+all 52 real `.test.tsx`/`.spec.tsx` paths classified as test, with zero wrong classes.
+
+Focused verification after all source and test edits:
+
+```text
+NX_DAEMON=false bunx nx run-many -t lint typecheck test -p tool-wiki --skip-nx-cache --output-style=static
+```
+
+Exit 0: lint passed, source/spec TypeScript projects compiled, and 44 tests passed with zero failures
+and 488 assertions. Nx ran plugins in-process after its sandbox socket denial; no target was skipped.
+`bunx @fission-ai/openspec@1.3.0 validate agent-scalable-llm-wiki --strict` returned
+`Change 'agent-scalable-llm-wiki' is valid` with exit 0.
+The exact changed-file format check and `git diff --check` both returned exit 0.

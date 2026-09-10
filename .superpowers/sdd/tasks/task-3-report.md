@@ -66,3 +66,31 @@ repository/browser gates were intentionally not run for this isolated slice.
   silently folded into selected tracked tuples or admission evidence.
 - The fixture policy has no fallback selector. New path shapes fail classification and require an
   explicit reviewed policy update.
+
+## Fix Round 1
+
+The five Astra findings were reproduced through the production CLI at `caf85a89`. The initial
+focused run was 6 pass, 6 fail and 160 assertions: reserved symlink/Gitlink modes bypassed evidence,
+minimal WASM was treated as UTF-8 text, a leading symlink BOM was stripped, the shipped policy
+classified a real `.test.tsx` as source, and undeclared WASM at `.ts` exited 0 as source.
+
+Reserved-root lookup now precedes every special-mode branch. Binary detection applies Git's bounded
+first-8,000-byte NUL sniff plus complete invalid-UTF-8 detection; this catches minimal WASM without
+misclassifying the two late literal NULs in the real 243 KiB `gantt.spec.ts`. Symlink decoding
+preserves BOM bytes. The shipped v1 policy covers `.test.tsx` and `.spec.tsx` in both test includes
+and source exclusions. Independent CLI cases now cover zero/multiple selector matches, Gitlink
+object mismatch, symlink escape and undeclared binary refusal.
+
+One-at-a-time mutations were observed and restored for both reserved-mode precedence branches, NUL
+detection and its bounded window, BOM preservation, shipped TSX selectors, both ordinary match
+cardinalities, pinned Gitlink object, symlink escape and undeclared binary refusal. Exact outputs are
+recorded in OpenSpec `verify.md` and adjacent `Proof:` comments.
+
+Complete classification of committed `caf85a89` exited 0 for all 2,832 tuples. All 52 real
+`.test.tsx`/`.spec.tsx` paths classified as test. The policy SHA-256 is
+`5e19ae9d54e9f907a9e7cefaa8de69c0f64437b2b1c968661c6fff932a5495f8` and matches the baseline
+inventory binding.
+
+Final focused Nx verification passed lint, source/spec typecheck and 44 tests with zero failures and
+488 assertions. Pinned strict OpenSpec validation passed. Full repository/browser gates remain
+outside this isolated task 1.3 fix round. Exact changed-file formatting and diff checks passed.

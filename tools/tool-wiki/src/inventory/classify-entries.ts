@@ -53,6 +53,9 @@ export interface ClassifiedCandidate {
 
 export type ReadBlob = (blob: string, path: string) => Uint8Array;
 
+/** Git-compatible NUL sniff window; valid UTF-8 after it remains eligible as source text. */
+const BinarySniffByteLimit = 8_000;
+
 function isSelected(path: string, selector: ContentSelector): boolean {
   const segments = path.split('/');
   switch (selector.kind) {
@@ -69,9 +72,9 @@ function isSelected(path: string, selector: ContentSelector): boolean {
   }
 }
 
-function decodeUtf8(bytes: Uint8Array, path: string): string {
+function decodeUtf8(bytes: Uint8Array, path: string, preserveBom = false): string {
   try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: preserveBom }).decode(bytes);
   } catch (cause) {
     const detail = cause instanceof Error ? cause.message : String(cause);
     throw new Error(`undeclared binary content at ${path}: ${detail}`, { cause });
@@ -79,11 +82,15 @@ function decodeUtf8(bytes: Uint8Array, path: string): string {
 }
 
 function classifySymlink(entry: CandidateEntry, readBlob: ReadBlob): ContentClassification {
-  const target = decodeUtf8(readBlob(entry.blob, entry.path), entry.path);
+  // Proof: omitting `ignoreBOM: true` made the production CLI report `README.md` for both
+  // target fields where the exact committed symlink blob starts with `\uFEFFREADME.md`.
+  const target = decodeUtf8(readBlob(entry.blob, entry.path), entry.path, true);
   if (target.length === 0 || target.includes('\u0000') || target.startsWith('/')) {
     throw new Error(`symlink ${entry.path} has an invalid repository-relative target`);
   }
   const resolvedTarget = posix.normalize(posix.join(posix.dirname(entry.path), target));
+  // Proof: removing this refusal made the production CLI exit 0 with target `../../outside`
+  // resolved to the repository-external path `../outside`.
   if (resolvedTarget === '..' || resolvedTarget.startsWith('../')) {
     throw new Error(`symlink ${entry.path} escapes the repository: ${target}`);
   }
@@ -100,6 +107,8 @@ function classifyGitlink(
     // and emit `external/tool` as `injected.undeclared` (expected refusal).
     throw new Error(`Gitlink ${entry.path} has no declared external boundary`);
   }
+  // Proof: removing this comparison made the production CLI exit 0 and classify the selected
+  // Gitlink object through a boundary pinned to a different object.
   if (boundary.object !== entry.blob) {
     throw new Error(
       `Gitlink ${entry.path} object ${entry.blob} differs from declared object ${boundary.object}`,
@@ -161,6 +170,21 @@ function classifyEvidence(
   return { kind: 'evidence', evidenceRoot: root.path, recordKind };
 }
 
+function hasBinaryBytes(bytes: Uint8Array): boolean {
+  // Proof: removing the bounded NUL check made the production CLI reject a declared minimal WASM
+  // module as ordinary UTF-8 and accept the same undeclared bytes at a `.ts` path as source.
+  // Proof: widening the sample to the whole blob made the production CLI exit 1 with
+  // `undeclared binary content` for valid UTF-8 whose literal NUL follows byte 8,192.
+  if (bytes.subarray(0, BinarySniffByteLimit).includes(0)) return true;
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    return false;
+  } catch (cause) {
+    if (!(cause instanceof TypeError)) throw cause;
+    return true;
+  }
+}
+
 function classifyOrdinary(
   entry: CandidateEntry,
   policy: ClassificationPolicy,
@@ -168,15 +192,8 @@ function classifyOrdinary(
 ): ContentClassification {
   const binary = policy.binaryDeclarations.find((candidate) => candidate.path === entry.path);
   const bytes = readBlob(entry.blob, entry.path);
-  let isBinary = false;
-  try {
-    new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-  } catch (cause) {
-    if (!(cause instanceof TypeError)) throw cause;
-    isBinary = true;
-  }
-  if (isBinary) {
-    if (binary === undefined) throw new Error(`undeclared binary content at ${entry.path}`);
+  const isBinary = hasBinaryBytes(bytes);
+  if (isBinary && binary !== undefined) {
     return {
       kind: 'content',
       contentClass: 'binary',
@@ -185,6 +202,9 @@ function classifyOrdinary(
       regenerationAuthority: binary.regenerationAuthority,
     };
   }
+  // Proof: removing this refusal made the production CLI exit 0 and classify the NUL-bearing
+  // minimal WASM bytes at `src/undeclared.ts` as source.
+  if (isBinary) throw new Error(`undeclared binary content at ${entry.path}`);
   if (binary !== undefined) {
     throw new Error(`declared binary ${entry.path} contains ordinary UTF-8 text`);
   }
@@ -193,7 +213,16 @@ function classifyOrdinary(
       rule.include.some((selector) => isSelected(entry.path, selector)) &&
       !rule.exclude.some((selector) => isSelected(entry.path, selector)),
   );
-  if (matches.length !== 1) {
+  // Proof: removing this refusal made the production CLI lose the contextual diagnostic and
+  // emit `undefined is not an object (evaluating 'matches[0].contentClass')` for `unknown.zzz`.
+  if (matches.length === 0) {
+    throw new Error(
+      `ordinary content ${entry.path} matched ${String(matches.length)} classification rules`,
+    );
+  }
+  // Proof: removing this refusal made the production CLI exit 0 and classify a path matched by
+  // both test and source rules as test content.
+  if (matches.length > 1) {
     throw new Error(
       `ordinary content ${entry.path} matched ${String(matches.length)} classification rules`,
     );
@@ -212,21 +241,23 @@ export function classifyEntries(
   readBlob: ReadBlob,
 ): ClassifiedEntry[] {
   return entries.map((entry) => {
+    // Proof: putting the symlink early return above this lookup made a reserved mode-120000 path
+    // exit 0 as symlink content; doing the same for Gitlinks made mode 160000 exit 0 as content.
+    const evidenceRoot = policy.evidenceRoots.find(
+      (root) => entry.path === root.path || entry.path.startsWith(`${root.path}/`),
+    );
+    if (evidenceRoot !== undefined) {
+      return { ...entry, classification: classifyEvidence(entry, evidenceRoot, readBlob) };
+    }
     if (entry.mode === '120000') {
       return { ...entry, classification: classifySymlink(entry, readBlob) };
     }
     if (entry.mode === '160000') {
       return { ...entry, classification: classifyGitlink(entry, policy) };
     }
-    const evidenceRoot = policy.evidenceRoots.find(
-      (root) => entry.path === root.path || entry.path.startsWith(`${root.path}/`),
-    );
     return {
       ...entry,
-      classification:
-        evidenceRoot === undefined
-          ? classifyOrdinary(entry, policy, readBlob)
-          : classifyEvidence(entry, evidenceRoot, readBlob),
+      classification: classifyOrdinary(entry, policy, readBlob),
     };
   });
 }

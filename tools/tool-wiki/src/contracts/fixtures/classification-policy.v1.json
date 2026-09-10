@@ -21,6 +21,8 @@
       "include": [
         { "kind": "suffix", "value": ".test.ts" },
         { "kind": "suffix", "value": ".spec.ts" },
+        { "kind": "suffix", "value": ".test.tsx" },
+        { "kind": "suffix", "value": ".spec.tsx" },
         { "kind": "suffix", "value": ".test.sh" },
         { "kind": "segment", "value": "e2e" },
         { "kind": "segment", "value": "test" },
@@ -132,6 +134,8 @@
       "exclude": [
         { "kind": "suffix", "value": ".test.ts" },
         { "kind": "suffix", "value": ".spec.ts" },
+        { "kind": "suffix", "value": ".test.tsx" },
+        { "kind": "suffix", "value": ".spec.tsx" },
         { "kind": "suffix", "value": ".config.ts" },
         { "kind": "segment", "value": "e2e" },
         { "kind": "segment", "value": "test" },
