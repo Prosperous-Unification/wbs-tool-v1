@@ -1,5 +1,13 @@
 import { Buffer } from 'node:buffer';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 
@@ -74,6 +82,7 @@ function materializeCandidate(repository: string, candidate: CandidateSnapshot):
   }
   const workspace = mkdtempSync(join(tmpdir(), 'tool-wiki-candidate-'));
   const blobs = readBlobs(repository, candidate);
+  const effectiveWorkspace = realpathSync(workspace);
   for (const entry of candidate.entries) {
     const destination = resolve(workspace, entry.path);
     assertContained(workspace, destination, `candidate path ${entry.path}`);
@@ -108,6 +117,22 @@ function materializeCandidate(repository: string, candidate: CandidateSnapshot):
     }
     writeFileSync(destination, bytes);
     if (entry.mode === '100755') chmodSync(destination, 0o755);
+  }
+  for (const entry of candidate.entries) {
+    if (entry.mode !== '120000') continue;
+    const destination = resolve(workspace, entry.path);
+    let effectiveTarget: string;
+    try {
+      effectiveTarget = realpathSync(destination);
+    } catch (cause) {
+      const detail = cause instanceof Error ? cause.message : String(cause);
+      throw new Error(`relationship candidate symlink unresolved at ${entry.path}: ${detail}`, {
+        cause,
+      });
+    }
+    // Proof: omitting effective resolution let `escape -> pivot/../outside` exit 0 when
+    // `pivot -> .`; the production CLI expected the escape refusal before TypeScript ran.
+    assertContained(effectiveWorkspace, effectiveTarget, `candidate symlink ${entry.path}`);
   }
   const installedModules = dirname(
     dirname(Bun.resolveSync('typescript/package.json', import.meta.dir)),

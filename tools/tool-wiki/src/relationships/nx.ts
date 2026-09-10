@@ -189,11 +189,15 @@ export function extractNxRelationships(workspace: string): {
       throw new Error(`Nx project graph output unresolved: node key ${name} differs from its name`);
     }
     const project = record(node['data'], `graph.nodes.${name}.data`);
+    const sourceRoot = optionalText(project, 'sourceRoot', `graph.nodes.${name}.data`);
+    const projectType = optionalText(project, 'projectType', `graph.nodes.${name}.data`);
     const selector = {
       name,
       root: textField(project, 'root', `graph.nodes.${name}.data`),
-      sourceRoot: optionalText(project, 'sourceRoot', `graph.nodes.${name}.data`),
-      projectType: optionalText(project, 'projectType', `graph.nodes.${name}.data`),
+      // Proof: retaining absent optionals as `undefined` made the minimal real Nx project fail
+      // production extraction at canonical hashing instead of publishing an omitted field.
+      ...(sourceRoot === undefined ? {} : { sourceRoot }),
+      ...(projectType === undefined ? {} : { projectType }),
       tags: textArray(project, 'tags', `graph.nodes.${name}.data`),
       extractor,
     };

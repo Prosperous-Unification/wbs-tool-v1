@@ -1,6 +1,6 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 
 import { parseOrThrow } from '@wbs/validation';
 import { afterEach, describe, expect, test } from 'bun:test';
@@ -33,6 +33,7 @@ interface RelationshipReport {
     publicDeclarations: {
       configPath: string;
       entrypoint: string;
+      configurationIdentity: string;
       declarations: { sourcePath: string; emittedPath: string; text: string }[];
       extractor: ExtractorIdentity;
       identity: string;
@@ -96,6 +97,7 @@ function createRepository(): string {
         declaration: true,
         module: 'ESNext',
         moduleResolution: 'Bundler',
+        rootDir: '.',
         strict: true,
         target: 'ES2022',
         types: ['node'],
@@ -139,18 +141,32 @@ function createRepository(): string {
   );
   write(
     repository,
+    'packages/minimal/project.json',
+    `${JSON.stringify({
+      name: 'minimal',
+      root: 'packages/minimal',
+      targets: { noop: { executor: 'nx:run-commands', options: { command: 'bun --version' } } },
+    })}\n`,
+  );
+  write(
+    repository,
     'packages/provider/src/index.ts',
-    "export { type PublicThing } from './public';\n",
+    "export default function publicDefault(): string { return 'public'; }\nexport { type PublicThing } from './public';\n",
   );
   write(
     repository,
     'packages/provider/src/public.ts',
-    "import type { Hidden } from './hidden';\nexport interface PublicThing { value: string; nested: Hidden }\n",
+    "export interface PublicThing { value: string; nested: import('./hidden').Hidden; declared: import('./shapes').Declared }\n",
   );
   write(
     repository,
     'packages/provider/src/hidden.ts',
     "import type { PathLike } from 'node:fs';\nimport type { Type } from 'typescript';\nexport interface Hidden { code: number; path?: PathLike; compiler?: Type }\n",
+  );
+  write(
+    repository,
+    'packages/provider/src/shapes.d.ts',
+    'export interface Declared { label: string }\n',
   );
   write(
     repository,
@@ -160,7 +176,7 @@ function createRepository(): string {
   write(
     repository,
     'packages/apps/consumer/src/use.ts',
-    "import type { PublicThing } from '../../../provider/src/index';\nexport const use = (value: PublicThing) => value.nested.code;\n",
+    "import publicDefault, { type PublicThing } from '../../../provider/src/index';\nexport const use = (value: PublicThing) => value.nested.code + publicDefault().length;\n",
   );
   return repository;
 }
@@ -355,7 +371,7 @@ describe('relationship extraction production CLI', () => {
         source: 'packages/apps/consumer/src/use.ts',
         specifier: '../../../provider/src/index',
         target: 'packages/provider/src/index.ts',
-        importKind: 'type',
+        importKind: 'value',
       },
       {
         source: 'packages/provider/src/hidden.ts',
@@ -387,13 +403,30 @@ describe('relationship extraction production CLI', () => {
         target: 'packages/provider/src/hidden.ts',
         importKind: 'type',
       },
+      {
+        source: 'packages/provider/src/public.ts',
+        specifier: './shapes',
+        target: 'packages/provider/src/shapes.d.ts',
+        importKind: 'type',
+      },
     ]);
     const providerReverse = extracted.typescript.reverseEdges.find(
       (selector) => selector.provider === 'packages/provider/src/index.ts',
     );
-    expect(providerReverse?.importers.map((edge) => edge.source)).toEqual([
-      'packages/apps/consumer/src/use.ts',
-      'packages/provider/src/internal.ts',
+    expect(providerReverse?.importers).toEqual([
+      {
+        source: 'packages/apps/consumer/src/use.ts',
+        specifier: '../../../provider/src/index',
+        importKind: 'value',
+      },
+      { source: 'packages/provider/src/internal.ts', specifier: './index', importKind: 'type' },
+    ]);
+    expect(
+      extracted.typescript.reverseEdges.find(
+        (selector) => selector.provider === 'packages/provider/src/hidden.ts',
+      )?.importers,
+    ).toEqual([
+      { source: 'packages/provider/src/public.ts', specifier: './hidden', importKind: 'type' },
     ]);
 
     const declaration = extracted.typescript.publicDeclarations[0];
@@ -403,6 +436,7 @@ describe('relationship extraction production CLI', () => {
       'packages/provider/src/hidden.ts',
       'packages/provider/src/index.ts',
       'packages/provider/src/public.ts',
+      'packages/provider/src/shapes.d.ts',
     ]);
     expect(declaration.declarations.map((entry) => entry.text).join('\n')).toContain(
       'value: string',
@@ -410,19 +444,69 @@ describe('relationship extraction production CLI', () => {
     expect(declaration.declarations.map((entry) => entry.text).join('\n')).toContain(
       'interface Hidden',
     );
+    expect(declaration.declarations.map((entry) => entry.text).join('\n')).toContain(
+      'interface Declared',
+    );
 
     expect(extracted.nx.projects.map(({ name, root }) => ({ name, root }))).toEqual([
       { name: 'consumer', root: 'packages/apps/consumer' },
+      { name: 'minimal', root: 'packages/minimal' },
       { name: 'provider', root: 'packages/provider' },
     ]);
+    const minimalProject = extracted.nx.projects.find((project) => project.name === 'minimal');
+    expect(Object.hasOwn(minimalProject ?? {}, 'sourceRoot')).toBe(false);
+    expect(Object.hasOwn(minimalProject ?? {}, 'projectType')).toBe(false);
     expect(extracted.nx.dependencies).toMatchObject([
       { source: 'consumer', target: 'provider', type: 'implicit' },
     ]);
     expect(extracted.nx.targets.map(({ project, target }) => ({ project, target }))).toEqual([
       { project: 'consumer', target: 'test' },
+      { project: 'minimal', target: 'noop' },
       { project: 'provider', target: 'build' },
     ]);
   });
+
+  test('normalizes the materialized compiler root across repeat and restored extractions', () => {
+    const repository = createRepository();
+    const requestPath = writeRequest(repository);
+    const initialRevision = commitAll(repository, 'stable compiler root');
+    const initial = report(invoke(repository, initialRevision, requestPath));
+    const repeated = report(invoke(repository, initialRevision, requestPath));
+
+    expect(repeated.typescript.publicDeclarations[0].configurationIdentity).toBe(
+      initial.typescript.publicDeclarations[0].configurationIdentity,
+    );
+    expect(repeated.typescript.publicDeclarations[0].identity).toBe(
+      initial.typescript.publicDeclarations[0].identity,
+    );
+
+    write(
+      repository,
+      'packages/provider/src/public.ts',
+      "export interface PublicThing { value: number; nested: import('./hidden').Hidden; declared: import('./shapes').Declared }\n",
+    );
+    const changed = report(
+      invoke(repository, commitAll(repository, 'change then restore public type'), requestPath),
+    );
+    expect(changed.typescript.publicDeclarations[0].identity).not.toBe(
+      initial.typescript.publicDeclarations[0].identity,
+    );
+
+    write(
+      repository,
+      'packages/provider/src/public.ts',
+      "export interface PublicThing { value: string; nested: import('./hidden').Hidden; declared: import('./shapes').Declared }\n",
+    );
+    const restored = report(
+      invoke(repository, commitAll(repository, 'restore stable compiler root'), requestPath),
+    );
+    expect(restored.typescript.publicDeclarations[0].configurationIdentity).toBe(
+      initial.typescript.publicDeclarations[0].configurationIdentity,
+    );
+    expect(restored.typescript.publicDeclarations[0].identity).toBe(
+      initial.typescript.publicDeclarations[0].identity,
+    );
+  }, 20_000);
 
   test('stales resolved declarations behind an unchanged barrel and returns current when restored', () => {
     const repository = createRepository();
@@ -434,7 +518,7 @@ describe('relationship extraction production CLI', () => {
     write(
       repository,
       'packages/provider/src/public.ts',
-      "import type { Hidden } from './hidden';\nexport interface PublicThing { value: number; nested: Hidden }\n",
+      "export interface PublicThing { value: number; nested: import('./hidden').Hidden; declared: import('./shapes').Declared }\n",
     );
     const changedRevision = commitAll(repository, 'number public type');
     const changed = report(invoke(repository, changedRevision, requestPath));
@@ -454,13 +538,79 @@ describe('relationship extraction production CLI', () => {
     write(
       repository,
       'packages/provider/src/public.ts',
-      "import type { Hidden } from './hidden';\nexport interface PublicThing { value: string; nested: Hidden }\n",
+      "export interface PublicThing { value: string; nested: import('./hidden').Hidden; declared: import('./shapes').Declared }\n",
     );
     const restoredRevision = commitAll(repository, 'restore public type');
     const restored = report(invoke(repository, restoredRevision, requestPath));
     expect(restored.typescript.publicDeclarations[0].identity).toBe(initialDeclaration.identity);
     expect(relationshipInput(restored, 'typescript.public-declarations')).toBe(
       relationshipInput(initial, 'typescript.public-declarations'),
+    );
+  }, 20_000);
+
+  test('stales an import-type public declaration when its hidden declaration changes', () => {
+    const repository = createRepository();
+    const requestPath = writeRequest(repository);
+    const initialRevision = commitAll(repository, 'number import type');
+    const initial = report(invoke(repository, initialRevision, requestPath));
+
+    write(
+      repository,
+      'packages/provider/src/hidden.ts',
+      "import type { PathLike } from 'node:fs';\nimport type { Type } from 'typescript';\nexport interface Hidden { code: string; path?: PathLike; compiler?: Type }\n",
+    );
+    const changedRevision = commitAll(repository, 'string import type');
+    const changed = report(invoke(repository, changedRevision, requestPath));
+    expect(changed.typescript.publicDeclarations[0].identity).not.toBe(
+      initial.typescript.publicDeclarations[0].identity,
+    );
+    expect(runGit(repository, ['show', `${initialRevision}:packages/provider/src/public.ts`])).toBe(
+      runGit(repository, ['show', `${changedRevision}:packages/provider/src/public.ts`]),
+    );
+
+    write(
+      repository,
+      'packages/provider/src/hidden.ts',
+      "import type { PathLike } from 'node:fs';\nimport type { Type } from 'typescript';\nexport interface Hidden { code: number; path?: PathLike; compiler?: Type }\n",
+    );
+    const restored = report(
+      invoke(repository, commitAll(repository, 'restore number import type'), requestPath),
+    );
+    expect(restored.typescript.publicDeclarations[0].identity).toBe(
+      initial.typescript.publicDeclarations[0].identity,
+    );
+  }, 20_000);
+
+  test('stales a public declaration when a transitive local declaration source changes', () => {
+    const repository = createRepository();
+    const requestPath = writeRequest(repository);
+    const initialRevision = commitAll(repository, 'string local declaration');
+    const initial = report(invoke(repository, initialRevision, requestPath));
+
+    write(
+      repository,
+      'packages/provider/src/shapes.d.ts',
+      'export interface Declared { label: number }\n',
+    );
+    const changedRevision = commitAll(repository, 'number local declaration');
+    const changed = report(invoke(repository, changedRevision, requestPath));
+    expect(changed.typescript.publicDeclarations[0].identity).not.toBe(
+      initial.typescript.publicDeclarations[0].identity,
+    );
+    expect(runGit(repository, ['show', `${initialRevision}:packages/provider/src/public.ts`])).toBe(
+      runGit(repository, ['show', `${changedRevision}:packages/provider/src/public.ts`]),
+    );
+
+    write(
+      repository,
+      'packages/provider/src/shapes.d.ts',
+      'export interface Declared { label: string }\n',
+    );
+    const restored = report(
+      invoke(repository, commitAll(repository, 'restore local declaration'), requestPath),
+    );
+    expect(restored.typescript.publicDeclarations[0].identity).toBe(
+      initial.typescript.publicDeclarations[0].identity,
     );
   }, 20_000);
 
@@ -612,5 +762,27 @@ describe('relationship extraction production CLI', () => {
       expect(failed.exitCode).toBe(1);
       expect(output(failed)).toContain(`Nx project graph ${fault.expected}`);
     }
+  }, 15_000);
+
+  test('supports contained symlinks and refuses an effective intermediate-symlink escape', () => {
+    const repository = createRepository();
+    const requestPath = writeRequest(repository);
+    symlinkSync('packages/provider/src/hidden.ts', join(repository, 'safe-hidden'));
+    const safeRevision = commitAll(repository, 'contained candidate symlink');
+    report(invoke(repository, safeRevision, requestPath));
+
+    const outsidePath = join(dirname(repository), `${basename(repository)}-outside.ts`);
+    pathsToRemove.push(outsidePath);
+    writeFileSync(outsidePath, 'outside candidate bytes\n', 'utf8');
+    symlinkSync('.', join(repository, 'pivot'));
+    symlinkSync(`pivot/../${basename(outsidePath)}`, join(repository, 'escape'));
+    const escapingRevision = commitAll(repository, 'effective candidate symlink escape');
+    const escaped = invoke(repository, escapingRevision, requestPath);
+
+    expect(escaped.exitCode).toBe(1);
+    expect(output(escaped)).toContain(
+      'candidate symlink escape escapes the materialized candidate',
+    );
+    expect(output(escaped)).not.toContain('TypeScript');
   }, 15_000);
 });

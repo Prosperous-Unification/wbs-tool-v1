@@ -72,7 +72,10 @@ const compareText = (left: string, right: string): number =>
 
 function workspacePath(workspace: string, path: string): string | undefined {
   const fromRoot = relative(workspace, path).replaceAll('\\', '/');
-  return fromRoot === '' || fromRoot === '..' || fromRoot.startsWith('../') || isAbsolute(fromRoot)
+  // Proof: returning the temporary absolute root for `rootDir: '.'` made repeated extraction of
+  // one commit receive configuration identities cc163641... and 0ec9a7e... instead of equality.
+  if (fromRoot === '') return '.';
+  return fromRoot === '..' || fromRoot.startsWith('../') || isAbsolute(fromRoot)
     ? undefined
     : fromRoot;
 }
@@ -159,8 +162,11 @@ function importSites(sourceFile: ts.SourceFile): ImportSite[] {
         namedBindings.elements.every((element) => element.isTypeOnly);
       sites.push({
         specifier: node.moduleSpecifier.text,
+        // Proof: treating named bindings alone as decisive made a default-value plus named-type
+        // import receive `type`; the exact production selector expected `value` and failed.
         importKind:
-          clause?.phaseModifier === ts.SyntaxKind.TypeKeyword || allNamedTypeOnly
+          clause?.phaseModifier === ts.SyntaxKind.TypeKeyword ||
+          (clause?.name === undefined && allNamedTypeOnly)
             ? 'type'
             : 'value',
       });
@@ -185,6 +191,15 @@ function importSites(sourceFile: ts.SourceFile): ImportSite[] {
       ts.isStringLiteral(node.moduleReference.expression)
     ) {
       sites.push({ specifier: node.moduleReference.expression.text, importKind: 'import-equals' });
+    } else if (ts.isImportTypeNode(node)) {
+      if (!ts.isLiteralTypeNode(node.argument) || !ts.isStringLiteral(node.argument.literal)) {
+        throw new Error(
+          `TypeScript import type specifier is not a string in ${sourceFile.fileName}`,
+        );
+      }
+      // Proof: omitting ImportTypeNode traversal kept the hidden-type mutation at
+      // 502b6f24...; the production public-declaration stale assertion failed.
+      sites.push({ specifier: node.argument.literal.text, importKind: 'type' });
     } else if (
       ts.isCallExpression(node) &&
       node.expression.kind === ts.SyntaxKind.ImportKeyword &&
@@ -256,6 +271,20 @@ function emitDeclarations(workspace: string, project: ParsedProject): void {
         .map(formatDiagnostic)
         .join('; ')}`,
     );
+  }
+  for (const sourceFile of project.program.getSourceFiles()) {
+    if (
+      !sourceFile.isDeclarationFile ||
+      project.program.isSourceFileDefaultLibrary(sourceFile) ||
+      project.program.isSourceFileFromExternalLibrary(sourceFile)
+    ) {
+      continue;
+    }
+    const sourcePath = workspacePath(workspace, sourceFile.fileName);
+    if (sourcePath === undefined) continue;
+    // Proof: omitting local declarations TypeScript does not re-emit kept the shapes mutation at
+    // d2d5e2d6...; the production public-declaration stale assertion failed.
+    emitted.set(sourcePath, { sourcePath, emittedPath: sourcePath, text: sourceFile.text });
   }
   project.declarations = emitted;
 }

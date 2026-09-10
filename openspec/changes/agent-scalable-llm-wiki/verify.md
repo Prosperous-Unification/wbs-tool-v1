@@ -434,3 +434,41 @@ source/spec typecheck both exited 0, and the relationship suite passed six tests
 after successful validation. Exact changed-file formatting and diff checks run after this final edit.
 Full repository and browser gates remain outside this isolated infrastructure slice. Tasks 2.2 and 2.3
 were not started.
+
+## Slice 2.1 Fix Round 1
+
+The relationship adapters now normalize a compiler option equal to the materialized workspace root
+as `.`; repeated extraction of one commit therefore has one configuration/public identity, and a
+change followed by restoration returns to that identity. TypeScript `ImportTypeNode` dependencies
+are extracted from source and emitted declaration syntax, become exact import/reverse edges and join
+the transitive public closure. Local declaration sources are added to that closure from the compiler
+program even though TypeScript does not emit them again.
+
+Nx project selectors now omit absent `sourceRoot` and `projectType` properties instead of presenting
+`undefined` to canonical hashing. A real minimal project containing only name, root and targets is
+covered. Import declarations with a default value binding plus named type-only bindings are value
+edges. Candidate symlinks retain their lexical check and additionally resolve through the completed
+materialized tree; effective escape through an intermediate `pivot -> .` is refused before either
+compiler/graph extractor runs, while a contained symlink remains supported.
+
+All six regressions were first observed independently through `extract-relationships` on temporary
+real Git repositories. Each corrected behavior was then undone alone, observed again and restored.
+
+| Deliberate fault / pre-fix behavior        | Observed production-oracle failure                                                                    |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| retain temporary absolute `rootDir`        | repeated commit identities differed: `cc163641...` versus `0ec9a7e...`                                |
+| omit `ImportTypeNode` dependency           | hidden mutation stayed at `502b6f24...`; public stale assertion failed                                |
+| omit local `.d.ts` declaration inputs      | shapes mutation stayed at `d2d5e2d6...`; public stale assertion failed                                |
+| retain absent Nx optionals as `undefined`  | minimal real project exited 1 on `canonical JSON cannot serialize undefined`                          |
+| decide type-only from named bindings alone | mixed default-value/named-type import received `type` instead of `value`                              |
+| omit effective symlink resolution          | `escape -> pivot/../outside` exited 0 even though `pivot -> .` led outside the materialized candidate |
+
+The final focused relationship suite passed 10 tests, zero failures and 217 assertions in 64.32
+seconds. The uncached Nx target passed lint, source/spec typecheck and all 70 tool-wiki tests with zero
+failures and 895 assertions in 125.43 seconds. Nx used its in-process plugin fallback after the
+sandbox denied its socket, and no target was skipped. The
+dedicated export/import/dynamic/import-equals AST branches were reviewed; the new ImportType branch
+does not overlap or replace them. Pinned strict OpenSpec 1.3.0 validation, exact changed-file
+formatting and `git diff --check` passed after the final evidence edit; the optional OpenSpec PostHog
+flush could not resolve its host after successful validation. No checkbox changed, and tasks 2.2/2.3
+remain untouched.
