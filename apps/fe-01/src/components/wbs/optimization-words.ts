@@ -157,6 +157,10 @@ export function variantStateWords(
 ): string | null {
   switch (state.state) {
     case 'ready':
+      // `quantisation-floor` publishes Fast's own schedule when rounding made
+      // the solver result worse in the real domain. There is no unfinished
+      // solver result to warn about; the ordinary comparison already describes
+      // the schedule the reader actually received.
       return state.proof === 'incomplete'
         ? 'Search stopped before proving this schedule optimal'
         : null;

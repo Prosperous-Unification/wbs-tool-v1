@@ -190,7 +190,13 @@ describe('the schedule cue', () => {
     expect(document.querySelector('[data-cue-dot]')).toBeNull();
   });
 
-  itDom('marks an unfinished search without changing or disabling its served schedule', () => {
+  /**
+   * Proof: moving the incomplete arm above the in-flight arm makes this mixed
+   * state report `incomplete`; this assertion then fails because the second
+   * variant is still solving. The measured production window is Pri ready and
+   * incomplete while Time remains pending.
+   */
+  itDom('keeps the in-flight marker while another variant has settled incomplete', () => {
     render(
       <Harness
         optimization={{
@@ -204,13 +210,30 @@ describe('the schedule cue', () => {
       />,
     );
 
-    expect(document.querySelector('[data-cue-dot]')).toHaveAttribute('data-cue-dot', 'incomplete');
+    expect(document.querySelector('[data-cue-dot]')).toHaveAttribute('data-cue-dot', 'solving');
     expect(pill()).toHaveAccessibleName(/Search stopped before proving this schedule optimal/);
     fireEvent.click(pill());
     const pri = screen.getByRole('menuitem', {
       name: /Pri · 7 days · Earlier project deadline by 3 days · Search stopped/,
     });
     expect(pri).toHaveAttribute('aria-disabled', 'false');
+  });
+
+  itDom('marks an incomplete search once both variants have settled', () => {
+    render(
+      <Harness
+        optimization={{
+          ...SUGGESTING,
+          variants: {
+            pri: { state: 'ready', proof: 'incomplete' },
+            time: { state: 'ready', proof: 'proven' },
+          },
+        }}
+        onChoose={() => undefined}
+      />,
+    );
+
+    expect(document.querySelector('[data-cue-dot]')).toHaveAttribute('data-cue-dot', 'incomplete');
   });
 
   itDom.each(['proven', 'quantisation-floor'] as const)(

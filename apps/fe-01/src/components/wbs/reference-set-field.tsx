@@ -794,7 +794,11 @@ export function ReferenceSetStrip({
         already in for their picker lists.
       */}
       {carded && (
-        <HoverCard label={label}>
+        // Beside the cell rather than under it, on the side with the room:
+        // four reference columns stand in the middle of the table, and a card
+        // under one covers the rows below it in its own column. See
+        // {@link sidewaysPlacement}.
+        <HoverCard label={label} opensSideways>
           {lines.map((line) => (
             <div key={line.key} data-reference-card-line={line.stated ? 'stated' : 'carried'}>
               {line.text}

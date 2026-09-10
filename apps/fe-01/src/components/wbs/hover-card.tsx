@@ -345,6 +345,70 @@ export interface CardRoom {
  * @param container.top Its top edge.
  * @param container.bottom Its bottom edge.
  */
+/** Which way a card opens beside its cell, and which of its edges is aligned. */
+export interface SidewaysPlacement {
+  /** The side of the cell the card stands on. */
+  side: 'left' | 'right';
+  /** Whether the card's top is aligned with the cell's, or its bottom. */
+  align: 'top' | 'bottom';
+}
+
+/**
+ * Which side of its cell a card opens on, and which edge it hangs from.
+ *
+ * Dany, 2026-09-10, about the cards that only inform — Start, the reference
+ * cells, a folded step: *"I still want to see what is up and down from it for
+ * context; like, just push them to the side (left or right) ... depending on
+ * where horizontally it is"*. A card beside its cell leaves that cell's whole
+ * column clear, so the rows above and below it stay readable — which is the
+ * thing a plan is read down.
+ *
+ * **The side is measured rather than fixed**, and that is the *"depending on
+ * where horizontally it is"*: a card that always opened right would be cut off
+ * by the frame for every column near the right edge, and a 260px card on a cell
+ * 100px from the edge is not a card anybody can read. Right where the room is
+ * there, otherwise the roomier side.
+ *
+ * `align` is the same question vertically, and it is not the flip
+ * {@link roomForCard} makes: a card *beside* its cell hangs from the cell's own
+ * top edge, so the only failure is a card taller than the room below that top —
+ * a row low in the frame. Hanging it from the cell's **bottom** edge instead
+ * keeps it inside, and either way it never covers its own cell.
+ *
+ * Pure, and separated from the component for {@link roomForCard}'s reason: the
+ * rectangles come from `getBoundingClientRect`, which jsdom answers with
+ * zeroes. That a real cell is measured and really placed by this is a browser
+ * fact, in `e2e/card-lanes.spec.ts`.
+ *
+ * @param cell The cell's wrapper, in viewport coordinates.
+ * @param cell.left Its left edge — the container's left less this is the room to the left.
+ * @param cell.right Its right edge — the container's right less this is the room to the right.
+ * @param cell.top Its top edge, which a card hangs from where there is room below it.
+ * @param cell.bottom Its bottom edge, which a card hangs from where there is not.
+ * @param card The card's own box — how much room it is asking for.
+ * @param card.width How wide it wants to be.
+ * @param card.height How tall it is.
+ * @param container The box that clips it: the window, ∩ the scrolling frame.
+ * @param container.left Its left edge.
+ * @param container.right Its right edge.
+ * @param container.top Its top edge.
+ * @param container.bottom Its bottom edge.
+ */
+export function sidewaysPlacement(
+  cell: { left: number; right: number; top: number; bottom: number },
+  card: { width: number; height: number },
+  container: { left: number; right: number; top: number; bottom: number },
+): SidewaysPlacement {
+  const toTheRight = container.right - cell.right;
+  const toTheLeft = cell.left - container.left;
+  return {
+    // `>=` on both counts, so a tie opens right and hangs from the top, which
+    // is where every card in this table opened before there was a choice.
+    side: toTheRight >= card.width || toTheRight >= toTheLeft ? 'right' : 'left',
+    align: container.bottom - cell.top >= card.height ? 'top' : 'bottom',
+  };
+}
+
 export function roomForCard(
   anchor: { top: number; bottom: number },
   container: { top: number; bottom: number },
@@ -528,6 +592,34 @@ export function HoverCard({
     // beside a list is ever measured for room: it has none of its own.
   }, [scrolls, anchor, beside]);
 
+  /**
+   * Which side of its cell a sideways card stands on, once it has a size.
+   *
+   * `null` is the frame before the measurement, and it draws on the **right**
+   * with its top aligned — the side every sideways card opened on before there
+   * was a choice, so a column with the room is placed correctly on the first
+   * frame and never seen to move.
+   */
+  const [sideways, setSideways] = useState<SidewaysPlacement | null>(null);
+  useLayoutEffect(() => {
+    if (!opensSideways || anchor !== undefined || beside !== undefined) return;
+    const wrapper = card.current?.parentElement;
+    const box = card.current?.getBoundingClientRect();
+    if (wrapper === null || wrapper === undefined || box === undefined) return;
+    const port = wrapper.closest('[data-table-frame]')?.getBoundingClientRect();
+    setSideways(
+      sidewaysPlacement(wrapper.getBoundingClientRect(), box, {
+        left: Math.max(0, port?.left ?? 0),
+        right: Math.min(window.innerWidth, port?.right ?? window.innerWidth),
+        top: Math.max(0, port?.top ?? 0),
+        bottom: Math.min(window.innerHeight, port?.bottom ?? window.innerHeight),
+      }),
+    );
+    // Once per opening, for {@link roomForCard}'s reason: the cell cannot move
+    // while the card is open, because the pointer leaving the cell is what
+    // closes it.
+  }, [opensSideways, anchor, beside]);
+
   // A window with room on neither side of the list shows no card at all. After
   // every hook, because this is a render that draws nothing rather than a
   // component that does less.
@@ -565,7 +657,15 @@ export function HoverCard({
             // opens downward, which is where it will stay for every row that
             // has the room below.
             ...(opensSideways
-              ? { left: '100%', top: 0 }
+              ? {
+                  // Beside the cell, on the side with the room and hanging from
+                  // the edge that keeps it in the frame — see
+                  // {@link sidewaysPlacement}. `null` is the frame before the
+                  // card has a size, and it is the right/top pair every
+                  // sideways card had before the side was a choice.
+                  ...(sideways?.side === 'left' ? { right: '100%' } : { left: '100%' }),
+                  ...(sideways?.align === 'bottom' ? { bottom: 0 } : { top: 0 }),
+                }
               : {
                   // A card asked to leave its trigger's lane clear is anchored
                   // by its **right** edge, 24px inside its cell's — see

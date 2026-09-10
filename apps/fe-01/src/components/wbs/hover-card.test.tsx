@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import { HoverCard, roomForCard, surfacePlacement } from './hover-card';
+import { HoverCard, roomForCard, sidewaysPlacement, surfacePlacement } from './hover-card';
 import { HoverPreview } from './hover-preview';
 
 // fe-01 tests require jsdom; only Vitest provides it. Skip under plain `bun test`.
@@ -256,5 +256,56 @@ describe('a scrolling card takes the room its cell leaves it', () => {
       side: 'below',
       maxHeight: 0,
     });
+  });
+});
+
+describe('a card beside its cell picks the side with the room', () => {
+  /** A 1400px plan in a 900px-tall window, which is the shape being reasoned about. */
+  const FRAME = { left: 0, right: 1400, top: 100, bottom: 900 };
+  /** What these cards ask for: {@link CARD_MIN_WIDTH_PX} wide, three lines tall. */
+  const CARD = { width: 260, height: 60 };
+
+  it('opens right where the right has the room', () => {
+    expect(
+      sidewaysPlacement({ left: 300, right: 420, top: 150, bottom: 176 }, CARD, FRAME),
+    ).toEqual({ side: 'right', align: 'top' });
+  });
+
+  it('opens left for a column within a card of the right edge', () => {
+    // The Start column, measured in Chromium on 2026-09-10: the cell at
+    // x 1283–1381 in a frame ending at 1385, and a card that opened right ran
+    // to 1637 — 252px past the edge of the plan.
+    //
+    // Proof: the side fixed at `right`, this failed on `expected { side:
+    // 'right', align: 'top' } to deeply equal { side: 'left', align: 'top' }`.
+    // Watched 2026-09-10; the browser half is `e2e/card-lanes.spec.ts`'s `an
+    // informative card stands beside its cell, not over its column`.
+    expect(
+      sidewaysPlacement({ left: 1283, right: 1381, top: 150, bottom: 176 }, CARD, FRAME),
+    ).toEqual({ side: 'left', align: 'top' });
+  });
+
+  it('opens right on a tie, which is where every card opened before', () => {
+    // 700 either side of a cell in the middle of a 1400px frame, and a card
+    // that fits in neither: the tie is what the rule is written to answer.
+    expect(
+      sidewaysPlacement(
+        { left: 700, right: 700, top: 150, bottom: 176 },
+        { width: 900, height: 60 },
+        FRAME,
+      ),
+    ).toEqual({ side: 'right', align: 'top' });
+  });
+
+  it('hangs from the bottom edge for a row too low to hold the card', () => {
+    // 60px of card from a cell whose top is 870px down an 900px frame: hung
+    // from the top it ends 30px below the frame.
+    //
+    // Proof: `align` fixed at `top`, this failed on `expected { side: 'right',
+    // align: 'top' } to deeply equal { side: 'right', align: 'bottom' }`.
+    // Watched 2026-09-10.
+    expect(
+      sidewaysPlacement({ left: 300, right: 420, top: 870, bottom: 896 }, CARD, FRAME),
+    ).toEqual({ side: 'right', align: 'bottom' });
   });
 });

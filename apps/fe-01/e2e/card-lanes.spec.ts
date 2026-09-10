@@ -1,5 +1,6 @@
 import { expect, type Locator, type Page, test } from '@playwright/test';
 
+import { cardIsOnTopAt } from './card-paint';
 import { createProject } from './create-project';
 
 /**
@@ -345,6 +346,64 @@ test.describe('every cell card leaves its own column clear', () => {
         await cardIn(lane, page, second),
         `${lane.what}: the pointer reached ${second} and ${second} did not answer`,
       ).toBe(1);
+    }
+  });
+
+  test('an informative card stands beside its cell, not over its column', async ({ page }) => {
+    // Dany, 2026-09-10: _"make sure that same scheme works for all cells hover
+    // ons? even the informative ones? I still want to see what is up and down
+    // from it for context; like, just push them to the side (left or right) ...
+    // depending on where horizontally it is"_.
+    //
+    // The four cards that only inform — Start, Types, Tags, a folded step — are
+    // `pointer-events: none`, so the walk above already worked: the pointer
+    // reaches the next row's trigger straight through them. What it does not
+    // do is let the reader **see** that row, which is the thing a plan is read
+    // down. So they open beside their cell now, and this is the claim that
+    // says so.
+    //
+    // Asked with {@link cardIsOnTopAt}, because a plain hit test cannot: these
+    // cards are transparent, so `elementFromPoint` answers the cell underneath
+    // whether the card covers it or not (R5 #27).
+    //
+    // Proof, twice. `opensSideways` taken off all three components: `Start: the
+    // card stands over 020's own cell · Expected: not "the card"`. And the side
+    // fixed at `left: '100%'`, which is what it was before the room decided:
+    // `Start: the card runs off the right of the frame · Expected: <= 1385 ·
+    // Received: 1637`, a card 252px past the edge of the plan. Both watched in
+    // Chromium, 2026-09-10.
+    for (const lane of LANES.filter((each) => each.what !== 'the notes preview')) {
+      const [first, second] = lane.rows;
+      await page.mouse.move(0, 0);
+      await expect(page.locator('[role="tooltip"]')).toHaveCount(0);
+
+      const from = middleOf(await boxOf(lane.triggerOf(page, first), `${lane.what} ${first}`));
+      await page.mouse.move(from.x, from.y, { steps: 6 });
+      expect(await cardIn(lane, page, first), `${lane.what}: ${first} opened no card`).toBe(1);
+
+      // The cell below in the same column, and the cell above where there is
+      // one: both are context the reader keeps.
+      const below = middleOf(await boxOf(lane.cellOf(page, second), `${lane.what} ${second}`));
+      expect(
+        await cardIsOnTopAt(page, below),
+        `${lane.what}: the card stands over ${second}'s own cell`,
+      ).not.toBe('the card');
+
+      // And it is inside the frame it opens in, which is what choosing the side
+      // by the room is for: the Start column stands within a card's width of
+      // the right edge, so its card opens **left**.
+      const card = await boxOf(
+        lane.cellOf(page, first).locator('[role="tooltip"]'),
+        `${lane.what}'s open card`,
+      );
+      const frame = await boxOf(page.locator('[data-table-frame]'), 'the scrolling frame');
+      expect(card.x, `${lane.what}: the card starts left of the frame`).toBeGreaterThanOrEqual(
+        frame.x - 1,
+      );
+      expect(
+        card.x + card.width,
+        `${lane.what}: the card runs off the right of the frame`,
+      ).toBeLessThanOrEqual(frame.x + frame.width + 1);
     }
   });
 
