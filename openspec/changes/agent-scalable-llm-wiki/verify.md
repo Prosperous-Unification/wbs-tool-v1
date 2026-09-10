@@ -267,3 +267,12 @@ and 488 assertions. Nx ran plugins in-process after its sandbox socket denial; n
 `bunx @fission-ai/openspec@1.3.0 validate agent-scalable-llm-wiki --strict` returned
 `Change 'agent-scalable-llm-wiki' is valid` with exit 0.
 The exact changed-file format check and `git diff --check` both returned exit 0.
+
+## Slice 1.3 final R5 cleanup
+
+The production CLI refused a non-NUL `0xff` byte at offset 8,001, beyond the bounded NUL sample, as
+undeclared binary content. Removing only `fatal: true` from the complete UTF-8 decode made the test
+fail on `Expected: 1, Received: 0`; the CLI emitted `src/invalid-utf8.ts` as source. Restoring the
+guard returned the focused case to one pass and eight assertions. The full classifier passed 14
+tests and 196 assertions. Focused Nx lint, source/spec typecheck and test passed 45 tests and 496
+assertions. Pinned strict OpenSpec validation and exact formatting/diff checks passed.

@@ -94,3 +94,12 @@ inventory binding.
 Final focused Nx verification passed lint, source/spec typecheck and 44 tests with zero failures and
 488 assertions. Pinned strict OpenSpec validation passed. Full repository/browser gates remain
 outside this isolated task 1.3 fix round. Exact changed-file formatting and diff checks passed.
+
+## Final R5 cleanup
+
+A production-CLI regression now places a non-NUL `0xff` byte after offset 8,000, beyond the bounded
+NUL sniff. The correct detector refused it as undeclared binary content. With only fatal UTF-8
+decoding removed, the CLI exited 0 and emitted `src/invalid-utf8.ts` as source; restoring the guard
+returned the focused case to one pass with eight assertions. The full classifier passed 14 tests
+and 196 assertions; focused Nx lint, source/spec typecheck and test passed 45 tests and 496
+assertions. Pinned strict OpenSpec validation and exact formatting/diff checks also passed.

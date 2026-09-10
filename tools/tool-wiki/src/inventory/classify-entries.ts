@@ -177,6 +177,8 @@ function hasBinaryBytes(bytes: Uint8Array): boolean {
   // `undeclared binary content` for valid UTF-8 whose literal NUL follows byte 8,192.
   if (bytes.subarray(0, BinarySniffByteLimit).includes(0)) return true;
   try {
+    // Proof: removing `fatal: true` made the production CLI exit 0 and classify a non-NUL
+    // `0xff` byte after offset 8,000 at `src/invalid-utf8.ts` as source.
     new TextDecoder('utf-8', { fatal: true }).decode(bytes);
     return false;
   } catch (cause) {

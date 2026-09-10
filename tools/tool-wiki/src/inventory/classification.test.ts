@@ -721,4 +721,22 @@ describe('entry classification production CLI', () => {
       contentClass: 'test',
     });
   });
+
+  test('refuses invalid UTF-8 beyond the bounded NUL sniff', () => {
+    const repository = createRepository();
+    const path = 'src/invalid-utf8.ts';
+    const bytes = new Uint8Array(8_002);
+    bytes.fill(97);
+    bytes[8_001] = 0xff;
+    write(repository, path, bytes);
+    const revision = commitAll(repository);
+    const invocation = classify(
+      repository,
+      revision,
+      writePolicy(repository, policy('1'.repeat(40))),
+    );
+
+    expect(invocation.exitCode, output(invocation)).toBe(1);
+    expect(output(invocation)).toContain(`undeclared binary content at ${path}`);
+  });
 });
