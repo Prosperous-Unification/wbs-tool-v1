@@ -17,4 +17,4 @@
 ## 4. Verification
 
 - [ ] 4.1 Run focused and full remote gates on h2puni.
-- [ ] 4.2 Record the guard-removal negative and exact results in `verify.md`.
+- [x] 4.2 Record the guard-removal negative and exact results in `verify.md`.
