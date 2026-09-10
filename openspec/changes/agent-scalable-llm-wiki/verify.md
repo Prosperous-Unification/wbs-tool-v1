@@ -472,3 +472,38 @@ does not overlap or replace them. Pinned strict OpenSpec 1.3.0 validation, exact
 formatting and `git diff --check` passed after the final evidence edit; the optional OpenSpec PostHog
 flush could not resolve its host after successful validation. No checkbox changed, and tasks 2.2/2.3
 remain untouched.
+
+## Slice 2.1 Fix Round 2
+
+Workspace-local declaration files now participate in the exact import and reverse-edge graph. The
+fixture publishes `index.ts -> shapes.d.ts -> hidden.ts`; adding another `.d.ts` importer changes the
+hidden provider's topology. Compiler default libraries and external-library source files remain
+excluded as local provider nodes.
+
+Declaration traversal also consumes TypeScript's triple-slash directive collections. Path references
+resolve through the compiler and join the direct graph and public closure. `types` uses the compiler
+type-reference resolver; `lib` must match exactly one compiler default-library source. Both publish
+external identities rather than `node_modules` or TypeScript library paths. Missing path, types and
+lib references fail at distinct boundaries rather than becoming invented external selectors.
+
+The first focused production-CLI RED was zero passes, three failures and 40 assertions: four expected
+`shapes.d.ts` selectors were absent, a new declaration importer left the provider at `cb10d2d3...`,
+and changing referenced `GlobalHidden.code` left the public selector at `53ad5864...`. First behavior
+GREEN was three passes and 64 assertions; the complete focused set passed four tests and 88 assertions.
+
+| Deliberate fault                                    | Observed production-oracle failure                                           |
+| --------------------------------------------------- | ---------------------------------------------------------------------------- |
+| restore unconditional declaration-file exclusion    | hidden provider remained `cb10d2d3...` after `additional.d.ts` was added     |
+| omit triple-slash path dependency inclusion         | public selector remained `53ad5864...` after the referenced global changed   |
+| classify an unresolved path reference as external   | boundary was lost to the later compiler `File ... not found` diagnostic      |
+| classify an unresolved types reference as external  | boundary was lost to `Cannot find type definition file for 'absent-package'` |
+| invent an external target for an unresolved lib ref | boundary was lost to `Cannot find lib definition for 'absent-library'`       |
+
+Each fault ran alone through the committed-candidate CLI and was restored. The final relationship
+suite passed 13 tests, zero failures and 276 assertions in 78.96 seconds. The uncached Nx
+lint/source-plus-spec-typecheck/test aggregate passed all 73 tool-wiki tests with zero failures and
+954 assertions in 140.69 seconds. Nx used its in-process plugin fallback after the sandbox denied its
+socket; no target was skipped. Tasks 2.2/2.3 and their checkboxes remain untouched. Full
+repository/browser gates remain outside this isolated extractor correction. Pinned strict OpenSpec
+1.3.0 validation returned `Change 'agent-scalable-llm-wiki' is valid`; only its optional telemetry
+flush failed DNS after validation.

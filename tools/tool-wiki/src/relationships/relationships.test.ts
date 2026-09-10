@@ -60,6 +60,8 @@ interface ExtractorIdentity {
 
 const pathsToRemove: string[] = [];
 const cliPath = join(import.meta.dir, '..', 'cli.ts');
+const shapesDeclaration =
+  "/// <reference path='./globals.d.ts' />\n/// <reference types='node' />\n/// <reference lib='es2022' />\nimport type { Hidden } from './hidden';\nexport interface Declared { label: string; hidden: Hidden; global: GlobalHidden }\n";
 
 function runGit(repository: string, argv: string[]): string {
   const invocation = Bun.spawnSync(['git', '-C', repository, ...argv], {
@@ -151,7 +153,7 @@ function createRepository(): string {
   write(
     repository,
     'packages/provider/src/index.ts',
-    "export default function publicDefault(): string { return 'public'; }\nexport { type PublicThing } from './public';\n",
+    "export default function publicDefault(): string { return 'public'; }\nexport { type PublicThing } from './public';\nexport { type Declared } from './shapes';\n",
   );
   write(
     repository,
@@ -163,10 +165,11 @@ function createRepository(): string {
     'packages/provider/src/hidden.ts',
     "import type { PathLike } from 'node:fs';\nimport type { Type } from 'typescript';\nexport interface Hidden { code: number; path?: PathLike; compiler?: Type }\n",
   );
+  write(repository, 'packages/provider/src/shapes.d.ts', shapesDeclaration);
   write(
     repository,
-    'packages/provider/src/shapes.d.ts',
-    'export interface Declared { label: string }\n',
+    'packages/provider/src/globals.d.ts',
+    'interface GlobalHidden { code: string }\n',
   );
   write(
     repository,
@@ -392,6 +395,12 @@ describe('relationship extraction production CLI', () => {
         importKind: 'type-re-export',
       },
       {
+        source: 'packages/provider/src/index.ts',
+        specifier: './shapes',
+        target: 'packages/provider/src/shapes.d.ts',
+        importKind: 'type-re-export',
+      },
+      {
         source: 'packages/provider/src/internal.ts',
         specifier: './index',
         target: 'packages/provider/src/index.ts',
@@ -408,6 +417,30 @@ describe('relationship extraction production CLI', () => {
         specifier: './shapes',
         target: 'packages/provider/src/shapes.d.ts',
         importKind: 'type',
+      },
+      {
+        source: 'packages/provider/src/shapes.d.ts',
+        specifier: './globals.d.ts',
+        target: 'packages/provider/src/globals.d.ts',
+        importKind: 'reference-path',
+      },
+      {
+        source: 'packages/provider/src/shapes.d.ts',
+        specifier: './hidden',
+        target: 'packages/provider/src/hidden.ts',
+        importKind: 'type',
+      },
+      {
+        source: 'packages/provider/src/shapes.d.ts',
+        specifier: 'es2022',
+        target: 'external:typescript/lib.es2022.d.ts',
+        importKind: 'reference-lib',
+      },
+      {
+        source: 'packages/provider/src/shapes.d.ts',
+        specifier: 'node',
+        target: 'external:node',
+        importKind: 'reference-types',
       },
     ]);
     const providerReverse = extracted.typescript.reverseEdges.find(
@@ -427,12 +460,25 @@ describe('relationship extraction production CLI', () => {
       )?.importers,
     ).toEqual([
       { source: 'packages/provider/src/public.ts', specifier: './hidden', importKind: 'type' },
+      { source: 'packages/provider/src/shapes.d.ts', specifier: './hidden', importKind: 'type' },
+    ]);
+    expect(
+      extracted.typescript.reverseEdges.find(
+        (selector) => selector.provider === 'packages/provider/src/globals.d.ts',
+      )?.importers,
+    ).toEqual([
+      {
+        source: 'packages/provider/src/shapes.d.ts',
+        specifier: './globals.d.ts',
+        importKind: 'reference-path',
+      },
     ]);
 
     const declaration = extracted.typescript.publicDeclarations[0];
     expect(declaration.configPath).toBe('config/tsconfig.json');
     expect(declaration.entrypoint).toBe('packages/provider/src/index.ts');
     expect(declaration.declarations.map((entry) => entry.sourcePath)).toEqual([
+      'packages/provider/src/globals.d.ts',
       'packages/provider/src/hidden.ts',
       'packages/provider/src/index.ts',
       'packages/provider/src/public.ts',
@@ -590,7 +636,7 @@ describe('relationship extraction production CLI', () => {
     write(
       repository,
       'packages/provider/src/shapes.d.ts',
-      'export interface Declared { label: number }\n',
+      shapesDeclaration.replace('label: string', 'label: number'),
     );
     const changedRevision = commitAll(repository, 'number local declaration');
     const changed = report(invoke(repository, changedRevision, requestPath));
@@ -601,13 +647,84 @@ describe('relationship extraction production CLI', () => {
       runGit(repository, ['show', `${changedRevision}:packages/provider/src/public.ts`]),
     );
 
-    write(
-      repository,
-      'packages/provider/src/shapes.d.ts',
-      'export interface Declared { label: string }\n',
-    );
+    write(repository, 'packages/provider/src/shapes.d.ts', shapesDeclaration);
     const restored = report(
       invoke(repository, commitAll(repository, 'restore local declaration'), requestPath),
+    );
+    expect(restored.typescript.publicDeclarations[0].identity).toBe(
+      initial.typescript.publicDeclarations[0].identity,
+    );
+  }, 20_000);
+
+  test('stales provider topology when a local declaration importer is added', () => {
+    const repository = createRepository();
+    const requestPath = writeRequest(repository);
+    const initial = report(
+      invoke(repository, commitAll(repository, 'initial declaration importers'), requestPath),
+    );
+    const initialProvider = initial.typescript.reverseEdges.find(
+      (selector) => selector.provider === 'packages/provider/src/hidden.ts',
+    );
+
+    write(
+      repository,
+      'packages/provider/src/additional.d.ts',
+      "import type { Hidden } from './hidden';\nexport type Additional = Hidden;\n",
+    );
+    const changed = report(
+      invoke(repository, commitAll(repository, 'add declaration importer'), requestPath),
+    );
+    const changedProvider = changed.typescript.reverseEdges.find(
+      (selector) => selector.provider === 'packages/provider/src/hidden.ts',
+    );
+
+    // Proof: excluding declaration files from the production graph kept this provider selector
+    // at its initial identity; this assertion received equality after `additional.d.ts` was added.
+    expect(changedProvider?.identity).not.toBe(initialProvider?.identity);
+    expect(changedProvider?.importers).toEqual([
+      {
+        source: 'packages/provider/src/additional.d.ts',
+        specifier: './hidden',
+        importKind: 'type',
+      },
+      { source: 'packages/provider/src/public.ts', specifier: './hidden', importKind: 'type' },
+      { source: 'packages/provider/src/shapes.d.ts', specifier: './hidden', importKind: 'type' },
+    ]);
+  }, 20_000);
+
+  test('stales a public declaration when a referenced global declaration changes', () => {
+    const repository = createRepository();
+    const requestPath = writeRequest(repository);
+    const initialRevision = commitAll(repository, 'string global declaration');
+    const initial = report(invoke(repository, initialRevision, requestPath));
+
+    write(
+      repository,
+      'packages/provider/src/globals.d.ts',
+      'interface GlobalHidden { code: number }\n',
+    );
+    const changedRevision = commitAll(repository, 'number global declaration');
+    const changed = report(invoke(repository, changedRevision, requestPath));
+
+    // Proof: omitting resolved triple-slash dependencies kept the public identity unchanged;
+    // this production assertion received equality after `GlobalHidden.code` became `number`.
+    expect(changed.typescript.publicDeclarations[0].identity).not.toBe(
+      initial.typescript.publicDeclarations[0].identity,
+    );
+    expect(relationshipInput(changed, 'typescript.public-declarations')).not.toBe(
+      relationshipInput(initial, 'typescript.public-declarations'),
+    );
+    expect(
+      runGit(repository, ['show', `${initialRevision}:packages/provider/src/shapes.d.ts`]),
+    ).toBe(runGit(repository, ['show', `${changedRevision}:packages/provider/src/shapes.d.ts`]));
+
+    write(
+      repository,
+      'packages/provider/src/globals.d.ts',
+      'interface GlobalHidden { code: string }\n',
+    );
+    const restored = report(
+      invoke(repository, commitAll(repository, 'restore global declaration'), requestPath),
     );
     expect(restored.typescript.publicDeclarations[0].identity).toBe(
       initial.typescript.publicDeclarations[0].identity,
@@ -719,6 +836,41 @@ describe('relationship extraction production CLI', () => {
     expect(compiler.exitCode).toBe(1);
     expect(output(compiler)).toContain('TypeScript compiler failed:');
     expect(output(compiler)).toContain("Cannot find name 'MissingType'");
+  }, 15_000);
+
+  test('fails closed on unresolved declaration reference directives', () => {
+    const cases = [
+      {
+        name: 'path',
+        source: "/// <reference path='./absent.d.ts' />\nexport interface Declared {}\n",
+        expected:
+          "TypeScript reference path unresolved: packages/provider/src/shapes.d.ts -> './absent.d.ts'",
+      },
+      {
+        name: 'types',
+        source: "/// <reference types='absent-package' />\nexport interface Declared {}\n",
+        expected:
+          "TypeScript types reference unresolved: packages/provider/src/shapes.d.ts -> 'absent-package'",
+      },
+      {
+        name: 'lib',
+        source: "/// <reference lib='absent-library' />\nexport interface Declared {}\n",
+        expected:
+          'TypeScript lib reference absent-library from packages/provider/src/shapes.d.ts resolved 0 default libraries; expected exactly one',
+      },
+    ] as const;
+
+    for (const boundary of cases) {
+      const repository = createRepository();
+      write(repository, 'packages/provider/src/shapes.d.ts', boundary.source);
+      const failed = invoke(
+        repository,
+        commitAll(repository, `unresolved ${boundary.name} reference`),
+        writeRequest(repository),
+      );
+      expect(failed.exitCode).toBe(1);
+      expect(output(failed)).toContain(boundary.expected);
+    }
   }, 15_000);
 
   test('refuses missing, unreadable, malformed and unresolved Nx graph output distinctly', () => {

@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer';
 import { existsSync, readFileSync } from 'node:fs';
 import { isBuiltin } from 'node:module';
-import { dirname, extname, isAbsolute, relative, resolve } from 'node:path';
+import { basename, dirname, extname, isAbsolute, relative, resolve } from 'node:path';
 
 import ts from 'typescript';
 
@@ -15,7 +15,15 @@ export interface ExtractorIdentity {
 }
 
 export type ImportKind =
-  'dynamic' | 'import-equals' | 're-export' | 'type' | 'type-re-export' | 'value';
+  | 'dynamic'
+  | 'import-equals'
+  | 're-export'
+  | 'reference-lib'
+  | 'reference-path'
+  | 'reference-types'
+  | 'type'
+  | 'type-re-export'
+  | 'value';
 
 export interface TypeScriptImportSelector {
   source: string;
@@ -211,6 +219,22 @@ function importSites(sourceFile: ts.SourceFile): ImportSite[] {
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
+  sites.push(
+    // Proof: omitting path references kept the public selector at 53ad5864... after the referenced
+    // global's `code` changed to number; the production stale-identity assertion failed.
+    ...sourceFile.referencedFiles.map((reference) => ({
+      specifier: reference.fileName,
+      importKind: 'reference-path' as const,
+    })),
+    ...sourceFile.typeReferenceDirectives.map((reference) => ({
+      specifier: reference.fileName,
+      importKind: 'reference-types' as const,
+    })),
+    ...sourceFile.libReferenceDirectives.map((reference) => ({
+      specifier: reference.fileName,
+      importKind: 'reference-lib' as const,
+    })),
+  );
   return sites;
 }
 
@@ -221,12 +245,88 @@ function externalTarget(specifier: string): string {
   return `external:${specifier.split('/')[0]}`;
 }
 
-function resolveImport(
+function resolveDependency(
   workspace: string,
   project: ParsedProject,
   sourceFile: ts.SourceFile,
   site: ImportSite,
 ): string {
+  if (site.importKind === 'reference-path') {
+    const resolvedName = ts.resolveTripleslashReference(site.specifier, sourceFile.fileName);
+    const referenced = project.program.getSourceFile(resolvedName);
+    if (referenced === undefined) {
+      const source = workspacePath(workspace, sourceFile.fileName) ?? sourceFile.fileName;
+      // Proof: classifying the absent path as external lost this exact boundary to a later
+      // compiler diagnostic; the production refusal test received only "File ... not found".
+      throw new Error(`TypeScript reference path unresolved: ${source} -> '${site.specifier}'`);
+    }
+    if (
+      project.program.isSourceFileDefaultLibrary(referenced) ||
+      project.program.isSourceFileFromExternalLibrary(referenced)
+    ) {
+      return `external:typescript/reference-path:${site.specifier}`;
+    }
+    const target = workspacePath(workspace, referenced.fileName);
+    if (target === undefined) {
+      throw new Error(
+        `TypeScript reference path resolved outside candidate: ${sourceFile.fileName} -> '${site.specifier}'`,
+      );
+    }
+    return target;
+  }
+  if (site.importKind === 'reference-types') {
+    const resolved = ts.resolveTypeReferenceDirective(
+      site.specifier,
+      sourceFile.fileName,
+      project.options,
+      ts.sys,
+    ).resolvedTypeReferenceDirective;
+    if (resolved?.resolvedFileName === undefined) {
+      const source = workspacePath(workspace, sourceFile.fileName) ?? sourceFile.fileName;
+      // Proof: classifying an unresolved types directive as external lost this boundary to the
+      // later "Cannot find type definition file" diagnostic in the production refusal test.
+      throw new Error(`TypeScript types reference unresolved: ${source} -> '${site.specifier}'`);
+    }
+    const referenced = project.program.getSourceFile(resolved.resolvedFileName);
+    if (referenced === undefined) {
+      throw new Error(
+        `TypeScript types reference absent from compiler program: ${sourceFile.fileName} -> '${site.specifier}'`,
+      );
+    }
+    if (
+      resolved.isExternalLibraryImport === true ||
+      project.program.isSourceFileDefaultLibrary(referenced) ||
+      project.program.isSourceFileFromExternalLibrary(referenced)
+    ) {
+      return externalTarget(site.specifier);
+    }
+    const target = workspacePath(workspace, referenced.fileName);
+    if (target === undefined) {
+      throw new Error(
+        `TypeScript types reference resolved outside candidate: ${sourceFile.fileName} -> '${site.specifier}'`,
+      );
+    }
+    return target;
+  }
+  if (site.importKind === 'reference-lib') {
+    const expectedName = `lib.${site.specifier.toLowerCase()}.d.ts`;
+    const libraries = project.program
+      .getSourceFiles()
+      .filter(
+        (candidate) =>
+          project.program.isSourceFileDefaultLibrary(candidate) &&
+          basename(candidate.fileName).toLowerCase() === expectedName,
+      );
+    if (libraries.length !== 1) {
+      const source = workspacePath(workspace, sourceFile.fileName) ?? sourceFile.fileName;
+      // Proof: inventing an external target for the missing lib lost this exact boundary to the
+      // later "Cannot find lib definition" diagnostic in the production refusal test.
+      throw new Error(
+        `TypeScript lib reference ${site.specifier} from ${source} resolved ${String(libraries.length)} default libraries; expected exactly one`,
+      );
+    }
+    return `external:typescript/${expectedName}`;
+  }
   // Proof: removing built-in classification made the production CLI fail on the fixture's
   // `node:fs` edge with `TypeScript import unresolved: packages/provider/src/hidden.ts`.
   if (isBuiltin(site.specifier)) return externalTarget(site.specifier);
@@ -300,7 +400,7 @@ function declarationDependencies(
   }
   const dependencies = importSites(
     ts.createSourceFile(declaration.emittedPath, declaration.text, ts.ScriptTarget.Latest, true),
-  ).map((site) => resolveImport(workspace, project, sourceFile, site));
+  ).map((site) => resolveDependency(workspace, project, sourceFile, site));
   return dependencies.filter((path) => project.declarations.has(path));
 }
 
@@ -380,9 +480,17 @@ export function extractTypeScriptRelationships(
   for (const project of projects) {
     for (const sourceFile of project.program.getSourceFiles()) {
       const source = workspacePath(workspace, sourceFile.fileName);
-      if (source === undefined || sourceFile.isDeclarationFile) continue;
+      // Proof: restoring the declaration-file exclusion kept the hidden provider at
+      // cb10d2d3... after `additional.d.ts` was added; the production topology test failed.
+      if (
+        source === undefined ||
+        project.program.isSourceFileDefaultLibrary(sourceFile) ||
+        project.program.isSourceFileFromExternalLibrary(sourceFile)
+      ) {
+        continue;
+      }
       for (const site of importSites(sourceFile)) {
-        const target = resolveImport(workspace, project, sourceFile, site);
+        const target = resolveDependency(workspace, project, sourceFile, site);
         const selector = {
           source,
           specifier: site.specifier,
