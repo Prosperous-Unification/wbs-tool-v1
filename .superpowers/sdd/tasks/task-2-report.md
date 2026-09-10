@@ -161,11 +161,12 @@ bun test --preload ../test/scratch/preload.ts src/cli.test.ts -t '<case>'
 | decode paths without `ignoreBOM`                      | the exact tuple output returned both `name` and `\uFEFFname` as `name`                                                                                                    |
 | route working selection through the interior argument | the root blob remained at committed identity `a4eb...`; root untracked was omitted and nested untracked was returned as `nested-new.txt`                                  |
 | accept an empty untracked record                      | a single NUL returned exit 0 with `untracked: [""]`; expected exit 1                                                                                                      |
-| use insertion-order `JSON.stringify`                  | tracked identity was `4db8d6b050f5546f0845a83cab37758a3bed20cc8d578093e52a5186712c2ff1`, not canonical `da04baf983ae5deca6bc925a2e328548c08fd0b9267599a432b3e36e9e3ed09f` |
+| use insertion-order `JSON.stringify` after the committed pre-sorted reconstruction | **Passed**: 1 pass, 0 fail, 9 assertions; the negative was vacuous and is corrected in Fix Round 2 |
 | remove only the untracked-membership comparison       | CLI exited 0 with `first-untracked.txt` and `git-wrapper/git`, omitting `late-untracked.txt`; expected exit 1                                                             |
 
-Each focused case passed after restoration. The combined production CLI run passed 13 tests, zero
-failed, with 163 assertions. Adjacent `Proof:` comments record only the failures observed above.
+Each focused behavior case passed after restoration. The combined production CLI run passed 13
+tests, zero failed, with 163 assertions. Fix Round 2 corrects the canonical proof that could not fail
+in this committed shape.
 
 ### Final verification and self-review
 
@@ -187,3 +188,47 @@ The full repository/browser gates remain skipped as disproportionate to this iso
 the parent integration gate can cover them. `openspec validate agent-scalable-llm-wiki --strict`
 was attempted again and returned exit 127, `/bin/bash: openspec: command not found`; it is not
 represented as passing.
+
+## Fix Round 2
+
+### RED/GREEN and production fault proofs
+
+The root-path regression creates neighboring repositories named `space` and `space ` with different
+HEADs and contents, then requests the trailing-space repository through the production CLI. Before
+the fix, `readText().trim()` removed both Git's LF terminator and the path's trailing space; the CLI
+therefore selected `space`, returning `neighbor.txt`, its blob, revision and tree instead of the
+expected `requested.txt` tuple and identities. Removing exactly one terminal LF made the test green.
+Reinjecting `trim()` reproduced the same four-field candidate mismatch; the adjacent `Proof:` was
+written from that output.
+
+The `readText` callers were reviewed. Worktree root and index location are filesystem paths whose
+bytes must be preserved. Commit, tree and written-index-tree output are semantic object IDs checked
+by `GitObjectIdPattern`, so retained extra whitespace is rejected rather than silently normalized.
+The `read-tree` and `add --update` calls produce empty successful stdout, which remains empty. Thus
+the shared decoder now removes only Git's exact terminal LF and does not trim any caller's value.
+
+The prior canonical fault was replayed first against commit `1cc3a6c5`: replacing canonical output
+with `JSON.stringify` passed the production CLI case (1 pass, 0 fail, 9 assertions), proving the
+negative was vacuous because `hashEntries` rebuilt every record as already-sorted
+`{blob,mode,path}`. The reconstruction was removed; production hashing now receives the actual
+parsed `{path,mode,blob}` records under the precise `CandidateEntry` type. With only ordinary JSON
+injected, the CLI then emitted
+`4db8d6b050f5546f0845a83cab37758a3bed20cc8d578093e52a5186712c2ff1` instead of pinned canonical
+`da04baf983ae5deca6bc925a2e328548c08fd0b9267599a432b3e36e9e3ed09f` and failed at the exact hash
+assertion. Restoring recursive canonical serialization made the focused pair pass (2 pass, zero
+fail, 25 assertions). This is the production hashing input and the behavior window the proof names.
+
+The complete production CLI file then passed 14 tests, zero failed, with 179 assertions. Final
+verification after all source/test edits was:
+
+- `NX_DAEMON=false bunx nx run-many -t lint typecheck test -p tool-wiki --skip-nx-cache --output-style=static`:
+  exit 0; lint passed, source and spec TypeScript projects compiled, and 31 tests passed with zero
+  failures and 300 assertions. Nx reported its sandbox socket denial and ran plugins in-process; no
+  target was skipped.
+- `bunx prettier --write tools/tool-wiki/src/cli.test.ts tools/tool-wiki/src/inventory/read-candidate.ts openspec/changes/agent-scalable-llm-wiki/verify.md`:
+  all scoped non-ignored files formatted. Final check and `git diff --check` are run before commit.
+
+No contract, baseline identity or task checkbox changed. Full repository/browser gates remain
+skipped as disproportionate to the isolated candidate reader.
+`openspec validate agent-scalable-llm-wiki --strict` returned exit 127,
+`/bin/bash: openspec: command not found`, and is not represented as passing.

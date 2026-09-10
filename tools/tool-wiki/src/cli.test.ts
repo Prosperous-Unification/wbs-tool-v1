@@ -125,6 +125,30 @@ describe('read-candidate production CLI', () => {
     );
   });
 
+  test('selects the requested worktree whose root ends in whitespace', () => {
+    const neighborhood = mkdtempSync(join(tmpdir(), 'tool-wiki-neighboring-roots-'));
+    repositories.push(neighborhood);
+    const neighbor = join(neighborhood, 'space');
+    const requested = join(neighborhood, 'space ');
+    for (const repository of [neighbor, requested]) {
+      mkdirSync(repository);
+      runGit(repository, ['init', '--initial-branch=main']);
+      runGit(repository, ['config', 'user.email', 'candidate@example.test']);
+      runGit(repository, ['config', 'user.name', 'Candidate Fixture']);
+    }
+    write(neighbor, 'neighbor.txt', 'wrong repository\n');
+    commitAll(neighbor, 'neighbor');
+    write(requested, 'requested.txt', 'requested repository\n');
+    const revision = commitAll(requested, 'requested');
+    const tree = runGit(requested, ['rev-parse', `${revision}^{tree}`]);
+
+    expectCandidate(
+      runCandidateCli(requested, 'committed', 'HEAD'),
+      { kind: 'committed', revision, tree },
+      [{ path: 'requested.txt', mode: '100644', blob: hash(requested, 'requested.txt') }],
+    );
+  });
+
   test('preserves a leading UTF-8 BOM as part of an exact Git path', () => {
     const repository = createRepository();
     write(repository, 'name', 'plain\n');

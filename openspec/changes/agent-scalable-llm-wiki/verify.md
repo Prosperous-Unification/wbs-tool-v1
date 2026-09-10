@@ -124,12 +124,11 @@ the read, preserves leading BOM path code points, normalizes interior repository
 worktree root, rejects empty untracked records, hashes working manifests with recursively
 key-sorted canonical JSON, and checks untracked membership independently of tracked bytes.
 
-Production CLI REDs observed before each fix were: missing index after preflight selected Git's
-empty tree and exited 0; BOM/plain paths collapsed; an interior working request omitted root state;
-a single NUL became `untracked: [""]`; insertion-order JSON emitted tracked hash `4db8d6...` instead
-of canonical `da04baf...`; and removing only the untracked comparison omitted a path created between
-passes while exiting 0. Each restored case passed. Exact full fault output is retained in the task
-report, and adjacent source `Proof:` comments name the observed production oracle.
+Production CLI REDs observed before each behavior fix were: missing index after preflight selected
+Git's empty tree and exited 0; BOM/plain paths collapsed; an interior working request omitted root
+state; a single NUL became `untracked: [""]`; and removing only the untracked comparison omitted a
+path created between passes while exiting 0. The canonical mutation was later found to pass against
+the committed pre-sorted reconstruction; Fix Round 2 corrects that proof and its production input.
 
 Final focused verification:
 
@@ -142,3 +141,30 @@ assertions. Nx could not create its sandbox socket and explicitly ran plugins in
 was skipped. `openspec validate agent-scalable-llm-wiki --strict` returned exit 127 because the
 OpenSpec executable is unavailable. The full repository/browser gates were not run for this
 isolated reader fix.
+
+## Slice 1.2 fix round 2
+
+A production CLI request for a repository named `space ` was RED because the root decoder trimmed
+the space and selected a distinct neighboring `space` repository: revision, tree, path and blob all
+mismatched. The decoder now removes one exact Git LF terminator. Reinjecting `trim()` reproduced the
+neighbor selection. Other text callers were reviewed: path callers now preserve bytes, object IDs
+retain strict regex validation, and empty successful command output remains empty.
+
+The canonical negative was first replayed at `1cc3a6c5` and passed (1 pass, 0 fail, 9 assertions),
+confirming it was outside the fault window: `hashEntries` reconstructed keys in canonical order.
+Hashing now receives the actual parsed `{path,mode,blob}` record with its precise type. Injecting
+ordinary JSON then failed through the CLI with tracked hash `4db8d6...` instead of pinned canonical
+`da04baf...`; restoring canonical serialization made the focused pair pass (2 pass, zero fail, 25
+assertions). The complete CLI file passed 14 tests, zero failed, with 179 assertions.
+
+Final focused gate after all source/test edits:
+
+```text
+NX_DAEMON=false bunx nx run-many -t lint typecheck test -p tool-wiki --skip-nx-cache --output-style=static
+```
+
+Exit 0: lint passed, source and spec TypeScript projects compiled, and 31 tests passed with zero
+failures and 300 assertions. Nx ran plugins in-process after its sandbox socket denial; no target was
+skipped. `openspec validate agent-scalable-llm-wiki --strict` returned exit 127 because the
+executable is unavailable. Full repository/browser gates remain skipped for this isolated reader
+fix.

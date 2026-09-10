@@ -101,7 +101,10 @@ function readText(
     throw new CandidateReadError(failure, `${context}: ${detail}`);
   }
   try {
-    return Utf8.decode(invocation.stdout).trim();
+    const text = Utf8.decode(invocation.stdout);
+    // Proof: replacing this exact terminator removal with `trim()` made the neighboring-root CLI
+    // select `space` when the requested worktree was `space ` (expected distinct revision/tree).
+    return text.endsWith('\n') ? text.slice(0, -1) : text;
   } catch (cause) {
     const detail = cause instanceof Error ? cause.message : String(cause);
     throw new CandidateReadError('malformed-git-output', `${context}: non-UTF-8 output: ${detail}`);
@@ -336,29 +339,28 @@ function readUntracked(repository: string): string[] {
   return paths;
 }
 
-type ManifestValue = string | ManifestValue[] | { [key: string]: ManifestValue };
+type ManifestValue = CandidateEntry | ManifestValue[] | string;
 
 function serializeCanonical(value: ManifestValue): string {
   if (typeof value === 'string') return JSON.stringify(value);
   if (Array.isArray(value)) {
     return `[${value.map((element) => serializeCanonical(element)).join(',')}]`;
   }
-  const fields = Object.entries(value).sort(([left], [right]) =>
-    Buffer.compare(Buffer.from(left), Buffer.from(right)),
-  );
+  const fields: [keyof CandidateEntry, string][] = [
+    ['path', value.path],
+    ['mode', value.mode],
+    ['blob', value.blob],
+  ];
+  fields.sort(([left], [right]) => Buffer.compare(Buffer.from(left), Buffer.from(right)));
   return `{${fields
     .map(([key, field]) => `${JSON.stringify(key)}:${serializeCanonical(field)}`)
     .join(',')}}`;
 }
 
 function hashManifest(value: ManifestValue): string {
-  // Proof: replacing canonical serialization with insertion-order JSON made the production CLI
-  // emit tracked hash 4db8d6... instead of the pinned da04baf... (expected exact match).
+  // Proof: replacing this with insertion-order JSON while hashing the actual path/mode/blob entry
+  // made the CLI emit 4db8d6... instead of pinned canonical da04baf... (expected exact match).
   return new Bun.CryptoHasher('sha256').update(`${serializeCanonical(value)}\n`).digest('hex');
-}
-
-function hashEntries(entries: CandidateEntry[]): string {
-  return hashManifest(entries.map(({ blob, mode, path }) => ({ blob, mode, path })));
 }
 
 function snapshotWorkingTree(repository: string, indexTree: string): string {
@@ -447,7 +449,7 @@ function readWorking(repository: string, baseRevision: string): CandidateSnapsho
     selection: {
       kind: 'working',
       base,
-      trackedSnapshot: hashEntries(entries),
+      trackedSnapshot: hashManifest(entries),
       untrackedSnapshot: hashManifest(firstUntracked),
     },
     entries,
