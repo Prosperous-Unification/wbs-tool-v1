@@ -116,3 +116,29 @@ Final focused verification was
 exit 0, lint plus source/spec typecheck passed, and 25 tests passed with zero failures and 238
 assertions. `openspec validate agent-scalable-llm-wiki --strict` was unavailable (`openspec: command
 not found`) and is not represented as passing.
+
+## Slice 1.2 fix round 1
+
+The reader now binds index selection to captured bytes and recaptures the required live index after
+the read, preserves leading BOM path code points, normalizes interior repository arguments to the
+worktree root, rejects empty untracked records, hashes working manifests with recursively
+key-sorted canonical JSON, and checks untracked membership independently of tracked bytes.
+
+Production CLI REDs observed before each fix were: missing index after preflight selected Git's
+empty tree and exited 0; BOM/plain paths collapsed; an interior working request omitted root state;
+a single NUL became `untracked: [""]`; insertion-order JSON emitted tracked hash `4db8d6...` instead
+of canonical `da04baf...`; and removing only the untracked comparison omitted a path created between
+passes while exiting 0. Each restored case passed. Exact full fault output is retained in the task
+report, and adjacent source `Proof:` comments name the observed production oracle.
+
+Final focused verification:
+
+```text
+NX_DAEMON=false bunx nx run-many -t lint typecheck test -p tool-wiki --skip-nx-cache --output-style=static
+```
+
+Exit 0: lint passed, source and spec typecheck passed, and 30 tests passed with zero failures and 284
+assertions. Nx could not create its sandbox socket and explicitly ran plugins in-process; no target
+was skipped. `openspec validate agent-scalable-llm-wiki --strict` returned exit 127 because the
+OpenSpec executable is unavailable. The full repository/browser gates were not run for this
+isolated reader fix.

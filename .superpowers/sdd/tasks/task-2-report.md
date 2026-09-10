@@ -126,3 +126,64 @@ message.
 - Working mode intentionally binds untracked path membership, not untracked bytes; the normative
   design says tracked bytes are frozen while untracked paths are reported separately, and working
   evidence is diagnostic rather than admissible.
+
+## Fix Round 1
+
+### Review findings addressed
+
+- Staged and working selection now read the required index through an open descriptor, write those
+  captured bytes to a private temporary index, and compare a fresh capture after inventory. Deleting
+  or replacing the live index cannot turn the selected candidate into Git's empty tree.
+- Git path decoding explicitly preserves a leading UTF-8 BOM. The exact tuple CLI fixture contains
+  both `name` and `\uFEFFname` and requires both distinct paths.
+- Every request resolves the caller's repository argument to the worktree root. A working request
+  from an interior directory includes root and nested tracked/untracked paths in root-relative form.
+- A NUL-framed untracked record must contain a nonempty path.
+- Working manifest SHA-256 identities use UTF-8 canonical JSON with recursively byte-sorted object
+  keys, semantic array order and one terminal newline. The CLI test pins the tracked and untracked
+  hashes exactly; untracked identity remains path-only by design.
+- Tracked-tree and untracked-membership stability are separate comparisons with independent
+  production-path fault proofs.
+
+### RED/GREEN and deliberate faults
+
+All focused cases use the production CLI spawned by `src/cli.test.ts` in temporary real Git
+repositories:
+
+```text
+bun test --preload ../test/scratch/preload.ts src/cli.test.ts -t '<case>'
+```
+
+| Review finding / injected fault                       | Observed RED                                                                                                                                                              |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| remove live index after readable preflight            | CLI exited 0 with tree `4b825dc642cb6eb9a060e54bf8d69288fbee4904` and `entries: []`; expected exit 1                                                                      |
+| remove the final captured-index recapture             | CLI exited 0 with the captured nonempty tree after `.git/index` disappeared; expected exit 1                                                                              |
+| decode paths without `ignoreBOM`                      | the exact tuple output returned both `name` and `\uFEFFname` as `name`                                                                                                    |
+| route working selection through the interior argument | the root blob remained at committed identity `a4eb...`; root untracked was omitted and nested untracked was returned as `nested-new.txt`                                  |
+| accept an empty untracked record                      | a single NUL returned exit 0 with `untracked: [""]`; expected exit 1                                                                                                      |
+| use insertion-order `JSON.stringify`                  | tracked identity was `4db8d6b050f5546f0845a83cab37758a3bed20cc8d578093e52a5186712c2ff1`, not canonical `da04baf983ae5deca6bc925a2e328548c08fd0b9267599a432b3e36e9e3ed09f` |
+| remove only the untracked-membership comparison       | CLI exited 0 with `first-untracked.txt` and `git-wrapper/git`, omitting `late-untracked.txt`; expected exit 1                                                             |
+
+Each focused case passed after restoration. The combined production CLI run passed 13 tests, zero
+failed, with 163 assertions. Adjacent `Proof:` comments record only the failures observed above.
+
+### Final verification and self-review
+
+- `NX_DAEMON=false bunx nx run-many -t lint typecheck test -p tool-wiki --skip-nx-cache --output-style=static`:
+  exit 0; ESLint passed, both source and spec TypeScript projects compiled, and 30 tests passed with
+  zero failures and 284 assertions. Nx reported its sandbox socket denial and ran plugins in-process;
+  no target was skipped.
+- `bunx prettier --write tools/tool-wiki/src/cli.test.ts tools/tool-wiki/src/inventory/read-candidate.ts`:
+  both files formatted.
+- `git diff --check`: exit 0 before documentation finalization and rerun before commit.
+
+The captured index, tracked working trees and untracked path set are each checked at the boundary
+that can move. Temporary index directories are removed in `finally`; only Git's intended object
+writes remain. Canonicalization is narrow to the string/array/plain-record shapes used by these two
+manifests, so task 1.4's public content-manifest contract is not preimplemented. No contract or
+hash-bound baseline file changed, and no checkbox beyond 1.2 changed.
+
+The full repository/browser gates remain skipped as disproportionate to this isolated reader fix;
+the parent integration gate can cover them. `openspec validate agent-scalable-llm-wiki --strict`
+was attempted again and returned exit 127, `/bin/bash: openspec: command not found`; it is not
+represented as passing.

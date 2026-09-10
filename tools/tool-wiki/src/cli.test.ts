@@ -125,6 +125,23 @@ describe('read-candidate production CLI', () => {
     );
   });
 
+  test('preserves a leading UTF-8 BOM as part of an exact Git path', () => {
+    const repository = createRepository();
+    write(repository, 'name', 'plain\n');
+    write(repository, '\uFEFFname', 'bom\n');
+    const revision = commitAll(repository, 'BOM path');
+    const tree = runGit(repository, ['rev-parse', `${revision}^{tree}`]);
+
+    expectCandidate(
+      runCandidateCli(repository, 'committed', revision),
+      { kind: 'committed', revision, tree },
+      [
+        { path: 'name', mode: '100644', blob: hash(repository, 'name') },
+        { path: '\uFEFFname', mode: '100644', blob: hash(repository, '\uFEFFname') },
+      ],
+    );
+  });
+
   test('reads the immutable staged index tree with additions, deletion, both rename sides, modes and symlink blobs', () => {
     const repository = createRepository();
     write(repository, 'deleted.txt', 'delete me\n');
@@ -176,12 +193,43 @@ describe('read-candidate production CLI', () => {
     expect(invocation.exitCode, output).toBe(0);
     const candidate = JSON.parse(stdout) as unknown;
     expect(candidate).toMatchObject({
-      selection: { kind: 'working', base },
+      selection: {
+        kind: 'working',
+        base,
+        trackedSnapshot: 'da04baf983ae5deca6bc925a2e328548c08fd0b9267599a432b3e36e9e3ed09f',
+        untrackedSnapshot: '84a8646c0954c75e3df6609bf584f692e8976a5c56c4c1b3012d3b47bf95361c',
+      },
       entries: [{ path: 'tracked.txt', mode: '100644', blob: hash(repository, 'tracked.txt') }],
       untracked: ['new/untracked.txt'],
     });
-    expect(stdout).toMatch(/"trackedSnapshot":"[0-9a-f]{64}"/);
-    expect(stdout).toMatch(/"untrackedSnapshot":"[0-9a-f]{64}"/);
+  });
+
+  test('normalizes an interior repository path before snapshotting the whole working tree', () => {
+    const repository = createRepository();
+    write(repository, 'root.txt', 'root committed\n');
+    write(repository, 'nested/tracked.txt', 'nested committed\n');
+    const base = commitAll(repository, 'initial');
+    write(repository, 'root.txt', 'root working\n');
+    write(repository, 'nested/tracked.txt', 'nested working\n');
+    write(repository, 'root-new.txt', 'root untracked\n');
+    write(repository, 'nested/nested-new.txt', 'nested untracked\n');
+
+    const invocation = runCandidateCli(join(repository, 'nested'), 'working', base);
+    const stdout = readPipe(invocation.stdout, 'candidate stdout');
+    const output = `${stdout}${readPipe(invocation.stderr, 'candidate stderr')}`;
+    expect(invocation.exitCode, output).toBe(0);
+    expect(JSON.parse(stdout) as unknown).toMatchObject({
+      selection: { kind: 'working', base },
+      entries: [
+        {
+          path: 'nested/tracked.txt',
+          mode: '100644',
+          blob: hash(repository, 'nested/tracked.txt'),
+        },
+        { path: 'root.txt', mode: '100644', blob: hash(repository, 'root.txt') },
+      ],
+      untracked: ['nested/nested-new.txt', 'root-new.txt'],
+    });
   });
 
   test('refuses an index change while staged or working candidates are being read', () => {
@@ -201,7 +249,7 @@ describe('read-candidate production CLI', () => {
       if (realGit === null) throw new Error('required git executable disappeared during test');
       writeFileSync(
         wrapperPath,
-        `#!/bin/sh\nif [ "$3" = "write-tree" ] && [ -z "$GIT_INDEX_FILE" ] && [ ! -e "$WIKI_INDEX_RACE_MARKER" ]; then\n  "$WIKI_REAL_GIT" "$@"\n  code=$?\n  : > "$WIKI_INDEX_RACE_MARKER"\n  printf 'raced\\n' > "$2/raced.txt"\n  "$WIKI_REAL_GIT" -C "$2" add raced.txt\n  exit "$code"\nfi\nexec "$WIKI_REAL_GIT" "$@"\n`,
+        `#!/bin/sh\nif [ "$3" = "write-tree" ] && [ -n "$GIT_INDEX_FILE" ] && [ ! -e "$WIKI_INDEX_RACE_MARKER" ]; then\n  "$WIKI_REAL_GIT" "$@"\n  code=$?\n  : > "$WIKI_INDEX_RACE_MARKER"\n  printf 'raced\\n' > "$2/raced.txt"\n  (unset GIT_INDEX_FILE; "$WIKI_REAL_GIT" -C "$2" add raced.txt)\n  exit "$code"\nfi\nexec "$WIKI_REAL_GIT" "$@"\n`,
         { mode: 0o755 },
       );
 
@@ -214,6 +262,33 @@ describe('read-candidate production CLI', () => {
       expect(invocation.exitCode, output).toBe(1);
       expect(output).toContain(`Git index changed while selecting ${kind} candidate`);
     }
+  });
+
+  test('refuses an index removed after capture instead of selecting Git empty tree', () => {
+    const repository = createRepository();
+    write(repository, 'tracked.txt', 'committed\n');
+    const base = commitAll(repository, 'initial');
+    const wrapperDirectory = join(repository, 'git-wrapper');
+    const wrapperPath = join(wrapperDirectory, 'git');
+    const markerPath = join(repository, '.git', 'index-removed');
+    mkdirSync(wrapperDirectory);
+    const realGit = Bun.which('git');
+    expect(realGit).not.toBeNull();
+    if (realGit === null) throw new Error('required git executable disappeared during test');
+    writeFileSync(
+      wrapperPath,
+      `#!/bin/sh\nif [ "$3" = "write-tree" ] && [ ! -e "$WIKI_INDEX_REMOVAL_MARKER" ]; then\n  rm "$2/.git/index"\n  : > "$WIKI_INDEX_REMOVAL_MARKER"\nfi\nexec "$WIKI_REAL_GIT" "$@"\n`,
+      { mode: 0o755 },
+    );
+
+    const invocation = runCandidateCli(repository, 'staged', base, {
+      PATH: `${wrapperDirectory}${delimiter}${process.env['PATH'] ?? ''}`,
+      WIKI_INDEX_REMOVAL_MARKER: markerPath,
+      WIKI_REAL_GIT: realGit,
+    });
+    const output = `${readPipe(invocation.stdout, 'candidate stdout')}${readPipe(invocation.stderr, 'candidate stderr')}`;
+    expect(invocation.exitCode, output).toBe(1);
+    expect(output).toContain('absent required Git index during staged selection');
   });
 
   test('refuses tracked working bytes that change across snapshot passes', () => {
@@ -231,7 +306,7 @@ describe('read-candidate production CLI', () => {
     if (realGit === null) throw new Error('required git executable disappeared during test');
     writeFileSync(
       wrapperPath,
-      `#!/bin/sh\nif [ "$3" = "write-tree" ] && [ -n "$GIT_INDEX_FILE" ] && [ ! -e "$WIKI_WORKING_RACE_MARKER" ]; then\n  "$WIKI_REAL_GIT" "$@"\n  code=$?\n  : > "$WIKI_WORKING_RACE_MARKER"\n  printf 'second working bytes\\n' > "$2/tracked.txt"\n  exit "$code"\nfi\nexec "$WIKI_REAL_GIT" "$@"\n`,
+      `#!/bin/sh\nif [ "$3" = "add" ] && [ "$4" = "--update" ] && [ ! -e "$WIKI_WORKING_RACE_MARKER" ]; then\n  "$WIKI_REAL_GIT" "$@"\n  code=$?\n  : > "$WIKI_WORKING_RACE_MARKER"\n  printf 'second working bytes\\n' > "$2/tracked.txt"\n  exit "$code"\nfi\nexec "$WIKI_REAL_GIT" "$@"\n`,
       { mode: 0o755 },
     );
 
@@ -243,6 +318,60 @@ describe('read-candidate production CLI', () => {
     const output = `${readPipe(invocation.stdout, 'candidate stdout')}${readPipe(invocation.stderr, 'candidate stderr')}`;
     expect(invocation.exitCode, output).toBe(1);
     expect(output).toContain('working tree changed while selecting diagnostic candidate');
+  });
+
+  test('refuses untracked membership that changes across snapshot passes', () => {
+    const repository = createRepository();
+    write(repository, 'tracked.txt', 'committed\n');
+    const base = commitAll(repository, 'initial');
+    write(repository, 'first-untracked.txt', 'first\n');
+
+    const wrapperDirectory = join(repository, 'git-wrapper');
+    const wrapperPath = join(wrapperDirectory, 'git');
+    const markerPath = join(repository, '.git', 'untracked-read');
+    mkdirSync(wrapperDirectory);
+    const realGit = Bun.which('git');
+    expect(realGit).not.toBeNull();
+    if (realGit === null) throw new Error('required git executable disappeared during test');
+    writeFileSync(
+      wrapperPath,
+      `#!/bin/sh\nif [ "$3" = "ls-files" ] && [ "$4" = "--others" ] && [ ! -e "$WIKI_UNTRACKED_RACE_MARKER" ]; then\n  "$WIKI_REAL_GIT" "$@"\n  code=$?\n  : > "$WIKI_UNTRACKED_RACE_MARKER"\n  printf 'late\\n' > "$2/late-untracked.txt"\n  exit "$code"\nfi\nexec "$WIKI_REAL_GIT" "$@"\n`,
+      { mode: 0o755 },
+    );
+
+    const invocation = runCandidateCli(repository, 'working', base, {
+      PATH: `${wrapperDirectory}${delimiter}${process.env['PATH'] ?? ''}`,
+      WIKI_REAL_GIT: realGit,
+      WIKI_UNTRACKED_RACE_MARKER: markerPath,
+    });
+    const output = `${readPipe(invocation.stdout, 'candidate stdout')}${readPipe(invocation.stderr, 'candidate stderr')}`;
+    expect(invocation.exitCode, output).toBe(1);
+    expect(output).toContain('working tree changed while selecting diagnostic candidate');
+  });
+
+  test('refuses an empty path record in malformed untracked output', () => {
+    const repository = createRepository();
+    write(repository, 'tracked.txt', 'committed\n');
+    const base = commitAll(repository, 'initial');
+    const wrapperDirectory = join(repository, 'git-wrapper');
+    const wrapperPath = join(wrapperDirectory, 'git');
+    mkdirSync(wrapperDirectory);
+    const realGit = Bun.which('git');
+    expect(realGit).not.toBeNull();
+    if (realGit === null) throw new Error('required git executable disappeared during test');
+    writeFileSync(
+      wrapperPath,
+      `#!/bin/sh\nif [ "$3" = "ls-files" ] && [ "$4" = "--others" ]; then\n  printf '%b' '\\000'\n  exit 0\nfi\nexec "$WIKI_REAL_GIT" "$@"\n`,
+      { mode: 0o755 },
+    );
+
+    const invocation = runCandidateCli(repository, 'working', base, {
+      PATH: `${wrapperDirectory}${delimiter}${process.env['PATH'] ?? ''}`,
+      WIKI_REAL_GIT: realGit,
+    });
+    const output = `${readPipe(invocation.stdout, 'candidate stdout')}${readPipe(invocation.stderr, 'candidate stderr')}`;
+    expect(invocation.exitCode, output).toBe(1);
+    expect(output).toContain('malformed untracked path output: empty path record');
   });
 
   test('distinguishes absent, unreadable and malformed required index state without returning an empty inventory', () => {

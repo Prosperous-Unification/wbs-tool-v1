@@ -1,11 +1,14 @@
-import { accessSync, closeSync, constants, mkdtempSync, openSync, rmSync, statSync } from 'node:fs';
+import { Buffer } from 'node:buffer';
+import { closeSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 
 const GitObjectIdPattern = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 const GitEntryPattern =
   /^(100644|100755|120000|160000) (blob|commit) ([0-9a-f]{40}(?:[0-9a-f]{24})?)$/;
-const Utf8 = new TextDecoder('utf-8', { fatal: true });
+// Proof: removing `ignoreBOM` made the exact candidate CLI return both `name` and `\uFEFFname`
+// as `name`; the BOM-path test failed on the second tuple's path.
+const Utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
 export type CandidateRequest =
   | { kind: 'committed'; revision: string }
@@ -105,12 +108,13 @@ function readText(
   }
 }
 
-function assertRepository(repository: string): void {
-  const invocation = invokeGit(repository, ['rev-parse', '--git-dir']);
+function resolveWorktreeRoot(repository: string): string {
+  const invocation = invokeGit(repository, ['rev-parse', '--show-toplevel']);
   if (invocation.exitCode !== 0) {
-    const detail = invocation.stderr.length === 0 ? 'git directory unavailable' : invocation.stderr;
+    const detail = invocation.stderr.length === 0 ? 'Git worktree unavailable' : invocation.stderr;
     throw new CandidateReadError('not-repository', `not a readable Git repository: ${detail}`);
   }
+  return readText(invocation, 'not-repository', 'cannot resolve Git worktree root');
 }
 
 function resolveCommit(repository: string, revision: string, label: string): string {
@@ -160,27 +164,32 @@ function readErrorCode(cause: unknown): string | undefined {
   return typeof code === 'string' ? code : undefined;
 }
 
-function assertReadableIndex(repository: string): void {
+function captureIndex(repository: string, selection: 'staged' | 'working'): Buffer {
   const indexPath = resolveIndexPath(repository);
+  let descriptor: number;
   try {
-    statSync(indexPath);
+    descriptor = openSync(indexPath, 'r');
   } catch (cause) {
     if (readErrorCode(cause) === 'ENOENT') {
-      throw new CandidateReadError('absent-index', `absent required Git index: ${indexPath}`);
+      // Proof: removing the required-index boundary let the absent-index CLI fixture select Git's
+      // empty tree and exit 0; the after-capture removal fixture also reaches this exact refusal.
+      throw new CandidateReadError(
+        'absent-index',
+        `absent required Git index during ${selection} selection: ${indexPath}`,
+      );
     }
-    const detail = cause instanceof Error ? cause.message : String(cause);
-    throw new CandidateReadError('unreadable-index', `unreadable required Git index: ${detail}`);
-  }
-
-  try {
-    accessSync(indexPath, constants.R_OK);
-    const descriptor = openSync(indexPath, 'r');
-    closeSync(descriptor);
-  } catch (cause) {
     const detail = cause instanceof Error ? cause.message : String(cause);
     // Proof: classifying this branch as malformed made the production CLI unreadable-index
     // fixture fail on `Expected to contain: "unreadable required Git index"` after EACCES.
     throw new CandidateReadError('unreadable-index', `unreadable required Git index: ${detail}`);
+  }
+  try {
+    return readFileSync(descriptor);
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    throw new CandidateReadError('unreadable-index', `unreadable required Git index: ${detail}`);
+  } finally {
+    closeSync(descriptor);
   }
 }
 
@@ -274,6 +283,17 @@ function writeIndexTree(repository: string, env?: Record<string, string | undefi
   return tree;
 }
 
+function writeCapturedIndexTree(repository: string, index: Uint8Array): string {
+  const scratch = mkdtempSync(join(tmpdir(), 'tool-wiki-captured-index-'));
+  const snapshotIndex = join(scratch, 'index');
+  try {
+    writeFileSync(snapshotIndex, index, { mode: 0o600 });
+    return writeIndexTree(repository, { GIT_INDEX_FILE: snapshotIndex });
+  } finally {
+    rmSync(scratch, { force: true, recursive: true });
+  }
+}
+
 function readUntracked(repository: string): string[] {
   const invocation = invokeGit(repository, ['ls-files', '--others', '--exclude-standard', '-z']);
   if (invocation.exitCode !== 0) {
@@ -295,19 +315,50 @@ function readUntracked(repository: string): string[] {
   let start = 0;
   for (let cursor = 0; cursor < invocation.stdout.length; cursor += 1) {
     if (invocation.stdout[cursor] !== 0) continue;
+    let path: string;
     try {
-      paths.push(Utf8.decode(invocation.stdout.subarray(start, cursor)));
+      path = Utf8.decode(invocation.stdout.subarray(start, cursor));
     } catch (cause) {
       const detail = cause instanceof Error ? cause.message : String(cause);
       throw new CandidateReadError('malformed-git-output', `non-UTF-8 untracked path: ${detail}`);
     }
+    // Proof: removing this refusal made the malformed-untracked CLI fixture exit 0 with
+    // `untracked: [""]` after Git emitted a single NUL record (expected exit 1).
+    if (path.length === 0) {
+      throw new CandidateReadError(
+        'malformed-git-output',
+        'malformed untracked path output: empty path record',
+      );
+    }
+    paths.push(path);
     start = cursor + 1;
   }
   return paths;
 }
 
-function hashManifest(value: unknown): string {
-  return new Bun.CryptoHasher('sha256').update(`${JSON.stringify(value)}\n`).digest('hex');
+type ManifestValue = string | ManifestValue[] | { [key: string]: ManifestValue };
+
+function serializeCanonical(value: ManifestValue): string {
+  if (typeof value === 'string') return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return `[${value.map((element) => serializeCanonical(element)).join(',')}]`;
+  }
+  const fields = Object.entries(value).sort(([left], [right]) =>
+    Buffer.compare(Buffer.from(left), Buffer.from(right)),
+  );
+  return `{${fields
+    .map(([key, field]) => `${JSON.stringify(key)}:${serializeCanonical(field)}`)
+    .join(',')}}`;
+}
+
+function hashManifest(value: ManifestValue): string {
+  // Proof: replacing canonical serialization with insertion-order JSON made the production CLI
+  // emit tracked hash 4db8d6... instead of the pinned da04baf... (expected exact match).
+  return new Bun.CryptoHasher('sha256').update(`${serializeCanonical(value)}\n`).digest('hex');
+}
+
+function hashEntries(entries: CandidateEntry[]): string {
+  return hashManifest(entries.map(({ blob, mode, path }) => ({ blob, mode, path })));
 }
 
 function snapshotWorkingTree(repository: string, indexTree: string): string {
@@ -343,18 +394,16 @@ function readCommitted(repository: string, revision: string): CandidateSnapshot 
 
 function readStaged(repository: string, baseRevision: string): CandidateSnapshot {
   const base = resolveCommit(repository, baseRevision, 'staged base');
-  // Proof: removing this preflight made the absent-index CLI fixture exit 0 with the empty
-  // tree `4b825d...`, entries [], instead of failing as required.
-  assertReadableIndex(repository);
-  const indexTree = writeIndexTree(repository);
+  const index = captureIndex(repository, 'staged');
+  const indexTree = writeCapturedIndexTree(repository, index);
   const entries = readTree(repository, indexTree);
-  const verifiedTree = writeIndexTree(repository);
-  // Proof: removing this comparison made the CLI race fixture exit 0 with the first index tree;
-  // `refuses an index change while the staged candidate is being read` expected exit 1.
-  if (verifiedTree !== indexTree) {
+  // Proof: removing this recapture made the index-removal CLI fixture exit 0 with the captured
+  // tree after `.git/index` disappeared (expected exit 1).
+  const verifiedIndex = captureIndex(repository, 'staged');
+  if (!verifiedIndex.equals(index)) {
     throw new CandidateReadError(
       'index-changed',
-      `Git index changed while selecting staged candidate: ${indexTree} became ${verifiedTree}`,
+      'Git index changed while selecting staged candidate',
     );
   }
   return { selection: { kind: 'staged', base, indexTree }, entries, untracked: [] };
@@ -362,28 +411,33 @@ function readStaged(repository: string, baseRevision: string): CandidateSnapshot
 
 function readWorking(repository: string, baseRevision: string): CandidateSnapshot {
   const base = resolveCommit(repository, baseRevision, 'working base');
-  assertReadableIndex(repository);
-  const indexTree = writeIndexTree(repository);
+  const index = captureIndex(repository, 'working');
+  const indexTree = writeCapturedIndexTree(repository, index);
   const firstTree = snapshotWorkingTree(repository, indexTree);
   const firstUntracked = readUntracked(repository);
   const entries = readTree(repository, firstTree);
   const verifiedTree = snapshotWorkingTree(repository, indexTree);
   const verifiedUntracked = readUntracked(repository);
-  const verifiedIndexTree = writeIndexTree(repository);
+  const verifiedIndex = captureIndex(repository, 'working');
   // Proof: removing this comparison made the working half of the CLI index-race fixture exit 0
   // with the stale tracked snapshot (expected exit 1).
-  if (verifiedIndexTree !== indexTree) {
+  if (!verifiedIndex.equals(index)) {
     throw new CandidateReadError(
       'index-changed',
-      `Git index changed while selecting working candidate: ${indexTree} became ${verifiedIndexTree}`,
+      'Git index changed while selecting working candidate',
     );
   }
   // Proof: removing this comparison made the tracked-working-byte race fixture exit 0 with
   // the first snapshot after the file changed (expected exit 1).
-  if (
-    verifiedTree !== firstTree ||
-    hashManifest(verifiedUntracked) !== hashManifest(firstUntracked)
-  ) {
+  if (verifiedTree !== firstTree) {
+    throw new CandidateReadError(
+      'working-tree-changed',
+      'working tree changed while selecting diagnostic candidate',
+    );
+  }
+  // Proof: removing only this comparison made the untracked-membership race CLI fixture exit 0
+  // with `first-untracked.txt` and `git-wrapper/git`, omitting the later path (expected exit 1).
+  if (hashManifest(verifiedUntracked) !== hashManifest(firstUntracked)) {
     throw new CandidateReadError(
       'working-tree-changed',
       'working tree changed while selecting diagnostic candidate',
@@ -393,7 +447,7 @@ function readWorking(repository: string, baseRevision: string): CandidateSnapsho
     selection: {
       kind: 'working',
       base,
-      trackedSnapshot: hashManifest(entries),
+      trackedSnapshot: hashEntries(entries),
       untrackedSnapshot: hashManifest(firstUntracked),
     },
     entries,
@@ -407,13 +461,15 @@ function readWorking(repository: string, baseRevision: string): CandidateSnapsho
  * @throws {@link CandidateReadError} when required Git state cannot be selected completely.
  */
 export function readCandidate(repository: string, request: CandidateRequest): CandidateSnapshot {
-  assertRepository(repository);
+  const root = resolveWorktreeRoot(repository);
   switch (request.kind) {
     case 'committed':
-      return readCommitted(repository, request.revision);
+      return readCommitted(root, request.revision);
     case 'staged':
-      return readStaged(repository, request.base);
+      return readStaged(root, request.base);
     case 'working':
-      return readWorking(repository, request.base);
+      // Proof: passing the caller's interior directory here left the root tracked blob stale and
+      // returned only `nested-new.txt`; the production CLI expected both root-relative additions.
+      return readWorking(root, request.base);
   }
 }
