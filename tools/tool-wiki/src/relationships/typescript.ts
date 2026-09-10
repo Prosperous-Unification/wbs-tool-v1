@@ -154,7 +154,13 @@ function parseProject(workspace: string, configPath: string): ParsedProject {
       .sort(compareText),
     options: normalizedCompilerValue(options, workspace),
   });
-  return { configPath, configurationIdentity, options, program, declarations: new Map() };
+  return {
+    configPath,
+    configurationIdentity,
+    options,
+    program,
+    declarations: new Map(),
+  };
 }
 
 function importSites(sourceFile: ts.SourceFile): ImportSite[] {
@@ -401,7 +407,17 @@ function declarationDependencies(
   const dependencies = importSites(
     ts.createSourceFile(declaration.emittedPath, declaration.text, ts.ScriptTarget.Latest, true),
   ).map((site) => resolveDependency(workspace, project, sourceFile, site));
-  return dependencies.filter((path) => project.declarations.has(path));
+  const sourceReferences = sourceFile.referencedFiles.map((reference) =>
+    resolveDependency(workspace, project, sourceFile, {
+      specifier: reference.fileName,
+      importKind: 'reference-path',
+    }),
+  );
+  // Proof: omitting carried source references kept the public selector at 1fcc9f4f... when the
+  // referenced global changed; the committed-candidate CLI stale assertion failed.
+  return [...new Set([...dependencies, ...sourceReferences])].filter((path) =>
+    project.declarations.has(path),
+  );
 }
 
 function publicDeclaration(

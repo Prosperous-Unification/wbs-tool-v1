@@ -731,6 +731,64 @@ describe('relationship extraction production CLI', () => {
     );
   }, 20_000);
 
+  test('retains an original TypeScript source path reference in its emitted public closure', () => {
+    const repository = createRepository();
+    const requestPath = writeRequest(repository);
+    write(
+      repository,
+      'packages/provider/src/index.ts',
+      "/// <reference path='./globals.d.ts' />\nimport { implementationOnly } from './implementation-only';\nexport interface SourcePublic { global: GlobalHidden }\nexport default function publicDefault(): string { return implementationOnly; }\nexport { type PublicThing } from './public';\nexport { type Declared } from './shapes';\n",
+    );
+    write(
+      repository,
+      'packages/provider/src/implementation-only.ts',
+      "export const implementationOnly = 'public';\n",
+    );
+    write(
+      repository,
+      'packages/provider/src/shapes.d.ts',
+      "import type { Hidden } from './hidden';\nexport interface Declared { label: string; hidden: Hidden }\n",
+    );
+    const initialRevision = commitAll(repository, 'source references string global');
+    const initial = report(invoke(repository, initialRevision, requestPath));
+
+    write(
+      repository,
+      'packages/provider/src/globals.d.ts',
+      'interface GlobalHidden { code: number }\n',
+    );
+    const changedRevision = commitAll(repository, 'source references number global');
+    const changed = report(invoke(repository, changedRevision, requestPath));
+
+    expect(changed.typescript.publicDeclarations[0].identity).not.toBe(
+      initial.typescript.publicDeclarations[0].identity,
+    );
+    expect(runGit(repository, ['show', `${initialRevision}:packages/provider/src/index.ts`])).toBe(
+      runGit(repository, ['show', `${changedRevision}:packages/provider/src/index.ts`]),
+    );
+    expect(
+      initial.typescript.publicDeclarations[0].declarations.map(({ sourcePath }) => sourcePath),
+    ).toContain('packages/provider/src/globals.d.ts');
+    expect(
+      initial.typescript.publicDeclarations[0].declarations.map(({ sourcePath }) => sourcePath),
+    ).not.toContain('packages/provider/src/implementation-only.ts');
+    expect(
+      initial.typescript.publicDeclarations[0].declarations.map(({ text }) => text).join('\n'),
+    ).toContain('interface GlobalHidden { code: string }');
+
+    write(
+      repository,
+      'packages/provider/src/globals.d.ts',
+      'interface GlobalHidden { code: string }\n',
+    );
+    const restored = report(
+      invoke(repository, commitAll(repository, 'restore source referenced global'), requestPath),
+    );
+    expect(restored.typescript.publicDeclarations[0].identity).toBe(
+      initial.typescript.publicDeclarations[0].identity,
+    );
+  }, 20_000);
+
   test('keys provider topology by exact reverse edges, not unchanged importer bytes', () => {
     const repository = createRepository();
     const requestPath = writeRequest(repository);

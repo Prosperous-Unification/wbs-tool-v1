@@ -507,3 +507,32 @@ socket; no target was skipped. Tasks 2.2/2.3 and their checkboxes remain untouch
 repository/browser gates remain outside this isolated extractor correction. Pinned strict OpenSpec
 1.3.0 validation returned `Change 'agent-scalable-llm-wiki' is valid`; only its optional telemetry
 flush failed DNS after validation.
+
+## Slice 2.1 Fix Round 3
+
+Public closure traversal now pairs each emitted declaration with its original compiler-program
+source and carries that source's compiler-resolved triple-slash path references alongside imports
+found in emitted declaration text. This covers TypeScript 6 dropping a source path directive during
+declaration emit. It does not carry original-source module imports: the fixture's value import used
+only by the function body remains absent from the public closure. Default/external library references
+also remain absent because only targets present in the local declaration map can enter the closure.
+
+The exact committed-candidate fixture puts `/// <reference path='./globals.d.ts' />` on `index.ts`,
+exports an interface using `GlobalHidden`, and removes every other path from the public surface to
+that global. Initial RED was zero passes, one failure and eight assertions: the closure contained
+`hidden.ts`, `index.ts`, `public.ts` and `shapes.d.ts`, but not `globals.d.ts`. First GREEN passed one
+test and 22 assertions; after pinning the implementation-only exclusion, the focused case passed with
+23 assertions.
+
+Removing only the carried original-source references kept the public selector at `1fcc9f4f...` after
+`GlobalHidden.code` changed from string to number. The production stale assertion failed with zero
+passes, one failure and 12 assertions. Restoring the carry-forward returned change/restoration and
+the exact closure checks to green; the adjacent `Proof:` records that observed identity.
+
+The final relationship suite passed 14 tests, zero failures and 299 assertions in 86.37 seconds. The
+uncached Nx lint/source-plus-spec-typecheck/test aggregate passed all 74 tool-wiki tests with zero
+failures and 977 assertions in 148.89 seconds. Nx used its in-process plugin fallback after the
+sandbox denied its socket; no target was skipped. Tasks 2.2/2.3 and all checkboxes remain untouched.
+Full repository/browser gates remain outside this isolated extractor correction. Strict OpenSpec,
+source/spec typecheck, focused lint and exact formatting checks passed. OpenSpec's optional telemetry
+reported DNS failure after validation, without changing its successful exit.
