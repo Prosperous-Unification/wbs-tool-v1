@@ -32,7 +32,7 @@ No `verify.md` exists until implementation produces observations.
       OpenSpec/binary/symlink cases plus declared Gitlink boundaries. Negative: hide source,
       an executable mode, unknown schema or unenveloped prose under evidence and observe
       CLI classification failure; schema-wrapped opaque transcript is the positive control.
-- [ ] 1.4 Implement `evidence/content-manifest.ts` canonical serialization and finite
+- [x] 1.4 Implement `evidence/content-manifest.ts` canonical serialization and finite
       artifact validation. Test `content-manifest.test.ts` and `artifacts.test.ts`: evidence
       bytes change while content manifest stays fixed and validation terminates; source bytes
       change and content identity/currency changes. Negative: include evidence bytes in the

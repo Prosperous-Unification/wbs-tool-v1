@@ -1,7 +1,9 @@
-import { Buffer } from 'node:buffer';
+import type { Buffer } from 'node:buffer';
 import { closeSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
+
+import { hashCanonical } from '../evidence/content-manifest';
 
 const GitObjectIdPattern = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 const GitEntryPattern =
@@ -339,30 +341,6 @@ function readUntracked(repository: string): string[] {
   return paths;
 }
 
-type ManifestValue = CandidateEntry | ManifestValue[] | string;
-
-function serializeCanonical(value: ManifestValue): string {
-  if (typeof value === 'string') return JSON.stringify(value);
-  if (Array.isArray(value)) {
-    return `[${value.map((element) => serializeCanonical(element)).join(',')}]`;
-  }
-  const fields: [keyof CandidateEntry, string][] = [
-    ['path', value.path],
-    ['mode', value.mode],
-    ['blob', value.blob],
-  ];
-  fields.sort(([left], [right]) => Buffer.compare(Buffer.from(left), Buffer.from(right)));
-  return `{${fields
-    .map(([key, field]) => `${JSON.stringify(key)}:${serializeCanonical(field)}`)
-    .join(',')}}`;
-}
-
-function hashManifest(value: ManifestValue): string {
-  // Proof: replacing this with insertion-order JSON while hashing the actual path/mode/blob entry
-  // made the CLI emit 4db8d6... instead of pinned canonical da04baf... (expected exact match).
-  return new Bun.CryptoHasher('sha256').update(`${serializeCanonical(value)}\n`).digest('hex');
-}
-
 function snapshotWorkingTree(repository: string, indexTree: string): string {
   const scratch = mkdtempSync(join(tmpdir(), 'tool-wiki-working-index-'));
   const snapshotIndex = join(scratch, 'index');
@@ -439,7 +417,7 @@ function readWorking(repository: string, baseRevision: string): CandidateSnapsho
   }
   // Proof: removing only this comparison made the untracked-membership race CLI fixture exit 0
   // with `first-untracked.txt` and `git-wrapper/git`, omitting the later path (expected exit 1).
-  if (hashManifest(verifiedUntracked) !== hashManifest(firstUntracked)) {
+  if (hashCanonical(verifiedUntracked) !== hashCanonical(firstUntracked)) {
     throw new CandidateReadError(
       'working-tree-changed',
       'working tree changed while selecting diagnostic candidate',
@@ -449,8 +427,10 @@ function readWorking(repository: string, baseRevision: string): CandidateSnapsho
     selection: {
       kind: 'working',
       base,
-      trackedSnapshot: hashManifest(entries),
-      untrackedSnapshot: hashManifest(firstUntracked),
+      // Proof: replacing canonical hashing with insertion-order JSON made the production CLI emit
+      // 4db8d6... instead of pinned da04baf... for actual path/mode/blob entry order.
+      trackedSnapshot: hashCanonical(entries),
+      untrackedSnapshot: hashCanonical(firstUntracked),
     },
     entries,
     untracked: firstUntracked,

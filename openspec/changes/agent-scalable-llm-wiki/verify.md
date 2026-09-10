@@ -276,3 +276,67 @@ fail on `Expected: 1, Received: 0`; the CLI emitted `src/invalid-utf8.ts` as sou
 guard returned the focused case to one pass and eight assertions. The full classifier passed 14
 tests and 196 assertions. Focused Nx lint, source/spec typecheck and test passed 45 tests and 496
 assertions. Pinned strict OpenSpec validation and exact formatting/diff checks passed.
+
+## Slice 1.4 — finite content manifests and artifact validation
+
+`content-manifest` selects and classifies one explicit candidate, binds the exact classification
+policy bytes, and emits canonical UTF-8 JSON over content tuples/classifications plus protocol,
+relationship-input and extractor identities. Object keys use UTF-8 byte order, identity arrays are
+sorted by their stated ids, semantic arrays retain order, and one terminal newline is hashed with
+SHA-256. Evidence tuples, candidate commit and containing tree are deliberately absent. The same
+canonical serializer now owns the diagnostic working-snapshot identities from slice 1.2.
+
+`validate-artifacts` strictly decodes a separately supplied version-1 graph, compares its paths,
+Git blobs, SHA-256 byte identities and schema kinds with the complete classified evidence set,
+re-reads and decodes every selected artifact, resolves every root/dependency, and refuses unreachable,
+self-referential or cyclic obligations. Its iterative traversal has an explicit node-plus-edge bound;
+the validation identity normalizes unordered root, artifact and dependency arrays. Missing,
+unreadable, malformed and non-UTF-8 graph inputs throw at the JSON boundary without a default.
+
+Initial focused RED:
+
+```text
+bun test --preload ../test/scratch/preload.ts src/evidence/content-manifest.test.ts src/evidence/artifacts.test.ts
+```
+
+Exit 1: zero passed, six failed, one module-load error, 50 assertions. The manifest test could not
+load the absent module; the five artifact cases reached the old CLI usage boundary. First GREEN was
+9 passed, zero failed and 105 assertions. A later canonical graph ordering RED received identities
+`9b5194...` and `30b837...` for the same reordered graph before normalization.
+
+Every fault below ran through the production CLI in a temporary real Git repository and was restored
+before the next. The dependency wrappers changed Git `cat-file` behavior rather than replacing the
+production reader.
+
+| Deliberate fault                                 | Observed production-oracle failure                                                                       |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| include evidence tuples in content digest        | evidence-only edit changed `797015...` to `fa835d...`; expected current identity                         |
+| add each evidence artifact as its own dependency | CLI exited 1 on `evidence cannot require itself: ...second.v1.json`; no timeout                          |
+| remove cycle diagnosis                           | CLI exited 1 at the explicit finite graph bound; expected named cyclic dependency, not a harness timeout |
+| omit selected evidence from graph                | exact-set diagnostic was lost to a later missing-dependency error                                        |
+| remove root reachability refusal                 | CLI exited 0 with `artifactCount: 2`, `visitedCount: 0`                                                  |
+| remove missing-edge boundary                     | diagnostic lost the referring artifact path and named only dependency `999...`                           |
+| remove selected descriptor comparison            | forged blob `888...` exited 0 with two validated artifacts                                               |
+| remove SHA-256 byte comparison                   | substituted artifact identity `777...` exited 0                                                          |
+| remove second-read strict record decode          | changed bytes with `recordKind: unknown` exited 0 with two artifacts                                     |
+| widen schema version                             | artifact graph version 99 exited 0 with two artifacts                                                    |
+| default an absent or malformed graph to `{}`     | production oracle received missing schema fields instead of the required input-path refusal              |
+| decode graph bytes non-fatally                   | byte `0xff` was replaced and misreported as generic malformed JSON                                       |
+| duplicate root/ref guards removed                | duplicate root exited 0; duplicate dependency exited 0 with traversal bound 4                            |
+| duplicate artifact/path guards removed           | failures moved past the malformed graph boundary to byte/unaccounted-evidence diagnostics                |
+| remove policy id or byte binding                 | CLI emitted manifests claiming another policy id or blob `999...`                                        |
+| remove relationship/extractor uniqueness         | differently hashed inputs shared `relationship.z` or `extractor.z` and exited 0                          |
+| accept malformed reviewed identity               | `not-a-content-identity` exited 0 as ordinary stale currency                                             |
+
+An injected unreadable evidence blob made the production boundary exit 1 with `cannot read selected
+blob ... for docs/review-evidence/second.v1.json: injected unreadable artifact`. The graph-file matrix
+also observed distinct absent, mode-000 unreadable, malformed JSON and invalid UTF-8 failures.
+
+Focused verification after all implementation and tests used
+`NX_DAEMON=false bunx nx run-many -t lint typecheck test -p tool-wiki --skip-nx-cache
+--output-style=static`: exit 0, lint and both source/spec TypeScript projects passed, with 58 tests,
+zero failures and 666 assertions. Nx used its in-process fallback after its sandbox socket denial;
+no target was skipped. Pinned strict OpenSpec validation returned
+`Change 'agent-scalable-llm-wiki' is valid` with exit 0; its optional PostHog flush could not reach
+the network after the successful validation. Exact formatting and diff checks run after this final
+documentation edit. Full repository/browser gates remain outside this isolated infrastructure slice.

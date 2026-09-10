@@ -29,7 +29,8 @@ const IsoInstant = type(IsoInstantPattern).narrow((instant, context) => {
     : context.mustBe('a real ISO 8601 UTC instant');
 });
 // Proof: widening this to any positive integer made the production CLI print
-// `valid candidate-entry` for schemaVersion 99 (expected exit 1).
+// `valid candidate-entry` for schemaVersion 99 (expected exit 1), and made artifact graph
+// version 99 exit 0 with artifactCount 2 instead of refusing before traversal.
 const SchemaVersion = type('1');
 const NonNegativeInteger = type('number.integer>=0');
 const PositiveInteger = type('number.integer>=1');
@@ -177,6 +178,81 @@ export const ClassificationPolicy = type({
       : context.mustBe('unique binary and Gitlink declaration paths');
   });
 export type ClassificationPolicy = typeof ClassificationPolicy.infer;
+
+const ContentIdentityInput = type({ inputId: OpaqueId, blob: Sha256 }).onUndeclaredKey('reject');
+const ExtractorIdentity = type({
+  extractorId: OpaqueId,
+  version: OpaqueId,
+  blob: Sha256,
+}).onUndeclaredKey('reject');
+
+export const ContentManifestRequest = type({
+  schemaVersion: SchemaVersion,
+  protocol: type({ protocolId: OpaqueId, blob: Sha256 }).onUndeclaredKey('reject'),
+  classificationPolicy: type({ policyId: OpaqueId, blob: Sha256 }).onUndeclaredKey('reject'),
+  relationshipInputs: ContentIdentityInput.array(),
+  extractors: ExtractorIdentity.array(),
+})
+  .onUndeclaredKey('reject')
+  .narrow((request, context) => {
+    const inputIds = request.relationshipInputs.map((input) => input.inputId);
+    // Proof: removing this guard made the production CLI exit 0 with two differently hashed
+    // relationship inputs both claiming `relationship.z`.
+    if (new Set(inputIds).size !== inputIds.length) {
+      return context.mustBe('relationship inputs with unique inputId values');
+    }
+    const extractorIds = request.extractors.map((extractor) => extractor.extractorId);
+    // Proof: removing this guard made the production CLI exit 0 with two differently hashed
+    // extractors both claiming `extractor.z`.
+    return new Set(extractorIds).size === extractorIds.length
+      ? true
+      : context.mustBe('extractors with unique extractorId values');
+  });
+export type ContentManifestRequest = typeof ContentManifestRequest.infer;
+
+const EvidenceArtifact = type({
+  artifactId: Sha256,
+  path: RelativePath,
+  blob: GitObjectId,
+  recordKind: EvidenceRecordKind,
+  references: Sha256.array(),
+})
+  .onUndeclaredKey('reject')
+  .narrow((artifact, context) =>
+    // Proof: removing this guard made the production CLI accept the same dependency twice and
+    // exit 0 with traversalBound 4, so duplicate obligations were not a canonical finite graph.
+    new Set(artifact.references).size === artifact.references.length
+      ? true
+      : context.mustBe('artifact references with unique identities'),
+  );
+
+export const ArtifactGraph = type({
+  schemaVersion: SchemaVersion,
+  validationId: OpaqueId,
+  roots: Sha256.array(),
+  artifacts: EvidenceArtifact.array(),
+})
+  .onUndeclaredKey('reject')
+  .narrow((graph, context) => {
+    // Proof: removing this guard made the production CLI accept one root identity twice and exit
+    // 0 with artifactCount 2 instead of rejecting the ambiguous external boundary.
+    if (new Set(graph.roots).size !== graph.roots.length) {
+      return context.mustBe('unique artifact root identities');
+    }
+    const identities = graph.artifacts.map((artifact) => artifact.artifactId);
+    // Proof: removing this guard let duplicate identities reach byte validation and lose the
+    // graph-boundary diagnosis, reporting the second artifact as a byte mismatch instead.
+    if (new Set(identities).size !== identities.length) {
+      return context.mustBe('artifacts with unique identities');
+    }
+    const paths = graph.artifacts.map((artifact) => artifact.path);
+    // Proof: removing this guard let a duplicated path hide the second selected artifact, and the
+    // production CLI failed later on `candidate evidence absent` instead of the malformed graph.
+    return new Set(paths).size === paths.length
+      ? true
+      : context.mustBe('artifacts with unique paths');
+  });
+export type ArtifactGraph = typeof ArtifactGraph.infer;
 
 const InventoryEntry = type({
   path: RelativePath,

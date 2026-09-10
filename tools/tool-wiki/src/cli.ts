@@ -3,13 +3,52 @@ import { readFileSync } from 'node:fs';
 import { parseOrThrow } from '@wbs/validation';
 
 import { decodeRecord, RecordKind } from './contracts/decode-record';
-import { ClassificationPolicy } from './contracts/records';
-import { classifyEntries } from './inventory/classify-entries';
+import { ArtifactGraph, ClassificationPolicy, ContentManifestRequest } from './contracts/records';
+import {
+  buildContentManifest,
+  compareContentIdentity,
+  hashBytes,
+  validateArtifacts,
+} from './evidence/content-manifest';
+import { type ClassifiedCandidate, classifyEntries } from './inventory/classify-entries';
 import { type CandidateRequest, readCandidate } from './inventory/read-candidate';
 
+interface JsonDocument {
+  bytes: Uint8Array;
+  input: unknown;
+}
+
+function readJsonDocument(path: string): JsonDocument {
+  let bytes: Uint8Array;
+  try {
+    bytes = readFileSync(path);
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    // Proof: substituting `{}` for an absent required graph lost this boundary and failed later
+    // with four missing schema fields instead of naming the unreadable input path.
+    throw new Error(`cannot read JSON input ${path}: ${detail}`, { cause });
+  }
+  let source: string;
+  try {
+    // Proof: removing fatal UTF-8 decoding made the production graph boundary replace 0xff and
+    // misreport it as generic malformed JSON instead of refusing the byte encoding itself.
+    source = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    throw new Error(`JSON input ${path} is not UTF-8: ${detail}`, { cause });
+  }
+  try {
+    return { bytes, input: JSON.parse(source) as unknown };
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    // Proof: substituting `{}` for malformed graph JSON lost the parse boundary and reported four
+    // absent schema fields; the production oracle required the malformed input path instead.
+    throw new Error(`malformed JSON input ${path}: ${detail}`, { cause });
+  }
+}
+
 function readJson(path: string): unknown {
-  const source = readFileSync(path, 'utf8');
-  return JSON.parse(source) as unknown;
+  return readJsonDocument(path).input;
 }
 
 function validateRecord(argv: string[]): void {
@@ -38,6 +77,8 @@ function readBlob(repository: string, blob: string, path: string): Uint8Array {
     stdout: 'pipe',
   });
   if (invocation.exitCode !== 0) {
+    // Proof: an injected exit 23 made artifact validation refuse
+    // `docs/review-evidence/second.v1.json: injected unreadable artifact` at this boundary.
     const detail = invocation.stderr.toString('utf8').trim();
     throw new Error(
       `cannot read selected blob ${blob} for ${path}: ${detail.length === 0 ? `git exited ${String(invocation.exitCode)}` : detail}`,
@@ -72,6 +113,57 @@ function classifyCandidate(argv: string[]): void {
   );
 }
 
+function classifySelectedCandidate(
+  kind: string,
+  repository: string,
+  revision: string,
+  policyPath: string,
+): { candidate: ClassifiedCandidate; policyBlob: string } {
+  if (kind !== 'committed' && kind !== 'staged' && kind !== 'working') {
+    throw new Error('candidate kind must be committed, staged or working');
+  }
+  const policyDocument = readJsonDocument(policyPath);
+  const policy = parseOrThrow(ClassificationPolicy, policyDocument.input);
+  const request: CandidateRequest =
+    kind === 'committed' ? { kind, revision } : { kind, base: revision };
+  const snapshot = readCandidate(repository, request);
+  return {
+    candidate: {
+      selection: snapshot.selection,
+      entries: classifyEntries(snapshot.entries, policy, (blob, path) =>
+        readBlob(repository, blob, path),
+      ),
+      untracked: snapshot.untracked,
+      policyId: policy.policyId,
+    },
+    policyBlob: hashBytes(policyDocument.bytes),
+  };
+}
+
+function writeContentManifest(argv: string[]): void {
+  const [kind, repository, revision, policyPath, requestPath, reviewedIdentity] = argv.slice(1);
+  const request = parseOrThrow(ContentManifestRequest, readJson(requestPath));
+  const classified = classifySelectedCandidate(kind, repository, revision, policyPath);
+  const built = buildContentManifest(classified.candidate, request, classified.policyBlob);
+  process.stdout.write(
+    `${JSON.stringify({
+      identity: built.identity,
+      currency: compareContentIdentity(reviewedIdentity, built.identity),
+      manifest: built.manifest,
+    })}\n`,
+  );
+}
+
+function writeArtifactValidation(argv: string[]): void {
+  const [kind, repository, revision, policyPath, graphPath] = argv.slice(1);
+  const graph = parseOrThrow(ArtifactGraph, readJson(graphPath));
+  const classified = classifySelectedCandidate(kind, repository, revision, policyPath);
+  const report = validateArtifacts(classified.candidate, graph, (blob, path) =>
+    readBlob(repository, blob, path),
+  );
+  process.stdout.write(`${JSON.stringify(report)}\n`);
+}
+
 function run(argv: string[]): void {
   if (argv.length === 3 && argv[0] === 'validate') {
     validateRecord(argv);
@@ -85,8 +177,16 @@ function run(argv: string[]): void {
     classifyCandidate(argv);
     return;
   }
+  if ((argv.length === 6 || argv.length === 7) && argv[0] === 'content-manifest') {
+    writeContentManifest(argv);
+    return;
+  }
+  if (argv.length === 6 && argv[0] === 'validate-artifacts') {
+    writeArtifactValidation(argv);
+    return;
+  }
   throw new Error(
-    'usage: tool-wiki <validate <record-kind> <json-path>|read-candidate <committed|staged|working> <repository> <revision-or-base>|classify-candidate <committed|staged|working> <repository> <revision-or-base> <policy-json>>',
+    'usage: tool-wiki <validate|read-candidate|classify-candidate|content-manifest|validate-artifacts> ...',
   );
 }
 
