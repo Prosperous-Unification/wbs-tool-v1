@@ -18,7 +18,7 @@ No `verify.md` exists until implementation produces observations.
       deliberate errors in both source and a test must fail
       `bunx nx typecheck tool-wiki --skip-nx-cache`.
       Do not clean root docs before baseline identities are retained.
-- [ ] 1.2 Implement `inventory/read-candidate.ts` with immutable committed/staged selection
+- [x] 1.2 Implement `inventory/read-candidate.ts` with immutable committed/staged selection
       and explicit diagnostic working mode, using `git ls-tree -r -z`/index-tree snapshots.
       Test `inventory/read-candidate.test.ts` through `cli.test.ts` in temporary Git repos:
       additions, deletion, rename sides, modes, symlink blobs, new untracked files and index

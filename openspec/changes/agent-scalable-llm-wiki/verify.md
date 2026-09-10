@@ -71,3 +71,48 @@ Receipt elapsed time now means exactly `Date.parse(endedAt) - Date.parse(started
 milliseconds, with real canonical UTC instants required. Invocation intervals require nondecreasing
 end time. Completed invocation receipts require at least one raw usage entry; failed/censored
 statuses remain distinct, and aggregation remains task 7.1.
+
+## Slice 1.2 — candidate inventory reader
+
+`read-candidate` now requires an explicit committed, staged or working selection and a repository
+path. Committed mode resolves an immutable commit/tree before `git ls-tree -r -z`. Staged mode
+freezes the index with `git write-tree`, inventories that tree and refuses if a second tree differs.
+Working mode is explicitly diagnostic: two temporary-index snapshots freeze tracked working bytes,
+untracked paths remain a separate sorted set, and either index or working-tree movement refuses the
+selection. Exact path/mode/blob tuples retain executable modes and symlink blobs without following
+links.
+
+Initial RED on
+`NX_DAEMON=false bunx nx test tool-wiki --skip-nx-cache --output-style=static` was exit 1: the
+existing 16 tests passed, the seven new CLI cases failed against the old `validate`-only usage, and
+`inventory/read-candidate.test.ts` could not load the absent module. First GREEN was 23 pass, zero
+fail, 202 assertions. After extending both race modes and malformed Git-output coverage, the final
+focused Nx run is recorded in the task report.
+
+All mutations below ran through `src/cli.test.ts`, which spawns the production CLI against temporary
+real Git repositories. Each fault was restored before the next.
+
+| Deliberate fault                                         | Observed production-oracle failure                                        |
+| -------------------------------------------------------- | ------------------------------------------------------------------------- |
+| omit the staged addition                                 | complete tuple/selection mismatch; `added.txt` absent                     |
+| drop another selected path                               | complete tuple/selection mismatch; `link` absent                          |
+| substitute `deleted.txt` for `link` at equal count       | one-path complete tuple mismatch                                          |
+| inventory the base tree instead of the staged index tree | addition/deletion, both rename sides and executable mode all mismatched   |
+| remove staged index recheck                              | race CLI exited 0; expected 1                                             |
+| remove working index recheck                             | working race CLI exited 0 with stale tracked snapshot; expected 1         |
+| remove double working-tree snapshot comparison           | tracked-byte race CLI exited 0; expected 1                                |
+| remove required-index preflight                          | absent index became Git's empty tree with `entries: []`; expected refusal |
+| classify EACCES as malformed                             | exact unreadable diagnostic was absent                                    |
+| substitute Git's empty tree on malformed index           | CLI exited 0 with `entries: []`; expected 1                               |
+| replace ls-tree failure/parsing with `return []`         | failed ls-tree CLI exited 0 with `entries: []`; expected 1                |
+
+The malformed-output fixture also broke the Git dependency with an exit 17, missing NUL terminator,
+missing path separator, invalid header and mode/type conflict; every case exited 1 at its named
+boundary. No tuple-count minimum or zero-entry error fallback is used: a legitimately empty selected
+tree is distinct from failed required state.
+
+Final focused verification was
+`NX_DAEMON=false bunx nx run-many -t lint typecheck test -p tool-wiki --skip-nx-cache --output-style=static`:
+exit 0, lint plus source/spec typecheck passed, and 25 tests passed with zero failures and 238
+assertions. `openspec validate agent-scalable-llm-wiki --strict` was unavailable (`openspec: command
+not found`) and is not represented as passing.
