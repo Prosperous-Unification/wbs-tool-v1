@@ -225,6 +225,25 @@ describe('finite evidence artifact validation production CLI', () => {
     );
   });
 
+  test('rejects artifacts outside the finite roots', () => {
+    const fixture = committedEvidence();
+    const unreachable = structuredClone(graph(fixture.first, fixture.second)) as {
+      roots: string[];
+    };
+    unreachable.roots = [];
+
+    const invocation = runArtifacts(
+      fixture.repository,
+      fixture.revision,
+      writeGraph(fixture.repository, unreachable),
+    );
+
+    expect(invocation.exitCode, output(invocation)).toBe(1);
+    expect(output(invocation)).toContain(
+      `unreachable artifact outside finite roots: ${fixture.first.path}`,
+    );
+  });
+
   test('rejects missing dependency identities, self obligations and cycles without timing out', () => {
     const fixture = committedEvidence();
     const missingReference = structuredClone(graph(fixture.first, fixture.second)) as {

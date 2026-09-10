@@ -350,8 +350,9 @@ only the unreachable-artifact guard. Its replacement keeps the valid `first -> s
 and adds a third, separately rooted artifact whose path is absent from the selected candidate. All
 three nodes are reachable. Replacing only the graph-to-candidate refusal with `continue` made the
 production CLI exit 0 with `artifactCount: 3`, `visitedCount: 3` and `traversalBound: 4`; restoring it
-returned the exact absent-candidate-evidence diagnostic. The existing empty-root mutation remains
-the independent reachability proof.
+returned the exact absent-candidate-evidence diagnostic. The original empty-root mutation had
+demonstrated the independent reachability failure, but the replacement no longer retained that
+regression; Fix Round 2 restores it separately.
 
 The canonical serializer RED used two objects with reversed `\ud800`/`\ud801` insertion order.
 Their distinct keys encode to the same UTF-8 replacement bytes, so byte comparison alone retained
@@ -362,3 +363,16 @@ preserving the keys as finite JSON strings.
 Record-embedded artifact-edge reconciliation remains deferred to task 3.1 and no task 2.1 behavior
 was added. Focused Nx lint, source/spec typecheck and tests passed 59 tests with zero failures and 668
 assertions before the final documentation checks.
+
+## Slice 1.4 Fix Round 2
+
+A separate production CLI regression now supplies the valid selected `first -> second` graph with
+`roots: []`, independently of the unchanged extraneous-candidate case. The intact guard passed the
+focused case with 10 assertions. Removing only the unreachable-artifact refusal made the CLI exit 0
+with `artifactCount: 2`, `visitedCount: 0` and `traversalBound: 3`; the oracle failed at `Expected: 1,
+Received: 0` with zero tests passed, one failed and nine assertions. Restoring the guard made all nine
+artifact tests pass with 126 assertions.
+
+There is no runtime source change in this round. Focused Nx lint, source/spec typecheck and tests
+passed 60 tests with zero failures and 678 assertions before the final documentation checks. No task
+2.1 behavior or checkbox changed.

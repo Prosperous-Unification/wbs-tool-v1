@@ -115,3 +115,18 @@ Record-embedded artifact-edge reconciliation remains explicitly deferred to task
 work; this fix neither infers those edges nor begins relationship task 2.1. The focused Nx lint,
 source/spec typecheck and test gate passed 59 tests with zero failures and 668 assertions before the
 final documentation checks.
+
+## Fix Round 2
+
+Fix Round 1 correctly replaced the mislabeled extraneous fixture, but that replacement also removed
+the production regression that had exercised finite-root reachability. A separate test now keeps the
+two valid selected artifacts and their `first -> second` edge while supplying no roots. With the
+guard present, the focused CLI case passed with 10 assertions. Removing only the unreachable-artifact
+refusal made the CLI exit 0 with `artifactCount: 2`, `visitedCount: 0` and `traversalBound: 3`; the
+exit-code oracle failed with zero tests passed, one failed and nine assertions. Restoring the guard
+made all nine artifact tests pass with 126 assertions.
+
+The Fix Round 1 extraneous-candidate case remains unchanged and separately proves exact graph-to-
+candidate membership with every graph node reachable. No runtime source changed in this round. The
+focused Nx lint, source/spec typecheck and test gate passed 60 tests with zero failures and 678
+assertions before the final documentation checks.
