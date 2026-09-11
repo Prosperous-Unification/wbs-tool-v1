@@ -608,6 +608,66 @@ exec "$real_bun" "$@"
     expect(output.argv.slice(0, 2)).toEqual(['lint-ci', 'committed']);
   });
 
+  test('validator compilation reads a dependency only from its captured reviewed bytes', () => {
+    const paths = fixture();
+    const dependency = join(dirname(paths.cliPath), 'dependency.ts');
+    const marker = join(paths.directory, 'during-build-dependency-ran');
+    const reviewedSource = 'export const reviewed = true;\n';
+    const unreviewedSource = `await Bun.write(${JSON.stringify(marker)}, 'ran\\n');\nexport const reviewed = false;\n`;
+    write(dependency, reviewedSource);
+    write(
+      paths.cliPath,
+      `import './dependency';\nprocess.stdout.write(JSON.stringify({ argv: process.argv.slice(2) }));\n`,
+    );
+    write(
+      paths.bindingPath,
+      `${JSON.stringify({
+        validator: {
+          artifacts: [paths.cliPath, dependency].map((path) => ({
+            path,
+            sha256: sha256(readFileSync(path)),
+          })),
+        },
+      })}\n`,
+    );
+    const raceSnapshotter = join(paths.directory, 'snapshotter', 'during-build-race.ts');
+    const productionSnapshotter = join(
+      workspace,
+      'tools',
+      'tool-wiki',
+      'src',
+      'policy',
+      'snapshot-validator.ts',
+    );
+    write(
+      raceSnapshotter,
+      `import { readFileSync, writeFileSync } from 'node:fs';
+const originalBuild = Bun.build;
+const reviewedBytes = readFileSync(${JSON.stringify(dependency)});
+Bun.build = async (configuration) => {
+  writeFileSync(${JSON.stringify(dependency)}, ${JSON.stringify(unreviewedSource)}, 'utf8');
+  try {
+    return await originalBuild(configuration);
+  } finally {
+    writeFileSync(${JSON.stringify(dependency)}, reviewedBytes);
+  }
+};
+await import(${JSON.stringify(productionSnapshotter)});
+`,
+    );
+    write(join(paths.activationRoot, 'snapshotter-path'), `${raceSnapshotter}\n`);
+
+    const invocation = runAdapter('committed', paths);
+
+    expect(invocation.exitCode, streamText(invocation.stderr, 'adapter stderr')).toBe(0);
+    expect(readFileSync(dependency, 'utf8')).toBe(reviewedSource);
+    expect(existsSync(marker)).toBe(false);
+    const output = JSON.parse(streamText(invocation.stdout, 'adapter stdout')) as {
+      argv: string[];
+    };
+    expect(output.argv.slice(0, 2)).toEqual(['lint-ci', 'committed']);
+  });
+
   test('the snapshot refuses a binding that omits an executed validator dependency', () => {
     const paths = fixture();
     const marker = join(paths.directory, 'omitted-dependency-ran');

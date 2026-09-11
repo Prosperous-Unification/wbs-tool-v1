@@ -11,6 +11,20 @@ interface ResolvedArtifact extends ArtifactReference {
   referencePath: string;
 }
 
+interface CapturedArtifact extends ResolvedArtifact {
+  bytes: Uint8Array;
+}
+
+interface ResolvedImport {
+  path: string;
+  isExternal: boolean;
+}
+
+interface ValidatorClosure {
+  imports: ReadonlyMap<string, ResolvedImport>;
+  paths: string[];
+}
+
 function fail(message: string): never {
   throw new Error(`tool-wiki snapshot: ${message}`);
 }
@@ -51,10 +65,10 @@ function artifactReferences(bindingPath: string): ResolvedArtifact[] {
   });
 }
 
-function validateArtifacts(
+function captureArtifacts(
   references: readonly ResolvedArtifact[],
   candidateRoot: string,
-): ResolvedArtifact[] {
+): CapturedArtifact[] {
   const seen = new Set<string>();
   return references.map((reference) => {
     const status = lstatSync(reference.path);
@@ -66,39 +80,109 @@ function validateArtifacts(
     if (isWithin(candidateRoot, path)) fail(`artifact resolves inside candidate: ${path}`);
     if (seen.has(path)) fail(`duplicate artifact path: ${path}`);
     seen.add(path);
-    if (sha256(readFileSync(path)) !== reference.sha256) fail(`artifact digest mismatch: ${path}`);
-    return { referencePath: reference.referencePath, path, sha256: reference.sha256 };
+    const bytes = readFileSync(path);
+    if (sha256(bytes) !== reference.sha256) fail(`artifact digest mismatch: ${path}`);
+    return { referencePath: reference.referencePath, path, sha256: reference.sha256, bytes };
   });
 }
 
-function resolveClosure(entryPath: string): string[] {
+function sourceLoader(path: string): 'js' | 'ts' {
+  return path.endsWith('.ts') ? 'ts' : 'js';
+}
+
+function importIdentity(importer: string, specifier: string): string {
+  return JSON.stringify([importer, specifier]);
+}
+
+function resolveClosure(
+  entryPath: string,
+  artifacts: readonly CapturedArtifact[],
+): ValidatorClosure {
+  const artifactsByPath = new Map(artifacts.map((artifact) => [artifact.path, artifact]));
   const pending = [entryPath];
   const visited = new Set<string>();
+  const reachable = new Set<string>(pending);
+  const imports = new Map<string, ResolvedImport>();
   while (pending.length > 0) {
     const path = pending.pop();
     if (path === undefined || visited.has(path)) continue;
-    const status = lstatSync(path);
-    if (status.isSymbolicLink() || !status.isFile())
-      fail(`validator dependency is not a regular file: ${path}`);
     visited.add(path);
-    const source = readFileSync(path, 'utf8');
-    const loader = path.endsWith('.ts') ? 'ts' : 'js';
-    for (const { path: specifier } of new Bun.Transpiler({ loader }).scanImports(source)) {
-      if (specifier.startsWith('node:') || specifier.startsWith('bun:')) continue;
-      let dependency: string;
+    const artifact = artifactsByPath.get(path);
+    if (artifact === undefined) continue;
+    for (const { path: specifier } of new Bun.Transpiler({
+      loader: sourceLoader(path),
+    }).scanImports(artifact.bytes)) {
+      let resolvedImport: string;
       try {
         const resolvedDependency = Bun.resolveSync(specifier, dirname(path));
-        if (resolvedDependency.startsWith('node:') || resolvedDependency.startsWith('bun:'))
+        if (resolvedDependency.startsWith('node:') || resolvedDependency.startsWith('bun:')) {
+          imports.set(importIdentity(path, specifier), {
+            path: resolvedDependency,
+            isExternal: true,
+          });
           continue;
-        dependency = realpathSync(resolvedDependency);
+        }
+        resolvedImport = realpathSync(resolvedDependency);
       } catch (cause) {
         const detail = cause instanceof Error ? cause.message : String(cause);
         fail(`cannot resolve validator dependency ${specifier} from ${path}: ${detail}`);
       }
-      pending.push(dependency);
+      imports.set(importIdentity(path, specifier), { path: resolvedImport, isExternal: false });
+      if (!reachable.has(resolvedImport)) {
+        reachable.add(resolvedImport);
+        pending.push(resolvedImport);
+      }
     }
   }
-  return [...visited].sort();
+  return { imports, paths: [...reachable].sort() };
+}
+
+async function buildValidator(
+  cliPath: string,
+  artifacts: readonly CapturedArtifact[],
+  imports: ReadonlyMap<string, ResolvedImport>,
+): Promise<Bun.BuildOutput> {
+  const artifactsByPath = new Map(artifacts.map((artifact) => [artifact.path, artifact]));
+  const entrySpecifier = 'tool-wiki-captured-validator-entry';
+  const namespace = 'tool-wiki-captured-validator';
+  return Bun.build({
+    entrypoints: [entrySpecifier],
+    target: 'bun',
+    format: 'esm',
+    plugins: [
+      {
+        name: namespace,
+        setup(builder) {
+          builder.onResolve({ filter: /[\s\S]*/ }, ({ path: specifier, importer, kind }) => {
+            if (kind === 'entry-point-build' && importer === '' && specifier === entrySpecifier) {
+              return { path: cliPath, namespace };
+            }
+            const resolvedImport = imports.get(importIdentity(importer, specifier));
+            if (resolvedImport === undefined) {
+              fail(
+                `bundle requested dependency outside captured closure: ${specifier} from ${importer}`,
+              );
+            }
+            return resolvedImport.isExternal
+              ? { path: resolvedImport.path, external: true }
+              : { path: resolvedImport.path, namespace };
+          });
+          builder.onLoad({ filter: /[\s\S]*/, namespace }, ({ path }) => {
+            const artifact = artifactsByPath.get(path);
+            if (artifact === undefined) fail(`bundle requested uncaptured artifact: ${path}`);
+            // Proof: gate-entrypoints.test.ts swaps dependency bytes only while Bun.build runs;
+            // the original-path build executed them (`Expected: false / Received: true`).
+            return { contents: artifact.bytes, loader: sourceLoader(path) };
+          });
+        },
+      },
+    ],
+    define: {
+      __TOOL_WIKI_BUNDLED_ARTIFACTS__: JSON.stringify(
+        JSON.stringify(artifacts.map(({ referencePath: path, sha256 }) => ({ path, sha256 }))),
+      ),
+    },
+  });
 }
 
 const [bindingInput, cliInput, candidateInput, outputPath] = process.argv.slice(2);
@@ -106,32 +190,17 @@ if (process.argv.length !== 6) fail('usage: snapshot <binding> <cli> <candidate>
 const bindingPath = realpathSync(bindingInput);
 const cliPath = realpathSync(cliInput);
 const candidateRoot = realpathSync(candidateInput);
-const artifacts = validateArtifacts(artifactReferences(bindingPath), candidateRoot);
+const artifacts = captureArtifacts(artifactReferences(bindingPath), candidateRoot);
 if (!artifacts.some(({ path }) => path === cliPath))
   fail('validator CLI is absent from binding artifacts');
-const closure = resolveClosure(cliPath);
+const closure = resolveClosure(cliPath, artifacts);
 const reviewedPaths = artifacts.map(({ path }) => path).sort();
-if (JSON.stringify(closure) !== JSON.stringify(reviewedPaths)) {
+if (JSON.stringify(closure.paths) !== JSON.stringify(reviewedPaths)) {
   // Proof: gate-entrypoints.test.ts omits an imported validator dependency from the binding and
   // observes this production snapshot command refuse before the dependency can execute.
   fail('binding artifacts do not match the complete validator closure');
 }
 
-const built = await Bun.build({
-  entrypoints: [cliPath],
-  target: 'bun',
-  format: 'esm',
-  define: {
-    __TOOL_WIKI_BUNDLED_ARTIFACTS__: JSON.stringify(
-      JSON.stringify(artifacts.map(({ referencePath: path, sha256 }) => ({ path, sha256 }))),
-    ),
-  },
-});
+const built = await buildValidator(cliPath, artifacts, closure.imports);
 if (!built.success || built.outputs.length !== 1) fail('validator bundle failed');
-
-// Re-read every reviewed input after bundling: a mutation during the build invalidates the
-// snapshot rather than letting the bundle combine bytes from two identities.
-// Proof: gate-entrypoints.test.ts swaps the original after this command returns; the already
-// written bundle retains the reviewed behavior and never executes the candidate replacement.
-validateArtifacts(artifacts, candidateRoot);
 await Bun.write(outputPath, built.outputs[0]);

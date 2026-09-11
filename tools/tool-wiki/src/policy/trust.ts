@@ -1692,7 +1692,10 @@ export function writeCiLintCommand(
 }
 
 /** Validates a new binding against exact historical and currently executable identities. */
-export function writePolicyActivationCommand(argv: string[], runtimeEntryPaths: string[]): void {
+export function writePolicyActivationCommand(
+  argv: string[],
+  runtimeEntryPaths: readonly string[] | BundledArtifactManifest,
+): void {
   const [, repository, previousBindingPath, nextBindingPath] = argv;
   const previous = loadTrustedPolicy(previousBindingPath, repository);
   const next = loadTrustedPolicy(nextBindingPath, repository, runtimeEntryPaths);
