@@ -1604,6 +1604,66 @@ validate agent-scalable-llm-wiki --strict` — exit 0; change valid.
 
 Task 3.4 remains complete. Task 3.5 and every later task remain untouched.
 
+## Slice 2.5 Root Knowledge Migration
+
+The versioned root map pins each source section to revision
+`7ab67cb0b6d843eca87f587124c0f3c0fbd35e67`, its exact Git blob, a stable source ID, a
+heading-or-paragraph locator and a SHA-256 payload identity. Its three source sections contain 58
+mapped blocks. The production checker resolves those historical bytes independently of the
+candidate, requires every historical block exactly once at a live exact destination, rejects
+orphan and duplicate mappings, validates path case and anchors, refuses symlink ambiguity, and
+enforces the specified 120-line AGENTS and 150-line LLM_README caps.
+
+Current findings now live under `docs/findings/`. The entire R5 catalogue moved to
+`checks-that-cannot-fail.md`; stable R5-01 through R5-27 references route to anchored, byte-identical
+historical paragraphs. AGENTS retains the operative R5 rules and gate obligations and links the
+catalogue. LLM_README remains an orientation/gate/router index and links the findings owner without
+duplicating mutable findings. No applied SQL, frozen archive, or OpenSpec history was moved.
+
+The first focused TDD run had 0 passes and 6 failures because the production
+`check-root-migration` CLI did not exist. After implementation and expanded fail-closed coverage,
+the focused suite passed 14 tests with 473 assertions. The first uncached whole Tool Wiki run passed
+306 of 308 tests: adding the non-pilot findings index exposed two pilot-test assumptions that every
+repository index belonged to the six-module pilot. The policy already declares
+`selected-boundaries-only`; scoping exact pilot mapping validation to matching pilot boundaries and
+updating the deterministic whole-tree oracle made the focused three-case integration run pass with
+52 assertions and the final full rerun pass all 308 tests.
+
+| Deliberate one-at-a-time fault                                                    | Observed production-path refusal                                                                 |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| delete mapped catalogue                                                           | `mapped destination absent: docs/findings/checks-that-cannot-fail.md`                            |
+| inject exactly 121 AGENTS lines                                                   | `AGENTS.md exceeds 120 lines: 121`                                                               |
+| inject exactly 151 LLM_README lines                                               | `LLM_README.md exceeds 150 lines: 151`                                                           |
+| select version 2 or malformed JSON                                                | `root migration schema invalid` / `root migration JSON malformed`                                |
+| use `../escape.md` or a selected symlink destination                              | `root migration path escapes candidate` / `mapped destination is not a regular selected blob`    |
+| substitute the pinned revision, blob, non-UTF-8 bytes, heading, ordinal or digest | the corresponding historical-source identity, decode, locator or digest refusal named the source |
+| duplicate a source entry, source ID, locator or destination                       | the corresponding `duplicate root ...` refusal named the repeated identity                       |
+| remove or duplicate an anchor, mapping or exact preserved payload                 | the anchor count, incomplete map or payload count refusal named the destination                  |
+| alter Markdown path case, remove a path, or remove/duplicate its anchor           | the exact Markdown path/anchor refusal named the referring document                              |
+| restore migrated catalogue/findings headings at either root                       | the root-specific retained-content refusal named AGENTS or LLM_README                            |
+
+Every fault above ran through the production CLI, was observed separately, and was restored. Exact
+adjacent `Proof:` comments record the observed failure at each new safety guard.
+
+- `bun test --preload ../test/scratch/preload.ts src/indexes/root-migration.test.ts` from
+  `tools/tool-wiki` — exit 0; 14 pass, 0 fail, 473 assertions.
+- `bun tools/tool-wiki/src/cli.ts check-root-migration committed . HEAD
+docs/findings/root-migration.v1.json` — exit 0; 3 sources, 58 blocks, AGENTS cap 120 and
+  LLM_README cap 150. Current files contain 88 and 112 lines respectively.
+- `bun tools/tool-wiki/src/cli.ts check-indexes committed . HEAD` — exit 0; the new
+  `module.docs.findings` index has three members, exact consumers and no review debt.
+- `NX_DAEMON=false bunx nx run-many -t lint typecheck -p tool-wiki --skip-nx-cache
+--output-style=static` — exit 0; both targets succeeded, cache skipped and no target skipped.
+- `NX_DAEMON=false bunx nx reset && NX_DAEMON=false bunx nx run tool-wiki:test
+--skip-nx-cache` — exit 0; 308 pass, 0 fail, 4,323 assertions across 16 files in 594.15 seconds
+  (9m54s Nx duration), cache skipped and no target skipped.
+- `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate
+agent-scalable-llm-wiki --strict --json` — exit 0; one change passed, zero failed.
+- `bin/h2puni-gate.sh HEAD` — unavailable, exit 70 immediately because required heavy-lock path
+  `/home/puni1/.cache` does not exist; no host-gate step ran and the host gate is not green.
+
+Task 2.5 is complete. No other task checkbox changed.
+
 ## Slice 2.4 Astra Fix Round 2
 
 Five production `lint-local observe` negatives now cover the external pilot module-mapping loader

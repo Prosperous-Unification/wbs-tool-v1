@@ -68,7 +68,7 @@ No `verify.md` exists until implementation produces observations.
       correct pilot knowledge in its proper owner. Test: membership, external-consumer
       declaration and applicable-check references pass `tool-wiki:lint` in observe mode;
       remove an index membership and watch it fail. Label pilot coverage explicitly.
-- [ ] 2.5 Record the complete root source-to-destination map, then move current findings
+- [x] 2.5 Record the complete root source-to-destination map, then move current findings
       into `docs/findings/` and the R5 catalogue into `checks-that-cannot-fail.md`, preserving
       stable incident ids and observed proof text. Keep rules and gate obligations in AGENTS;
       keep orientation/gate/router in LLM_README. Test `root-migration.test.ts` asserts all
