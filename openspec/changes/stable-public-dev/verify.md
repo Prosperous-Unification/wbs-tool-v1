@@ -19,9 +19,11 @@
 | `e84f315d` | `docker compose -f deploy/dev-src/compose.yml config -q` on h2puni      | green                                                            |
 | `e84f315d` | `bunx @fission-ai/openspec validate stable-public-dev --json` on h2puni | 1 passed, 0 failed                                               |
 | `c29ec89c` | focused `vite-config.test.ts` on h2puni                                 | 17 passed                                                        |
+| `b43d55e7` | `bin/h2puni-gate.sh b43d55e7…` on h2puni                                | 101/101 matrix targets green; solver image smoke 3/3             |
 
 Both exact-head runs used a fresh h2puni dependency tree whose 78 root declarations resolved with
-`BAD_COUNT=0`. No build or autotest ran on h1claw.
+`BAD_COUNT=0`; the same `78/0` check passed again after the full gate. No build or autotest ran on
+h1claw.
 
 ## Failure-proof table
 
