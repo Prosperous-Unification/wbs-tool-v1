@@ -65,6 +65,19 @@ beforeEach(() => {
 // container behind Caddy, so a localhost bind or a rejected Host header makes
 // the dev site fail in a way that looks like a proxy misconfiguration.
 describe('vite dev server config', () => {
+  it('does not expose HMR on the public dev site', () => {
+    process.env['WBS_PUBLIC_DEV'] = 'true';
+    try {
+      expect(serveConfig({ VITE_BE_URL: BE_URL, VITE_GW_URL: GW_URL }).server?.hmr).toBe(false);
+    } finally {
+      delete process.env['WBS_PUBLIC_DEV'];
+    }
+  });
+
+  it('keeps HMR for a developer and the isolated browser gate', () => {
+    expect(serveConfig({ VITE_BE_URL: BE_URL, VITE_GW_URL: GW_URL }).server?.hmr).toBeUndefined();
+  });
+
   it('binds all interfaces so a reverse proxy outside the container can reach it', () => {
     expect(serveConfig({ VITE_BE_URL: BE_URL, VITE_GW_URL: GW_URL }).server?.host).toBe('0.0.0.0');
   });

@@ -36,6 +36,19 @@ into one container, `wbs-dev-src`, running all three tiers via `bun run dev` —
 gw-01 under `bun --watch`, fe-01 under Vite. **For application code the watchers are the
 deploy**; nothing is built, pushed or restarted.
 
+The public frontend remains Vite's source server, not a production build: keeping transforms
+on demand is what makes a source checkout deploy in seconds. Its public process deliberately
+does not expose HMR. Browser Use Cloud closes the page's long-lived `vite-hmr` WebSocket after
+about ten seconds; Vite interprets a reconnect as evidence that it missed an update and reloads
+the document. The server still watches and invalidates changed modules, so a fresh request serves
+the new source, while an already-open public page stays on the document it is measuring. Local
+development and the isolated browser gate retain HMR.
+
+Browser stability checks must sample inside one uninterrupted page evaluation. A navigation must
+destroy that evaluation and fail the check; catching each individual read can turn a reload into
+a successful empty-string assertion. After the first non-empty sample, every later sample must be
+non-empty as well.
+
 Verified 2026-08-04: a pushed change appeared on dev with the container's `StartedAt`
 unchanged to the nanosecond.
 
