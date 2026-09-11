@@ -1,6 +1,16 @@
 import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -12,7 +22,6 @@ import { resolveValidatorArtifactPaths } from './trust';
 const workspace = join(import.meta.dir, '..', '..', '..', '..');
 const adapterPath = join(workspace, 'bin', 'tool-wiki-lint.sh');
 const gateLibraryPath = join(workspace, 'bin', 'h2puni-gate-lib.sh');
-const gateStepsPath = join(workspace, 'bin', 'h2puni-gate-steps.sh');
 const trustedCliPath = join(workspace, 'tools', 'tool-wiki', 'src', 'cli.ts');
 const scratchPaths: string[] = [];
 
@@ -28,27 +37,38 @@ function write(path: string, source: string): void {
 
 function fixture(): {
   directory: string;
+  repository: string;
+  activationRoot: string;
   cliPath: string;
   bindingPath: string;
   evidencePath: string;
 } {
   const directory = mkdtempSync(join(tmpdir(), 'tool-wiki-entrypoints-'));
   scratchPaths.push(directory);
-  const cliPath = join(directory, 'trusted-cli.ts');
-  const bindingPath = join(directory, 'binding.json');
-  const evidencePath = join(directory, 'evidence.json');
+  const repository = join(directory, 'candidate');
+  const activationRoot = join(directory, 'activation');
+  const cliPath = join(directory, 'validator', 'trusted-cli.ts');
+  const bindingPath = join(directory, 'trust', 'binding.json');
+  const evidencePath = join(directory, 'trust', 'evidence.json');
+  mkdirSync(repository);
   write(
     cliPath,
     "process.stdout.write(`${JSON.stringify({ argv: process.argv.slice(2), binding: process.env['TOOL_WIKI_CI_TRUSTED_BINDING'] })}\\n`);\n",
   );
   write(bindingPath, '{}\n');
   write(evidencePath, '{}\n');
-  return { directory, cliPath, bindingPath, evidencePath };
+  write(join(activationRoot, 'active-v1'), 'tool-wiki-active-v1\n');
+  write(join(activationRoot, 'validator-path'), `${cliPath}\n`);
+  write(join(activationRoot, 'local-binding-path'), `${bindingPath}\n`);
+  write(join(activationRoot, 'ci-binding-path'), `${bindingPath}\n`);
+  write(join(activationRoot, 'evidence-path'), `${evidencePath}\n`);
+  return { directory, repository, activationRoot, cliPath, bindingPath, evidencePath };
 }
 
 interface RealFixture {
   repository: string;
   revision: string;
+  activationRoot: string;
   bindingPath: string;
   evidencePath: string;
 }
@@ -112,7 +132,11 @@ function realFixture(): RealFixture {
   const metadata = {
     schemaVersion: 1,
     moduleId: 'module.fixture',
-    memberships: [{ kind: 'path', path: 'src/app.ts' }],
+    memberships: [
+      { kind: 'path', path: 'src/app.ts' },
+      { kind: 'path', path: 'bin/tool-wiki-lint.sh' },
+      { kind: 'path', path: 'bin/h2puni-gate-steps.sh' },
+    ],
     relationshipSelectors: [],
     applicableChecks: [],
     inapplicableSections: [
@@ -127,6 +151,10 @@ function realFixture(): RealFixture {
     `# Fixture\n\n<!-- wbs-index ${JSON.stringify(metadata)} -->\n`,
   );
   write(join(repository, 'src', 'app.ts'), 'export const value = 1;\n');
+  write(join(repository, 'bin', 'tool-wiki-lint.sh'), '#!/usr/bin/env bash\nexit 1\n');
+  write(join(repository, 'bin', 'h2puni-gate-steps.sh'), '#!/usr/bin/env bash\nexit 1\n');
+  chmodSync(join(repository, 'bin', 'tool-wiki-lint.sh'), 0o755);
+  chmodSync(join(repository, 'bin', 'h2puni-gate-steps.sh'), 0o755);
   git(repository, 'add', '--all');
   git(repository, 'commit', '--message', 'baseline');
   const revision = git(repository, 'rev-parse', 'HEAD');
@@ -157,7 +185,7 @@ function realFixture(): RealFixture {
       { contentClass: 'source', include: [{ kind: 'suffix', value: '.ts' }], exclude: [] },
       { contentClass: 'test', include: [{ kind: 'name', value: 'fixture.test.ts' }], exclude: [] },
       { contentClass: 'config', include: [{ kind: 'name', value: 'fixture.json' }], exclude: [] },
-      { contentClass: 'script', include: [{ kind: 'name', value: 'fixture.sh' }], exclude: [] },
+      { contentClass: 'script', include: [{ kind: 'suffix', value: '.sh' }], exclude: [] },
       {
         contentClass: 'migration',
         include: [{ kind: 'segment', value: 'migrations' }],
@@ -289,22 +317,53 @@ function realFixture(): RealFixture {
       validator: { validatorId: 'validator.entrypoint.v1', artifacts: validatorArtifacts },
     })}\n`,
   );
-  return { repository, revision, bindingPath, evidencePath };
+  write(join(trust, 'active-v1'), 'tool-wiki-active-v1\n');
+  write(join(trust, 'validator-path'), `${realpathSync(trustedCliPath)}\n`);
+  write(join(trust, 'local-binding-path'), `${bindingPath}\n`);
+  write(join(trust, 'ci-binding-path'), `${bindingPath}\n`);
+  write(join(trust, 'evidence-path'), `${evidencePath}\n`);
+  return { repository, revision, activationRoot: trust, bindingPath, evidencePath };
 }
 
 function runRealAdapter(
   selection: 'working' | 'staged' | 'committed',
   fixturePaths: RealFixture,
+  environment: Record<string, string> = {},
 ): ReturnType<typeof Bun.spawnSync> {
   return Bun.spawnSync(
     ['bash', adapterPath, selection, fixturePaths.repository, fixturePaths.revision],
     {
       env: {
         ...process.env,
-        TOOL_WIKI_TRUSTED_CLI: realpathSync(trustedCliPath),
-        TOOL_WIKI_LOCAL_TRUSTED_BINDING: fixturePaths.bindingPath,
-        TOOL_WIKI_CI_TRUSTED_BINDING: fixturePaths.bindingPath,
-        TOOL_WIKI_LINT_EVIDENCE: fixturePaths.evidencePath,
+        TOOL_WIKI_ACTIVATION_ROOT: fixturePaths.activationRoot,
+        ...environment,
+      },
+      cwd: fixturePaths.repository,
+      stderr: 'pipe',
+      stdout: 'pipe',
+    },
+  );
+}
+
+function runNxLint(
+  fixturePaths: RealFixture,
+  nxWorkspace = workspace,
+): ReturnType<typeof Bun.spawnSync> {
+  const command = `bash ${adapterPath} committed ${fixturePaths.repository} HEAD`;
+  return Bun.spawnSync(
+    [
+      join(workspace, 'node_modules', '.bin', 'nx'),
+      'run',
+      'tool-wiki:lint',
+      `--command=${command}`,
+      '--output-style=stream',
+    ],
+    {
+      cwd: nxWorkspace,
+      env: {
+        ...process.env,
+        NX_DAEMON: 'false',
+        TOOL_WIKI_ACTIVATION_ROOT: fixturePaths.activationRoot,
       },
       stderr: 'pipe',
       stdout: 'pipe',
@@ -315,20 +374,16 @@ function runRealAdapter(
 function runAdapter(
   selection: 'working' | 'staged' | 'committed',
   paths: ReturnType<typeof fixture>,
-  omitEnvironment?: string,
   overrides: Record<string, string> = {},
 ): ReturnType<typeof Bun.spawnSync> {
   const environment = Object.fromEntries(
     Object.entries({
       PATH: process.env['PATH'] ?? '',
-      TOOL_WIKI_TRUSTED_CLI: paths.cliPath,
-      TOOL_WIKI_LOCAL_TRUSTED_BINDING: paths.bindingPath,
-      TOOL_WIKI_CI_TRUSTED_BINDING: paths.bindingPath,
-      TOOL_WIKI_LINT_EVIDENCE: paths.evidencePath,
+      TOOL_WIKI_ACTIVATION_ROOT: paths.activationRoot,
       ...overrides,
-    }).filter(([name]) => name !== omitEnvironment),
+    }),
   );
-  return Bun.spawnSync(['bash', adapterPath, selection, '/candidate', 'abc123'], {
+  return Bun.spawnSync(['bash', adapterPath, selection, paths.repository, 'abc123'], {
     env: environment,
     stderr: 'pipe',
     stdout: 'pipe',
@@ -341,49 +396,97 @@ afterEach(() => {
 
 describe('tool-wiki production entrypoint adapter', () => {
   test.each([
-    ['working', ['lint-local', 'observe', 'working', '/candidate', 'abc123']],
-    ['staged', ['lint-local', 'ratchet', 'staged', '/candidate', 'abc123']],
-    ['committed', ['lint-ci', 'committed', '/candidate', 'abc123']],
+    ['working', ['lint-local', 'observe', 'working']],
+    ['staged', ['lint-local', 'ratchet', 'staged']],
+    ['committed', ['lint-ci', 'committed']],
   ] as const)('%s selects its explicit production CLI route', (selection, expected) => {
     const paths = fixture();
     const invocation = runAdapter(selection, paths);
     const output = streamText(invocation.stdout, 'adapter stdout');
 
     expect(invocation.exitCode, streamText(invocation.stderr, 'adapter stderr')).toBe(0);
+    const routePrefix = [...expected, realpathSync(paths.repository), 'abc123'];
     const route =
       selection === 'committed'
-        ? [...expected, paths.evidencePath]
-        : [...expected, paths.bindingPath, paths.evidencePath];
+        ? [...routePrefix, paths.evidencePath]
+        : [...routePrefix, paths.bindingPath, paths.evidencePath];
     expect(JSON.parse(output)).toMatchObject({ argv: route });
   });
 
-  test.each([
-    ['working', 'TOOL_WIKI_TRUSTED_CLI'],
-    ['working', 'TOOL_WIKI_LINT_EVIDENCE'],
-    ['staged', 'TOOL_WIKI_LOCAL_TRUSTED_BINDING'],
-    ['committed', 'TOOL_WIKI_CI_TRUSTED_BINDING'],
-  ] as const)('%s refuses absent external %s authority', (selection, variable) => {
+  test('an absent external activation root reports a visible non-certifying rollout state', () => {
     const paths = fixture();
-    const invocation = runAdapter(selection, paths, variable);
-    const output = streamText(invocation.stderr, 'adapter stderr');
-
-    expect(invocation.exitCode).not.toBe(0);
-    expect(output).toContain(variable);
-  });
-
-  test('candidate-local trust variables cannot replace the committed CI binding', () => {
-    const paths = fixture();
-    const invocation = runAdapter('committed', paths, undefined, {
-      TOOL_WIKI_LOCAL_TRUSTED_BINDING: '/candidate/docs/wiki-policy/binding.json',
+    const invocation = Bun.spawnSync(['bash', adapterPath, 'staged', paths.repository, 'HEAD'], {
+      env: { PATH: process.env['PATH'] ?? '' },
+      stderr: 'pipe',
+      stdout: 'pipe',
     });
-    const output = streamText(invocation.stdout, 'adapter stdout');
 
     expect(invocation.exitCode, streamText(invocation.stderr, 'adapter stderr')).toBe(0);
-    expect(JSON.parse(output)).toMatchObject({
-      argv: ['lint-ci', 'committed', '/candidate', 'abc123', paths.evidencePath],
-      binding: paths.bindingPath,
+    expect(JSON.parse(streamText(invocation.stdout, 'adapter stdout'))).toMatchObject({
+      status: 'inactive',
+      certified: false,
     });
-    expect(output).not.toContain('/candidate/docs/wiki-policy/binding.json');
+  });
+
+  test('an absent external activation marker reports a visible non-certifying rollout state', () => {
+    const paths = fixture();
+    rmSync(join(paths.activationRoot, 'active-v1'));
+    const invocation = runAdapter('staged', paths);
+
+    expect(invocation.exitCode, streamText(invocation.stderr, 'adapter stderr')).toBe(0);
+    expect(JSON.parse(streamText(invocation.stdout, 'adapter stdout'))).toMatchObject({
+      status: 'inactive',
+      certified: false,
+    });
+  });
+
+  test.each(['active-v1', 'validator-path', 'ci-binding-path', 'evidence-path'])(
+    'an active rollout refuses a missing or malformed %s artifact',
+    (artifact) => {
+      const paths = fixture();
+      write(
+        join(paths.activationRoot, artifact),
+        artifact === 'active-v1' ? 'wrong\n' : 'relative\n',
+      );
+      const invocation = runAdapter('committed', paths);
+
+      expect(invocation.exitCode).not.toBe(0);
+      expect(streamText(invocation.stderr, 'adapter stderr')).toContain(
+        artifact === 'active-v1' ? 'rollout marker' : 'active rollout',
+      );
+    },
+  );
+
+  test('candidate-local activation state cannot select committed authority', () => {
+    const paths = fixture();
+    const candidateActivation = join(paths.repository, '.activation');
+    write(join(candidateActivation, 'active-v1'), 'tool-wiki-active-v1\n');
+    const invocation = runAdapter('committed', paths, {
+      TOOL_WIKI_ACTIVATION_ROOT: candidateActivation,
+    });
+
+    expect(invocation.exitCode).not.toBe(0);
+    expect(streamText(invocation.stderr, 'adapter stderr')).toContain(
+      'activation root must be outside',
+    );
+  });
+
+  test('trusted Bun ignores a candidate-cwd bunfig preload and inherited execution variables', () => {
+    const paths = realFixture();
+    const marker = join(paths.repository, '..candidate-preload-ran');
+    write(join(paths.repository, 'bunfig.toml'), 'preload = ["./preload.ts"]\n');
+    write(
+      join(paths.repository, 'preload.ts'),
+      "await Bun.write(process.env['BUN_PRELOAD_MARKER'] ?? 'missing-marker', 'candidate ran\\n');\n",
+    );
+
+    const invocation = runRealAdapter('committed', paths, {
+      BUN_PRELOAD_MARKER: marker,
+      NODE_OPTIONS: '--require=./preload.ts',
+    });
+
+    expect(invocation.exitCode, streamText(invocation.stderr, 'lint stderr')).toBe(0);
+    expect(existsSync(marker)).toBe(false);
   });
 
   test('Nx, host gate, CI and lefthook select the whole tree without caching', () => {
@@ -397,6 +500,10 @@ describe('tool-wiki production entrypoint adapter', () => {
     const hostGate = readFileSync(join(workspace, 'bin', 'h2puni-gate.sh'), 'utf8');
     const hostSteps = readFileSync(join(workspace, 'bin', 'h2puni-gate-steps.sh'), 'utf8');
     const ci = readFileSync(join(workspace, '.github', 'workflows', 'ci.yml'), 'utf8');
+    const trustedCi = readFileSync(
+      join(workspace, '.github', 'workflows', 'trusted-wiki.yml'),
+      'utf8',
+    );
     const lefthook = readFileSync(join(workspace, 'lefthook.yml'), 'utf8');
     const workspacePackage = JSON.parse(readFileSync(join(workspace, 'package.json'), 'utf8')) as {
       scripts: Record<string, string>;
@@ -412,8 +519,16 @@ describe('tool-wiki production entrypoint adapter', () => {
     expect(project.targets['lint:source']?.options?.command).toBe(
       'bunx eslint tools/tool-wiki/src',
     );
-    expect(hostGate).toContain('bash "$repo_root/bin/h2puni-gate-steps.sh" "$repo_root" HEAD');
+    expect(hostGate).toContain('cp "$repo_root/bin/tool-wiki-lint.sh" "$trusted_launcher"');
+    expect(hostGate).toContain('set -euo pipefail; bash "$1" committed "$2" "$3"; exec bash "$4"');
     expect(ci).toContain('bash bin/tool-wiki-lint.sh committed . "$GITHUB_SHA"');
+    expect(ci).toContain("if: github.event_name != 'pull_request'");
+    expect(trustedCi).toContain('pull_request_target:');
+    expect(trustedCi).toContain('permissions:\n  contents: read');
+    expect(trustedCi.match(/persist-credentials: false/g)).toHaveLength(2);
+    expect(trustedCi).toContain('ref: ${{ github.event.pull_request.head.sha }}');
+    expect(trustedCi).toContain('$RUNNER_TEMP/tool-wiki-lint.sh');
+    expect(trustedCi).not.toContain('h2puni-gate-steps.sh');
     expect(lefthook).toContain('run: bash bin/tool-wiki-lint.sh staged . HEAD');
     expect(hostSteps).toContain('--exclude=tool-wiki');
     expect(hostSteps).toContain('bunx nx run tool-wiki:lint:source --skip-nx-cache');
@@ -473,7 +588,7 @@ describe('tool-wiki production entrypoint adapter', () => {
   test('committed entrypoint refuses a stale enforced blob at wiki lint', () => {
     const paths = realFixture();
     write(join(paths.repository, 'src', 'app.ts'), 'export const value = 2;\n');
-    git(paths.repository, 'add', 'src/app.ts');
+    git(paths.repository, 'add', '--all');
     git(paths.repository, 'commit', '--message', 'stale application review');
     paths.revision = git(paths.repository, 'rev-parse', 'HEAD');
 
@@ -490,11 +605,22 @@ describe('tool-wiki production entrypoint adapter', () => {
   test('the host gate fails specifically at wiki lint for a stale enforced blob', () => {
     const paths = realFixture();
     write(join(paths.repository, 'src', 'app.ts'), 'export const value = 2;\n');
-    git(paths.repository, 'add', 'src/app.ts');
+    const candidateAdapter = join(paths.repository, 'bin', 'tool-wiki-lint.sh');
+    const candidateSteps = join(paths.repository, 'bin', 'h2puni-gate-steps.sh');
+    const suppressedMarker = join(dirname(paths.bindingPath), 'candidate-step-ran');
+    write(candidateAdapter, '#!/usr/bin/env bash\nexit 0\n');
+    write(
+      candidateSteps,
+      `#!/usr/bin/env bash\nprintf ran > ${JSON.stringify(suppressedMarker)}\n`,
+    );
+    chmodSync(candidateAdapter, 0o755);
+    chmodSync(candidateSteps, 0o755);
+    git(paths.repository, 'add', '--all');
     git(paths.repository, 'commit', '--message', 'stale host candidate');
     paths.revision = git(paths.repository, 'rev-parse', 'HEAD');
     const lock = join(dirname(paths.bindingPath), 'host-lock');
-    const command = 'source "$1"; shift; gate_with_pinned_head "$@"';
+    const command =
+      'source "$1"; gate_with_pinned_head "$2" "$3" "$4" -- bash -c \'set -euo pipefail; bash "$1" committed "$2" "$3"; exec bash "$4" "$2" "$3"\' pinned "$5" "$2" HEAD "$2/bin/h2puni-gate-steps.sh"';
     const invocation = Bun.spawnSync(
       [
         'bash',
@@ -505,19 +631,13 @@ describe('tool-wiki production entrypoint adapter', () => {
         paths.repository,
         lock,
         paths.revision,
-        '--',
-        'bash',
-        gateStepsPath,
-        paths.repository,
-        'HEAD',
+        adapterPath,
       ],
       {
         env: {
           ...process.env,
           HEAVY_LOCK_WAIT_SECONDS: '0',
-          TOOL_WIKI_TRUSTED_CLI: realpathSync(trustedCliPath),
-          TOOL_WIKI_CI_TRUSTED_BINDING: paths.bindingPath,
-          TOOL_WIKI_LINT_EVIDENCE: paths.evidencePath,
+          TOOL_WIKI_ACTIVATION_ROOT: paths.activationRoot,
         },
         stderr: 'pipe',
         stdout: 'pipe',
@@ -531,26 +651,55 @@ describe('tool-wiki production entrypoint adapter', () => {
     expect(invocation.exitCode, output).toBe(1);
     expect(output).toContain('"unmetObligationIds":["obligation.application"]');
     expect(output).not.toContain('Successfully ran');
+    expect(existsSync(suppressedMarker)).toBe(false);
   });
 
-  test('the future cache fault mutates a whole-tree input after warming and must rerun', () => {
+  test('the real Nx target reruns an omitted-input mutation and a controlled cache fault does not', () => {
     const paths = realFixture();
-    const warm = runRealAdapter('committed', paths);
+    const warm = runNxLint(paths);
     expect(warm.exitCode, streamText(warm.stderr, 'warm stderr')).toBe(0);
 
     write(join(paths.repository, 'src', 'app.ts'), 'export const omittedInputFault = true;\n');
     git(paths.repository, 'add', 'src/app.ts');
     git(paths.repository, 'commit', '--message', 'mutate would-be omitted input');
     paths.revision = git(paths.repository, 'rev-parse', 'HEAD');
-    const afterMutation = runRealAdapter('committed', paths);
-    const output = streamText(afterMutation.stdout, 'mutated stdout');
-
-    // This fixture remains beside the cache:false assertion above so enabling cache while
-    // narrowing inputs cannot turn a warmed verdict into acceptance of this changed blob.
+    const afterMutation = runNxLint(paths);
+    // Proof: the production tool-wiki:lint target reran and failed on obligation.application;
+    // the cache-enabled target below returned its warmed success for this same omitted mutation.
     expect(afterMutation.exitCode, streamText(afterMutation.stderr, 'mutated stderr')).toBe(1);
-    expect(JSON.parse(output)).toMatchObject({
-      changedBoundaryIds: ['boundary.application'],
-      unmetObligationIds: ['obligation.application'],
-    });
-  });
+
+    const cachedPaths = realFixture();
+    const nxWorkspace = mkdtempSync(join(tmpdir(), 'tool-wiki-cache-fault-'));
+    scratchPaths.push(nxWorkspace);
+    write(join(nxWorkspace, 'package.json'), '{"name":"cache-fault","private":true}\n');
+    write(join(nxWorkspace, 'nx.json'), '{"plugins":[]}\n');
+    write(join(nxWorkspace, 'sentinel.txt'), 'unchanged Nx input\n');
+    write(
+      join(nxWorkspace, 'project.json'),
+      `${JSON.stringify({
+        name: 'tool-wiki',
+        root: '.',
+        targets: {
+          lint: {
+            executor: 'nx:run-commands',
+            cache: true,
+            inputs: ['{projectRoot}/sentinel.txt'],
+            options: { command: 'false' },
+          },
+        },
+      })}\n`,
+    );
+    symlinkSync(join(workspace, 'node_modules'), join(nxWorkspace, 'node_modules'), 'dir');
+    const cachedWarm = runNxLint(cachedPaths, nxWorkspace);
+    expect(cachedWarm.exitCode, streamText(cachedWarm.stderr, 'cached warm stderr')).toBe(0);
+    write(join(cachedPaths.repository, 'src', 'app.ts'), 'export const cachedFault = true;\n');
+    git(cachedPaths.repository, 'add', 'src/app.ts');
+    git(cachedPaths.repository, 'commit', '--message', 'cached omitted input');
+    cachedPaths.revision = git(cachedPaths.repository, 'rev-parse', 'HEAD');
+    const uncachedOracle = runRealAdapter('committed', cachedPaths);
+    expect(uncachedOracle.exitCode).toBe(1);
+    const cachedMutation = runNxLint(cachedPaths, nxWorkspace);
+    const cachedOutput = `${streamText(cachedMutation.stdout, 'cached stdout')}${streamText(cachedMutation.stderr, 'cached stderr')}`;
+    expect(cachedMutation.exitCode, cachedOutput).toBe(0);
+  }, 30_000);
 });

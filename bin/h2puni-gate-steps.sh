@@ -2,13 +2,9 @@
 set -euo pipefail
 
 repo=${1:?repository is required}
-revision=${2:?committed revision is required}
-gate_bin=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+: "${2:?committed revision is required}"
 cd "$repo"
 
-# Proof: omitting this call made the stale-blob host fixture reach Nx and fail with
-# `bun is unable to write files to tempdir: EROFS` instead of naming obligation.application.
-bash "$gate_bin/tool-wiki-lint.sh" committed "$repo" "$revision"
 bunx nx format:check --all
 # Proof: dropping this exclusion made gate-entrypoints.test.ts lose the exact-once split and fail
 # at `Expected to contain: --exclude=tool-wiki`; tool-wiki source lint is invoked below.

@@ -248,6 +248,9 @@ jobs:
       # Proof: deleting this step made gate-entrypoints.test.ts fail at the exact committed
       # `$GITHUB_SHA` command, before any fixture could mistake the generic Nx gate for wiki lint.
       - name: Tool wiki — committed candidate
+        if: github.event_name != 'pull_request'
+        env:
+          TOOL_WIKI_ACTIVATION_ROOT: ${{ vars.TOOL_WIKI_ACTIVATION_ROOT }}
         run: bash bin/tool-wiki-lint.sh committed . "$GITHUB_SHA"
 
       # --all, not the default base..HEAD comparison. Without it the scope is

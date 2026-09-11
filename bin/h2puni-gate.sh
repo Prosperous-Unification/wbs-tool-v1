@@ -43,5 +43,19 @@ target=${1:-HEAD}
 # on its command line.
 : "${HEAVY_LOCK_WAIT_SECONDS:=1800}"
 
+trusted_launcher_dir=$(mktemp -d)
+trusted_launcher="$trusted_launcher_dir/tool-wiki-lint.sh"
+cp "$repo_root/bin/tool-wiki-lint.sh" "$trusted_launcher"
+chmod 0555 "$trusted_launcher"
+trap 'rm -rf -- "$trusted_launcher_dir"' EXIT
+
+# The launcher bytes are captured before checkout. Candidate gate steps remain the ordinary
+# repository gate, but cannot run until the preserved external-trust verifier has accepted HEAD.
+# Proof: gate-entrypoints.test.ts commits exit-0 replacements for both candidate scripts and
+# observes the preserved launcher reject obligation.application before either replacement runs.
+# Positional parameters belong to the preserved inner shell.
+# shellcheck disable=SC2016
 gate_with_pinned_head "$repo_root" "$(resolve_heavy_lock_path)" "$target" -- \
-  bash "$repo_root/bin/h2puni-gate-steps.sh" "$repo_root" HEAD
+  bash -c 'set -euo pipefail; bash "$1" committed "$2" "$3"; exec bash "$4" "$2" "$3"' \
+  h2puni-preserved-wiki "$trusted_launcher" "$repo_root" HEAD \
+  "$repo_root/bin/h2puni-gate-steps.sh"
