@@ -373,22 +373,60 @@ test('fails closed for corrupt, incompatible and unreadable existing state', () 
 });
 
 test('refuses an added schema object and an unknown state version', () => {
-  for (const fault of ['extra-table', 'unknown-version'] as const) {
+  for (const fault of ['extra-table', 'extra-index', 'extra-view', 'unknown-version'] as const) {
     const fixture = fixtureRepository();
     const store = openAuthorityStore(fixture.root);
     store.close();
     const databasePath = resolveAuthorityDatabasePath(fixture.root);
     const database = new Database(databasePath);
     if (fault === 'extra-table') database.run('CREATE TABLE foreign_state(id INTEGER) STRICT');
+    else if (fault === 'extra-index')
+      database.run('CREATE INDEX foreign_index ON authority_owner(worktree_path)');
+    else if (fault === 'extra-view')
+      database.run('CREATE VIEW foreign_view AS SELECT session_id FROM authority_owner');
     else database.run("UPDATE authority_meta SET schema_version = 'unknown.v99'");
     database.close();
 
     expect(() => openAuthorityStore(fixture.worktreeA)).toThrow(
-      fault === 'extra-table'
-        ? 'authority database schema is incompatible'
-        : 'authority database version is incompatible',
+      fault === 'unknown-version'
+        ? 'authority database version is incompatible'
+        : 'authority database schema is incompatible',
     );
   }
+});
+
+test('refuses a sqliteX-prefixed trigger before it can erase authority claims', () => {
+  const fixture = fixtureRepository();
+  const store = openAuthorityStore(fixture.root);
+  acquireClaims(store, claim('session-a', fixture.worktreeA, 'libs/contracts'));
+  store.close();
+  const databasePath = resolveAuthorityDatabasePath(fixture.root);
+  const database = new Database(databasePath);
+  database.run(`CREATE TRIGGER sqliteXerase AFTER INSERT ON authority_claim
+    BEGIN DELETE FROM authority_claim; END`);
+  database.close();
+
+  let refusal: unknown;
+  try {
+    const reopened = openAuthorityStore(fixture.worktreeA);
+    acquireClaims(reopened, claim('session-b', fixture.worktreeB, 'apps/fe-01'));
+    reopened.close();
+  } catch (error) {
+    refusal = error;
+  }
+  const observed = new Database(databasePath);
+  const row = observed
+    .query<{ count: number }, []>('SELECT count(*) AS count FROM authority_claim')
+    .get();
+  observed.close();
+
+  expect({
+    claimCount: row?.count,
+    refusal: refusal instanceof Error ? refusal.message : undefined,
+  }).toEqual({
+    claimCount: 1,
+    refusal: 'authority database schema is incompatible',
+  });
 });
 
 test('refuses relational corruption before treating an orphan claim as unowned', () => {
@@ -406,6 +444,54 @@ test('refuses relational corruption before treating an orphan claim as unowned',
   expect(() => openAuthorityStore(fixture.worktreeA)).toThrow(
     'authority database corrupt: foreign-key check failed',
   );
+});
+
+test('refuses malformed persisted owner and claim identities before overlap decisions', () => {
+  const faults = [
+    {
+      message: 'authority database owner session is invalid: bad/session',
+      mutations: [
+        "UPDATE authority_claim SET session_id = 'bad/session'",
+        "UPDATE authority_owner SET session_id = 'bad/session'",
+      ],
+    },
+    {
+      message: 'authority database owner worktree is invalid: relative',
+      mutations: ["UPDATE authority_owner SET worktree_path = 'relative'"],
+    },
+    {
+      message: 'authority database path claim is invalid: libs/./contracts',
+      mutations: ["UPDATE authority_claim SET identity = 'libs/./contracts' WHERE kind = 'path'"],
+    },
+    {
+      message: 'authority database conflict group is invalid: bad/group',
+      mutations: ["UPDATE authority_claim SET identity = 'bad/group' WHERE kind = 'group'"],
+    },
+    {
+      message: 'authority database corrupt: quick_check=CHECK constraint failed',
+      mutations: [
+        'PRAGMA ignore_check_constraints = ON',
+        "UPDATE authority_claim SET access = 'execute' WHERE kind = 'path'",
+      ],
+    },
+  ] as const;
+
+  for (const fault of faults) {
+    const fixture = fixtureRepository();
+    const store = openAuthorityStore(fixture.root);
+    acquireClaims(store, {
+      ...claim('session-a', fixture.worktreeA, 'libs/contracts'),
+      conflictGroups: ['root-schema'],
+    });
+    store.close();
+    const databasePath = resolveAuthorityDatabasePath(fixture.root);
+    const database = new Database(databasePath);
+    database.run('PRAGMA foreign_keys = OFF');
+    for (const mutation of fault.mutations) database.run(mutation);
+    database.close();
+
+    expect(() => openAuthorityStore(fixture.worktreeB)).toThrow(fault.message);
+  }
 });
 
 test('bounds terminal lock contention and retries until a held write commits', async () => {
@@ -452,6 +538,118 @@ test('bounds terminal lock contention and retries until a held write commits', a
   writeFileSync(release, 'release');
   expect(await holder.exited).toBe(0);
   expect(await observation(contender)).toMatchObject({ ok: true });
+});
+
+test('retries the complete transaction until a rollback-journal reader releases commit', async () => {
+  const fixture = fixtureRepository();
+  const store = openAuthorityStore(fixture.root, {
+    maxBusyAttempts: 100,
+    busyDelayMilliseconds: 2,
+  });
+  const databasePath = resolveAuthorityDatabasePath(fixture.root);
+  const readerReady = join(fixture.root, 'reader-ready');
+  const reader = Bun.spawn(
+    [
+      process.execPath,
+      '--eval',
+      `import { Database } from 'bun:sqlite'; import { writeFileSync } from 'node:fs'; const db = new Database(process.argv[1]); db.run('PRAGMA busy_timeout = 0'); db.run('BEGIN'); db.query('SELECT count(*) FROM authority_owner').get(); writeFileSync(process.argv[2], 'ready'); Bun.sleepSync(40); db.run('ROLLBACK'); db.close();`,
+      databasePath,
+      readerReady,
+    ],
+    { stderr: 'pipe', stdout: 'pipe' },
+  );
+  waitForFiles([readerReady]);
+
+  expect(acquireClaims(store, claim('session-reader', fixture.worktreeA, 'apps/reader'))).toEqual({
+    generation: 1,
+    sessionId: 'session-reader',
+  });
+  expect(await reader.exited).toBe(0);
+  expect(store.inspect().owners).toHaveLength(1);
+  store.close();
+});
+
+test('bounds commit contention by attempts and delay without retaining a partial write', () => {
+  const fixture = fixtureRepository();
+  const store = openAuthorityStore(fixture.root, {
+    maxBusyAttempts: 3,
+    busyDelayMilliseconds: 10,
+  });
+  const databasePath = resolveAuthorityDatabasePath(fixture.root);
+  const reader = new Database(databasePath);
+  reader.run('PRAGMA busy_timeout = 0');
+  reader.run('BEGIN');
+  reader.query('SELECT count(*) FROM authority_owner').get();
+  let callbackAttempts = 0;
+  const started = performance.now();
+
+  expect(() => {
+    store.transact((transaction) => {
+      callbackAttempts += 1;
+      const state = transaction.readState();
+      transaction.writeState({ ...state, nextGeneration: 2 });
+      return undefined;
+    });
+  }).toThrow(AuthorityContentionError);
+  const elapsedMilliseconds = performance.now() - started;
+  reader.run('ROLLBACK');
+  reader.close();
+
+  expect(callbackAttempts).toBe(3);
+  expect(elapsedMilliseconds).toBeGreaterThanOrEqual(20);
+  expect(store.inspect().nextGeneration).toBe(1);
+  store.close();
+});
+
+test('reports both failures and does not retry after rollback leaves transaction state unknown', () => {
+  const fixture = fixtureRepository();
+  const store = openAuthorityStore(fixture.root, {
+    maxBusyAttempts: 3,
+    busyDelayMilliseconds: 0,
+  });
+  const runDescriptor = Object.getOwnPropertyDescriptor(Database.prototype, 'run');
+  if (runDescriptor === undefined) throw new Error('Database.run descriptor is absent');
+  const originalRun: PropertyDescriptor = runDescriptor;
+  const rollbackFailure = new Error('injected rollback failure');
+  const transactionFailure = Object.assign(new Error('injected body contention'), {
+    code: 'SQLITE_BUSY',
+  });
+  let callbackAttempts = 0;
+  function runWithRollbackFault(this: Database, sql: string) {
+    if (sql === 'ROLLBACK') throw rollbackFailure;
+    Object.defineProperty(Database.prototype, 'run', originalRun);
+    try {
+      return this.run(sql);
+    } finally {
+      Object.defineProperty(Database.prototype, 'run', rollbackFault);
+    }
+  }
+  const rollbackFault: PropertyDescriptor = {
+    configurable: true,
+    value: runWithRollbackFault,
+    writable: true,
+  };
+  Object.defineProperty(Database.prototype, 'run', rollbackFault);
+
+  let failure: unknown;
+  try {
+    store.transact(() => {
+      callbackAttempts += 1;
+      throw transactionFailure;
+    });
+  } catch (error) {
+    failure = error;
+  } finally {
+    Object.defineProperty(Database.prototype, 'run', originalRun);
+  }
+
+  expect(failure).toBeInstanceOf(AggregateError);
+  expect(failure).toMatchObject({
+    errors: [transactionFailure, rollbackFailure],
+    message: 'authority transaction and rollback both failed',
+  });
+  expect(callbackAttempts).toBe(1);
+  store.close();
 });
 
 test('rejects contention settings outside the finite authority budget', () => {

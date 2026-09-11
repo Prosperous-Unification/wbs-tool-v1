@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, mkdirSync, realpathSync, rmdirSync } from 'node:fs';
-import { isAbsolute, join, resolve } from 'node:path';
+import { isAbsolute, join, normalize, resolve } from 'node:path';
 
 import { Database } from 'bun:sqlite';
 
@@ -44,7 +44,14 @@ export interface AuthorityTransaction {
   writeState(state: AuthorityState): void;
 }
 
-/** One common-Git authority store; adapters must commit the callback or leave no mutation. */
+/**
+ * One common-Git authority store; adapters must commit the callback or leave no mutation.
+ *
+ * An adapter may invoke `operation` again after rolling back retryable contention, including
+ * contention raised by the body or commit. Callbacks must therefore be synchronous,
+ * deterministic and free of effects outside the supplied transaction. A callback value is
+ * returned only after its transaction commits.
+ */
 export interface AuthorityStore {
   transact<T>(operation: (transaction: AuthorityTransaction) => T): T;
 }
@@ -87,6 +94,8 @@ function assertMemoryState(state: AuthorityState): void {
   const generations = new Set<number>();
   let highestGeneration = 0;
   for (const owner of state.owners) {
+    assertAuthoritySessionId(owner.sessionId);
+    assertAuthorityWorktreePath(owner.worktreePath);
     if (sessions.has(owner.sessionId))
       throw new Error(`duplicate authority session: ${owner.sessionId}`);
     if (!Number.isSafeInteger(owner.generation) || owner.generation < 1) {
@@ -98,6 +107,14 @@ function assertMemoryState(state: AuthorityState): void {
     sessions.add(owner.sessionId);
     generations.add(owner.generation);
     highestGeneration = Math.max(highestGeneration, owner.generation);
+    for (const claim of owner.claims) {
+      if (claim.kind === 'path') {
+        assertAuthorityClaimPath(claim.identity);
+        assertAuthorityPathAccess(claim.access);
+      } else {
+        assertAuthorityConflictGroup(claim.identity);
+      }
+    }
   }
   // Proof: removing this ordering check let a state whose next generation was already owned
   // construct successfully; the memory-state test observed no throw.
@@ -200,8 +217,11 @@ interface ClaimRow {
 
 /** The authority exhausted its configured attempts to take SQLite's write lock. */
 export class AuthorityContentionError extends Error {
-  constructor(attempts: number) {
-    super(`authority database remained busy after ${String(attempts)} attempts`);
+  constructor(attempts: number, cause?: unknown) {
+    super(
+      `authority database remained busy after ${String(attempts)} attempts`,
+      cause === undefined ? undefined : { cause },
+    );
     this.name = 'AuthorityContentionError';
   }
 }
@@ -222,6 +242,61 @@ function isBusy(error: unknown): boolean {
     current = current.cause;
   }
   return false;
+}
+
+const SESSION = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const GROUP = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+
+function containsControl(text: string): boolean {
+  for (const character of text) {
+    const code = character.codePointAt(0);
+    if (code !== undefined && (code < 32 || code === 127)) return true;
+  }
+  return false;
+}
+
+/** Refuses a session identity that cannot be persisted as one authority owner. */
+export function assertAuthoritySessionId(sessionId: string): void {
+  if (!SESSION.test(sessionId)) throw new Error(`invalid session id: ${sessionId}`);
+}
+
+/** Refuses a worktree identity that is not already absolute and lexically canonical. */
+export function assertAuthorityWorktreePath(worktreePath: string): void {
+  if (
+    !isAbsolute(worktreePath) ||
+    normalize(worktreePath) !== worktreePath ||
+    containsControl(worktreePath) ||
+    worktreePath.includes('\\')
+  ) {
+    throw new Error(`invalid canonical worktree path: ${worktreePath}`);
+  }
+}
+
+/** Refuses a repository-relative path identity that would require normalization. */
+export function assertAuthorityClaimPath(path: string): void {
+  const segments = path.split('/');
+  if (
+    path.length === 0 ||
+    path.startsWith('/') ||
+    path.endsWith('/') ||
+    path.includes('\\') ||
+    containsControl(path) ||
+    segments.some((segment) => segment.length === 0 || segment === '.' || segment === '..')
+  ) {
+    throw new Error(`invalid canonical claim path: ${path}`);
+  }
+}
+
+/** Refuses a conflict group that is not a finite authority identity. */
+export function assertAuthorityConflictGroup(identity: string): void {
+  if (!GROUP.test(identity)) throw new Error(`invalid conflict group: ${identity}`);
+}
+
+/** Refuses a runtime path access outside the closed read/write domain. */
+export function assertAuthorityPathAccess(access: string): asserts access is PathAccess {
+  if (access !== 'read' && access !== 'write') {
+    throw new Error(`invalid path access: ${access}`);
+  }
 }
 
 function requiredOptions(options: AuthorityStoreOptions): RequiredAuthorityStoreOptions {
@@ -299,10 +374,12 @@ function assertSchema(database: Database): void {
   if (foreignKeyFaults.length !== 0) {
     throw new Error('authority database corrupt: foreign-key check failed');
   }
+  // Proof: SQL LIKE treated `_` as a wildcard and hid `sqliteXerase`; the production schema
+  // test observed that its trigger erased every claim instead of being refused.
   const rows = database
     .query<SchemaRow, []>(
       `SELECT type, name, sql FROM sqlite_schema
-       WHERE name NOT LIKE 'sqlite_%'
+       WHERE substr(name, 1, 7) <> 'sqlite_'
        ORDER BY type, name`,
     )
     .all();
@@ -335,6 +412,10 @@ function assertSchema(database: Database): void {
   if (!Number.isSafeInteger(meta.nextGeneration) || meta.nextGeneration < 1) {
     throw new Error('authority database next generation is invalid');
   }
+  // Proof: without decoding persisted identities here, `bad/session`, a relative worktree,
+  // `libs/./contracts` and `bad/group` each opened as trusted state; the persisted-identity test
+  // observed that `openAuthorityStore` did not throw.
+  readSqliteState(database);
 }
 
 function assertSchemaWithRetry(database: Database, options: RequiredAuthorityStoreOptions): void {
@@ -465,24 +546,55 @@ function readSqliteState(database: Database): AuthorityState {
     .all();
   const state: AuthorityState = {
     nextGeneration: meta.nextGeneration,
-    owners: owners.map((owner) => ({
-      ...owner,
-      claims: claims
-        .filter(
-          (claim) => claim.sessionId === owner.sessionId && claim.generation === owner.generation,
-        )
-        .map((claim): AuthorityClaim => {
-          if (claim.kind === 'group' && claim.access === null) {
-            return { identity: claim.identity, kind: 'group' };
-          }
-          if (claim.kind === 'path' && (claim.access === 'read' || claim.access === 'write')) {
-            return { access: claim.access, identity: claim.identity, kind: 'path' };
-          }
-          throw new Error(
-            `authority database claim is invalid: ${claim.sessionId}/${claim.identity}`,
-          );
-        }),
-    })),
+    owners: owners.map((owner) => {
+      try {
+        assertAuthoritySessionId(owner.sessionId);
+      } catch (cause) {
+        throw new Error(`authority database owner session is invalid: ${owner.sessionId}`, {
+          cause,
+        });
+      }
+      try {
+        assertAuthorityWorktreePath(owner.worktreePath);
+      } catch (cause) {
+        throw new Error(`authority database owner worktree is invalid: ${owner.worktreePath}`, {
+          cause,
+        });
+      }
+      return {
+        ...owner,
+        claims: claims
+          .filter(
+            (claim) => claim.sessionId === owner.sessionId && claim.generation === owner.generation,
+          )
+          .map((claim): AuthorityClaim => {
+            if (claim.kind === 'group' && claim.access === null) {
+              try {
+                assertAuthorityConflictGroup(claim.identity);
+              } catch (cause) {
+                throw new Error(`authority database conflict group is invalid: ${claim.identity}`, {
+                  cause,
+                });
+              }
+              return { identity: claim.identity, kind: 'group' };
+            }
+            if (claim.kind === 'path' && (claim.access === 'read' || claim.access === 'write')) {
+              try {
+                assertAuthorityClaimPath(claim.identity);
+                assertAuthorityPathAccess(claim.access);
+              } catch (cause) {
+                throw new Error(`authority database path claim is invalid: ${claim.identity}`, {
+                  cause,
+                });
+              }
+              return { access: claim.access, identity: claim.identity, kind: 'path' };
+            }
+            throw new Error(
+              `authority database claim is invalid: ${claim.sessionId}/${claim.identity}`,
+            );
+          }),
+      };
+    }),
   };
   assertMemoryState(state);
   if (claims.length !== state.owners.reduce((count, owner) => count + owner.claims.length, 0)) {
@@ -518,6 +630,29 @@ function writeSqliteState(database: Database, state: AuthorityState): void {
   }
 }
 
+function isTransactionOpen(database: Database): boolean {
+  return database.inTransaction;
+}
+
+function rollbackTransaction(database: Database, transactionCause: unknown): void {
+  if (!isTransactionOpen(database)) return;
+  try {
+    database.run('ROLLBACK');
+    if (isTransactionOpen(database)) {
+      throw new Error('authority database remained in a transaction after rollback');
+    }
+  } catch (rollbackCause) {
+    // Proof: ignoring an injected rollback failure retried on the still-open transaction and
+    // leaked `cannot start a transaction within a transaction`; the rollback-failure test
+    // expected both original failures and exactly one callback attempt.
+    throw new AggregateError(
+      [transactionCause, rollbackCause],
+      'authority transaction and rollback both failed',
+      { cause: rollbackCause },
+    );
+  }
+}
+
 /** SQLite adapter for the canonical common-Git admission authority. */
 class SqliteAuthorityStore implements AuthorityStore {
   readonly #database: Database;
@@ -532,15 +667,6 @@ class SqliteAuthorityStore implements AuthorityStore {
     for (let attempt = 1; attempt <= this.#options.maxBusyAttempts; attempt += 1) {
       try {
         this.#database.run('BEGIN IMMEDIATE');
-      } catch (error) {
-        if (!isBusy(error)) throw error;
-        if (attempt === this.#options.maxBusyAttempts) {
-          throw new AuthorityContentionError(this.#options.maxBusyAttempts);
-        }
-        Bun.sleepSync(this.#options.busyDelayMilliseconds);
-        continue;
-      }
-      try {
         let pending = readSqliteState(this.#database);
         const value = operation({
           readState: () => copyState(pending),
@@ -553,9 +679,16 @@ class SqliteAuthorityStore implements AuthorityStore {
         writeSqliteState(this.#database, pending);
         this.#database.run('COMMIT');
         return value;
-      } catch (error) {
-        this.#database.run('ROLLBACK');
-        throw error;
+      } catch (cause) {
+        rollbackTransaction(this.#database, cause);
+        // Proof: retrying only BEGIN leaked raw SQLITE_BUSY when a rollback-journal reader
+        // blocked COMMIT; the reader tests observed one callback instead of the bounded attempt
+        // count, no configured delay, and no convergence after the reader released.
+        if (!isBusy(cause)) throw cause;
+        if (attempt === this.#options.maxBusyAttempts) {
+          throw new AuthorityContentionError(this.#options.maxBusyAttempts, cause);
+        }
+        Bun.sleepSync(this.#options.busyDelayMilliseconds);
       }
     }
     throw new AuthorityContentionError(this.#options.maxBusyAttempts);

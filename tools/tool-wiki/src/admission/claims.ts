@@ -1,5 +1,3 @@
-import { isAbsolute, normalize } from 'node:path';
-
 import type {
   AuthorityClaim,
   AuthorityState,
@@ -7,6 +5,13 @@ import type {
   ClaimOwner,
   PathAccess,
   PathClaim,
+} from './authority-store';
+import {
+  assertAuthorityClaimPath,
+  assertAuthorityConflictGroup,
+  assertAuthorityPathAccess,
+  assertAuthoritySessionId,
+  assertAuthorityWorktreePath,
 } from './authority-store';
 
 export interface ClaimIdentity {
@@ -34,17 +39,6 @@ export interface ExpansionRequest {
   readonly conflictGroups: readonly string[];
 }
 
-const SESSION = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
-const GROUP = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
-
-function containsControl(text: string): boolean {
-  for (const character of text) {
-    const code = character.codePointAt(0);
-    if (code !== undefined && (code < 32 || code === 127)) return true;
-  }
-  return false;
-}
-
 function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
@@ -55,48 +49,16 @@ function compareClaim(left: AuthorityClaim, right: AuthorityClaim): number {
   return compareText(left.kind, right.kind);
 }
 
-function assertSessionId(sessionId: string): void {
-  // Proof: bypassing this check let `bad/session` acquire generation 1; the strict-session test
-  // observed that `acquireClaims` did not throw.
-  if (!SESSION.test(sessionId)) throw new Error(`invalid session id: ${sessionId}`);
-}
-
-function assertWorktreePath(worktreePath: string): void {
-  // Proof: bypassing this guard let relative `relative` acquire generation 1; the canonical-
-  // worktree test observed that `acquireClaims` did not throw.
-  if (
-    !isAbsolute(worktreePath) ||
-    normalize(worktreePath) !== worktreePath ||
-    containsControl(worktreePath) ||
-    worktreePath.includes('\\')
-  ) {
-    throw new Error(`invalid canonical worktree path: ${worktreePath}`);
-  }
-}
-
-function assertClaimPath(path: string): void {
-  const segments = path.split('/');
-  // Proof: bypassing this validation let the empty path acquire generation 2; the malformed-
-  // identity test observed that `acquireClaims` did not throw.
-  if (
-    path.length === 0 ||
-    path.startsWith('/') ||
-    path.endsWith('/') ||
-    path.includes('\\') ||
-    containsControl(path) ||
-    segments.some((segment) => segment.length === 0 || segment === '.' || segment === '..')
-  ) {
-    throw new Error(`invalid canonical claim path: ${path}`);
-  }
-}
-
 function normalizeClaims(
   paths: readonly ClaimIdentity[],
   conflictGroups: readonly string[],
 ): AuthorityClaim[] {
   const normalized = new Map<string, AuthorityClaim>();
   for (const path of paths) {
-    assertClaimPath(path.path);
+    // Proof: bypassing this validation let the empty path acquire generation 2; the malformed-
+    // identity test observed that `acquireClaims` did not throw.
+    assertAuthorityClaimPath(path.path);
+    assertAuthorityPathAccess(path.access);
     const key = `path\u0000${path.path}`;
     const existing = normalized.get(key);
     if (existing?.kind === 'path' && existing.access !== path.access) {
@@ -107,7 +69,7 @@ function normalizeClaims(
   for (const identity of conflictGroups) {
     // Proof: removing this validation let `bad/group` acquire generation 1; the strict-identity
     // test observed that `acquireClaims` did not throw.
-    if (!GROUP.test(identity)) throw new Error(`invalid conflict group: ${identity}`);
+    assertAuthorityConflictGroup(identity);
     normalized.set(`group\u0000${identity}`, { identity, kind: 'group' });
   }
   return [...normalized.values()].sort(compareClaim);
@@ -161,8 +123,12 @@ function nextState(state: AuthorityState, owner: ClaimOwner): AuthorityState {
 
 /** Atomically claims every requested identity for one globally new session. */
 export function acquireClaims(store: AuthorityStore, request: ClaimRequest): ClaimToken {
-  assertSessionId(request.owner.sessionId);
-  assertWorktreePath(request.owner.worktreePath);
+  // Proof: bypassing this check let `bad/session` acquire generation 1; the strict-session test
+  // observed that `acquireClaims` did not throw.
+  assertAuthoritySessionId(request.owner.sessionId);
+  // Proof: bypassing this guard let relative `relative` acquire generation 1; the canonical-
+  // worktree test observed that `acquireClaims` did not throw.
+  assertAuthorityWorktreePath(request.owner.worktreePath);
   const claims = normalizeClaims(request.paths, request.conflictGroups);
   // Proof: splitting a two-path acquire across two transactions let the losing spawned process
   // retain its first disjoint claim; the test observed 2 stored owners instead of 1.
@@ -214,7 +180,7 @@ function mergeClaims(
 
 /** Atomically adds claims, including read-to-write upgrades, under the exact live token. */
 export function expandClaims(store: AuthorityStore, request: ExpansionRequest): ClaimToken {
-  assertSessionId(request.token.sessionId);
+  assertAuthoritySessionId(request.token.sessionId);
   if (!Number.isSafeInteger(request.token.generation) || request.token.generation < 1) {
     throw new Error(`invalid generation: ${String(request.token.generation)}`);
   }
