@@ -934,3 +934,43 @@ uncached Nx lint/typecheck/test aggregate passed all 135 tool-wiki tests with ze
 used the in-process fallback, with no target skipped. Pinned OpenSpec 1.3.0 strict validation
 returned `Change 'agent-scalable-llm-wiki' is valid` with exit 0 and telemetry disabled. Task 2.4
 and all task checkboxes remain untouched.
+
+## Slice 2.3 Containment Round
+
+Selected symlink cycles are now bounded by the active expansion stack rather than every path ever
+visited. A completion marker removes a symlink from the active set after its target components are
+resolved, so finite reuse such as `docs-link/../docs-link/guide.md` is valid while recursive active
+expansion still fails. Directory-to-README fallback now queues `README.md` through the same
+component resolver, so a selected README symlink is resolved and confined before its Markdown
+anchors are read.
+
+The initial two-case production run reproduced both resolver faults: finite reuse failed with
+`Markdown symlink cycle in README.md: docs-link`, and a directory README symlink failed with
+`Markdown anchor absent in README.md: docs#details`. The broader focused run then exposed a nearby
+regression in the first completion-marker implementation: a trailing separator on a regular file
+exited 0. Counting every remaining lexical component while ignoring only internal completion
+markers restored that existing refusal.
+
+The four metadata guards introduced with Task 2.3 now have isolated production-CLI cases and
+adjacent observed proofs: directory exclusions remain below their prefix, relationship selectors
+are unique, inapplicable sections are unique, and selectors are present exactly when relationships
+are applicable. Both directions of the applicability constraint are covered.
+
+| Deliberate one-at-a-time fault                   | Observed production-CLI failure                                                  |
+| ------------------------------------------------ | -------------------------------------------------------------------------------- |
+| retain a symlink after its target expansion ends | finite reuse failed with `Markdown symlink cycle in README.md: docs-link`        |
+| return the directory README without resolving it | README symlink bytes yielded `Markdown anchor absent in README.md: docs#details` |
+| bypass the directory-exclusion constraint        | outside-prefix exclusion exited 0 and reported `docs/guide.md` as owned          |
+| bypass unique relationship selectors             | duplicate-selector metadata exited 0 with an index report                        |
+| bypass unique inapplicable sections              | duplicate-section metadata exited 0 with an index report                         |
+| bypass selector/applicability consistency        | both contradictory metadata fixtures exited 0 with index reports                 |
+
+Each mutation ran alone through `check-indexes` against a temporary real Git repository and was
+restored before the next. The post-format focused contracts/indexes run passed 70 tests with zero
+failures and 539 assertions in 66.45 seconds. Direct changed-file ESLint and
+`tsc --build --force tools/tool-wiki/tsconfig.json` exited 0. The exact-tree uncached Nx
+lint/typecheck/test aggregate passed all 142 tool-wiki tests with zero failures and 1,905 assertions
+in 307.10 seconds (5m7s Nx duration); Nx used its explicit in-process fallback after the sandbox
+denied its socket, with no target skipped. Pinned OpenSpec 1.3.0 strict validation returned
+`Change 'agent-scalable-llm-wiki' is valid` with exit 0 and telemetry disabled. Task 2.4 and all
+task checkboxes remain untouched.

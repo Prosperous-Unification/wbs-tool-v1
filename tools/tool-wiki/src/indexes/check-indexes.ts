@@ -166,8 +166,6 @@ function exactCandidatePath(
   candidatePaths: ReadonlySet<string>,
 ): string {
   if (candidatePaths.has(requested)) return requested;
-  const directoryIndex = requested.length === 0 ? 'README.md' : `${requested}/README.md`;
-  if (candidatePaths.has(directoryIndex)) return directoryIndex;
   const folded = requested.toLocaleLowerCase('en-US');
   const caseMatches = [...candidatePaths].filter(
     (path) =>
@@ -187,6 +185,14 @@ function exactCandidatePath(
   throw new Error(`Markdown path absent in ${sourcePath}: ${requested}`);
 }
 
+interface SymlinkCompletion {
+  completedSymlink: string;
+}
+
+function hasPendingPathComponent(pending: readonly (string | SymlinkCompletion)[]): boolean {
+  return pending.some((component) => typeof component === 'string');
+}
+
 function resolveSelectedPath(
   index: ReadIndex,
   baseDirectory: string,
@@ -197,14 +203,43 @@ function resolveSelectedPath(
   bytes: CandidateBytes,
 ): string {
   const segments = baseDirectory.length === 0 ? [] : baseDirectory.split('/');
-  const pending = localPath.split('/');
-  const visited = new Set<string>();
-  let activeSymlink: { path: string; target: string } | undefined;
-  while (pending.length > 0) {
+  const pending: (string | SymlinkCompletion)[] = localPath.split('/');
+  const activePaths = new Set<string>();
+  const activeSymlinks: { path: string; target: string }[] = [];
+  for (;;) {
+    if (pending.length === 0) {
+      const selectedPath = segments.join('/');
+      // Proof: requiring a concrete entry here made contained `docs-link -> docs` fail with
+      // `Markdown path absent in README.md: docs` even though selected descendants make it a
+      // directory (expected exit 0, received 1).
+      if (purpose === 'membership' && isCandidateDirectory(selectedPath, candidatePaths)) {
+        return selectedPath;
+      }
+      if (isCandidateDirectory(selectedPath, candidatePaths)) {
+        // Proof: returning the directory's selected README directly made `docs/README.md`
+        // symlink bytes parse as Markdown, so the production CLI failed at `docs#details`
+        // (expected exit 0, received 1).
+        pending.push('README.md');
+        continue;
+      }
+      return exactCandidatePath(index.indexPath, selectedPath, candidatePaths);
+    }
     const component = pending.shift();
-    if (component === undefined || component === '' || component === '.') continue;
+    if (component === undefined) throw new Error('selected path resolver lost a queued component');
+    if (typeof component !== 'string') {
+      const completed = activeSymlinks.pop();
+      if (completed?.path !== component.completedSymlink) {
+        throw new Error(`selected path resolver completed symlinks out of order`);
+      }
+      // Proof: retaining completed paths made `docs-link/../docs-link/guide.md` fail with
+      // `Markdown symlink cycle in README.md: docs-link` (expected exit 0, received 1).
+      activePaths.delete(component.completedSymlink);
+      continue;
+    }
+    if (component === '' || component === '.') continue;
     if (component === '..') {
       if (segments.pop() === undefined) {
+        const activeSymlink = activeSymlinks.at(-1);
         if (activeSymlink !== undefined) {
           throw new Error(
             `${purpose} symlink escapes candidate in ${index.indexPath}: ${activeSymlink.path} -> ${activeSymlink.target}`,
@@ -220,12 +255,11 @@ function resolveSelectedPath(
     // Proof: treating a selected symlink as an ordinary entry made `docs-link/guide.md` fail
     // with `Markdown path component is not a directory ... docs-link` (expected exit 0).
     if (entry?.mode === '120000') {
-      if (visited.has(selectedPath)) {
+      if (activePaths.has(selectedPath)) {
         // Proof: returning on revisit made `first -> second -> first` exit 0 with both cycle
         // members reported as owned (expected exit 1, received 0).
         throw new Error(`${purpose} symlink cycle in ${index.indexPath}: ${selectedPath}`);
       }
-      visited.add(selectedPath);
       const target = symlinkTarget(selectedPath, bytes);
       // Proof: omitting the absolute-target distinction moved `/outside` to the less precise
       // membership-target-absent failure instead of naming the candidate escape.
@@ -234,16 +268,18 @@ function resolveSelectedPath(
           `${purpose} symlink escapes candidate in ${index.indexPath}: ${selectedPath} -> ${target}`,
         );
       }
-      activeSymlink = { path: selectedPath, target };
+      const activeSymlink = { path: selectedPath, target };
+      activePaths.add(selectedPath);
+      activeSymlinks.push(activeSymlink);
       segments.pop();
-      pending.unshift(...target.split('/'));
+      pending.unshift(...target.split('/'), { completedSymlink: selectedPath });
       continue;
     }
     if (entry !== undefined) {
       // Proof: returning the selected file before examining remaining components made both
       // `docs/guide.md/../guide.md` CLIs exit 0 (Markdown link and member-symlink target;
       // both expected exit 1, both received 0).
-      if (pending.length > 0) {
+      if (hasPendingPathComponent(pending)) {
         throw new Error(
           `${purpose} ${purpose === 'membership' ? 'symlink ' : ''}path component is not a directory in ${index.indexPath}: ${selectedPath}`,
         );
@@ -251,6 +287,7 @@ function resolveSelectedPath(
       return selectedPath;
     }
     if (!isCandidateDirectory(selectedPath, candidatePaths)) {
+      const activeSymlink = activeSymlinks.at(-1);
       if (purpose === 'membership' && activeSymlink !== undefined) {
         // Proof: omitting this member boundary changed `missing -> not-selected` into the
         // unrelated `Markdown path absent ... not-selected` diagnostic.
@@ -261,13 +298,6 @@ function resolveSelectedPath(
       return exactCandidatePath(index.indexPath, selectedPath, candidatePaths);
     }
   }
-  const selectedPath = segments.join('/');
-  // Proof: requiring a concrete entry here made contained `docs-link -> docs` fail with
-  // `Markdown path absent ... docs` even though selected descendants make `docs` a directory.
-  if (purpose === 'membership' && isCandidateDirectory(selectedPath, candidatePaths)) {
-    return selectedPath;
-  }
-  return exactCandidatePath(index.indexPath, selectedPath, candidatePaths);
 }
 
 function checkLinks(

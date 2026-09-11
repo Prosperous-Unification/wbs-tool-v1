@@ -24,6 +24,8 @@ const DirectoryIndexMembership = type({
 })
   .onUndeclaredKey('reject')
   .narrow((membership, context) =>
+    // Proof: bypassing this guard made the outside-directory-exclusion production CLI exit 0
+    // and report `docs/guide.md` as owned (expected exit 1, received 0).
     membership.exclusions.every(
       (excluded) => excluded !== membership.prefix && excluded.startsWith(`${membership.prefix}/`),
     )
@@ -65,14 +67,21 @@ export const IndexMetadata = type({
 })
   .onUndeclaredKey('reject')
   .narrow((metadata, context) => {
+    // Proof: bypassing this guard made the duplicate-relationship-selector production CLI
+    // exit 0 with an index report (expected exit 1, received 0).
     if (new Set(metadata.relationshipSelectors).size !== metadata.relationshipSelectors.length) {
       return context.mustBe('unique relationship selectors');
     }
     const sections = metadata.inapplicableSections.map(({ section }) => section);
+    // Proof: bypassing this guard made the duplicate-inapplicable-section production CLI
+    // exit 0 with an index report (expected exit 1, received 0).
     if (new Set(sections).size !== sections.length) {
       return context.mustBe('unique inapplicable sections');
     }
     const relationshipsInapplicable = sections.includes('relationships');
+    // Proof: bypassing this guard made both contradictory production CLIs exit 0: no selector
+    // for applicable relationships, and a selector beside an inapplicability reason
+    // (both expected exit 1, both received 0).
     if ((metadata.relationshipSelectors.length === 0) !== relationshipsInapplicable) {
       return context.mustBe(
         'relationship selectors or one explicit relationships inapplicability reason',

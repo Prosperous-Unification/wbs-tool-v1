@@ -129,3 +129,30 @@ in 301.89 seconds (5m2s Nx duration); Nx used its explicit in-process fallback a
 denied the daemon socket, and no target was skipped. Pinned OpenSpec 1.3.0 strict validation returned
 the change valid with exit 0 and telemetry disabled. Final formatting/diff checks follow this
 evidence append. No pilot files were created, no checkbox changed, and no push was performed.
+
+## Containment Round
+
+Closed the remaining resolver and R5 coverage findings without changing Task 2.4 or a checkbox.
+Symlink reuse is now rejected only while that selected symlink is actively expanding, with internal
+completion markers making finite reuse valid and retaining bounded refusal of real cycles. A
+directory's selected README is queued back through the same resolver, so README symlinks receive
+the same confinement, cycle and exact-byte handling before anchor parsing.
+
+Git history confirmed that the four unproved metadata guards were introduced in Task 2.3's original
+`76ce429a` implementation. Five isolated malformed-metadata CLI cases now cover duplicate
+relationship selectors, duplicate inapplicable sections, both directions of relationship
+selector/inapplicability consistency, and an exclusion outside its directory prefix. Removing each
+guard alone made its production CLI exit 0; exact observations are in `verify.md` and adjacent
+`Proof:` comments.
+
+The two resolver regressions first failed at their intended production assertions. One-at-a-time
+reversions reproduced those failures after GREEN. A nearby audit caught the completion-marker
+helper briefly accepting a trailing separator on a regular file; its existing oracle failed 53/54
+and the helper was narrowed to ignore only internal markers. The post-format focused contracts and
+indexes suites passed 70 tests with zero failures and 539 assertions in 66.45 seconds. Direct
+changed-file ESLint and the solution-style source/spec TypeScript build exited 0. The exact-tree
+uncached full tool-wiki aggregate passed lint, typecheck and all 142 tests with zero failures and
+1,905 assertions in 307.10 seconds (5m7s Nx duration), using Nx's explicit in-process socket
+fallback with no target skipped. Pinned OpenSpec 1.3.0 strict validation returned the change valid
+with exit 0 and telemetry disabled. Final formatting/diff checks follow this evidence append. No
+pilot files were created, no checkbox changed, and no push was performed.

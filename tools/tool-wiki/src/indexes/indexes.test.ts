@@ -326,6 +326,76 @@ describe('index production CLI', () => {
     );
   });
 
+  test('refuses duplicate relationship selectors in index metadata', () => {
+    const repository = createRepository();
+    const malformed = metadata('module.root', []);
+    malformed.relationshipSelectors = ['typescript.public', 'typescript.public'];
+    malformed.inapplicableSections = malformed.inapplicableSections.filter(
+      ({ section }) => section !== 'relationships',
+    );
+    write(repository, 'README.md', indexSource('Root', malformed, []));
+
+    expectRefusal(
+      runCheck(repository, commit(repository, 'duplicate relationship selectors')),
+      'unique relationship selectors',
+    );
+  });
+
+  test('refuses duplicate inapplicable sections in index metadata', () => {
+    const repository = createRepository();
+    const malformed = metadata('module.root', []);
+    malformed.inapplicableSections.push({
+      section: 'checks',
+      reason: 'A duplicate claim cannot define a canonical metadata identity.',
+    });
+    write(repository, 'README.md', indexSource('Root', malformed, []));
+
+    expectRefusal(
+      runCheck(repository, commit(repository, 'duplicate inapplicable sections')),
+      'unique inapplicable sections',
+    );
+  });
+
+  test('requires relationship selectors when relationships are applicable', () => {
+    const repository = createRepository();
+    const malformed = metadata('module.root', []);
+    malformed.inapplicableSections = malformed.inapplicableSections.filter(
+      ({ section }) => section !== 'relationships',
+    );
+    write(repository, 'README.md', indexSource('Root', malformed, []));
+
+    expectRefusal(
+      runCheck(repository, commit(repository, 'missing relationship selectors')),
+      'relationship selectors or one explicit relationships inapplicability reason',
+    );
+  });
+
+  test('refuses relationship selectors when relationships are inapplicable', () => {
+    const repository = createRepository();
+    const malformed = metadata('module.root', []);
+    malformed.relationshipSelectors = ['typescript.public'];
+    write(repository, 'README.md', indexSource('Root', malformed, []));
+
+    expectRefusal(
+      runCheck(repository, commit(repository, 'contradictory relationship selectors')),
+      'relationship selectors or one explicit relationships inapplicability reason',
+    );
+  });
+
+  test('refuses a directory exclusion outside its declared prefix', () => {
+    const repository = createRepository();
+    const malformed = metadata('module.root', [
+      { kind: 'directory-prefix', prefix: 'docs', exclusions: ['other/guide.md'] },
+    ]);
+    write(repository, 'README.md', indexSource('Root', malformed, []));
+    write(repository, 'docs/guide.md', '# Guide\n');
+
+    expectRefusal(
+      runCheck(repository, commit(repository, 'outside directory exclusion')),
+      'directory exclusions below their declared prefix',
+    );
+  });
+
   test('refuses a membership path that escapes its index boundary', () => {
     const repository = createRepository();
     writeFixture(repository);
@@ -1022,6 +1092,49 @@ describe('index production CLI', () => {
     symlinkSync('docs', join(repository, 'docs-link'));
 
     const invocation = runCheck(repository, commit(repository, 'directory component resolution'));
+    expect(invocation.exitCode, outputOf(invocation)).toBe(0);
+  });
+
+  test('permits finite reuse of a directory symlink after its expansion completes', () => {
+    const repository = createRepository();
+    write(
+      repository,
+      'README.md',
+      indexSource(
+        'Root',
+        metadata('module.root', [
+          { kind: 'path', path: 'docs/guide.md' },
+          { kind: 'path', path: 'docs-link' },
+        ]),
+        ['- [Guide](docs-link/../docs-link/guide.md#details)'],
+      ),
+    );
+    write(repository, 'docs/guide.md', '# Guide\n\n## Details\n');
+    symlinkSync('docs', join(repository, 'docs-link'));
+
+    const invocation = runCheck(repository, commit(repository, 'finite symlink reuse'));
+    expect(invocation.exitCode, outputOf(invocation)).toBe(0);
+  });
+
+  test('resolves a directory README symlink before checking its anchor', () => {
+    const repository = createRepository();
+    write(
+      repository,
+      'README.md',
+      indexSource(
+        'Root',
+        metadata('module.root', [
+          { kind: 'path', path: 'docs/README.md' },
+          { kind: 'path', path: 'guide.md' },
+        ]),
+        ['- [Docs](docs/#details)'],
+      ),
+    );
+    write(repository, 'guide.md', '# Guide\n\n## Details\n');
+    mkdirSync(join(repository, 'docs'), { recursive: true });
+    symlinkSync('../guide.md', join(repository, 'docs/README.md'));
+
+    const invocation = runCheck(repository, commit(repository, 'directory README symlink'));
     expect(invocation.exitCode, outputOf(invocation)).toBe(0);
   });
 
