@@ -387,21 +387,25 @@ describe('reviewed radical-modularity pilot through production CLI', () => {
 
   test('refuses an externally selected mapping for a different source revision', () => {
     const candidate = createCandidate();
-    const trust = createExternalTrust(candidate);
-    const mapping = JSON.parse(readFileSync(trust.mappingPath, 'utf8')) as {
+    const mappingPath = join(candidate.repository, 'docs/wiki-policy/modules.json');
+    const mapping = JSON.parse(readFileSync(mappingPath, 'utf8')) as {
       sourceRevision: string;
     };
     mapping.sourceRevision = '0'.repeat(40);
-    write(trust.mappingPath, `${JSON.stringify(mapping)}\n`);
-    const binding = readPilotBinding(trust.bindingPath);
-    binding.pilotModuleMapping.artifact.sha256 = sha256(readFileSync(trust.mappingPath));
-    writePilotBinding(trust.bindingPath, binding);
+    write(mappingPath, `${JSON.stringify(mapping)}\n`);
+    git(candidate.repository, ['add', mappingPath]);
+    git(candidate.repository, ['commit', '--quiet', '--message', 'change mapping source revision']);
+    candidate.revision = git(candidate.repository, ['rev-parse', 'HEAD']);
+    // Build authority, evidence and the external mapping binding from the same committed candidate
+    // so no stale candidate identity can become a second reason for refusal.
+    const trust = createExternalTrust(candidate);
 
     const invocation = lint(candidate, trust);
     const observed = output(invocation);
+    // Proof: removing only the source-revision comparison returned accepted true here after both
+    // mapping copies and every candidate-bound authority field were regenerated; this failed on
+    // `Expected: 1 / Received: 0`.
     expect(invocation.exitCode, observed).toBe(1);
-    // Proof: removing the source comparison failed this assertion on
-    // `Received: "candidate pilot module mapping does not match externally bound identity: ..."`.
     expect(observed).toContain('trusted pilot module mapping source does not match pilot policy');
   }, 120_000);
 

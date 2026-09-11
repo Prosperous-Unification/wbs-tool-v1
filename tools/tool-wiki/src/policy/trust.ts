@@ -569,9 +569,9 @@ export function loadTrustedPolicy(
       ModuleMapping,
       parseJson(mappingArtifact.bytes, 'trusted pilot module mapping JSON'),
     );
-    // Proof: removing this comparison made the production test miss this assertion and fail on
-    // `Expected to contain: "trusted pilot module mapping source does not match pilot policy" /
-    // Received: "candidate pilot module mapping does not match externally bound identity: ..."`.
+    // Proof: removing this comparison made the wrong-source production test return accepted true
+    // and fail on `Expected: 1 / Received: 0` after candidate authority and both mapping copies
+    // were regenerated from the same committed candidate.
     if (mapping.sourceRevision !== policy.pilot.sourceRevision) {
       throw new Error('trusted pilot module mapping source does not match pilot policy');
     }
