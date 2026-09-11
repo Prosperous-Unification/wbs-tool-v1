@@ -1604,6 +1604,34 @@ validate agent-scalable-llm-wiki --strict` — exit 0; change valid.
 
 Task 3.4 remains complete. Task 3.5 and every later task remain untouched.
 
+## Slice 2.4 Astra Fix Round 2
+
+Five production `lint-local observe` negatives now cover the external pilot module-mapping loader
+without changing its behavior: candidate-internal resolution, missing artifact, actually unreadable
+artifact, digest mismatch and source-revision mismatch. The unreadable fixture is mode `000`, its
+oracle requires `EACCES` and rejects `ENOENT`, and `finally` restores mode `600`.
+
+| Deliberate one-at-a-time fault          | Observed production-path failure                                                                                      |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| remove external-location guard          | candidate-owned mapping returned accepted true; `Expected: 1 / Received: 0`                                           |
+| make the missing dependency exist       | observe returned accepted true; `Expected: 1 / Received: 0`; restored fault names `ENOENT`                            |
+| make the unreadable dependency readable | observe returned accepted true; `Expected: 1 / Received: 0`; restored fault names `EACCES`, not `ENOENT`              |
+| remove digest comparison                | wrong digest returned accepted true; `Expected: 1 / Received: 0`                                                      |
+| remove source-revision comparison       | own assertion received the later `candidate pilot module mapping does not match externally bound identity: ...` error |
+
+- New negative selection: 5 pass, 0 fail, 53 assertions in 9.60 seconds.
+- Full pilot file: 15 pass, 0 fail, 216 assertions in 177.96 seconds.
+- Existing trusted-policy file: 47 pass, 0 fail, 1,272 assertions in 88.32 seconds.
+- Uncached lint and forced typecheck: exit 0; cache skipped and no target skipped.
+- Exact uncached configured suite: 294 pass, 0 fail, 3,847 assertions across 15 files in 643.27
+  seconds (10m43s Nx duration); cache skipped and no target skipped.
+- Strict pinned OpenSpec 1.3.0: exit 0, change valid.
+- Repository-wide Nx format check and `git diff --check`: exit 0.
+- `bin/h2puni-gate.sh 1c98e3a3`: unavailable, exit 70 immediately because required heavy-lock
+  path `/home/puni1/.cache` does not exist; no host-gate step ran.
+
+Only Task 2.4 remains complete; no activation or later task changed.
+
 ## Slice 2.4 Astra Fix Round 1
 
 Applicable checks now require extracted Nx target authority; declared prose facts cannot qualify by
