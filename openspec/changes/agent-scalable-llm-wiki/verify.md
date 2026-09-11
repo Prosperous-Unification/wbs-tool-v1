@@ -1604,6 +1604,63 @@ validate agent-scalable-llm-wiki --strict` — exit 0; change valid.
 
 Task 3.4 remains complete. Task 3.5 and every later task remain untouched.
 
+## Slice 3.5 — gate, CI and hook wiring
+
+The literal Nx `tool-wiki:lint` target now runs whole-tree working diagnostics with cache disabled
+and a complete workspace input declaration. Source ESLint moved to the uncached `lint:source`
+target. Every broad lint caller excludes `tool-wiki` from the generic lint target and invokes
+`lint:source` exactly once, while the host gate and CI run trusted committed lint first and the
+whole-tree pre-commit hook runs trusted staged lint. One shared adapter fixes the selection/mode
+pair at each entrypoint and requires the validator, evidence and local/CI trust bindings from the
+calling environment; candidate paths and ordinary mode flags cannot select CI trust.
+
+Production activation remains Task 5.3. Tests use a temporary external binding, policy, authority
+and executable-closure identity beside fixture candidate repositories. No production binding was
+bootstrapped or committed in this slice. The host fixture enters through the real pinned-head lock
+function with a writable isolated lock beside that trust root, so the production dirty-tree
+preflight remains intact.
+
+| Deliberate one-at-a-time fault                                     | Observed production-path failure                                                                                                       |
+| ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| omit wiki lint from the host steps                                 | stale candidate reached Nx and failed with `bun is unable to write files to tempdir: EROFS` instead of naming `obligation.application` |
+| default the trusted executable to candidate source                 | missing-authority case reached `/candidate/tools/tool-wiki/src/cli.ts` instead of naming `TOOL_WIKI_TRUSTED_CLI`                       |
+| default missing evidence into the candidate                        | adapter exited 0 through the fake executable instead of refusing missing `TOOL_WIKI_LINT_EVIDENCE`                                     |
+| default missing staged trust into candidate docs                   | adapter exited 0 (`Expected: not 0`, received 0)                                                                                       |
+| omit the committed CI binding preflight                            | adapter exited 0 (`Expected: not 0`, received 0)                                                                                       |
+| enable Nx cache and narrow inputs to the project root              | config oracle printed `cache: true` and `{projectRoot}/**/*` against the required false/whole-workspace pair                           |
+| remove `tool-wiki` exclusion from host or CI generic lint          | exact-once oracle failed at `Expected to contain: --exclude=tool-wiki`                                                                 |
+| delete CI committed lint or lefthook staged lint                   | config oracle failed at the exact `$GITHUB_SHA` or staged adapter command                                                              |
+| change an enforced application blob after warming the lint fixture | rerun exited 1 with changed `boundary.application` and unmet `obligation.application`                                                  |
+
+The deletion cases remove `src/app.ts` while leaving `README.md` unchanged; both staged and
+committed real adapter paths exit 1 with `membership target absent: src/app.ts`. Working mode sees
+an untracked `src/untracked.ts` and refuses the unindexed whole-tree candidate. The host-gate
+negative changes the enforced application blob and exits specifically from wiki lint with
+`unmetObligationIds:["obligation.application"]` before any Nx command.
+
+- `bun test tools/tool-wiki/src/policy/gate-entrypoints.test.ts` — exit 0; 16 pass, 0 fail, 43
+  assertions in 9.8 seconds.
+- `NX_DAEMON=false bunx nx run tool-wiki:test --skip-nx-cache --output-style=static` — exit 0;
+  332 pass, 0 fail, 4,217 assertions across 17 files in 636.91 seconds (10m37s Nx duration), cache
+  skipped and no target skipped.
+- Focused workflow/static regression (`gate-entrypoints`, corpus workflow, pixels workflow,
+  toolchain pins and devsync poller) — exit 0; 44 pass, 0 fail, 132 assertions.
+- `NX_DAEMON=false bunx nx run tool-wiki:lint:source --skip-nx-cache --output-style=static` and
+  `NX_DAEMON=false bunx nx run tool-wiki:typecheck --skip-nx-cache --output-style=static` — exit 0;
+  both source/spec compilation and source lint passed with cache skipped. Nx could not create its
+  sandbox socket and explicitly ran plugins in-process; no target was skipped.
+- `bash bin/h2puni-gate.test.sh`, `shellcheck -x bin/tool-wiki-lint.sh
+bin/h2puni-gate-steps.sh bin/h2puni-gate.sh`, and `bash -n` over the same scripts — exit 0.
+- The production Nx `tool-wiki:lint` target was not invoked against this worktree: Task 5.3 has not
+  installed its required external trusted executable/binding/evidence, and the target correctly
+  fails closed without them. Its exact command/cache/input contract and all three real adapter
+  routes are covered above with external fixtures.
+- `bin/h2puni-gate.sh HEAD` — unavailable, exit 70 immediately because required heavy-lock path
+  `/home/puni1/.cache` does not exist; no host-gate step ran and the actual host gate is not green.
+
+Task 3.5 is complete. Production trusted activation remains Task 5.3; every later task remains
+untouched.
+
 ## Slice 2.5 Root Knowledge Migration
 
 The versioned root map pins each source section to revision

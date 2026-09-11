@@ -109,7 +109,7 @@ No `verify.md` exists until implementation produces observations.
       observe for enforced work or edits an exemption; the unchanged trusted verifier must
       refuse. Separately reviewed compatible activations retain old/new identities and
       reselect affected checks. Never let candidate flags choose CI trust.
-- [ ] 3.5 Wire `tool-wiki:lint` into `bin/h2puni-gate.sh`, CI and whole-tree lefthook with
+- [x] 3.5 Wire `tool-wiki:lint` into `bin/h2puni-gate.sh`, CI and whole-tree lefthook with
       explicit working/staged/committed modes, complete inputs and caching disabled. Test
       `gate-entrypoints.test.ts` executes real command paths in fixture candidates, including
       deletion with an unchanged reverse link and working untracked content. Negative:
