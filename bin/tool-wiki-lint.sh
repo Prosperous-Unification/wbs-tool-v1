@@ -65,37 +65,54 @@ case "$trusted_cli" in
     exit 78
     ;;
 esac
-validator_identity=$(git hash-object --no-filters "$trusted_cli")
 evidence=$(read_trusted_path "$trusted_root/evidence-path" 'evidence path')
-bun_path=$(command -v bun)
-trusted_path=$(dirname -- "$bun_path"):/usr/bin:/bin
-validator_dir=$(dirname -- "$trusted_cli")
-if [[ $(git hash-object --no-filters "$trusted_cli") != "$validator_identity" ]]; then
-  printf 'tool-wiki lint: validator changed between trust selection and launch\n' >&2
+snapshotter=$(read_trusted_path "$trusted_root/snapshotter-path" 'snapshotter path')
+if ! snapshotter=$(realpath -- "$snapshotter") || [[ ! -f "$snapshotter" ]] || [[ ! -r "$snapshotter" ]]; then
+  printf 'tool-wiki lint: snapshotter must resolve to a readable regular file\n' >&2
   exit 78
 fi
+case "$snapshotter" in
+  "$candidate_root"/*)
+    printf 'tool-wiki lint: snapshotter must be outside the candidate repository\n' >&2
+    exit 78
+    ;;
+esac
+bun_path=$(command -v bun)
+trusted_path=$(dirname -- "$bun_path"):/usr/bin:/bin
 
 case "$selection" in
   working)
     binding=$(read_trusted_path "$trusted_root/local-binding-path" 'local binding path')
-    exec env -i PATH="$trusted_path" "$bun_path" run --cwd "$validator_dir" --no-env-file \
-      "$trusted_cli" lint-local observe working "$candidate_root" "$revision" "$binding" "$evidence"
+    route=(lint-local observe working "$candidate_root" "$revision" "$binding" "$evidence")
     ;;
   staged)
     binding=$(read_trusted_path "$trusted_root/local-binding-path" 'local binding path')
-    exec env -i PATH="$trusted_path" "$bun_path" run --cwd "$validator_dir" --no-env-file \
-      "$trusted_cli" lint-local ratchet staged "$candidate_root" "$revision" "$binding" "$evidence"
+    route=(lint-local ratchet staged "$candidate_root" "$revision" "$binding" "$evidence")
     ;;
   committed)
     binding=$(read_trusted_path "$trusted_root/ci-binding-path" 'CI binding path')
-    # Proof: gate-entrypoints.test.ts removes the externally selected CI binding and
-    # observes this production adapter fail before the validator can inspect a candidate.
-    exec env -i PATH="$trusted_path" TOOL_WIKI_CI_TRUSTED_BINDING="$binding" \
-      "$bun_path" run --cwd "$validator_dir" --no-env-file "$trusted_cli" \
-      lint-ci committed "$candidate_root" "$revision" "$evidence"
+    route=(lint-ci committed "$candidate_root" "$revision" "$evidence")
     ;;
   *)
     printf 'tool-wiki lint: selection must be working, staged or committed\n' >&2
     exit 64
     ;;
 esac
+
+snapshot_dir=$(mktemp -d)
+snapshot_cli="$snapshot_dir/validator.mjs"
+trap 'rm -rf -- "$snapshot_dir"' EXIT
+env -i PATH="$trusted_path" "$bun_path" run --cwd "$(dirname -- "$snapshotter")" --no-env-file \
+  "$snapshotter" "$binding" "$trusted_cli" "$candidate_root" "$snapshot_cli"
+
+# Proof: gate-entrypoints.test.ts swaps the reviewed validator path to candidate code after the
+# snapshot command returns; this immutable bundle retains the reviewed output and writes no marker.
+if env -i PATH="$trusted_path" TOOL_WIKI_CI_TRUSTED_BINDING="$binding" \
+  "$bun_path" run --cwd "$snapshot_dir" --no-env-file "$snapshot_cli" "${route[@]}"; then
+  status=0
+else
+  status=$?
+fi
+rm -rf -- "$snapshot_dir"
+trap - EXIT
+exit "$status"

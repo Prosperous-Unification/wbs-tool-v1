@@ -95,6 +95,15 @@ const TrustedPolicyRecord = type({
 export type TrustedPolicy = typeof TrustedPolicyRecord.infer;
 
 const ArtifactReference = type({ path: 'string>=1', sha256: Sha256 }).onUndeclaredKey('reject');
+interface BundledArtifactManifest {
+  artifactManifest: string;
+}
+
+function isBundledArtifactManifest(
+  runtimeValidator: readonly string[] | BundledArtifactManifest,
+): runtimeValidator is BundledArtifactManifest {
+  return !Array.isArray(runtimeValidator);
+}
 const Predecessor = type({
   bindingId: OpaqueId,
   bindingIdentity: Sha256,
@@ -488,7 +497,7 @@ export function resolveValidatorArtifactPaths(entryPaths: readonly string[]): st
 export function loadTrustedPolicy(
   bindingInputPath: string,
   candidateRepository: string,
-  runtimeEntryPaths?: readonly string[],
+  runtimeValidator?: readonly string[] | BundledArtifactManifest,
   requiredScope?: TrustedBinding['trustScope'],
 ): LoadedTrust {
   const candidateRoot = realpathSync(candidateRepository);
@@ -514,30 +523,61 @@ export function loadTrustedPolicy(
     throw new Error('trusted policy digest does not match binding');
   }
   const runtimeArtifacts =
-    runtimeEntryPaths === undefined
+    runtimeValidator === undefined || isBundledArtifactManifest(runtimeValidator)
       ? undefined
-      : resolveValidatorArtifactPaths(runtimeEntryPaths).map((path) =>
+      : resolveValidatorArtifactPaths(runtimeValidator).map((path) =>
           readStableArtifact(path, 'validator runtime artifact'),
         );
   for (const artifact of runtimeArtifacts ?? [])
     assertExternal(candidateRoot, artifact, 'validator');
-  const boundArtifacts = binding.validator.artifacts.map((reference) => {
-    const artifact = readStableArtifact(
-      resolveReference(bindingArtifact.path, reference.path),
-      'bound validator artifact',
-    );
-    assertExternal(candidateRoot, artifact, 'bound validator');
-    if (hashBytes(artifact.bytes) !== reference.sha256) {
-      throw new Error(`validator artifact digest does not match binding: ${artifact.path}`);
-    }
-    return artifact;
-  });
-  const boundIdentity = validatorIdentity(boundArtifacts);
+  const bundledReferences =
+    runtimeValidator !== undefined && isBundledArtifactManifest(runtimeValidator)
+      ? parseOrThrow(
+          ArtifactReference.array(),
+          parseJson(
+            new TextEncoder().encode(runtimeValidator.artifactManifest),
+            'bundled validator artifact manifest',
+          ),
+        )
+      : undefined;
+  const boundArtifacts =
+    bundledReferences === undefined
+      ? binding.validator.artifacts.map((reference) => {
+          const artifact = readStableArtifact(
+            resolveReference(bindingArtifact.path, reference.path),
+            'bound validator artifact',
+          );
+          assertExternal(candidateRoot, artifact, 'bound validator');
+          if (hashBytes(artifact.bytes) !== reference.sha256) {
+            throw new Error(`validator artifact digest does not match binding: ${artifact.path}`);
+          }
+          return artifact;
+        })
+      : undefined;
+  const boundIdentity =
+    boundArtifacts === undefined
+      ? hashCanonical(
+          binding.validator.artifacts
+            .map(({ path, sha256 }) => ({ path, sha256 }))
+            .sort((left, right) => compareText(left.path, right.path)),
+        )
+      : validatorIdentity(boundArtifacts);
   const runtimeIdentity =
     runtimeArtifacts === undefined ? undefined : validatorIdentity(runtimeArtifacts);
+  const bundledIdentity =
+    bundledReferences === undefined
+      ? undefined
+      : hashCanonical(
+          bundledReferences
+            .map(({ path, sha256 }) => ({ path, sha256 }))
+            .sort((left, right) => compareText(left.path, right.path)),
+        );
   // Proof: removing this identity comparison let a binding that omitted trust.ts reach the
   // policy engine; the production report then refused only obligation.application instead.
-  if (runtimeIdentity !== undefined && runtimeIdentity !== boundIdentity) {
+  if (
+    (runtimeIdentity ?? bundledIdentity) !== undefined &&
+    (runtimeIdentity ?? bundledIdentity) !== boundIdentity
+  ) {
     throw new Error('trusted validator artifacts do not match the executable implementation');
   }
   const policy = parseOrThrow(
@@ -1413,7 +1453,7 @@ export interface TrustedLintRequest {
   mode?: LintMode;
   bindingPath: string;
   evidencePath: string;
-  runtimeEntryPaths: readonly string[];
+  runtimeEntryPaths: readonly string[] | { artifactManifest: string };
   trustProvenance: TrustedLintReport['trustProvenance'];
   requiredScope?: TrustedBinding['trustScope'];
 }
@@ -1610,7 +1650,10 @@ function writeLintReport(report: TrustedLintReport): void {
 }
 
 /** Runs the local/operator trust adapter without elevating its provenance to CI. */
-export function writeLocalLintCommand(argv: string[], runtimeEntryPaths: string[]): void {
+export function writeLocalLintCommand(
+  argv: string[],
+  runtimeEntryPaths: string[] | { artifactManifest: string },
+): void {
   const [, modeInput, kind, repository, revision, bindingPath, evidencePath] = argv;
   writeLintReport(
     lintTrustedCandidate({
@@ -1626,7 +1669,10 @@ export function writeLocalLintCommand(argv: string[], runtimeEntryPaths: string[
 }
 
 /** Runs CI only with the binding its caller preselected outside candidate input. */
-export function writeCiLintCommand(argv: string[], runtimeEntryPaths: string[]): void {
+export function writeCiLintCommand(
+  argv: string[],
+  runtimeEntryPaths: string[] | { artifactManifest: string },
+): void {
   const [, kind, repository, revision, evidencePath] = argv;
   const bindingPath = process.env['TOOL_WIKI_CI_TRUSTED_BINDING'];
   if (bindingPath === undefined || bindingPath.length === 0) {

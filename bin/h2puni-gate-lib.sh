@@ -85,20 +85,47 @@ gate_with_pinned_head() {
     pinned=$2
     shift 2
     original_commit=$(git -C "$repo" rev-parse HEAD)
-    original_branch=
-    if branch=$(git -C "$repo" symbolic-ref --quiet --short HEAD); then
-      original_branch=$branch
+    original_ref=
+    if branch_ref=$(git -C "$repo" symbolic-ref --quiet HEAD); then
+      original_ref=$branch_ref
     fi
+    restore_saved_detached() {
+      git -C "$repo" checkout --detach --quiet "$original_commit" || return 1
+      if git -C "$repo" symbolic-ref --quiet HEAD >/dev/null; then return 1; fi
+      [[ $(git -C "$repo" rev-parse HEAD) == "$original_commit" ]]
+    }
     restore_rejected_checkout() {
       status=$?
       trap - EXIT
       if [[ $status -ne 0 ]]; then
-        if [[ -n $original_branch ]]; then
-          if ! git -C "$repo" checkout --quiet "$original_branch"; then
-            printf "h2puni gate: failed to restore pre-gate checkout %s at %s\n" "$original_branch" "$original_commit" >&2
+        if [[ -n $original_ref ]]; then
+          current_ref_commit=$(git -C "$repo" rev-parse --verify --quiet "${original_ref}^{commit}") || current_ref_commit=
+          if [[ $current_ref_commit != "$original_commit" ]]; then
+            if ! restore_saved_detached; then
+              printf "h2puni gate: failed to preserve saved commit %s after original branch moved during gate: %s\n" "$original_commit" "$original_ref" >&2
+              exit 74
+            fi
+            # Proof: h2puni-gate.test.sh moves the original branch during the production gate;
+            # recovery leaves its new ref untouched, restores the saved commit detached, and exits 74.
+            if [[ -z $current_ref_commit ]]; then
+              printf "h2puni gate: failed to restore pre-gate checkout because original branch is missing; saved commit restored detached: %s at %s\n" "$original_ref" "$original_commit" >&2
+            else
+              printf "h2puni gate: original branch moved during gate; saved commit restored detached: %s was %s, now %s\n" "$original_ref" "$original_commit" "$current_ref_commit" >&2
+            fi
             exit 74
           fi
-        elif ! git -C "$repo" checkout --detach --quiet "$original_commit"; then
+          if ! restore_saved_detached ||
+            ! git -C "$repo" symbolic-ref HEAD "$original_ref" ||
+            [[ $(git -C "$repo" symbolic-ref --quiet HEAD) != "$original_ref" ]] ||
+            [[ $(git -C "$repo" rev-parse HEAD) != "$original_commit" ]]; then
+            if ! restore_saved_detached; then
+              printf "h2puni gate: failed to preserve saved commit %s after checkout restore failure: %s\n" "$original_commit" "$original_ref" >&2
+              exit 74
+            fi
+            printf "h2puni gate: failed to restore pre-gate checkout %s at %s; saved commit restored detached\n" "$original_ref" "$original_commit" >&2
+            exit 74
+          fi
+        elif ! restore_saved_detached; then
           printf "h2puni gate: failed to restore pre-gate checkout detached at %s\n" "$original_commit" >&2
           exit 74
         fi

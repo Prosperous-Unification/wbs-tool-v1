@@ -55,10 +55,17 @@ function fixture(): {
     cliPath,
     "process.stdout.write(`${JSON.stringify({ argv: process.argv.slice(2), binding: process.env['TOOL_WIKI_CI_TRUSTED_BINDING'] })}\\n`);\n",
   );
-  write(bindingPath, '{}\n');
+  write(
+    bindingPath,
+    `${JSON.stringify({ validator: { artifacts: [{ path: cliPath, sha256: sha256(readFileSync(cliPath)) }] } })}\n`,
+  );
   write(evidencePath, '{}\n');
   write(join(activationRoot, 'active-v1'), 'tool-wiki-active-v1\n');
   write(join(activationRoot, 'validator-path'), `${cliPath}\n`);
+  write(
+    join(activationRoot, 'snapshotter-path'),
+    `${join(workspace, 'tools', 'tool-wiki', 'src', 'policy', 'snapshot-validator.ts')}\n`,
+  );
   write(join(activationRoot, 'local-binding-path'), `${bindingPath}\n`);
   write(join(activationRoot, 'ci-binding-path'), `${bindingPath}\n`);
   write(join(activationRoot, 'evidence-path'), `${evidencePath}\n`);
@@ -319,6 +326,10 @@ function realFixture(): RealFixture {
   );
   write(join(trust, 'active-v1'), 'tool-wiki-active-v1\n');
   write(join(trust, 'validator-path'), `${realpathSync(trustedCliPath)}\n`);
+  write(
+    join(trust, 'snapshotter-path'),
+    `${join(workspace, 'tools', 'tool-wiki', 'src', 'policy', 'snapshot-validator.ts')}\n`,
+  );
   write(join(trust, 'local-binding-path'), `${bindingPath}\n`);
   write(join(trust, 'ci-binding-path'), `${bindingPath}\n`);
   write(join(trust, 'evidence-path'), `${evidencePath}\n`);
@@ -509,6 +520,72 @@ describe('tool-wiki production entrypoint adapter', () => {
 
     expect(invocation.exitCode).not.toBe(0);
     expect(streamText(invocation.stderr, 'adapter stderr')).toContain('validator must be outside');
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  test('validator execution uses its complete snapshot after the reviewed original is swapped', () => {
+    const paths = fixture();
+    const marker = join(paths.directory, 'swapped-validator-ran');
+    const candidateCli = join(paths.repository, 'candidate-cli.ts');
+    const wrapperDirectory = join(paths.directory, 'bun-wrapper');
+    const wrapperPath = join(wrapperDirectory, 'bun');
+    const swapMarker = join(paths.directory, 'snapshot-finished');
+    write(candidateCli, `await Bun.write(${JSON.stringify(marker)}, 'ran\\n');\n`);
+    write(
+      wrapperPath,
+      `#!/usr/bin/env bash
+set -euo pipefail
+real_bun=${JSON.stringify(realpathSync(Bun.which('bun') ?? ''))}
+if [[ "$*" == *snapshot-validator.ts* ]]; then
+  "$real_bun" "$@"
+  status=$?
+  mv ${JSON.stringify(paths.cliPath)} ${JSON.stringify(`${paths.cliPath}.reviewed`)}
+  ln -s ${JSON.stringify(candidateCli)} ${JSON.stringify(paths.cliPath)}
+  printf ready > ${JSON.stringify(swapMarker)}
+  exit "$status"
+fi
+if [[ ! -e ${JSON.stringify(swapMarker)} ]]; then
+  mv ${JSON.stringify(paths.cliPath)} ${JSON.stringify(`${paths.cliPath}.reviewed`)}
+  ln -s ${JSON.stringify(candidateCli)} ${JSON.stringify(paths.cliPath)}
+fi
+exec "$real_bun" "$@"
+`,
+    );
+    chmodSync(wrapperPath, 0o755);
+
+    const invocation = runAdapter('committed', paths, {
+      PATH: `${wrapperDirectory}:${process.env['PATH'] ?? ''}`,
+    });
+
+    expect(invocation.exitCode, streamText(invocation.stderr, 'adapter stderr')).toBe(0);
+    expect(existsSync(marker)).toBe(false);
+    expect(existsSync(swapMarker)).toBe(true);
+    const output = JSON.parse(streamText(invocation.stdout, 'adapter stdout')) as {
+      argv: string[];
+    };
+    expect(output.argv.slice(0, 2)).toEqual(['lint-ci', 'committed']);
+  });
+
+  test('the snapshot refuses a binding that omits an executed validator dependency', () => {
+    const paths = fixture();
+    const marker = join(paths.directory, 'omitted-dependency-ran');
+    const dependency = join(dirname(paths.cliPath), 'dependency.ts');
+    write(dependency, `await Bun.write(${JSON.stringify(marker)}, 'ran\\n');\n`);
+    write(
+      paths.cliPath,
+      `import './dependency';\nprocess.stdout.write(JSON.stringify({ argv: process.argv.slice(2) }));\n`,
+    );
+    write(
+      paths.bindingPath,
+      `${JSON.stringify({ validator: { artifacts: [{ path: paths.cliPath, sha256: sha256(readFileSync(paths.cliPath)) }] } })}\n`,
+    );
+
+    const invocation = runAdapter('committed', paths);
+
+    expect(invocation.exitCode).not.toBe(0);
+    expect(streamText(invocation.stderr, 'adapter stderr')).toContain(
+      'binding artifacts do not match the complete validator closure',
+    );
     expect(existsSync(marker)).toBe(false);
   });
 

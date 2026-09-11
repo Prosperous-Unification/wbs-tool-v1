@@ -228,7 +228,12 @@ function writeReviewProvenance(argv: string[]): void {
   process.stdout.write(`${JSON.stringify(validation)}\n`);
 }
 
-function validatorEntryPaths(): string[] {
+declare const __TOOL_WIKI_BUNDLED_ARTIFACTS__: string;
+
+function validatorEntryPaths(): string[] | { artifactManifest: string } {
+  if (typeof __TOOL_WIKI_BUNDLED_ARTIFACTS__ === 'string') {
+    return { artifactManifest: __TOOL_WIKI_BUNDLED_ARTIFACTS__ };
+  }
   return [join(import.meta.dir, 'cli.ts'), join(import.meta.dir, 'policy', 'trust.ts')];
 }
 

@@ -211,7 +211,29 @@ else
 fi
 expect_equal "$sha_b" "$(git -C "$repo" rev-parse HEAD)" 'a rejected gate restores detached commit'
 
-# 9. Restore is required state recovery, so losing its ref must replace the candidate failure.
+# 9. A branch may move independently while the gate runs. Recovery must not overwrite that
+# newer ref or silently restore different bytes: it leaves the exact saved commit detached and
+# reports that the original symbolic state could not be reconstructed.
+git -C "$repo" checkout -q main
+status=0
+run_gate "$repo" "$lock" "$sha_a" bash -c 'git update-ref refs/heads/main "$1"; exit 1' \
+  gate-move "$sha_a" 2>"$scratch/ref-move-failure" || status=$?
+expect_status 74 "$status" 'a concurrently moved original branch is a loud restore failure'
+expect_equal "$sha_a" "$(git -C "$repo" rev-parse refs/heads/main)" 'restore does not overwrite the concurrently moved branch'
+expect_equal "$sha_b" "$(git -C "$repo" rev-parse HEAD)" 'restore preserves the exact saved commit after a branch move'
+if git -C "$repo" symbolic-ref -q HEAD >/dev/null; then
+  fail 'a moved branch left the checkout attached to different bytes'
+else
+  pass 'a moved branch leaves the saved commit recoverable in detached state'
+fi
+if grep -q 'original branch moved during gate' "$scratch/ref-move-failure"; then
+  pass 'concurrent ref movement names the failed symbolic restore'
+else
+  fail 'concurrent ref movement did not name the failed symbolic restore'
+fi
+
+# 10. Restore is required state recovery, so losing its ref must replace the candidate failure.
+git -C "$repo" update-ref refs/heads/main "$sha_b"
 git -C "$repo" checkout -q main
 status=0
 run_gate "$repo" "$lock" "$sha_a" bash -c 'git branch -D main >/dev/null; exit 1' \
