@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { encodeOptimizedResult } from '@wbs/contracts/solver/optimized-result';
 import type { ScheduleInput } from '@wbs/domain/canonical-schedule-input';
 import { afterEach, describe, expect, it } from 'bun:test';
 import { eq } from 'drizzle-orm';
@@ -57,17 +58,6 @@ const FEASIBLE_RESPONSE = `${JSON.stringify({
     movement: { value: 0, stageValue: 0, bound: 0, status: 'optimal' },
   },
 })}\n`;
-const INCOMPLETE_RESPONSE = `${JSON.stringify({
-  wireVersion: 1,
-  status: 'feasible',
-  offsets: { 'w-1\u0000step-dev': 0 },
-  objectiveValues: {
-    makespan: { value: 96, stageValue: 96, bound: 96, status: 'optimal' },
-    priority: { value: 0, stageValue: 0, bound: 0, status: 'feasible' },
-    movement: { value: 0, stageValue: null, bound: null, status: 'unknown' },
-  },
-})}\n`;
-
 const dirs: string[] = [];
 
 function stream(text: string): ReadableStream<Uint8Array> {
@@ -877,7 +867,7 @@ describe('OptimizationCoordinator read', () => {
       'blue',
       () => ({
         pid: 100 + calls.length,
-        stdout: stream(INCOMPLETE_RESPONSE),
+        stdout: stream(FEASIBLE_RESPONSE),
         stderr: stream(''),
         exited: Promise.resolve(0),
         verdict: () => undefined,
@@ -888,6 +878,32 @@ describe('OptimizationCoordinator read', () => {
 
     expect(instance.read({ projectId: 'p-1', objective: 'pri', input: INPUT })).toBeNull();
     await instance.drain();
+    const pair = readOptimizedPair(db, {
+      projectId: 'p-1',
+      inputHash: scheduleInputHash(INPUT),
+      contractVersion: CONTRACT,
+      budgetMs: BUDGET,
+    });
+    if (pair.pri.kind !== 'ok') throw new Error('broken fixture: Pri did not settle ready');
+    db.update(optimizedScheduleCache)
+      .set({
+        resultJson: JSON.stringify(
+          encodeOptimizedResult({
+            ...pair.pri.result,
+            objectiveValues: {
+              ...pair.pri.result.objectiveValues,
+              movement: {
+                ...pair.pri.result.objectiveValues.movement,
+                stageValue: null,
+                bound: null,
+                status: 'unknown',
+              },
+            },
+          }),
+        ),
+      })
+      .where(eq(optimizedScheduleCache.objective, 'pri'))
+      .run();
     db.delete(optimizedScheduleCache)
       .where(eq(optimizedScheduleCache.objective, 'time'))
       .run();
