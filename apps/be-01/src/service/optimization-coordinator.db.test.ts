@@ -904,9 +904,7 @@ describe('OptimizationCoordinator read', () => {
       })
       .where(eq(optimizedScheduleCache.objective, 'pri'))
       .run();
-    db.delete(optimizedScheduleCache)
-      .where(eq(optimizedScheduleCache.objective, 'time'))
-      .run();
+    db.delete(optimizedScheduleCache).where(eq(optimizedScheduleCache.objective, 'time')).run();
     const raw = openDatabase(path);
     try {
       raw.run(
@@ -917,7 +915,8 @@ describe('OptimizationCoordinator read', () => {
     }
 
     expect(
-      instance.readPlan({ projectId: 'p-1', objective: 'pri', input: INPUT, enabled: true }).variants,
+      instance.readPlan({ projectId: 'p-1', objective: 'pri', input: INPUT, enabled: true })
+        .variants,
     ).toEqual({
       pri: { state: 'ready', proof: 'incomplete' },
       time: { state: 'idle' },
