@@ -1603,3 +1603,41 @@ validate agent-scalable-llm-wiki --strict` — exit 0; change valid.
   heavy-lock path `/home/puni1/.cache` does not exist; no host-gate step ran.
 
 Task 3.4 remains complete. Task 3.5 and every later task remain untouched.
+
+## Slice 3.4 Review Fix Round 5
+
+Compatible activation now compares every referenced, schema-decoded audit risk stratum by semantic
+strength. `sampleRateBps` must stay level or rise; `disagreementTriggerBps` must stay level or fall.
+The comparison map is exhaustive over the decoded `AuditStratum` settings, so an unchanged stratum
+ID cannot conceal a weakening and a future enforcement setting cannot enter the schema without a
+typechecked compatibility direction.
+
+The threshold negative places four review obligations in `risk.fixture` and disputes one. The
+predecessor's 2,500-basis-point trigger expands fresh review to all four and refuses the supplied
+evidence. Changing only the successor trigger to 10,000 reduces fresh work to the disputed
+obligation, and that successor passes its own audit and production `lint-ci` certification.
+Compatible activation now rejects it. A separate production activation negative covers a reduced
+sample rate; inverse-direction controls prove stronger settings remain compatible.
+
+| Deliberate one-at-a-time fault                                | Observed production-path failure                                                                                                                                               |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| accept a higher disagreement trigger for the retained stratum | one dispute among four required one fresh review instead of four, production `lint-ci` certified the successor, and activation returned compatible; `Expected: 1, Received: 0` |
+| accept a lower sample rate for the retained stratum           | the successor changed `sampleRateBps` from 10,000 to 2,500 under the same `risk.fixture` ID and activation returned compatible; `Expected: 1, Received: 0`                     |
+
+Each fault was first observed through the production activation command, then restored. The
+threshold case also asserts the exact downstream audit fresh-review sets and certified lint report,
+so the activation failure cannot be satisfied by an independently invalid successor.
+
+- `bun test --preload ../test/scratch/preload.ts src/policy/trusted-policy.test.ts` from
+  `tools/tool-wiki` — exit 0; 46 pass, 0 fail, 1,148 assertions in 79.84 seconds.
+- `NX_DAEMON=false bunx nx run-many -t lint typecheck -p tool-wiki --skip-nx-cache
+--output-style=static` — exit 0; cache skipped and no target skipped.
+- `bun test --preload ../test/scratch/preload.ts` from `tools/tool-wiki` — exit 0; 278 pass, 0
+  fail, 3,507 assertions across 14 files in 464.07 seconds.
+- `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate
+agent-scalable-llm-wiki --strict` — exit 0; change valid.
+- `bunx nx format:check --all` and `git diff --check` — exit 0.
+- `bin/h2puni-gate.sh HEAD` — unavailable, exit 70 immediately because required heavy-lock path
+  `/home/puni1/.cache` does not exist; no host-gate step ran and the host gate is not green.
+
+Task 3.4 remains complete. Task 3.5 and every later task remain untouched.

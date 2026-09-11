@@ -16,6 +16,7 @@ import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 
 import { hashCanonical } from '../evidence/content-manifest';
+import { evaluateAudit } from '../review/audit';
 import { resolveValidatorArtifactPaths } from './trust';
 
 const cliPath = join(import.meta.dir, '..', 'cli.ts');
@@ -206,10 +207,22 @@ function checkReceipt(checkId: string, identity: string): object {
   };
 }
 
-function auditReview(reviewId: string, fixture: CandidateFixture, identity: string): object {
-  const invocationId = `invocation.${reviewId}`;
+interface AuditReviewFixtureOptions {
+  instanceId?: string;
+  reviewRound?: number;
+  informedImpact?: 'yes' | 'partial' | 'no';
+}
+
+function auditReview(
+  obligationId: string,
+  fixture: CandidateFixture,
+  identity: string,
+  options: AuditReviewFixtureOptions = {},
+): object {
+  const instanceId = options.instanceId ?? obligationId;
+  const invocationId = `invocation.${instanceId}`;
   const subject = {
-    subjectId: `subject.${reviewId}`,
+    subjectId: `subject.${obligationId}`,
     kind: 'project',
     path: 'src',
     contentIdentity: identity,
@@ -231,8 +244,8 @@ function auditReview(reviewId: string, fixture: CandidateFixture, identity: stri
   };
   const startedAt = '2026-09-11T10:00:00.000Z';
   const endedAt = '2026-09-11T10:00:01.000Z';
-  const coldResponse = `cold ${reviewId}\n`;
-  const informedResponse = `informed ${reviewId}\n`;
+  const coldResponse = `cold ${instanceId}\n`;
+  const informedResponse = `informed ${instanceId}\n`;
   const cold = {
     sequence: 1,
     judgments: { purpose: 'yes', relationships: 'yes', impact: 'partial' },
@@ -243,7 +256,7 @@ function auditReview(reviewId: string, fixture: CandidateFixture, identity: stri
     receipt: {
       schemaVersion: 1,
       receiptKind: 'invocation',
-      receiptId: `receipt.${reviewId}.${name}`,
+      receiptId: `receipt.${instanceId}.${name}`,
       invocationId,
       startedAt,
       endedAt,
@@ -259,10 +272,10 @@ function auditReview(reviewId: string, fixture: CandidateFixture, identity: stri
       {
         schemaVersion: 1,
         receiptKind: 'elapsed',
-        receiptId: `elapsed.${reviewId}.${name}`,
+        receiptId: `elapsed.${instanceId}.${name}`,
         trialId: 'trial.fixture',
         outcomeId: 'outcome.fixture',
-        attemptId: `attempt.${reviewId}.${name}`,
+        attemptId: `attempt.${instanceId}.${name}`,
         phase: 'review',
         startedAt,
         endedAt,
@@ -274,19 +287,19 @@ function auditReview(reviewId: string, fixture: CandidateFixture, identity: stri
   const coldReceipt = phase('cold', coldResponse, 11);
   const informedReceipt = phase('informed', informedResponse, 14);
   return {
-    reviewId: `audit.${reviewId}`,
-    obligationId: reviewId,
+    reviewId: `audit.${instanceId}`,
+    obligationId,
     sourceBase: fixture.revision,
     candidateIdentity: identity,
     generation: 1,
-    reviewRound: 1,
+    reviewRound: options.reviewRound ?? 1,
     recordedAt: '2026-09-11T10:01:00.000Z',
     evidence: {
       schemaVersion: 1,
       receipt: {
         schemaVersion: 1,
         receiptKind: 'review',
-        receiptId: `receipt.${reviewId}`,
+        receiptId: `receipt.${instanceId}`,
         invocationId,
         executor,
         suppliedContextIds: [protocolBlob, identity],
@@ -308,7 +321,11 @@ function auditReview(reviewId: string, fixture: CandidateFixture, identity: stri
         },
         informed: {
           sequence: 3,
-          judgments: { purpose: 'yes', relationships: 'yes', impact: 'yes' },
+          judgments: {
+            purpose: 'yes',
+            relationships: 'yes',
+            impact: options.informedImpact ?? 'yes',
+          },
           observedReadIds: [identity],
         },
       },
@@ -1614,6 +1631,186 @@ describe('trusted policy production CLI', () => {
     expect(activationOutput).toContain(
       'compatible activation cannot change authority audit obligation: review.application',
     );
+  });
+
+  test('compatible activation cannot weaken settings for a retained audit risk stratum', () => {
+    const fixture = createFixture('enforce');
+    satisfyApplication(fixture);
+    interface AuditStratumFixture {
+      stratumId: string;
+      sampleRateBps: number;
+      disagreementTriggerBps: number;
+    }
+    const previousAuthority = JSON.parse(readFileSync(fixture.authorityPath, 'utf8')) as {
+      audit: { strata: AuditStratumFixture[] };
+    };
+    previousAuthority.audit.strata[0].disagreementTriggerBps = 2500;
+    write(fixture.authorityPath, `${JSON.stringify(previousAuthority)}\n`);
+    rebindAuthority(fixture);
+    const nextBindingPath = writeActivation(fixture, () => undefined, {
+      addedBoundaryIds: [],
+      changedBoundaryIds: [],
+      addedObligationIds: [],
+      removedExemptionIds: [],
+      validatorChanged: false,
+      authorityChanged: true,
+    });
+    const nextAuthorityPath = join(fixture.trustDirectory, 'authority-next.json');
+    const identity = candidateIdentityAt(fixture.repository, fixture.revision);
+    const nextAuthority = JSON.parse(readFileSync(fixture.authorityPath, 'utf8')) as {
+      audit: {
+        strata: AuditStratumFixture[];
+        reviews: object[];
+        adjudications: object[];
+      };
+    };
+    const conflictingReview = auditReview('review.application', fixture, identity, {
+      instanceId: 'review.application.conflict',
+      informedImpact: 'partial',
+    });
+    const freshReview = auditReview('review.application', fixture, identity, {
+      instanceId: 'review.application.fresh',
+      reviewRound: 2,
+    });
+    nextAuthority.audit.reviews.push(conflictingReview, freshReview);
+    nextAuthority.audit.adjudications.push({
+      adjudicationId: 'adjudication.review.application',
+      obligationId: 'review.application',
+      candidateIdentity: identity,
+      generation: 1,
+      reviewRound: 1,
+      reviewIds: ['audit.review.application', 'audit.review.application.conflict'],
+      freshReviewIds: ['audit.review.application.fresh'],
+      sourceEvidence: [
+        {
+          evidenceId: 'source.adjudication.review.application',
+          subjectId: 'subject.review.application',
+          contentIdentity: identity,
+          candidateIdentity: identity,
+          generation: 1,
+        },
+      ],
+      checkEvidence: [
+        {
+          evidenceId: 'check.adjudication.review.application',
+          checkId: 'check.application',
+          candidateIdentity: identity,
+          generation: 1,
+          status: 'passed',
+        },
+      ],
+    });
+
+    const previousThresholdAudit = evaluateAudit(nextAuthority.audit);
+    expect(previousThresholdAudit.accepted).toBe(false);
+    expect(previousThresholdAudit.freshReviewObligationIds).toEqual([
+      'review.application',
+      'review.exemptions',
+      'review.policy',
+      'review.validator',
+    ]);
+
+    nextAuthority.audit.strata[0].disagreementTriggerBps = 10000;
+    const nextThresholdAudit = evaluateAudit(nextAuthority.audit);
+    expect(nextThresholdAudit.accepted).toBe(true);
+    expect(nextThresholdAudit.freshReviewObligationIds).toEqual(['review.application']);
+    write(nextAuthorityPath, `${JSON.stringify(nextAuthority)}\n`);
+    const nextBinding = JSON.parse(readFileSync(nextBindingPath, 'utf8')) as {
+      authority: { artifact: { path: string; sha256: string } };
+    };
+    nextBinding.authority.artifact = {
+      path: nextAuthorityPath,
+      sha256: sha256(readFileSync(nextAuthorityPath)),
+    };
+    write(nextBindingPath, `${JSON.stringify(nextBinding)}\n`);
+
+    const downstream = runCi(fixture, nextBindingPath);
+    const downstreamOutput = outputOf(downstream);
+    expect(downstream.exitCode, downstreamOutput).toBe(0);
+    expect(JSON.parse(pipeText(downstream.stdout, 'lint stdout'))).toMatchObject({
+      accepted: true,
+      certified: true,
+    });
+
+    const activation = runActivation(fixture, nextBindingPath);
+    const activationOutput = outputOf(activation);
+    expect(activation.exitCode, activationOutput).toBe(1);
+    expect(activationOutput).toContain(
+      'compatible activation cannot weaken authority audit stratum disagreementTriggerBps: risk.fixture',
+    );
+  });
+
+  test('compatible activation cannot reduce sampling for a retained audit risk stratum', () => {
+    const fixture = createFixture('enforce');
+    const nextBindingPath = writeActivation(fixture, () => undefined, {
+      addedBoundaryIds: [],
+      changedBoundaryIds: [],
+      addedObligationIds: [],
+      removedExemptionIds: [],
+      validatorChanged: false,
+      authorityChanged: true,
+    });
+    const nextAuthorityPath = join(fixture.trustDirectory, 'authority-next.json');
+    const nextAuthority = JSON.parse(readFileSync(fixture.authorityPath, 'utf8')) as {
+      audit: { strata: { sampleRateBps: number }[] };
+    };
+    nextAuthority.audit.strata[0].sampleRateBps = 2500;
+    write(nextAuthorityPath, `${JSON.stringify(nextAuthority)}\n`);
+    const nextBinding = JSON.parse(readFileSync(nextBindingPath, 'utf8')) as {
+      authority: { artifact: { path: string; sha256: string } };
+    };
+    nextBinding.authority.artifact = {
+      path: nextAuthorityPath,
+      sha256: sha256(readFileSync(nextAuthorityPath)),
+    };
+    write(nextBindingPath, `${JSON.stringify(nextBinding)}\n`);
+
+    const activation = runActivation(fixture, nextBindingPath);
+    const activationOutput = outputOf(activation);
+    expect(activation.exitCode, activationOutput).toBe(1);
+    expect(activationOutput).toContain(
+      'compatible activation cannot weaken authority audit stratum sampleRateBps: risk.fixture',
+    );
+  });
+
+  test('compatible activation permits stronger retained audit risk stratum settings', () => {
+    for (const change of [
+      { field: 'sampleRateBps', previous: 2500, next: 10000 },
+      { field: 'disagreementTriggerBps', previous: 10000, next: 2500 },
+    ] as const) {
+      const fixture = createFixture('enforce');
+      const previousAuthority = JSON.parse(readFileSync(fixture.authorityPath, 'utf8')) as {
+        audit: {
+          strata: { sampleRateBps: number; disagreementTriggerBps: number }[];
+        };
+      };
+      previousAuthority.audit.strata[0][change.field] = change.previous;
+      write(fixture.authorityPath, `${JSON.stringify(previousAuthority)}\n`);
+      rebindAuthority(fixture);
+      const nextBindingPath = writeActivation(fixture, () => undefined, {
+        addedBoundaryIds: [],
+        changedBoundaryIds: [],
+        addedObligationIds: [],
+        removedExemptionIds: [],
+        validatorChanged: false,
+        authorityChanged: true,
+      });
+      const nextAuthorityPath = join(fixture.trustDirectory, 'authority-next.json');
+      const nextAuthority = structuredClone(previousAuthority);
+      nextAuthority.audit.strata[0][change.field] = change.next;
+      write(nextAuthorityPath, `${JSON.stringify(nextAuthority)}\n`);
+      const nextBinding = JSON.parse(readFileSync(nextBindingPath, 'utf8')) as {
+        authority: { artifact: { path: string; sha256: string } };
+      };
+      nextBinding.authority.artifact = {
+        path: nextAuthorityPath,
+        sha256: sha256(readFileSync(nextAuthorityPath)),
+      };
+      write(nextBindingPath, `${JSON.stringify(nextBinding)}\n`);
+
+      const activation = runActivation(fixture, nextBindingPath);
+      expect(activation.exitCode, `${change.field}: ${outputOf(activation)}`).toBe(0);
+    }
   });
 
   test('compatible authority activation deterministically reselects its checks and reviews', () => {

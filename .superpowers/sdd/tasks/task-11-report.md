@@ -249,3 +249,42 @@ comment containing the observed failure.
   host-gate step ran.
 
 Task 3.4 remains complete. Task 3.5 and all later task checkboxes remain untouched.
+
+## Astra fix round 5
+
+Compatible activation now compares every referenced, strictly decoded audit risk stratum by
+semantic enforcement strength. A successor's sample rate may stay level or rise, while its
+disagreement trigger may stay level or fall. Reusing a stratum ID can no longer hide either weaker
+setting. The strength map is exhaustive over the decoded `AuditStratum` settings, so a future schema
+field requires an explicit compatibility direction before typecheck can pass.
+
+The disagreement negative uses four obligations in one stratum and one disputed obligation. At the
+predecessor's 2,500-basis-point trigger, the audit requires fresh review of all four obligations and
+refuses the evidence. At a weakened 10,000-basis-point trigger, the same evidence requires only the
+disputed obligation's fresh review and the successor certifies through production `lint-ci`.
+Activation now refuses that transition. An independent production activation negative covers a
+sample-rate reduction, and positive controls retain compatible strengthening in both directions.
+
+### Fix-round-5 failure proof
+
+Each absent strength rule was first observed through the production activation route and restored
+with an adjacent `Proof:` comment.
+
+| Deliberate one-at-a-time fault | Observed production-path failure |
+| --- | --- |
+| accept a higher disagreement trigger for the retained stratum | one dispute among four required one fresh review instead of four, production `lint-ci` certified the successor, and activation returned compatible; `Expected: 1, Received: 0` |
+| accept a lower sample rate for the retained stratum | the successor changed `sampleRateBps` from 10,000 to 2,500 under the same `risk.fixture` ID and activation returned compatible; `Expected: 1, Received: 0` |
+
+### Fix-round-5 verification
+
+- Focused trusted-policy production CLI: 46 pass, 0 fail, 1,148 assertions in 79.84 seconds.
+- Uncached tool-wiki lint and forced source/spec typecheck: exit 0; cache skipped and no target
+  skipped.
+- Exact configured full tool-wiki suite: 278 pass, 0 fail, 3,507 assertions across 14 files in
+  464.07 seconds.
+- Strict pinned OpenSpec 1.3.0 validation: `Change 'agent-scalable-llm-wiki' is valid`.
+- Whole-workspace `bunx nx format:check --all` and `git diff --check`: exit 0.
+- `bin/h2puni-gate.sh HEAD` — unavailable, exit 70 immediately because required heavy-lock path
+  `/home/puni1/.cache` does not exist; no host-gate step ran and the host gate is not green.
+
+Task 3.4 remains complete. Task 3.5 and every later task remain untouched.

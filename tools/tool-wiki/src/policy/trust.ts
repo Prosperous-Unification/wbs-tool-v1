@@ -25,7 +25,12 @@ import {
   readCandidate,
 } from '../inventory/read-candidate';
 import { extractRelationships } from '../relationships';
-import { AuditEvaluation, type AuditReport, evaluateAudit } from '../review/audit';
+import {
+  AuditEvaluation,
+  type AuditReport,
+  type AuditStratum,
+  evaluateAudit,
+} from '../review/audit';
 import {
   decodeObligationRequest,
   evaluateObligations,
@@ -583,6 +588,35 @@ function assertRetainsAuthorityIds(
   }
 }
 
+type AuditStratumSetting = Exclude<keyof AuditStratum, 'stratumId'>;
+type AuditStratumStrengthPredicate = (previous: AuditStratum, next: AuditStratum) => boolean;
+
+const auditStratumRetainsStrength = {
+  // Proof: accepting a lower successor sample rate made the production activation test return
+  // exit 0 instead of 1 while risk.fixture retained the same stratum ID.
+  sampleRateBps: (previous, next) => next.sampleRateBps >= previous.sampleRateBps,
+  // Proof: accepting a higher successor disagreement trigger made one dispute among four require
+  // one fresh review instead of four; production lint-ci certified it and activation returned 0
+  // instead of 1.
+  disagreementTriggerBps: (previous, next) =>
+    next.disagreementTriggerBps <= previous.disagreementTriggerBps,
+} satisfies Record<AuditStratumSetting, AuditStratumStrengthPredicate>;
+
+function assertRetainsAuditStratumStrength(previous: LoadedTrust, next: LoadedTrust): void {
+  for (const previousStratum of previous.authority.audit.strata) {
+    for (const nextStratum of next.authority.audit.strata) {
+      if (nextStratum.stratumId !== previousStratum.stratumId) continue;
+      for (const [setting, retainsStrength] of Object.entries(auditStratumRetainsStrength)) {
+        if (!retainsStrength(previousStratum, nextStratum)) {
+          throw new Error(
+            `compatible activation cannot weaken authority audit stratum ${setting}: ${previousStratum.stratumId}`,
+          );
+        }
+      }
+    }
+  }
+}
+
 function validateCompatibleAuthority(previous: LoadedTrust, next: LoadedTrust): void {
   const previousRules = new Map(
     previous.authority.obligationRequest.policy.behaviorRules.map((rule) => [
@@ -659,6 +693,7 @@ function validateCompatibleAuthority(previous: LoadedTrust, next: LoadedTrust): 
       );
     }
   }
+  assertRetainsAuditStratumStrength(previous, next);
 }
 
 function authorityCheckIds(trust: LoadedTrust): string[] {
