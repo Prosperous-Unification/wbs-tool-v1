@@ -1,5 +1,6 @@
 import { expect, type Locator, type Page, test } from '@playwright/test';
 
+import { cardIsOnTopAt } from './card-paint';
 import { createProject } from './create-project';
 
 /**
@@ -14,16 +15,16 @@ import { createProject } from './create-project';
  * browser's question three times over. jsdom lays nothing out, performs no hit
  * test, and has no pointer to walk.
  *
- * The answer is one of two schemes, and which one a column takes follows from
- * its card:
+ * The answer since `cards-open-diagonally` is one rule for all of them — a card
+ * stands past its cell and past its row — and what still differs per column is
+ * what a card does with the pointer:
  *
- * - A card nothing can be clicked in is **pointer-transparent** and can stand
- *   where it likes: the hit test goes straight through it to the trigger below.
- *   Start, Types, Tags and the folded step columns are these.
+ * - A card nothing can be clicked in is **pointer-transparent**, so even where
+ *   it hangs over a row the hit test goes straight through it to the trigger
+ *   below. Start, Types, Tags and the folded step columns are these.
  * - A card that takes the pointer — the links card's whole surface, every line
- *   of the dependency card, the notes preview because it scrolls — has to be
- *   **out of its column**: beside the cell (`opensSideways`), or pulled clear of
- *   the lane its triggers stand in (`clearsMarkerLane`).
+ *   of the dependency card, the notes preview because it scrolls — is reachable
+ *   only because it is out of its own column, and swallows whatever it covers.
  *
  * Measured here per column rather than argued once, because the property is a
  * conjunction of a card's placement, its `pointer-events` and the shape of its
@@ -212,6 +213,23 @@ const middleOf = (box: Box): { x: number; y: number } => ({
   y: box.y + box.height / 2,
 });
 
+/**
+ * Brings the pointer to a cell **down its own column**, from the header above it.
+ *
+ * A diagonal from the corner of the window crosses other columns on the way,
+ * and since 2026-09-10 that matters: the notes preview opens *beside* its cell
+ * and takes the pointer (it scrolls), so a path that clips a `≡` marker on the
+ * way leaves a 640px card standing over the column this walk is about, and the
+ * cell it lands on never sees the pointer at all. Found here as `Depends on: 020
+ * opened no card`.
+ */
+async function pointDownTheColumn(page: Page, at: { x: number; y: number }): Promise<void> {
+  const header = await page.locator('thead tr').first().boundingBox();
+  if (header === null) throw new Error('the table has no header to start from');
+  await page.mouse.move(at.x, header.y + header.height / 2);
+  await page.mouse.move(at.x, at.y, { steps: 6 });
+}
+
 const LANES: readonly Lane[] = [
   {
     what: 'Start',
@@ -289,7 +307,7 @@ test.describe('every cell card leaves its own column clear', () => {
       await expect(page.locator('[role="tooltip"]')).toHaveCount(0);
 
       const from = middleOf(await boxOf(lane.triggerOf(page, first), `${lane.what} ${first}`));
-      await page.mouse.move(from.x, from.y, { steps: 6 });
+      await pointDownTheColumn(page, from);
       expect(await cardIn(lane, page, first), `${lane.what}: ${first} opened no card`).toBe(1);
 
       // The precondition, before the claim: a card that stops above the next
@@ -345,6 +363,116 @@ test.describe('every cell card leaves its own column clear', () => {
         await cardIn(lane, page, second),
         `${lane.what}: the pointer reached ${second} and ${second} did not answer`,
       ).toBe(1);
+    }
+  });
+
+  test('an informative card stands beside its cell, not over its column', async ({ page }) => {
+    // Dany, 2026-09-10: _"make sure that same scheme works for all cells hover
+    // ons? even the informative ones? I still want to see what is up and down
+    // from it for context; like, just push them to the side (left or right) ...
+    // depending on where horizontally it is"_.
+    //
+    // The four cards that only inform — Start, Types, Tags, a folded step — are
+    // `pointer-events: none`, so the walk above already worked: the pointer
+    // reaches the next row's trigger straight through them. What it does not
+    // do is let the reader **see** that row, which is the thing a plan is read
+    // down. So they open beside their cell now, and this is the claim that
+    // says so.
+    //
+    // Asked with {@link cardIsOnTopAt}, because a plain hit test cannot: these
+    // cards are transparent, so `elementFromPoint` answers the cell underneath
+    // whether the card covers it or not (R5 #27).
+    //
+    // Proof, twice. `opensSideways` taken off all three components: `Start: the
+    // card stands over 020's own cell · Expected: not "the card"`. And the side
+    // fixed at `left: '100%'`, which is what it was before the room decided:
+    // `Start: the card runs off the right of the frame · Expected: <= 1385 ·
+    // Received: 1637`, a card 252px past the edge of the plan. Both watched in
+    // Chromium, 2026-09-10.
+    for (const lane of LANES.filter((each) => each.what !== 'the notes preview')) {
+      const [first, second] = lane.rows;
+      await page.mouse.move(0, 0);
+      await expect(page.locator('[role="tooltip"]')).toHaveCount(0);
+
+      const from = middleOf(await boxOf(lane.triggerOf(page, first), `${lane.what} ${first}`));
+      await pointDownTheColumn(page, from);
+      expect(await cardIn(lane, page, first), `${lane.what}: ${first} opened no card`).toBe(1);
+
+      // The cell below in the same column, and the cell above where there is
+      // one: both are context the reader keeps.
+      const below = middleOf(await boxOf(lane.cellOf(page, second), `${lane.what} ${second}`));
+      expect(
+        await cardIsOnTopAt(page, below),
+        `${lane.what}: the card stands over ${second}'s own cell`,
+      ).not.toBe('the card');
+
+      // **And past the row as well as past the cell**, which is the other half
+      // of the diagonal. Dany, 2026-09-10: _"all display diagonally? like to
+      // make both the on-hover element available for vertical scroll of mouse &
+      // the whole row seen for context on all columns of the row"_.
+      //
+      // Proof: the row offset dropped — `top: 0` instead of the measured
+      // `pastTheRow.below`, which is where these cards hung before — and this
+      // failed on `Start: the card covers its own row · Expected: >= 174.1875 ·
+      // Received: 150`. Watched in Chromium, 2026-09-10.
+      const rowBox = await boxOf(rowOf(page, first), `${lane.what}'s row`);
+      const open = await boxOf(
+        lane.cellOf(page, first).locator('[role="tooltip"]'),
+        `${lane.what}'s open card`,
+      );
+      expect(open.y, `${lane.what}: the card covers its own row`).toBeGreaterThanOrEqual(
+        rowBox.y + rowBox.height - 1,
+      );
+
+      // And it is inside the frame it opens in, which is what choosing the side
+      // by the room is for: the Start column stands within a card's width of
+      // the right edge, so its card opens **left**.
+      const card = await boxOf(
+        lane.cellOf(page, first).locator('[role="tooltip"]'),
+        `${lane.what}'s open card`,
+      );
+      const frame = await boxOf(page.locator('[data-table-frame]'), 'the scrolling frame');
+      expect(card.x, `${lane.what}: the card starts left of the frame`).toBeGreaterThanOrEqual(
+        frame.x - 1,
+      );
+      expect(
+        card.x + card.width,
+        `${lane.what}: the card runs off the right of the frame`,
+      ).toBeLessThanOrEqual(frame.x + frame.width + 1);
+    }
+  });
+
+  test('every card goes when the pointer moves off its cell', async ({ page }) => {
+    // Dany, 2026-09-10: _"same goes for other cells - make sure that it goes
+    // away at the right time"_. A card held for the length of a reach must
+    // still be gone the moment the reader has plainly moved on, or the plan is
+    // read through somebody else's card.
+    //
+    // Every lane, because the hold lives in the store and the cancel is the
+    // card's own: a column whose card forgot to report its arrivals would keep
+    // the last one up, and a column that never held would lose it under a hand.
+    //
+    // Proof: `holdHovered`'s timer emptied — the hold started and nothing
+    // cleared when it ran out — and this failed on `the notes preview: the card
+    // outstayed the pointer · expect(locator).toHaveCount(0)`. Watched in
+    // Chromium, 2026-09-10.
+    for (const lane of LANES) {
+      const [first] = lane.rows;
+      await page.mouse.move(0, 0);
+      await expect(page.locator('[role="tooltip"]')).toHaveCount(0);
+
+      const from = middleOf(await boxOf(lane.triggerOf(page, first), `${lane.what} ${first}`));
+      await pointDownTheColumn(page, from);
+      expect(await cardIn(lane, page, first), `${lane.what}: ${first} opened no card`).toBe(1);
+
+      // The top-left corner of the window: not the cell, not the card, and not
+      // another cardable cell either — so nothing but the dismissal can close
+      // it.
+      await page.mouse.move(4, 4, { steps: 10 });
+      await expect(
+        page.locator('[role="tooltip"]'),
+        `${lane.what}: the card outstayed the pointer`,
+      ).toHaveCount(0);
     }
   });
 

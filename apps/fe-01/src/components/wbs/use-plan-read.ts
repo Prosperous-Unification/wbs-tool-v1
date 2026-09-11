@@ -254,6 +254,7 @@ export function usePlanReadState({ projectId }: { projectId: string }) {
    * the retry button's, an edit's, or a peer's change event.
    */
   const [treeMayBeStale, setTreeMayBeStale] = useState(false);
+  const [treeFailureText, setTreeFailureText] = useState<string | null>(null);
 
   const [busy, setBusy] = useState(false);
 
@@ -360,6 +361,8 @@ export function usePlanReadState({ projectId }: { projectId: string }) {
     setSteps,
     treeMayBeStale,
     setTreeMayBeStale,
+    treeFailureText,
+    setTreeFailureText,
     busy,
     setBusy,
     connected,
@@ -406,6 +409,7 @@ export function usePlanRead({
   activeProject,
   api,
   setTreeMayBeStale,
+  setTreeFailureText,
   setMarkers,
   setTeams,
   setTags,
@@ -436,6 +440,7 @@ export function usePlanRead({
   activeProject: React.RefObject<string>;
   api: ProjectApi;
   setTreeMayBeStale: React.Dispatch<React.SetStateAction<boolean>>;
+  setTreeFailureText: React.Dispatch<React.SetStateAction<string | null>>;
   setMarkers: React.Dispatch<React.SetStateAction<readonly CalendarMarkerView[]>>;
   setTeams: React.Dispatch<React.SetStateAction<TeamView[]>>;
   setTags: React.Dispatch<React.SetStateAction<TagView[]>>;
@@ -534,6 +539,12 @@ export function usePlanRead({
       applied: Record<'tree' | 'steps' | 'directory' | 'markers', number>,
     ) => {
       setTreeMayBeStale(snapshot.staleResources.length > 0);
+      // Proof: suppressing this failure text left the peer-refetch window on
+      // “the last refresh failed”, expected the named optimizer-unavailable
+      // message while the previously installed plan stayed on screen.
+      setTreeFailureText(
+        snapshot.tree.failure === null ? null : refusalSentence(snapshot.tree.failure.cause),
+      );
       // Publish the first table with its column vocabulary. The tree anchor
       // alone would expose editors which the initial steps read then remounts.
       // Proof: removing this gate exposed a textarea instead of null in
@@ -636,6 +647,7 @@ export function usePlanRead({
       setTags,
       setTeamCapacities,
       setTeams,
+      setTreeFailureText,
       setTreeMayBeStale,
       setWorkItemTypes,
       setWorkItems,
@@ -691,7 +703,9 @@ export function usePlanRead({
     void owner.initialize().then((outcome) => {
       if (!isCurrent() || outcome.status !== 'failed') return;
       for (const failure of outcome.failures)
-        pushToast({ kind: 'error', text: failureText(failure.cause, 'load_failed') });
+        // Proof: using the bare failure code here left the unavailable-plan
+        // fixture with no named toast and an unhandled refusal-code branch.
+        pushToast({ kind: 'error', text: refusalSentence(failure.cause) });
     });
     return () => {
       if (ownerRef.current === owner) ownerRef.current = null;

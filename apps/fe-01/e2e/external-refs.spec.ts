@@ -795,17 +795,28 @@ test.describe('the ref column, in a browser', () => {
     expect(Math.round(cardBox.x), 'the card does not open beside the cell').toBeGreaterThanOrEqual(
       Math.round(cellBox.x + cellBox.width) - 1,
     );
-    expect(cardBox.y, 'the card is not aligned with its own row').toBeLessThanOrEqual(
-      cellBox.y + 1,
+    // **And past the row**, which is the other half of the diagonal every card
+    // in this table takes since 2026-09-10: the row stays readable while the
+    // card is open, so the links can be read against the work item's own dates.
+    // It was level with the row until then.
+    const rowBox = await page
+      .locator('tbody tr')
+      .filter({ has: page.getByLabel('Name of 010') })
+      .boundingBox();
+    if (rowBox === null) throw new Error('the row has no box');
+    expect(cardBox.y, 'the card covers its own row').toBeGreaterThanOrEqual(
+      rowBox.y + rowBox.height - 1,
     );
-    // **Right first, at the cell's own height, and only then down** — which is
-    // both what a hand does and the one path with nothing in between. The card
-    // is taller than the cell, so the region *below* the cell and *left* of the
-    // card belongs to neither: a single diagonal to the card's vertical middle
-    // cuts that corner, and the first version of this test did exactly that and
-    // failed on `the card closed on the way over to it`.
+    // **Diagonally, in steps, which is the hand this placement asks for.** The
+    // card is past the cell *and* past the row now, so there is no path from one
+    // to the other that stays inside the cell — every sample between them lands
+    // on somebody else's cell, and what keeps the card alive is the reach
+    // ({@link REACH_FOR_THE_CARD_MS}), not the geometry.
+    //
+    // Proof: the reach's hold replaced by the immediate clear it had until
+    // 2026-09-10 — this failed on `the card closed on the way over to it`.
     await page.mouse.move(cellBox.x + cellBox.width / 2, cellBox.y + cellBox.height / 2);
-    await page.mouse.move(cardBox.x + 2, cellBox.y + cellBox.height / 2, { steps: 8 });
+    await page.mouse.move(cardBox.x + 4, cardBox.y + 4, { steps: 10 });
     await expect(card, 'the card closed on the way over to it').toBeVisible();
     await page.mouse.move(cardBox.x + 2, cardBox.y + cardBox.height / 2, { steps: 8 });
     await expect(card, 'the card closed while moving down inside it').toBeVisible();

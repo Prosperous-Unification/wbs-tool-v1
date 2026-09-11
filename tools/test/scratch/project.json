@@ -1,0 +1,41 @@
+{
+  "name": "tool-test-scratch",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "tools/test/scratch",
+  "projectType": "library",
+  "tags": ["scope:infra", "type:scripts", "runtime:bun", "ring:adapter"],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx tsc --build --force tools/test/scratch/tsconfig.lib.json"
+      },
+      "outputs": ["{workspaceRoot}/dist/tools/test/scratch"]
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun test --preload ./preload.ts",
+        "cwd": "tools/test/scratch"
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx eslint tools/test/scratch"
+      }
+    },
+    "lint:fast": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx eslint tools/test/scratch --cache --cache-location .nx/eslintcache-tool-test-scratch"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx tsc --build --force tools/test/scratch/tsconfig.json"
+      }
+    }
+  }
+}

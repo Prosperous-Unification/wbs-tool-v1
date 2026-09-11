@@ -1,14 +1,14 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { scratchSync } from '@wbs/tool-test-scratch';
 import { describe, expect, test } from 'bun:test';
 
 import { readErrorAnnotations, safeGateTail, selectErrorAnnotations } from './ci-gate-annotations';
 
 describe('CI gate annotations', () => {
   test('the production helper never emits a second command after a bare carriage return', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'wbs-ci-annotations-'));
+    const dir = scratchSync('wbs-ci-annotations-');
     const log = join(dir, 'nx-gate.log');
     const valid = '::error file=valid.test.ts,line=2::real failure';
     const located = '::error file=injected.test.ts,line=1::failure';
@@ -55,7 +55,7 @@ describe('CI gate annotations', () => {
   });
 
   test('the production helper reports a rejected tab without exposing it', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'wbs-ci-annotations-'));
+    const dir = scratchSync('wbs-ci-annotations-');
     const log = join(dir, 'nx-gate.log');
     const rejected = '::error file=raw-tab.test.ts,line=1::secret-before\tsecret-after';
     const accepted = '::error file=accepted.test.ts,line=2::before%0A%0D%25%09! after';

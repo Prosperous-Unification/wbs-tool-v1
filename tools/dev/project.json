@@ -8,7 +8,7 @@
     "test": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "bun test",
+        "command": "bun test --preload ../test/scratch/preload.ts",
         "cwd": "tools/dev"
       }
     },

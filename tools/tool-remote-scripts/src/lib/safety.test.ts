@@ -1,15 +1,7 @@
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { scratchSync } from '@wbs/tool-test-scratch';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { writeAtomic } from './atomic';
@@ -18,7 +10,7 @@ import { readPhase, writePhase } from './phase';
 
 let dir: string;
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'wbs-safety-'));
+  dir = scratchSync('wbs-safety-');
 });
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true });

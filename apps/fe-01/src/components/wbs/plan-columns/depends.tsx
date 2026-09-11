@@ -754,6 +754,9 @@ export function createDependsColumn({ live }: { live: PlanLive }) {
               depLights={live.current.depLights}
               rowId={row.original.id}
               onPointEntry={(pillId) => {
+                // On the cell or on the card: either way a hold started by an
+                // earlier `onPointerOutside` is cancelled.
+                live.current.cellCards.cancelHold();
                 live.current.depLights.updateHover((current) =>
                   current?.rowId === row.original.id && current.pillId === pillId
                     ? current
@@ -764,9 +767,13 @@ export function createDependsColumn({ live }: { live: PlanLive }) {
                 live.current.depLights.updateHover((current) =>
                   current?.rowId === row.original.id ? null : current,
                 );
-                live.current.cellCards.updateHovered((current) =>
-                  current === dependsCell ? null : current,
-                );
+                // **Held rather than cleared**, since the card became diagonal
+                // — past this cell and past this row — so the pointer going to
+                // one of its lines is outside every region the bridge knows for
+                // the length of the trip. See {@link REACH_FOR_THE_CARD_MS};
+                // arriving on the card cancels it, because the card is inside
+                // this cell's own subtree.
+                live.current.cellCards.holdHovered(dependsCell);
               }}
             />
           )}

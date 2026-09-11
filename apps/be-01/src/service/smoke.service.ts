@@ -1,5 +1,1 @@
-export class SmokeService {
-  echo(text: string): string {
-    return text;
-  }
-}
+export * from '@wbs/core/service/smoke.service';

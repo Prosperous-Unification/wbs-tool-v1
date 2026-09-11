@@ -2,6 +2,7 @@ import { openConnection } from '../repository/db';
 import { SavedPlanRepository } from '../repository/saved-plan';
 import { SavedPlanCaptureRepository } from '../repository/saved-plan-capture';
 import { nodeDigest } from '../runtime/bun-runtime';
+import { fastScheduler } from '../service/optimizer-wiring';
 import { SavedPlanService } from '../service/saved-plan.service';
 
 /**
@@ -31,6 +32,7 @@ export function testSavedPlanService(): SavedPlanService {
     digest: nodeDigest,
     capture: new SavedPlanCaptureRepository({ openConnection: refuse }),
     plans: new SavedPlanRepository({ openConnection: refuse }),
+    scheduler: fastScheduler,
     newId: refuse,
     now: refuse,
   });
@@ -53,6 +55,7 @@ export function savedPlanServiceOn(
     digest: nodeDigest,
     capture: new SavedPlanCaptureRepository({ openConnection: () => openConnection(path) }),
     plans: new SavedPlanRepository({ openConnection: () => openConnection(path) }),
+    scheduler: fastScheduler,
     newId:
       parts.newId ??
       ((): string => {

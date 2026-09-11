@@ -1228,10 +1228,10 @@ test.describe('the table, measured by a browser', () => {
       if (table === null) throw new Error('the plan has no row to click');
       await page.mouse.click(table.x + 4, table.y + table.height / 2);
 
-      // Proof: the `pointerdown` listener in `close-on-outside-pointer.ts`
-      // removed, this failed on `Filters stayed open · Expected: 0 · Received:
-      // 1` — the panel still over the plan after a click on the table. Watched
-      // in Chromium, 2026-08-31.
+      // Proof: the listener effect restored to its former one-shot ref read,
+      // Export mounted after that read and this failed on `Export stayed open ·
+      // Expected: 0 · Received: 1`. Watched on the full Chromium production
+      // path, 2026-09-09.
       await expect(page.locator('details[open]'), `${panel} stayed open`).toHaveCount(0);
     }
   });

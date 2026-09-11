@@ -75,7 +75,7 @@ Expected:
 ## Tests / lint / typecheck
 
 ```bash
-bin/h2puni-gate.sh                              # full gate + canonical host lock
+bin/h2puni-gate.sh <sha>                        # full gate; <sha> is checked out under that lock
 bun run format                                  # prettier --write
 ```
 

@@ -20,13 +20,16 @@ import { StepMeasureRepository } from '../repository/step-measure';
 import { StepProgressRepository } from '../repository/step-progress';
 import { UserRepository } from '../repository/user';
 import { SubtreeRepository, WorkItemRepository } from '../repository/work-item';
+import { AvailableWorkItemService as WorkItemService } from '../testing/available-work-item-service';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
 import { inMemoryCapacity } from '../testing/capacity-fixture';
+import { testClock } from '../testing/clock-fixture';
 import { personAdded } from '../testing/directory-fixture';
 import { inMemoryPriorityBands } from '../testing/priority-band-fixture';
 import { workItemRow } from '../testing/work-item-fixture';
+import { fastScheduler } from './optimizer-wiring';
 import { ProjectService } from './project.service';
-import { type UndoOutcome, WorkItemService } from './work-item.service';
+import type { UndoOutcome } from './work-item.service';
 
 /**
  * Conditional undo, end to end, **against real SQLite**.
@@ -109,8 +112,14 @@ beforeEach(async () => {
     { at: 2, by: strangerId },
   );
 
-  projects = new ProjectService({ projects: projectStore, broadcast: recordingBroadcaster() });
+  projects = new ProjectService({
+    clock: testClock,
+    projects: projectStore,
+    broadcast: recordingBroadcaster(),
+  });
   workItems = new WorkItemService({
+    scheduler: fastScheduler,
+    clock: testClock,
     workItems: workItemStore,
     projects: projectStore,
     estimates: estimateStore,

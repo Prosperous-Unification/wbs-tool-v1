@@ -224,6 +224,7 @@ type BareRefusalCode =
   | 'bad_start_date'
   | 'bad_pert_weights'
   | 'optimizer_unavailable'
+  | 'engine_unavailable'
   | 'snapshot_busy'
   | 'invalid_client'
   | 'rate_limited'

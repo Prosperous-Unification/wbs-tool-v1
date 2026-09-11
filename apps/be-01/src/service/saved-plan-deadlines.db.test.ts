@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { Schedule } from '@wbs/domain';
+import type { ScheduleInput } from '@wbs/domain/canonical-schedule-input';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { ActualRepository } from '../repository/actual';
@@ -23,10 +24,16 @@ import { StepMeasureRepository } from '../repository/step-measure';
 import { StepProgressRepository } from '../repository/step-progress';
 import { UserRepository } from '../repository/user';
 import { SubtreeRepository, WorkItemRepository } from '../repository/work-item';
+import { AvailableWorkItemService as WorkItemService } from '../testing/available-work-item-service';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
+import { testClock } from '../testing/clock-fixture';
 import { projectRow } from '../testing/project-fixture';
-import { captureAndSchedulePlan, schedulePlanInput } from './saved-plan-schedule';
-import { WorkItemService } from './work-item.service';
+import { fastScheduler } from './optimizer-wiring';
+import {
+  captureAndSchedulePlan,
+  scheduleInputOfCaptured,
+  schedulePlanInput,
+} from './saved-plan-schedule';
 
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 
@@ -165,11 +172,13 @@ describe('a captured plan and its deadlines', () => {
    * solver cache in would compare a captured Fast plan against a published
    * optimized one and the disagreement would be about the engine.
    */
-  const liveProjection = async () => {
+  const liveService = () => {
     const live = openConnection(path);
     opened.push(live);
     const { db } = live;
     return new WorkItemService({
+      scheduler: fastScheduler,
+      clock: testClock,
       workItems: new WorkItemRepository(db, OPEN),
       projects: new ProjectRepository(db, OPEN),
       estimates: new EstimateRepository(db, OPEN),
@@ -183,8 +192,28 @@ describe('a captured plan and its deadlines', () => {
       subtrees: new SubtreeRepository(db, OPEN),
       journal: new CommandJournalRepository(db, OPEN),
       broadcast: recordingBroadcaster(),
-    }).tree('p1');
+    });
   };
+  const liveProjection = () => liveService().tree('p1');
+
+  const sevenFieldsOf = (input: ScheduleInput) => ({
+    rows: input.rows.map(({ id, parentId, position, frozenNumber, priority }) => ({
+      id,
+      parentId,
+      position,
+      frozenNumber,
+      priority,
+    })),
+    edges: input.edges.map(({ predecessorId, successorId }) => ({
+      predecessorId,
+      successorId,
+    })),
+    slices: input.slices,
+    notBefore: [...input.notBefore],
+    poolSizes: [...input.poolSizes],
+    reach: input.reach,
+    deadlines: [...input.deadlines],
+  });
 
   /** What "the same placements" means: the key, whose work it is, and when. */
   const placementsOf = (
@@ -258,6 +287,45 @@ describe('a captured plan and its deadlines', () => {
       sliceOf(without, 'wi-2').earliestStart,
     );
     expect(sliceOf(without, 'wi-2').lateBy).toBeNull();
+  });
+
+  it('derives the same literal seven fields from the captured and live paths', async () => {
+    const reads = await capture().readPlanInput('p1');
+    const live = await liveService().scheduleInput('p1');
+    expect(reads).not.toBeNull();
+    expect(live).not.toBeNull();
+    const expected: ReturnType<typeof sevenFieldsOf> = {
+      rows: [
+        { id: 'wi-1', parentId: null, position: 10, frozenNumber: null, priority: null },
+        { id: 'wi-2', parentId: null, position: 20, frozenNumber: null, priority: null },
+      ],
+      edges: [],
+      slices: [
+        {
+          workItemId: 'wi-1',
+          stepId: 'st-1',
+          days: 2,
+          personId: 'pp-ada',
+          width: 1,
+          poolIds: [],
+        },
+        {
+          workItemId: 'wi-2',
+          stepId: 'st-1',
+          days: 2,
+          personId: 'pp-ada',
+          width: 1,
+          poolIds: [],
+        },
+      ],
+      notBefore: [],
+      poolSizes: [['t-platform', 4]],
+      reach: 'whole-item',
+      deadlines: [['wi-2', 0]],
+    };
+
+    expect(sevenFieldsOf(scheduleInputOfCaptured(reads!))).toEqual(expected);
+    expect(sevenFieldsOf(live!)).toEqual(expected);
   });
 
   it('schedules the same project to the same placements as the live projection', async () => {

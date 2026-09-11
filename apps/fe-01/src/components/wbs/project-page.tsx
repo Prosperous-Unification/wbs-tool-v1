@@ -277,16 +277,13 @@ function ProjectNameField({
  * The saved-plan shelf: a disclosure in the app header's project row, beside
  * the picker, Rename and New project.
  *
- * **Its own component, and the reason is a bug this had.** The disclosure needs
- * `useClosedByPointerOutside`, whose effect reads `ref.current` once with an
- * empty dependency list — so the hook has to mount in the same commit as the
- * `<details>` it is given. Held on {@link ProjectPage} instead (which renders
- * first with no project selected and therefore no shelf), `panel.current` is
- * `null` when the effect runs, the effect returns early, the `pointerdown`
- * listener is **never** registered, and the panel can only be closed from its
- * own chip. Caught by the Gemini seat on PR 202 as F-01. Every other caller of
- * that hook (`wbs-table.tsx`'s Views, Columns, Facets and Export) is a component
- * that renders its own `<details>` unconditionally, which is what this now is.
+ * **Its own component, after a bug this had.** Held on {@link ProjectPage}
+ * (which renders first with no project selected and therefore no shelf), the
+ * former one-shot version of `useClosedByPointerOutside` ran before the
+ * `<details>` existed and never installed its listener. Caught by the Gemini
+ * seat on PR 202 as F-01. The hook now follows a late-mounted node itself; this
+ * component remains the shelf's boundary and keeps the layout decisions below
+ * local to the element they describe.
  *
  * **And its own component is also why the second fault was cheap to repair.**
  * It shipped `absolute right-4 bottom-2 z-40` against `<main>`, which sat it on

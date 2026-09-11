@@ -1,13 +1,13 @@
-import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { scratchAsync } from '@wbs/tool-test-scratch';
 import { describe, expect, it } from 'bun:test';
 
 import { MissingEnvExampleError, seedApp } from './setup';
 
 async function makeFakeRepo(apps: Record<string, { example?: string; env?: string }>) {
-  const root = await mkdtemp(join(tmpdir(), 'dev-setup-'));
+  const root = await scratchAsync('dev-setup-');
   for (const [app, files] of Object.entries(apps)) {
     await mkdir(join(root, 'apps', app), { recursive: true });
     if (files.example !== undefined)

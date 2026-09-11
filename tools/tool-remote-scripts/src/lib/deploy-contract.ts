@@ -101,6 +101,9 @@ export function bundleFilesFor(root: string): BundleFile[] {
   return BUNDLE_FILES.map((file) => ({ local: file.local, remote: `${root}${file.remote}` }));
 }
 
+export { writeAtomic } from './atomic';
+export { withLock } from './lock';
+export { decodeSolverSupervisorConfig } from './solver-supervisor-config';
 export {
   SOLVER_SUPERVISOR_BUN,
   SOLVER_SUPERVISOR_BUNDLE,

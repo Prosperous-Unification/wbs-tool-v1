@@ -542,6 +542,8 @@ export function WbsTable({
     setSteps,
     treeMayBeStale,
     setTreeMayBeStale,
+    treeFailureText,
+    setTreeFailureText,
     markers,
     setMarkers,
     busy,
@@ -821,6 +823,7 @@ export function WbsTable({
     activeProject,
     api,
     setTreeMayBeStale,
+    setTreeFailureText,
     setMarkers,
     setTeams,
     setTags,
@@ -1765,6 +1768,7 @@ export function WbsTable({
       stack={stack}
       stepStack={stepStack}
       setCheatSheetOpen={setCheatSheetOpen}
+      exportAvailable={hasSuccessfulTreeRead}
       copyAsMarkdown={copyAsMarkdown}
       copyAsMermaid={copyAsMermaid}
       downloadCsv={downloadCsv}
@@ -1948,7 +1952,11 @@ export function WbsTable({
           data-stale-tree
           className="border-destructive/40 bg-destructive/10 mb-3 flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
         >
-          This plan may be out of date — the last refresh failed.{' '}
+          {/* Proof: suppressing `treeFailureText` failed the Chromium stale-plan window on
+          `Expected: Optimized scheduling is unavailable in this runtime. · Received: This
+          plan may be out of date — the last refresh failed. Retry`, while its dated row
+          remained installed. */}
+          {treeFailureText ?? 'This plan may be out of date — the last refresh failed.'}{' '}
           <Button
             variant="outline"
             size="sm"

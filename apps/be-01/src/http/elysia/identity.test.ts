@@ -7,6 +7,7 @@ import { jwtVerify, SignJWT } from 'jose';
 import { bunPasswordHasher, joseTokenCodec } from '../../runtime/bun-runtime';
 import { AuthService } from '../../service/auth.service';
 import { inMemoryUsers, TEST_JWT_KEY, testAuthService } from '../../testing/auth-fixture';
+import { testClock } from '../../testing/clock-fixture';
 import { bind } from '../endpoint';
 import { identityResolver } from '../identity';
 import { mountEndpoints } from './mount';
@@ -257,6 +258,7 @@ test('keeps OIDC account resolution failures unknown at the mounted boundary', a
 test('preserves an explicitly composed local identity without credentials', async () => {
   const users = inMemoryUsers();
   const auth = new AuthService({
+    clock: testClock,
     users,
     identities: users,
     tokens: joseTokenCodec(TEST_JWT_KEY),

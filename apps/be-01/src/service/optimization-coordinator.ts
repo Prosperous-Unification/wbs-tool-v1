@@ -3,12 +3,16 @@ import {
   dispositionOfExitCode,
   dispositionOfPreflightFailure,
 } from '@wbs/contracts/solver/solver-failure-disposition';
+import type { RecordedEvent } from '@wbs/core';
 import type { Schedule } from '@wbs/domain';
 import type { ScheduleInput } from '@wbs/domain/canonical-schedule-input';
-import { scheduleInputHash } from '@wbs/domain/canonical-schedule-input';
+import {
+  type OptimizationOutcomeEvent,
+  storeOptimizedOutcomeAndRecord,
+} from '@wbs/store-sqlite/optimized-outcome';
 
 import type { Drizzle } from '../repository/db';
-import type { EventLogStore, RecordedEvent } from '../repository/event-log';
+import type { EventLogTransactionalWrite } from '../repository/event-log';
 import {
   bindSolverSlot,
   reserveSolverSlot,
@@ -34,10 +38,10 @@ import {
   readOptimizedPair,
   readOptimizedPairAndSpawn,
   type SpawnRequest,
-  storeOptimizedOutcomeIn,
 } from '../repository/optimized-schedule-cache';
+import { scheduleInputHash } from '../repository/schedule-input-hash';
 import type { SolverObjectiveName } from '../repository/schema';
-import { type ProjectEvent, subscriptionFor } from './broadcast';
+import type { ProjectEvent } from './broadcast';
 import {
   type OptimizationVariantState,
   optimizationVariantState,
@@ -75,7 +79,7 @@ export interface OptimizationCoordinatorOptions {
   readonly runChild?: (options: SolverChildLifecycleOptions) => Promise<SolverChildLifecycleResult>;
   readonly onChildError: (error: unknown) => void;
   /** Durable half of a newly stored result's project event. */
-  readonly eventLog: Pick<EventLogStore, 'recordEventIn'>;
+  readonly eventLog: EventLogTransactionalWrite;
   /** Best-effort live half, invoked only after the outcome transaction commits. */
   readonly pushRecorded: (
     subscription: string,
@@ -99,48 +103,10 @@ export type ScheduleOptimizationInfeasibleEvent = Extract<
   ProjectEvent,
   { type: 'schedule_optimization_infeasible' }
 >;
-export type OptimizationOutcomeEvent =
-  ScheduleOptimizedEvent | ScheduleOptimizationFailedEvent | ScheduleOptimizationInfeasibleEvent;
-
-export interface RecordedOptimizedOutcome {
-  readonly result: OutcomeWriteResult;
-  readonly subscription?: string;
-  readonly recorded?: RecordedEvent;
-  readonly event?: OptimizationOutcomeEvent;
-}
-
-/** Atomically store one validated result and its durable replay record. */
-export function storeOptimizedOutcomeAndRecord(
-  db: Drizzle,
-  eventLog: Pick<EventLogStore, 'recordEventIn'>,
-  write: OutcomeWrite,
-): RecordedOptimizedOutcome {
-  return db.transaction((tx) => {
-    const result = storeOptimizedOutcomeIn(tx, write);
-    if (result !== 'stored') return { result };
-    const identity = {
-      projectId: write.claim.projectId,
-      generation: write.claim.generation,
-      inputHash: write.inputHash,
-      objective: write.claim.objective,
-      contractVersion: write.claim.contractVersion,
-      budgetMs: write.claim.budgetMs,
-    };
-    const event: OptimizationOutcomeEvent =
-      write.outcome.kind === 'ok'
-        ? { type: 'schedule_optimized', ...identity }
-        : write.outcome.kind === 'failed'
-          ? {
-              type: 'schedule_optimization_failed',
-              ...identity,
-              failureReason: write.outcome.reason,
-            }
-          : { type: 'schedule_optimization_infeasible', ...identity };
-    const subscription = subscriptionFor(write.claim.projectId);
-    const recorded = eventLog.recordEventIn(tx, subscription, event, write.now);
-    return { result, subscription, recorded, event };
-  });
-}
+export {
+  type OptimizationOutcomeEvent,
+  storeOptimizedOutcomeAndRecord,
+} from '@wbs/store-sqlite/optimized-outcome';
 
 /** Everything the launcher needs from the read and its successful reservation. */
 export interface ReservedSpawnRequest extends SpawnRequest {
@@ -223,6 +189,11 @@ export class OptimizationCoordinator {
     (handle as { unref?: () => void }).unref?.();
     this.reconcileHandle = handle;
     this.requestPump();
+  }
+
+  /** Whether restart reconciliation is scheduled for this process. */
+  isRunning(): boolean {
+    return this.reconcileHandle !== null;
   }
 
   /** Stop periodic reconciliation, then await attempts already owned by this process. */
@@ -643,7 +614,7 @@ export class OptimizationCoordinator {
       budgetMs: this.options.budgetMs,
     };
     if (
-      ask.enabled === false ||
+      !ask.enabled ||
       ask.input.slices.length === 0 ||
       ask.input.slices.every((slice) => slice.days === 0)
     ) {
@@ -764,5 +735,5 @@ export class OptimizationCoordinator {
     readonly projectId: string;
     readonly objective: SolverObjectiveName;
     readonly input: ScheduleInput;
-  }): Schedule | null => this.readPlan(ask).schedules[ask.objective];
+  }): Schedule | null => this.readPlan({ ...ask, enabled: true }).schedules[ask.objective];
 }

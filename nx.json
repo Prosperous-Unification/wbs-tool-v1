@@ -17,7 +17,8 @@
       "{workspaceRoot}/eslint.config.js",
       "{workspaceRoot}/.prettierrc.json",
       "{workspaceRoot}/package.json",
-      "{workspaceRoot}/bun.lock"
+      "{workspaceRoot}/bun.lock",
+      "{workspaceRoot}/tools/test/scratch/**/*"
     ]
   },
   "targetDefaults": {

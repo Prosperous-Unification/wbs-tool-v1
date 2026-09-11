@@ -23,6 +23,7 @@ describe('a clock', () => {
     // Watched 2026-09-08.
     let ticks = 0;
     const clock = clockOf({
+      newId: () => crypto.randomUUID(),
       now: () => {
         ticks += 1;
         return ticks;
@@ -38,7 +39,7 @@ describe('a clock', () => {
   });
 
   it('mints an id nobody has to supply', () => {
-    const clock = clockOf();
+    const clock = clockOf({ now: () => Date.now(), newId: () => crypto.randomUUID() });
     const first = clock.newId();
     expect(first).not.toBe(clock.newId());
     expect(first).toMatch(/^[0-9a-f-]{36}$/);

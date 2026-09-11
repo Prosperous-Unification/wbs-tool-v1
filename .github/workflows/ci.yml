@@ -331,6 +331,13 @@ jobs:
       - name: Heavy-work lock
         run: bash bin/heavy-lock.test.sh
 
+      # The other half of that mutex: the gate steps were serialised, the
+      # checkout they read was not, and a lane sharing the tree could move the
+      # head mid-run (TASK-328). Same reason as above — the hole was invisible
+      # because nothing failed loudly when it opened.
+      - name: Gate head pinning
+        run: bash bin/h2puni-gate.test.sh
+
       # The two lefthook hooks, re-run here over every tracked file rather than
       # only the staged ones. A `--no-verify` commit reaches this.
       # xargs, not `$files`. The file list was passed as one unquoted argv, which

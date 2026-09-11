@@ -22,7 +22,7 @@
       "executor": "nx:run-commands",
       "inputs": ["default", "^production", "{workspaceRoot}/deploy/compose/**/*"],
       "options": {
-        "command": "bun test",
+        "command": "bun test --preload ../test/scratch/preload.ts",
         "cwd": "tools/tool-compose"
       }
     },

@@ -41,8 +41,9 @@
     },
     "test": {
       "executor": "nx:run-commands",
+      "inputs": ["default", "^production", "{workspaceRoot}/tools/test/scratch/**/*"],
       "options": {
-        "command": "bun test",
+        "command": "bun test --preload ../test/scratch/preload.ts",
         "cwd": "tools/tool-remote-scripts"
       }
     },

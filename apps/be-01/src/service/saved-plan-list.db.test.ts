@@ -17,6 +17,7 @@ import { UserRepository } from '../repository/user';
 import { WorkItemRepository } from '../repository/work-item';
 import { nodeDigest } from '../runtime/bun-runtime';
 import { projectRow } from '../testing/project-fixture';
+import { fastScheduler } from './optimizer-wiring';
 import { SavedPlanService } from './saved-plan.service';
 
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
@@ -88,6 +89,7 @@ describe("listing a project's saved plans", () => {
   /** The service, minting the id and the instant this save is stamped with. */
   const service = (id: string, at: number) =>
     new SavedPlanService({
+      scheduler: fastScheduler,
       digest: nodeDigest,
       capture: new SavedPlanCaptureRepository({ openConnection: () => openConnection(path) }),
       plans: new SavedPlanRepository({ openConnection: () => openConnection(path) }),

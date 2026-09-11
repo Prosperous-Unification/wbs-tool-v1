@@ -20,7 +20,15 @@
     "test": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "bun test --coverage --coverage-reporter=lcov",
+        "command": "bun test $(find src solver/src -name '*.test.ts' -o -name '*.test.tsx' | sort) --coverage --coverage-reporter=lcov",
+        "cwd": "libs/contracts"
+      },
+      "outputs": ["{projectRoot}/coverage"]
+    },
+    "test:unit": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun test $(find src solver/src -name '*.test.ts' -o -name '*.test.tsx' | sort) --coverage --coverage-reporter=lcov",
         "cwd": "libs/contracts"
       },
       "outputs": ["{projectRoot}/coverage"]

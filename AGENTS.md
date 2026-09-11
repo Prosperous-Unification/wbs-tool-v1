@@ -123,7 +123,7 @@ Checks that cannot fail have shipped here six times. This is the rule that stops
 
 ## Checks that cannot fail
 
-R5 exists because this failure keeps recurring — twenty-six times so far. Fixed: `assertPragmas` with no runtime
+R5 exists because this failure keeps recurring — twenty-seven times so far. Fixed: `assertPragmas` with no runtime
 caller, the migration lint's unreachable `ALTER TABLE ... RENAME COLUMN` branch, `readRemoteState`
 reading an unreadable file as never-deployed, `shellcheck … || echo`, the secrets scanner's
 `.catch(() => '')` (an unreadable file scanned as clean — in a CI gate), and `dev:setup` skipping a
@@ -624,20 +624,51 @@ twenty-sixth. `e2e/hover-cards.spec.ts`'s `paints over the pinned cell of the ro
 compared two screenshots of the overlap between an open card and the pinned Name cell under it:
 one with the card open, one with the pointer moved away. Moving the pointer away also **unlights
 the row**, so the two shots differ whether the card was painted or hidden — watched green with
-`zIndex: 20` deleted. Replaced by `elementFromPoint` at the middle of the overlap, it failed
-**with the z-index in place**: `Expected: "the card" · Received: "TEXTAREA"`. A folded step card
-is genuinely painted under a pinned cell once its column is scrolled under the pinned block, and
-nobody had seen it because the oracle was a diff of two pictures the pointer itself changed.
-**A before/after screenshot is only a check when nothing else moved between the two.**
+`zIndex: 20` deleted.
+
+**And its first replacement was wrong in the other direction, which is the twenty-seventh and the
+more useful half.** `elementFromPoint` at the middle of the overlap answered the pinned
+`<textarea>` **with the z-index in place**, and that was read as "the card is painted underneath"
+— a defect was written into `LLM_README.md`, a memory and a change's verify.md on the strength of
+it. A hover card is `pointer-events: none`: the hit test reports whatever is beneath it _however_
+the paint came out, so it cannot answer a paint question at all. The **third** oracle, one _pixel_ of the overlap screenshotted open against
+closed, passed on a Mac and failed on CI: `--popover` and `--cell-bg` are both white, so whether
+the two reads differ depends on whether that pixel lands on the card's own text — a fact about the
+font, not about the paint order. What settles it is asking the browser: the card's
+`pointer-events` is set to `auto` for the length of one `elementFromPoint` and restored, which
+changes what the hit test can **see** and nothing about which box is on **top**. `the card`
+against `TEXTAREA`, watched both ways. There was never a defect.
+
+**Three wrong oracles for one claim**, and the shape they share is that each was chosen for being
+easy to write rather than for being able to distinguish the two states. When a check is replaced
+because it could not fail, the replacement needs its own watched negative **before** its answer is
+believed — not after it has been written down as a finding in three files.
 
 Prove your check fails when the thing is broken, and say so in the comment. A check whose
 failure mode has never been observed is a claim, not a gate.
 
 ## Gate
 
-- Before claiming done on h2puni, run `bin/h2puni-gate.sh`. It acquires the
-  canonical host-wide heavy-work lock before running CI's format, test, lint,
-  typecheck, and build commands. Do not run the raw full Nx gate on h2puni.
+- Before claiming done on h2puni, run `bin/h2puni-gate.sh <sha>`. It acquires the
+  canonical host-wide heavy-work lock, checks `<sha>` out under that lock, and
+  only then runs CI's format, test, lint, typecheck, and build commands. Do not
+  run the raw full Nx gate on h2puni.
+- **Pass the sha; do not check it out yourself first.** Lanes share one gate
+  checkout, so a `git checkout` of your own before the call happens outside the
+  mutex and another lane can move the head between it and the steps — that is
+  how one lane's gate came to report about another lane's head, silently, on
+  2026-09-07. The argument exists to close that window. Without it the gate
+  pins the head it finds at invocation, which is safe only if nothing else is
+  gating. The gate prints `h2puni gate: running on <sha>`; that line, not your
+  intention, is what the verdict is about.
+- Exit **65** means the gate tree was dirty after the checkout — a tracked edit
+  or an untracked file the commit does not contain, which Nx would have read and
+  attributed to that sha. The gate refuses instead of cleaning, because these
+  trees are shared and `git clean` unattended deletes somebody's work. Move or
+  commit the named files and re-run.
+- A gate that finds the lock held **queues** (30 minutes by default) rather than
+  refusing with exit 75, because a refused gate costs a worker its whole
+  75-minute run box. `HEAVY_LOCK_WAIT_SECONDS=0` restores refuse-now.
   `--all` is not decoration: without it the scope is `git diff main HEAD`, which is
   EMPTY on main — a format check that checks nothing and passes.
 - OpenSpec changes also run `openspec validate --all --json`.

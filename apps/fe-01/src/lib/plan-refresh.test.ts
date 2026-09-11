@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { fakeProjectApi } from '../testing/fake-project-api';
-import { createPlanRefresh } from './plan-refresh';
-import type { PlanRead } from './wbs-api';
+import { createPlanRefresh, resourcesFor } from './plan-refresh';
+import { type PlanRead, WbsRequestError } from './wbs-api';
 
 function held<T>() {
   let resolve!: (value: T) => void;
@@ -22,6 +22,34 @@ async function setup() {
 }
 
 describe('plan refresh obligations', () => {
+  it('refetches only the tree for a peer plan-unavailable event and retains the installed plan', async () => {
+    const { api, owner } = await setup();
+    const installed = owner.getSnapshot().tree.installed;
+    let reads = 0;
+    api.tree = () => {
+      reads += 1;
+      return Promise.reject(
+        new WbsRequestError({
+          kind: 'refusal',
+          operation: 'getApiProjectsByIdWork-items',
+          refusal: { error: 'engine_unavailable', engine: 'optimized' },
+        }),
+      );
+    };
+    expect(resourcesFor('plan_unavailable')).toEqual(['tree']);
+
+    const outcome = await owner.invalidate({
+      resources: resourcesFor('plan_unavailable'),
+      seq: (owner.getSnapshot().baseline?.seq ?? -1) + 1,
+    });
+
+    expect(outcome.status).toBe('failed');
+    expect(reads).toBe(1);
+    expect(owner.getSnapshot().tree.installed).toBe(installed);
+    expect(owner.getSnapshot().staleResources).toEqual(['tree']);
+    owner.dispose();
+  });
+
   it('starts unsequenced baseline reads only after its tree anchor', async () => {
     const api = fakeProjectApi();
     const before = await api.tree('p1');

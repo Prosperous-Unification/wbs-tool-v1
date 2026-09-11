@@ -8,9 +8,9 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { scratchSync } from '@wbs/tool-test-scratch';
 import { afterAll, describe, expect, it } from 'bun:test';
 
 // TASK-160, finding 4. `configure-caddy.test.ts` asserts on configure.sh's
@@ -24,7 +24,7 @@ import { afterAll, describe, expect, it } from 'bun:test';
 // that passes against a copy of the code proves nothing about the code.
 const configureShPath = join(import.meta.dir, 'configure.sh');
 const configureSh = readFileSync(configureShPath, 'utf8');
-const SHIPPED_FIXTURE_DIRECTORY = mkdtempSync(join(tmpdir(), 'task160-suite-'));
+const SHIPPED_FIXTURE_DIRECTORY = scratchSync('task160-suite-');
 afterAll(() => {
   rmSync(SHIPPED_FIXTURE_DIRECTORY, { force: true, recursive: true });
 });
@@ -442,7 +442,7 @@ const runMerge = (
   existing: string | null,
   opts: { failGrepNth?: number; mode?: number } = {},
 ): Run => {
-  const root = mkdtempSync(join(tmpdir(), 'task160-caddy-'));
+  const root = scratchSync('task160-caddy-');
   mkdirSync(join(root, 'caddy'));
   const caddyfile = join(root, 'caddy', 'Caddyfile');
   if (existing !== null) {

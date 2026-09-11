@@ -25,6 +25,6 @@ saved bytes and canonical input schema remain unchanged. Preference-only changes
 appear in schedule identity/presence without changing the older input body's settings.
 
 The exact state table and affected spec requirements belong to
-[scheduler-runtime-port](../../openspec/changes/scheduler-runtime-port/design.md).
+[scheduler-runtime-port](../../openspec/changes/archive/2026-09-10-scheduler-runtime-port/design.md).
 Accepted for implementation under the user's 2026-09-08 authorization to resolve and
 document assumptions; no runtime behavior or failure proof is claimed by this decision.

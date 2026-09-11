@@ -26,7 +26,7 @@
       "executor": "nx:run-commands",
       "inputs": ["default", "^production", "{workspaceRoot}/bin/assert-no-prod-release.sh"],
       "options": {
-        "command": "bun test",
+        "command": "bun test --preload ../test/scratch/preload.ts",
         "cwd": "tools/tool-deploy"
       }
     },

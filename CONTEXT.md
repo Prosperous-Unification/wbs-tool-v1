@@ -1123,6 +1123,11 @@ The unattended process on the build host that decides a commit should be deploye
 environment and invokes the deploy. It never decides anything about `prod`.
 _Avoid_: poller, watcher, CD runner
 
+**Solver compatibility binding**:
+The host-owned assertion that a dev source revision is compatible with one immutable solver
+image. It may remain valid across later revisions whose solver compatibility inputs did not move.
+_Avoid_: supervisor config, solver mapping, image pin
+
 **Colour**:
 Which of the two interchangeable slots (`blue`, `green`) a tier's current container
 occupies. Each tier holds its colour independently of the others.

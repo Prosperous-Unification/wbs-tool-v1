@@ -1,7 +1,7 @@
-import { chmod, mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { chmod, mkdir, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { scratchAsync } from '@wbs/tool-test-scratch';
 import { describe, expect, it } from 'bun:test';
 
 import { isConventional } from './hooks/conventional';
@@ -23,7 +23,7 @@ describe('conventional', () => {
 
 describe('plaintext-secrets.scan', () => {
   it('detects AWS keys and age secrets', async () => {
-    const d = await mkdtemp(join(tmpdir(), 'hooks-'));
+    const d = await scratchAsync('hooks-');
     const f = join(d, 'leaky.env');
     // Assembled at runtime rather than written as a literal: this hook scans
     // its own repo, so a whole fake key sitting in the source aborts every
@@ -37,7 +37,7 @@ describe('plaintext-secrets.scan', () => {
   });
 
   it('returns null for clean files', async () => {
-    const d = await mkdtemp(join(tmpdir(), 'hooks-'));
+    const d = await scratchAsync('hooks-');
     const f = join(d, 'clean.env');
     await writeFile(f, 'PORT=3000\n', 'utf8');
     expect(await scan(f)).toBeNull();
@@ -47,7 +47,7 @@ describe('plaintext-secrets.scan', () => {
   // a file it could not open scanned as clean — "definitely no secret" and "I
   // never looked" were the same answer. These two cases are what separate them.
   it('throws on an unreadable file rather than reporting it clean', async () => {
-    const d = await mkdtemp(join(tmpdir(), 'hooks-'));
+    const d = await scratchAsync('hooks-');
     const f = join(d, 'locked.env');
     const fakeAwsKey = ['AKIA', 'ABCDEFGHIJKLMNOP'].join('');
     await writeFile(f, `AWS_KEY=${fakeAwsKey}\n`, 'utf8');
@@ -64,7 +64,7 @@ describe('plaintext-secrets.scan', () => {
   it('returns null for a path that does not exist', async () => {
     // ENOENT is a modeled absence: a commit that deletes a file stages a path
     // that is already gone. Nothing to scan there is the truth.
-    const d = await mkdtemp(join(tmpdir(), 'hooks-'));
+    const d = await scratchAsync('hooks-');
     expect(await scan(join(d, 'never-existed.env'))).toBeNull();
   });
 
@@ -73,7 +73,7 @@ describe('plaintext-secrets.scan', () => {
     // .agents/skills/. A directory has no file contents, which is not the same
     // as a file that went unread. The link targets are tracked and scanned on
     // their own, so nothing is skipped by stepping over the link itself.
-    const d = await mkdtemp(join(tmpdir(), 'hooks-'));
+    const d = await scratchAsync('hooks-');
     const realDir = join(d, 'a-directory');
     await mkdir(realDir);
     const link = join(d, 'link-to-dir');
@@ -85,7 +85,7 @@ describe('plaintext-secrets.scan', () => {
 
 describe('migration-lint', () => {
   it('flags DROP TABLE', async () => {
-    const d = await mkdtemp(join(tmpdir(), 'mig-'));
+    const d = await scratchAsync('mig-');
     const f = join(d, '0002_bad.sql');
     await writeFile(f, 'DROP TABLE users;', 'utf8');
     const hit = await lintMigration(f);
@@ -93,14 +93,14 @@ describe('migration-lint', () => {
   });
 
   it('allows CREATE TABLE', async () => {
-    const d = await mkdtemp(join(tmpdir(), 'mig-'));
+    const d = await scratchAsync('mig-');
     const f = join(d, '0003_ok.sql');
     await writeFile(f, 'CREATE TABLE t (id INTEGER);', 'utf8');
     expect(await lintMigration(f)).toBeNull();
   });
 
   async function lint(name: string, sql: string) {
-    const d = await mkdtemp(join(tmpdir(), 'mig-'));
+    const d = await scratchAsync('mig-');
     const f = join(d, name);
     await writeFile(f, sql, 'utf8');
     return lintMigration(f);
@@ -148,7 +148,7 @@ describe('migration-lint', () => {
   // reported clean, so a migration the hook could not open was indistinguishable
   // from one with nothing wrong in it.
   it('reports an unreadable .sql file as an issue rather than as clean', async () => {
-    const d = await mkdtemp(join(tmpdir(), 'mig-'));
+    const d = await scratchAsync('mig-');
     const hit = await lintMigration(join(d, 'does-not-exist.sql'));
     expect(hit?.reason).toMatch(/could not be read/);
   });

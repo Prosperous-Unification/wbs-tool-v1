@@ -81,12 +81,15 @@ the only failures anywhere were its own two proofs, both already red from the pl
 That is `CARD_GRACE_MS` this morning wearing a second hat — a guard made vacuous by the fix
 that follows it.
 
-**And a defect this change does not fix.** `paints over the pinned cell of the row below it`
-was re-aimed at the folded step card once the dependency card stopped standing over a pinned
-cell, and its screenshot oracle was watched **passing** with `zIndex: 20` deleted — the two
-shots differ because moving the pointer away also unlights the row, so the pair was never about
-the card. Replaced with `elementFromPoint` at the middle of the overlap, it failed **with the
-card's z-index in place**: `Expected: "the card" · Received: "TEXTAREA"`. So a folded step card
-really is painted under a pinned Name cell once its column is scrolled under the pinned block
-(800px viewport, 350px of scroll). Pre-existing, unrelated to lanes, and its own change: the
-lift `raiseWhenOpen` applies to pinned columns only, and this card is in an unpinned one.
+**And a defect this change reported that was never there.** `paints over the pinned cell of the
+row below it` was re-aimed at the folded step card once the dependency card stopped standing over
+a pinned cell, and its screenshot oracle was watched **passing** with `zIndex: 20` deleted — the
+two shots differ because moving the pointer away also unlights the row, so the pair was never
+about the card. It was replaced with `elementFromPoint` at the middle of the overlap, that
+answered the pinned `<textarea>` **with the z-index in place**, and this file recorded a defect on
+the strength of it. Wrong: a card is `pointer-events: none`, so the hit test answers what is
+beneath it however the paint came out. Corrected on 2026-09-10 in
+`fix/an-unpinned-cards-lift`, which restores the test with a third oracle — the card's
+`pointer-events` set to `auto` for the length of one `elementFromPoint` — watched answering `the
+card` with the z-index in place and `TEXTAREA` without it. (A painted-pixel comparison was tried
+in between and failed on CI: both surfaces are white.) R5 #27.

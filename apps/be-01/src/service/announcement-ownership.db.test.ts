@@ -10,6 +10,7 @@ import { OPEN, WriteCoordinator } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { sqliteUnitOfWork } from '../repository/sqlite-unit-of-work';
 import { buildStores, servicesOver } from '../services';
+import { testClock } from '../testing/clock-fixture';
 import type { Broadcaster, ProjectEvent } from './broadcast';
 import { optimizerWiring } from './optimizer-wiring';
 import type { PlanCommand } from './plan-command';
@@ -89,7 +90,7 @@ beforeEach(async () => {
   broadcast = recordingBroadcasterWithLog();
   const announcements: Broadcaster = broadcast;
   const shared = {
-    clock: clockOf(),
+    clock: clockOf({ now: () => Date.now(), newId: () => crypto.randomUUID() }),
     broadcast: announcements,
     optimized: optimizerWiring(undefined),
   };
@@ -99,10 +100,11 @@ beforeEach(async () => {
     { id: ownerId, username: 'owner', passwordHash: 'x', createdAt: 1 },
     { at: 1, by: ownerId },
   );
-  const created = await new ProjectService({ projects: stores.projects, broadcast }).create(
-    'Rewire the shed',
-    ownerId,
-  );
+  const created = await new ProjectService({
+    clock: testClock,
+    projects: stores.projects,
+    broadcast,
+  }).create('Rewire the shed', ownerId);
   projectId = created.project.id;
   broadcast.sent.length = 0;
 
@@ -142,7 +144,9 @@ beforeEach(async () => {
   const batchStores = { ...admitted, workItems: suspendingWorkItems };
   runner = new PlanCommandRunner({
     // The graph the runner builds per batch, over the collector it hands in.
-    batchServices: (collector) => servicesOver(batchStores, { ...shared, broadcast: collector }),
+    batchServices: (_scope, collector) =>
+      servicesOver(batchStores, { ...shared, broadcast: collector }),
+    publicServices: servicesOver(stores, { ...shared, broadcast: announcements }),
     uow: sqliteUnitOfWork(db, coordinator, batchStores),
     announcements,
   });

@@ -12,10 +12,13 @@ import type {
   WorkItemStore,
   WriteStamp,
 } from '../repository';
+import { AvailableWorkItemService as WorkItemService } from '../testing/available-work-item-service';
+import { testClock } from '../testing/clock-fixture';
 import { inMemoryServices } from '../testing/harness';
 import { projectRow } from '../testing/project-fixture';
 import type { OptimizedScheduleAsk } from './optimized-schedule-reader';
-import { WorkItemService, type WorkItemServiceOptions } from './work-item.service';
+import { optimizerWiring } from './optimizer-wiring';
+import type { WorkItemServiceOptions } from './work-item.service';
 
 /**
  * tasks.md 4.11 (a)–(c): the materialiser's annotations, asserted **through the
@@ -77,7 +80,12 @@ let laterStepId: string;
 beforeEach(async () => {
   const harness = inMemoryServices();
   ({ projects, workItems, estimates, capacity, directory } = harness.stores);
-  serviceOptions = { ...harness.stores, broadcast: harness.broadcast };
+  serviceOptions = {
+    clock: testClock,
+    ...harness.stores,
+    broadcast: harness.broadcast,
+    scheduler: harness.scheduler,
+  };
   const project = projectRow({ id: crypto.randomUUID(), ownerId: OWNER });
   stepId = crypto.randomUUID();
   laterStepId = crypto.randomUUID();
@@ -193,19 +201,20 @@ async function twoStepLeaf(name: string, days: number, serviceTeamId: string | n
  */
 async function askedInput(): Promise<ScheduleInput> {
   const asks: OptimizedScheduleAsk[] = [];
+  const read = (ask: OptimizedScheduleAsk) => {
+    asks.push(ask);
+    return {
+      inputHash: 'probe-input-hash',
+      generation: null,
+      contractVersion: '7+test',
+      budgetMs: 60_000,
+      variants: { pri: { state: 'idle' as const }, time: { state: 'idle' as const } },
+      schedules: { pri: null, time: null },
+    };
+  };
   const probe = new WorkItemService({
     ...serviceOptions,
-    optimized: (ask) => {
-      asks.push(ask);
-      return {
-        inputHash: 'probe-input-hash',
-        generation: null,
-        contractVersion: '7+test',
-        budgetMs: 60_000,
-        variants: { pri: { state: 'idle' }, time: { state: 'idle' } },
-        schedules: { pri: null, time: null },
-      };
-    },
+    scheduler: optimizerWiring({ readLive: read, readCaptured: read }).scheduler,
   });
   await probe.tree(projectId);
   // A length check rather than an `=== undefined` guard on the indexed read:
@@ -255,19 +264,20 @@ async function servedBy(moved: Readonly<Record<string, number>>) {
       ...moved,
     },
   );
+  const read = () => ({
+    inputHash: 'served-input-hash',
+    generation: 1,
+    contractVersion: '7+test',
+    budgetMs: 60_000,
+    variants: {
+      pri: { state: 'ready' as const, proof: 'proven' as const },
+      time: { state: 'ready' as const, proof: 'proven' as const },
+    },
+    schedules: { pri: materialised, time: materialised },
+  });
   const service = new WorkItemService({
     ...serviceOptions,
-    optimized: () => ({
-      inputHash: 'served-input-hash',
-      generation: 1,
-      contractVersion: '7+test',
-      budgetMs: 60_000,
-      variants: {
-        pri: { state: 'ready', proof: 'proven' },
-        time: { state: 'ready', proof: 'proven' },
-      },
-      schedules: { pri: materialised, time: materialised },
-    }),
+    scheduler: optimizerWiring({ readLive: read, readCaptured: read }).scheduler,
   });
   const tree = await service.tree(projectId);
   if (tree === null) throw new Error('project vanished');

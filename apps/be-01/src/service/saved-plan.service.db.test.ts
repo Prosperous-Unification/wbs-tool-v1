@@ -3,6 +3,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import type { OptimizationVariantState, Scheduler } from '@wbs/core';
+import { SCHEDULE_ALGORITHM_ID } from '@wbs/domain';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { CapacityRepository } from '../repository/capacity';
@@ -21,6 +23,7 @@ import { UserRepository } from '../repository/user';
 import { WorkItemRepository } from '../repository/work-item';
 import { nodeDigest } from '../runtime/bun-runtime';
 import { projectRow } from '../testing/project-fixture';
+import { fastScheduler } from './optimizer-wiring';
 import { SavedPlanService } from './saved-plan.service';
 
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
@@ -92,8 +95,9 @@ describe('SavedPlanService.save', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  const service = (): SavedPlanService =>
+  const service = (scheduler: Scheduler = fastScheduler): SavedPlanService =>
     new SavedPlanService({
+      scheduler,
       digest: nodeDigest,
       capture: new SavedPlanCaptureRepository({ openConnection: () => openConnection(path) }),
       plans: new SavedPlanRepository({ openConnection: () => openConnection(path) }),
@@ -101,13 +105,42 @@ describe('SavedPlanService.save', () => {
       now: () => OPENED_AT,
     });
 
-  const save = () =>
-    service().save({
-      projectId: 'p1',
+  const save = (scheduler: Scheduler = fastScheduler, projectId = 'p1') =>
+    service(scheduler).save({
+      projectId,
       name: 'before the rewire',
       createdBy: 'Ada Lovelace',
       createdById: null,
     });
+
+  const selectOptimized = async (projectId = 'p1', enabled = true) => {
+    await new ProjectRepository(reader.db, OPEN).update(
+      projectId,
+      { optimizationEnabled: enabled, scheduleEngine: 'optimized', scheduleObjective: 'pri' },
+      wrote,
+    );
+  };
+
+  const schedulerWith = (variant: OptimizationVariantState): Scheduler => ({
+    supports: () => true,
+    read: (ask) => {
+      const fast = fastScheduler.read({ ...ask, engine: 'fast' });
+      if (fast.kind !== 'scheduled') throw new Error('Fast scheduler refused a Fast request');
+      const optimized = { ...fast.fast, waitingForCapacity: 73 };
+      return {
+        kind: 'scheduled',
+        fast: fast.fast,
+        optimization: {
+          inputHash: 'captured-key',
+          generation: 9,
+          contractVersion: '2.4',
+          budgetMs: 12_345,
+          variants: { pri: variant, time: { state: 'idle' } },
+          schedules: { pri: variant.state === 'ready' ? optimized : null, time: null },
+        },
+      };
+    },
+  });
 
   // Unfiltered on purpose, and not only because a service test may not import
   // `drizzle-orm`: each case writes at most one saved plan, so "the rows this
@@ -152,6 +185,90 @@ describe('SavedPlanService.save', () => {
     const byKind = new Map(stored.map((row) => [row.kind, row.bytes]));
     expect(byKind.get('input')).toBe(record.input.bytes);
     expect(byKind.get('schedule')).toBe(record.schedule.body.bytes);
+  });
+
+  it('stores the selected ready schedule and its identity in body and header', async () => {
+    await selectOptimized();
+    const scheduler = schedulerWith({ state: 'ready', proof: 'proven' });
+    const savedPlans = service(scheduler);
+    const result = await savedPlans.save({
+      projectId: 'p1',
+      name: 'before the rewire',
+      createdBy: 'Ada Lovelace',
+      createdById: null,
+    });
+    expect(result.outcome).toBe('saved');
+    if (result.outcome !== 'saved' || !result.record.schedule.present) return;
+
+    const body = JSON.parse(result.record.schedule.body.bytes) as {
+      algorithmId: string;
+      waitingForCapacity: number;
+    };
+    expect(body.waitingForCapacity).toBe(73);
+    expect(body.algorithmId).toBe('optimized:2.4:pri:12345');
+    expect(result.record.schedule.algorithmId).toBe(body.algorithmId);
+    expect((await headers())[0]?.schedulerAlgorithmId).toBe(body.algorithmId);
+    const current = await savedPlans.projectCurrentPlan('p1');
+    expect(current?.schedule.present).toBe(true);
+    if (!current?.schedule.present) return;
+    expect(current.schedule.algorithmId).toBe(body.algorithmId);
+    expect((current.schedule.body as { waitingForCapacity: number }).waitingForCapacity).toBe(73);
+  });
+
+  it.each([
+    [{ state: 'idle' }, 'pending'],
+    [{ state: 'pending' }, 'pending'],
+    [{ state: 'retrying' }, 'pending'],
+    [{ state: 'failed', reason: 'internal-error' }, 'unavailable'],
+    [{ state: 'corrupt', message: 'bad bytes' }, 'unavailable'],
+    [{ state: 'plan-infeasible', items: [] }, 'infeasible'],
+  ] as const)('stores selected %o as absent %s', async (variant, absentReason) => {
+    await selectOptimized();
+    const result = await save(schedulerWith(variant));
+    expect(result.outcome).toBe('saved');
+    if (result.outcome !== 'saved') return;
+    expect(result.record.schedule).toEqual({ present: false, absentReason });
+    expect((await bodies()).map((row) => row.kind)).toEqual(['input']);
+  });
+
+  it('stores unavailable without an optimized adapter and Fast when disabled', async () => {
+    await selectOptimized();
+    const unavailable = await save(fastScheduler);
+    expect(unavailable.outcome).toBe('saved');
+    if (unavailable.outcome !== 'saved') return;
+    expect(unavailable.record.schedule).toEqual({ present: false, absentReason: 'unavailable' });
+
+    reader.close();
+    reader = openConnection(path);
+    await selectOptimized('p1', false);
+    const disabled = await service(
+      schedulerWith({ state: 'ready', proof: 'proven' }),
+    ).projectCurrentPlan('p1');
+    expect(disabled?.schedule.present).toBe(true);
+    if (!disabled?.schedule.present) return;
+    expect(disabled.schedule.algorithmId).toBe(SCHEDULE_ALGORITHM_ID);
+    expect((disabled.schedule.body as { waitingForCapacity: number }).waitingForCapacity).not.toBe(
+      73,
+    );
+  });
+
+  it('keeps an empty optimized capture pending instead of inventing a schedule', async () => {
+    await new ProjectRepository(reader.db, OPEN).create(
+      projectRow({
+        id: 'p-empty',
+        name: 'Empty optimized plan',
+        ownerId: 'owner',
+        optimizationEnabled: true,
+        scheduleEngine: 'optimized',
+        scheduleObjective: 'pri',
+      }),
+      [{ id: 'st-empty', projectId: 'p-empty', name: 'Dev', position: 10 }],
+      wrote,
+    );
+    const result = await save(schedulerWith({ state: 'idle' }), 'p-empty');
+    expect(result.outcome).toBe('saved');
+    if (result.outcome !== 'saved') return;
+    expect(result.record.schedule).toEqual({ present: false, absentReason: 'pending' });
   });
 
   it('takes each hash over the exact bytes it stored', async () => {
@@ -255,6 +372,7 @@ describe('SavedPlanService.save', () => {
 
   it('refuses on the body limit before opening the write transaction', async () => {
     const refusing = new SavedPlanService({
+      scheduler: fastScheduler,
       digest: nodeDigest,
       capture: new SavedPlanCaptureRepository({ openConnection: () => openConnection(path) }),
       plans: new SavedPlanRepository({ openConnection: () => openConnection(path) }),
@@ -281,6 +399,7 @@ describe('SavedPlanService.save', () => {
     // The same save, the same bytes, one number moved. Without it, the refusal
     // above would also pass against a service that hard-codes a small bound.
     const admitting = new SavedPlanService({
+      scheduler: fastScheduler,
       digest: nodeDigest,
       capture: new SavedPlanCaptureRepository({ openConnection: () => openConnection(path) }),
       plans: new SavedPlanRepository({ openConnection: () => openConnection(path) }),
@@ -312,6 +431,7 @@ describe('SavedPlanService.save', () => {
     let issued = 0;
     const capped = (mostPlansPerProject: number): SavedPlanService =>
       new SavedPlanService({
+        scheduler: fastScheduler,
         digest: nodeDigest,
         capture: new SavedPlanCaptureRepository({ openConnection: () => openConnection(path) }),
         plans: new SavedPlanRepository({ openConnection: () => openConnection(path) }),

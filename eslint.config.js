@@ -13,12 +13,42 @@ import jsdoc from 'eslint-plugin-jsdoc';
 import prettier from 'eslint-config-prettier';
 import nxPlugin from '@nx/eslint-plugin';
 
+const browserAdapterConstraint = {
+  allSourceTags: ['ring:adapter', 'runtime:browser'],
+  onlyDependOnLibsWithTags: ['ring:domain', 'runtime:browser'],
+};
+
+const runtimeConstraints = [
+  {
+    sourceTag: 'runtime:browser',
+    onlyDependOnLibsWithTags: ['runtime:browser', 'runtime:isomorphic'],
+  },
+  {
+    sourceTag: 'runtime:bun',
+    onlyDependOnLibsWithTags: ['runtime:bun', 'runtime:isomorphic'],
+  },
+  { sourceTag: 'runtime:isomorphic', onlyDependOnLibsWithTags: ['runtime:isomorphic'] },
+];
+
+const scopeConstraints = [
+  { sourceTag: 'scope:app', onlyDependOnLibsWithTags: ['scope:shared'] },
+  { sourceTag: 'scope:shared', onlyDependOnLibsWithTags: ['scope:shared'] },
+  { sourceTag: 'scope:infra', onlyDependOnLibsWithTags: ['scope:shared', 'scope:infra'] },
+];
+
+const testSourceFiles = ['**/*.test.ts', '**/*.test.tsx', '**/*.spec.ts', '**/*.property.test.ts'];
+
 const nxRules = {
   '@nx/enforce-module-boundaries': [
     'error',
     {
       enforceBuildableLibDependency: true,
       allow: [],
+      // Core's tests execute its ports over the memory adapter. Nx builds one
+      // project graph across production and tests, so that permitted test edge
+      // otherwise makes the adapter's required production edge back to core
+      // look circular. Production core imports remain blocked by the ring rule.
+      ignoredCircularDependencies: [['core', 'store-memory']],
       depConstraints: [
         // The rings, and the direction the whole ports-and-adapters split is
         // for: a domain lib may reach nothing but another domain lib, an
@@ -36,18 +66,9 @@ const nxRules = {
           sourceTag: 'ring:adapter',
           onlyDependOnLibsWithTags: ['ring:domain', 'ring:application', 'ring:adapter'],
         },
-        { sourceTag: 'scope:app', onlyDependOnLibsWithTags: ['scope:shared'] },
-        { sourceTag: 'scope:shared', onlyDependOnLibsWithTags: ['scope:shared'] },
-        { sourceTag: 'scope:infra', onlyDependOnLibsWithTags: ['scope:shared', 'scope:infra'] },
-        {
-          sourceTag: 'runtime:browser',
-          onlyDependOnLibsWithTags: ['runtime:browser', 'runtime:isomorphic'],
-        },
-        {
-          sourceTag: 'runtime:bun',
-          onlyDependOnLibsWithTags: ['runtime:bun', 'runtime:isomorphic'],
-        },
-        { sourceTag: 'runtime:isomorphic', onlyDependOnLibsWithTags: ['runtime:isomorphic'] },
+        browserAdapterConstraint,
+        ...scopeConstraints,
+        ...runtimeConstraints,
       ],
     },
   ],
@@ -124,6 +145,27 @@ export default [
     },
   },
 
+  // TypeBox was the handwritten wire-schema authority. The endpoint contract
+  // now derives validators and JSON Schema from one ArkType declaration, so a
+  // new TypeBox import would recreate the two-authority drift D16 removed.
+  {
+    files: ['**/*.{js,mjs,cjs,ts,tsx,mts,cts}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@sinclair/typebox', '@sinclair/typebox/*'],
+              message:
+                'Declare wire schemas with ArkType; TypeBox would restore a second schema authority.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   {
     files: ['apps/fe-01/**/*.{ts,tsx}', 'libs/realtime/**/*.{ts,tsx}'],
     plugins: {
@@ -172,7 +214,7 @@ export default [
   },
 
   {
-    files: ['apps/be-01/src/repository/**/*.ts'],
+    files: ['libs/store-sqlite/src/**/*.ts'],
     plugins: { drizzle },
     rules: {
       'drizzle/enforce-delete-with-where': 'error',
@@ -184,7 +226,22 @@ export default [
     files: ['apps/be-01/src/**/*.ts'],
     ignores: ['apps/be-01/src/repository/**'],
     rules: {
-      'no-restricted-imports': ['error', { patterns: ['drizzle-orm/*', 'drizzle-orm'] }],
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['drizzle-orm', 'drizzle-orm/*'],
+              message: 'Import Drizzle only from the store-sqlite adapter.',
+            },
+            {
+              group: ['@sinclair/typebox', '@sinclair/typebox/*'],
+              message:
+                'Declare wire schemas with ArkType; TypeBox would restore a second schema authority.',
+            },
+          ],
+        },
+      ],
     },
   },
 
@@ -195,14 +252,17 @@ export default [
   // and blue/green means two be-01 processes share one SQLite file, which is
   // exactly the situation those pragmas exist for.
   //
-  // Nothing structural prevented that bypass: `openDatabase` is currently
-  // called from `repository/migrate.ts` alone, so whoever first wires the
+  // Nothing structural prevented that bypass: `openDatabase` is called from
+  // `store-sqlite/migrate.ts`, so whoever first wires the
   // server to SQLite has to know to route through it. This makes the
   // compiler-adjacent tooling enforce it instead of a comment. Type-only
   // imports stay allowed — they cannot open a connection.
+  // Proof: a production `direct-open-probe.ts` importing `Database` from
+  // `bun:sqlite` failed `store-sqlite:lint` at 1:1 with this rule's
+  // "Open connections through openDatabase() in store-sqlite/db.ts" diagnostic.
   {
-    files: ['apps/be-01/src/**/*.ts'],
-    ignores: ['apps/be-01/src/repository/db.ts'],
+    files: ['apps/be-01/src/**/*.ts', 'libs/store-sqlite/src/**/*.ts'],
+    ignores: ['libs/store-sqlite/src/db.ts'],
     rules: {
       '@typescript-eslint/no-restricted-imports': [
         'error',
@@ -212,7 +272,7 @@ export default [
               name: 'bun:sqlite',
               allowTypeImports: true,
               message:
-                'Open connections through openDatabase() in repository/db.ts — it sets and ' +
+                'Open connections through openDatabase() in store-sqlite/db.ts — it sets and ' +
                 'asserts WAL, busy_timeout and foreign_keys, and busy_timeout/foreign_keys ' +
                 'are per-connection, so a direct `new Database()` silently loses them.',
             },
@@ -256,7 +316,7 @@ export default [
               name: 'bun:sqlite',
               allowTypeImports: true,
               message:
-                'Open connections through openDatabase() in repository/db.ts — it sets and ' +
+                'Open connections through openDatabase() in store-sqlite/db.ts — it sets and ' +
                 'asserts WAL, busy_timeout and foreign_keys, and busy_timeout/foreign_keys ' +
                 'are per-connection, so a direct `new Database()` silently loses them.',
             },
@@ -314,7 +374,7 @@ export default [
   // These three are exempt from **this block**, which means they are also exempt
   // from the `bun:sqlite` path it repeats. They are not unrestricted: the
   // `src/**` block above at `:147` still supplies them that same restriction,
-  // measured by probe. Only `repository/db.ts` is exempt from `bun:sqlite`
+  // measured by probe. Only `store-sqlite/src/db.ts` is exempt from `bun:sqlite`
   // outright, and that is by name in both blocks.
   // - `controller/**` is ignored *here* only because the block above already
   //   fences it with a message written for route authors. Flat config replaces
@@ -356,7 +416,7 @@ export default [
               name: 'bun:sqlite',
               allowTypeImports: true,
               message:
-                'Open connections through openDatabase() in repository/db.ts — it sets and ' +
+                'Open connections through openDatabase() in store-sqlite/db.ts — it sets and ' +
                 'asserts WAL, busy_timeout and foreign_keys, and busy_timeout/foreign_keys ' +
                 'are per-connection, so a direct `new Database()` silently loses them.',
             },
@@ -376,7 +436,7 @@ export default [
       ],
     },
   },
-  // `repository/db.ts` is the one module the `bun:sqlite` message above points
+  // `store-sqlite/src/db.ts` is the one module the `bun:sqlite` message above points
   // *at*: `openDatabase()` lives there and it is what sets and asserts WAL,
   // busy_timeout and foreign_keys. Widening the fence to `src/**` above swept it
   // in for the first time — it sits under neither `controller/` nor `http/` — and
@@ -389,7 +449,7 @@ export default [
   // which is what makes that separation expressible at all — and it is why this
   // block must stay after the one above.
   {
-    files: ['apps/be-01/src/repository/db.ts'],
+    files: ['libs/store-sqlite/src/db.ts'],
     rules: {
       '@typescript-eslint/no-restricted-imports': [
         'error',
@@ -404,6 +464,62 @@ export default [
                 'because it is openDatabase()’s own file, and from nothing else.',
             },
           ],
+        },
+      ],
+    },
+  },
+
+  // Core and domain execute in every supported runtime. Static package
+  // imports and ambient defaults are therefore adapter dependencies even when
+  // the imported API happens to exist in today's Bun process. Tests are the
+  // explicit composition boundary and are excluded below by their real tracked
+  // suffixes; `testing/` holds their fixtures.
+  {
+    files: ['libs/core/src/**/*.{ts,tsx}', 'libs/domain/src/**/*.{ts,tsx}'],
+    ignores: [...testSourceFiles, '**/testing/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: [
+                'node:*',
+                'bun:*',
+                'elysia',
+                'elysia/*',
+                '@elysiajs/*',
+                'drizzle-orm',
+                'drizzle-orm/*',
+                'jose',
+              ],
+              message: 'Core and domain receive runtime behavior through ports.',
+            },
+            {
+              group: ['@sinclair/typebox', '@sinclair/typebox/*'],
+              message:
+                'Declare wire schemas with ArkType; TypeBox would restore a second schema authority.',
+            },
+          ],
+        },
+      ],
+      'no-restricted-globals': [
+        'error',
+        ...['Bun', 'process', 'fetch', 'setTimeout', 'setInterval', 'Buffer'].map((name) => ({
+          name,
+          message: 'Core and domain receive runtime behavior through ports.',
+        })),
+      ],
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "MemberExpression[object.name='globalThis'][property.name='fetch']",
+          message: 'Core and domain receive fetch through a transport port.',
+        },
+        {
+          selector:
+            "MemberExpression[object.name='globalThis'][computed=true][property.value='fetch']",
+          message: 'Core and domain receive fetch through a transport port.',
         },
       ],
     },
@@ -466,9 +582,35 @@ export default [
    * `verify.md`.
    */
   {
-    files: ['**/*.{test,spec}.{ts,tsx}', '**/testing/**/*.{ts,tsx}'],
+    files: [...testSourceFiles, '**/testing/**/*.{ts,tsx}'],
     rules: {
-      '@nx/enforce-module-boundaries': 'off',
+      '@nx/enforce-module-boundaries': [
+        'error',
+        {
+          enforceBuildableLibDependency: true,
+          allow: [],
+          ignoredCircularDependencies: [['core', 'store-memory']],
+          depConstraints: [browserAdapterConstraint, ...scopeConstraints, ...runtimeConstraints],
+        },
+      ],
+    },
+  },
+
+  // The memory source is isomorphic, while its certification executes in Bun.
+  // This one test-only edge admits the Bun kit without changing the source's
+  // production runtime or allowing another Bun adapter into its graph.
+  {
+    files: ['libs/store-memory/src/**/*.test.ts'],
+    rules: {
+      '@nx/enforce-module-boundaries': [
+        'error',
+        {
+          enforceBuildableLibDependency: true,
+          allow: ['@wbs/conformance', '@wbs/conformance/*'],
+          ignoredCircularDependencies: [['core', 'store-memory']],
+          depConstraints: [browserAdapterConstraint, ...scopeConstraints, ...runtimeConstraints],
+        },
+      ],
     },
   },
 

@@ -40,6 +40,12 @@ function proxyOf(env: Record<string, string>) {
   return proxy;
 }
 
+function previewProxyOf(env: Record<string, string>) {
+  const { proxy } = serveConfig(env).preview ?? {};
+  if (!proxy) throw new Error('the preview config has no proxy to assert on');
+  return proxy;
+}
+
 /**
  * Vite's own rule for whether a proxy key claims a URL, copied from
  * `doesProxyContextMatchUrl` in `vite/src/node/server/middlewares/proxy.ts` so
@@ -119,6 +125,24 @@ describe('vite dev server proxy', () => {
       '/ws': { target: GW_URL, ws: true },
     });
     expect(loadEnv).toHaveBeenCalledWith('development', expect.any(String), 'VITE_');
+  });
+
+  it('gives the built browser gate the same edge routes and owned port', () => {
+    process.env['PORT'] = '4700';
+    try {
+      const served = serveConfig({ VITE_BE_URL: BE_URL, VITE_GW_URL: GW_URL });
+
+      // Proof: deleting `preview.proxy` failed on `the preview config has no
+      // proxy to assert on`; deleting its port failed on `expected undefined
+      // to be 4700`.
+      expect(previewProxyOf({ VITE_BE_URL: BE_URL, VITE_GW_URL: GW_URL })).toEqual(
+        served.server?.proxy,
+      );
+      expect(served.preview?.port).toBe(4700);
+      expect(served.preview?.strictPort).toBe(true);
+    } finally {
+      delete process.env['PORT'];
+    }
   });
 
   it('claims the paths Caddy routes and leaves the ones it does not', () => {

@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # A command batch is a unit of work the source implements

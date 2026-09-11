@@ -1,13 +1,13 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { scratchSync } from '@wbs/tool-test-scratch';
 import { afterAll, describe, expect, it } from 'bun:test';
 
 import { lintMigration } from './migration-lint';
 
 describe('down script rules', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'wbs-migration-lint-'));
+  const dir = scratchSync('wbs-migration-lint-');
 
   afterAll(() => {
     rmSync(dir, { recursive: true, force: true });
@@ -135,7 +135,7 @@ describe('the role -> step rename waiver', () => {
 
   /** A checkout-shaped tree, with the gate script present only when asked for. */
   function checkout(folder: string, up: string, opts: { gate: boolean }): string {
-    const root = mkdtempSync(join(tmpdir(), 'wbs-rename-waiver-'));
+    const root = scratchSync('wbs-rename-waiver-');
     roots.push(root);
     const migrationDir = join(root, 'apps', 'be-01', 'drizzle', folder);
     mkdirSync(migrationDir, { recursive: true });

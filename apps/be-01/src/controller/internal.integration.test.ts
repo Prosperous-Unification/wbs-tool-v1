@@ -4,8 +4,10 @@ import { buildApp } from '../app';
 import { testAuthService } from '../testing/auth-fixture';
 import { testCalendarMarkerService } from '../testing/calendar-marker-fixture';
 import { testCapacityService } from '../testing/capacity-fixture';
+import { testClock } from '../testing/clock-fixture';
 import { testDirectoryService } from '../testing/directory-fixture';
 import { testHistoryService } from '../testing/history-fixture';
+import { testLoginThrottle } from '../testing/login-throttle-fixture';
 import { testPriorityBandService } from '../testing/priority-band-fixture';
 import { testProjectService } from '../testing/project-fixture';
 import { testReplay } from '../testing/replay-fixture';
@@ -19,6 +21,8 @@ const SECRET = 'test-secret-must-be-32-chars-at-least-!';
 function buildHarness() {
   const { log, buffer, replay } = testReplay();
   const app = buildApp({
+    loginThrottle: testLoginThrottle(),
+    clock: testClock,
     appOrigin: 'http://localhost',
     directory: testDirectoryService(),
     capacity: testCapacityService(),

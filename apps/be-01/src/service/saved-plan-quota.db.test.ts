@@ -2,11 +2,12 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import type { SavedPlanHoldingRow, SavedPlanStore } from '@wbs/core';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { CapacityRepository } from '../repository/capacity';
-import type { Connection } from '../repository/db';
-import { openConnection } from '../repository/db';
+import type { Connection, Drizzle } from '../repository/db';
+import { openConnection, refuseToWaitForWriteLock } from '../repository/db';
 import { DirectoryRepository } from '../repository/directory';
 import { OPEN } from '../repository/gate';
 import type { WriteStamp } from '../repository/index';
@@ -19,6 +20,7 @@ import { UserRepository } from '../repository/user';
 import { WorkItemRepository } from '../repository/work-item';
 import { nodeDigest } from '../runtime/bun-runtime';
 import { projectRow } from '../testing/project-fixture';
+import { fastScheduler } from './optimizer-wiring';
 import { SavedPlanService } from './saved-plan.service';
 import type { SavedPlanQuota } from './saved-plan-quota';
 
@@ -104,13 +106,19 @@ describe('SavedPlanService.save refuses each limit before writing anything', () 
    * reach, and a reused id would refuse on the primary key rather than on the
    * limit under test — a green assertion for the wrong reason.
    */
-  const service = (quota: SavedPlanQuota): SavedPlanService => {
+  const service = (
+    quota: SavedPlanQuota,
+    plans: SavedPlanStore = new SavedPlanRepository({
+      openConnection: () => openConnection(path),
+    }),
+  ): SavedPlanService => {
     issued += 1;
     const n = issued;
     return new SavedPlanService({
+      scheduler: fastScheduler,
       digest: nodeDigest,
       capture: new SavedPlanCaptureRepository({ openConnection: () => openConnection(path) }),
-      plans: new SavedPlanRepository({ openConnection: () => openConnection(path) }),
+      plans,
       newId: () => 'sp-' + String(n),
       now: () => OPENED_AT,
       quota,
@@ -210,5 +218,57 @@ describe('SavedPlanService.save refuses each limit before writing anything', () 
     expect(refused.outcome).toBe('refused');
     if (refused.outcome !== 'refused') return;
     expect(refused.refusal.limit).toBe('plan_count');
+  });
+
+  it('holds the write lock from the quota read through the saved row', async () => {
+    const rivalEntered: boolean[] = [];
+    class RacingSavedPlanRepository extends SavedPlanRepository {
+      override async holdingOf(db: Drizzle, projectId: string): Promise<SavedPlanHoldingRow> {
+        const holding = await super.holdingOf(db, projectId);
+        const rival = openConnection(path);
+        try {
+          refuseToWaitForWriteLock(rival.db);
+          try {
+            await rival.db.insert(savedPlan).values({
+              id: 'sp-rival',
+              projectId,
+              name: 'Rival',
+              createdBy: 'Grace',
+              createdById: null,
+              createdAt: OPENED_AT + 1,
+              inputSchemaVersion: 1,
+              inputBytes: 2,
+              inputSha256: 'rival',
+              scheduleSchemaVersion: null,
+              scheduleBytes: null,
+              scheduleSha256: null,
+              scheduleInputSha256: null,
+              schedulerAlgorithmId: null,
+              scheduleAbsentReason: 'pending',
+            });
+            rivalEntered.push(true);
+          } catch {
+            rivalEntered.push(false);
+          }
+        } finally {
+          rival.close();
+        }
+        return holding;
+      }
+    }
+    const plans = new RacingSavedPlanRepository({ openConnection: () => openConnection(path) });
+
+    const saved = await service({ ...ROOMY, mostPlansPerProject: 1 }, plans).save({
+      projectId: 'p1',
+      name: 'Only slot',
+      createdBy: 'Ada Lovelace',
+      createdById: null,
+    });
+
+    // Proof: moving the quota callback before `BEGIN IMMEDIATE` failed here on
+    // `Expected: [false] · Received: [true]` (2026-09-09).
+    expect(rivalEntered).toEqual([false]);
+    expect(saved.outcome).toBe('saved');
+    expect(await headers()).toHaveLength(1);
   });
 });

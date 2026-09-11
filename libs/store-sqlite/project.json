@@ -1,0 +1,51 @@
+{
+  "name": "store-sqlite",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/store-sqlite/src",
+  "projectType": "library",
+  "tags": ["scope:shared", "ring:adapter", "runtime:bun", "product:wbs"],
+  "targets": {
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx eslint libs/store-sqlite/src"
+      }
+    },
+    "lint:fast": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx eslint libs/store-sqlite/src --cache --cache-location .nx/eslintcache-store-sqlite"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "inputs": [
+        "default",
+        "^production",
+        "{workspaceRoot}/apps/be-01/drizzle",
+        "{workspaceRoot}/apps/be-01/src/testing/saved-plan-lock-holder.ts",
+        "{workspaceRoot}/openspec/changes/dual-optimized-scheduler/design.md"
+      ],
+      "options": {
+        "command": "bun test --coverage --coverage-reporter=lcov",
+        "cwd": "libs/store-sqlite"
+      },
+      "outputs": ["{projectRoot}/coverage"]
+    },
+    "test:unit": {
+      "executor": "nx:run-commands",
+      "inputs": ["default", "^production", "{workspaceRoot}/apps/be-01/drizzle"],
+      "options": {
+        "command": "bun test $(find src -name '*.test.ts' ! -name '*.db.test.ts' | tr '\\n' ' ') --coverage --coverage-reporter=lcov",
+        "cwd": "libs/store-sqlite"
+      },
+      "outputs": ["{projectRoot}/coverage"]
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx tsc --build --force libs/store-sqlite/tsconfig.json"
+      }
+    }
+  }
+}

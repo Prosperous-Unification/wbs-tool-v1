@@ -7,8 +7,8 @@
 // One line on stdout and nothing else, because the caller parses it. A tier
 // that cannot answer must fail the deploy rather than print something the
 // abort path would read as "roll back everything".
-import { openDatabase } from './repository/db';
-import { type AppliedMigration, ROLLBACK_ALL } from './repository/migrate-down';
+import { openDatabase } from '@wbs/store-sqlite/db';
+import { type AppliedMigration, ROLLBACK_ALL } from '@wbs/store-sqlite/migrate-down';
 
 const dbPath = process.env['DB_PATH'];
 if (dbPath === undefined || dbPath === '') throw new Error('DB_PATH must be set');

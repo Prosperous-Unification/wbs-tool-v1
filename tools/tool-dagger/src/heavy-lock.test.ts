@@ -1,15 +1,7 @@
-import {
-  closeSync,
-  mkdtempSync,
-  openSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
+import { closeSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { scratchSync } from '@wbs/tool-test-scratch';
 import { afterEach, describe, expect, it } from 'bun:test';
 
 const SCRIPT = join(import.meta.dir, '../../../bin/with-heavy-lock.sh');
@@ -114,7 +106,10 @@ async function until(ready: () => boolean, timeoutMs = 10_000): Promise<void> {
 // all, and a child's environment cannot reach its sibling contender.
 //
 // `heavy-lock-lib.sh` reads `HEAVY_LOCK_WAIT_SECONDS` from the environment
-// (`${HEAVY_LOCK_WAIT_SECONDS:-0}`), and `bin/h2puni-gate.sh` exports nothing —
+// (`${HEAVY_LOCK_WAIT_SECONDS:-0}`), and `bin/h2puni-gate.sh` still exports
+// nothing — it sets its own 1800-second default as a plain shell variable
+// precisely so the value reaches `with_heavy_lock` and stops there rather than
+// entering the gate steps' environment (TASK-328) —
 // so the value every lane is told to launch the gate with,
 // `HEAVY_LOCK_WAIT_SECONDS=900 ./bin/h2puni-gate.sh`, was inherited by this file
 // through the gate's child processes. The refusal case below asserts *immediate*
@@ -198,7 +193,7 @@ describe('with-heavy-lock', () => {
   });
 
   it('runs the requested command while the lock is free', () => {
-    const root = mkdtempSync(join(tmpdir(), 'wbs-heavy-lock-'));
+    const root = scratchSync('wbs-heavy-lock-');
     roots.push(root);
     const run = runWithTestLock(join(root, 'heavy.lock'), '0');
     expect(run.exitCode).toBe(0);
@@ -227,7 +222,7 @@ describe('with-heavy-lock', () => {
   // number -- two passes over the same tree disagree by whatever the host was
   // doing at the time.
   it('refuses immediately with exit 75 while another heavy operation owns the lock', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'wbs-heavy-lock-'));
+    const root = scratchSync('wbs-heavy-lock-');
     roots.push(root);
     const lock = join(root, 'heavy.lock');
 
@@ -273,7 +268,7 @@ describe('with-heavy-lock', () => {
     // The hostile root reaches the real holder and generated retry shim below.
     // Watched: reverting the shim injection sites to JSON.stringify expands
     // `$dollar` and the backticks, so the retry marker is never observed.
-    const root = mkdtempSync(join(tmpdir(), "wbs heavy $dollar `backtick` 'apostrophe'-"));
+    const root = scratchSync("wbs heavy $dollar `backtick` 'apostrophe'-");
     roots.push(root);
     const lock = join(root, 'heavy.lock');
 
@@ -411,7 +406,7 @@ describe('with-heavy-lock', () => {
     const shimBash = contenderExecutables.get('bash')!;
     const shimSleep = contenderExecutables.get('sleep')!;
 
-    const shim = mkdtempSync(join(tmpdir(), 'wbs-heavy-lock-shim-'));
+    const shim = scratchSync('wbs-heavy-lock-shim-');
     roots.push(shim);
     const retries = join(root, 'retries');
     writeFileSync(

@@ -591,10 +591,13 @@ describe('sharing the plan', () => {
       });
     };
 
-    itDom('offers the three lanes inside the Export menu, and opens on outline', () => {
+    itDom('offers the three lanes inside the Export menu, and opens on outline', async () => {
       const api = fakeApi();
       render(<WbsTable projectId="p1" api={api} projectName="Rewire the shed" />);
-      const picker = lanes();
+      // Proof: reading synchronously while the initial tree was still loading
+      // failed here with `Unable to find a label with the text of: Mermaid lanes`.
+      // Export becomes available only after the successful tree read it exports.
+      const picker = await screen.findByLabelText<HTMLSelectElement>('Mermaid lanes');
       expect([...picker.options].map((option) => option.value)).toEqual([
         'outline',
         'step',

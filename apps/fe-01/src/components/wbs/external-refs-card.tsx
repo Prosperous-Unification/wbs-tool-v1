@@ -14,6 +14,8 @@ export interface ExternalRefsCardProps {
   refs: readonly ExternalRefView[];
   /** The directory's vocabulary, for naming each ref's system. */
   systems: readonly ExternalSystemView[];
+  /** Told when the pointer arrives on the card — see {@link HoverCardProps.onPointerArrives}. */
+  onPointerArrives?: () => void;
 }
 
 /**
@@ -103,9 +105,18 @@ const ADDRESS: CSSProperties = {
  * decides for the name as well as for the address. A name is not a safer place
  * to put a `javascript:` href than a URL is.
  */
-export function ExternalRefsCard({ number, refs, systems }: ExternalRefsCardProps) {
+export function ExternalRefsCard({
+  number,
+  refs,
+  systems,
+  onPointerArrives,
+}: ExternalRefsCardProps) {
   return (
-    <HoverCard label={`Where ${number} also exists`} takesPointer opensSideways>
+    <HoverCard
+      label={`Where ${number} also exists`}
+      takesPointer
+      onPointerArrives={onPointerArrives}
+    >
       {/*
         **The card is as wide as its widest address, up to `WIDEST_LINE_PX`.**
         A cell's card is `position: absolute` inside the cell's own 40px

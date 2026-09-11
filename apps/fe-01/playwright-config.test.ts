@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 interface WebServerEntry {
+  command?: string;
   url: string;
   env?: Record<string, string>;
 }
@@ -88,6 +89,18 @@ describe('the browser gate’s port shift', () => {
   it('points the browser at the frontend it actually started', async () => {
     const config = (await loadConfig('500')) as { use?: { baseURL?: string } };
     expect(config.use?.baseURL).toBe('http://localhost:4700');
+  });
+
+  it('serves the built frontend instead of a source-module graph', async () => {
+    const [, , frontend] = serversOf(await loadConfig('500'));
+
+    // A source Vite page fetched more than 100 modules per navigation. A host
+    // network notification canceled one batch with `net::ERR_NETWORK_CHANGED`
+    // and left only an empty `#root`, twice in two whole-browser runs.
+    // Proof: replacing this with `bunx vite` failed on `expected
+    // "bunx vite" to be "bunx vite build --minify=false && bunx vite
+    // preview"`.
+    expect(frontend.command).toBe('bunx vite build --minify=false && bunx vite preview');
   });
 
   /**

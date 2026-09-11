@@ -8,7 +8,7 @@
     "deploy": "nx run tool-deploy:deploy",
     "build": "nx run-many -t build",
     "test": "nx run-many -t test",
-    "test:unit": "nx run be-01:test:unit && nx run-many -t test --projects=domain,auth,config,contracts,observability,realtime,validation",
+    "test:unit": "nx run-many -t test:unit",
     "test:queued": "bin/with-heavy-lock.sh -- nx run-many -t test",
     "lint": "nx run-many -t lint",
     "format": "nx format:write",
@@ -23,7 +23,8 @@
     "e2e": "nx run fe-01:e2e",
     "e2e:beside-dev": "CI=1 E2E_PORT_SHIFT=500 nx run fe-01:e2e",
     "dev:test": "bash bin/dev.test.sh",
-    "heavy-lock:test": "bash bin/heavy-lock.test.sh"
+    "heavy-lock:test": "bash bin/heavy-lock.test.sh",
+    "gate-pinning:test": "bash bin/h2puni-gate.test.sh"
   },
   "dependencies": {
     "@ark/schema": "0.56.0",

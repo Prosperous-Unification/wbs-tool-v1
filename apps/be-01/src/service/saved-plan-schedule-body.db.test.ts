@@ -193,7 +193,7 @@ describe('the stored schedule body', () => {
     // a `Map`, a `Date` or an `undefined` survives an object comparison and
     // does not survive the round trip, and the body is stored as bytes.
     const stored: unknown = JSON.parse(
-      JSON.stringify(buildScheduleBody(planned, reads.project.startDate)),
+      JSON.stringify(buildScheduleBody(planned, reads.project.startDate, SCHEDULE_ALGORITHM_ID)),
     );
 
     expect(stored).toEqual(expectedBody(planned, START));
@@ -252,14 +252,16 @@ describe('the stored schedule body', () => {
     await seedProject(START);
     const result = await captureAndSchedulePlan(capture(), 'p1');
     const { planned } = result!;
-    const bytes = serialiseScheduleBody(buildScheduleBody(planned, START));
+    const bytes = serialiseScheduleBody(buildScheduleBody(planned, START, SCHEDULE_ALGORITHM_ID));
 
     const flipped: Schedule = {
       ...planned,
       slices: reversed(planned.slices),
       workItems: reversed(planned.workItems),
     };
-    expect(serialiseScheduleBody(buildScheduleBody(flipped, START))).toBe(bytes);
+    expect(serialiseScheduleBody(buildScheduleBody(flipped, START, SCHEDULE_ALGORITHM_ID))).toBe(
+      bytes,
+    );
     // And the sorting is real rather than the two walks coinciding: a plain
     // stringify of the flipped maps must differ from one of the originals.
     expect(JSON.stringify([...flipped.slices])).not.toBe(JSON.stringify([...planned.slices]));
@@ -268,7 +270,7 @@ describe('the stored schedule body', () => {
   it('carries the version and the algorithm identity', async () => {
     await seedProject(START);
     const result = await captureAndSchedulePlan(capture(), 'p1');
-    const body = buildScheduleBody(result!.planned, START);
+    const body = buildScheduleBody(result!.planned, START, SCHEDULE_ALGORITHM_ID);
     expect(body.version).toBe(SCHEDULE_BODY_SCHEMA_VERSION);
     expect(body.algorithmId).toBe(SCHEDULE_ALGORITHM_ID);
   });
@@ -276,7 +278,11 @@ describe('the stored schedule body', () => {
   it('never stores eventsVisited', async () => {
     await seedProject(START);
     const result = await captureAndSchedulePlan(capture(), 'p1');
-    const body: Record<string, unknown> = buildScheduleBody(result!.planned, START) as never;
+    const body: Record<string, unknown> = buildScheduleBody(
+      result!.planned,
+      START,
+      SCHEDULE_ALGORITHM_ID,
+    ) as never;
     expect('eventsVisited' in result!.planned).toBe(true);
     expect('eventsVisited' in body).toBe(false);
   });
@@ -295,7 +301,7 @@ describe('the stored schedule body', () => {
     const { reads, planned } = result!;
     expect(reads.project.startDate).toBeNull();
     const stored: unknown = JSON.parse(
-      JSON.stringify(buildScheduleBody(planned, reads.project.startDate)),
+      JSON.stringify(buildScheduleBody(planned, reads.project.startDate, SCHEDULE_ALGORITHM_ID)),
     );
     expect(stored).toEqual(expectedBody(planned, null));
     const { workItems } = stored as { workItems: Record<string, Record<string, unknown>> };

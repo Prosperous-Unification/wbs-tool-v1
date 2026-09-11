@@ -2,20 +2,32 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { scheduleInputHash } from '@wbs/domain/canonical-schedule-input';
 import { createLogger } from '@wbs/observability';
+import { openSqliteSource } from '@wbs/store-sqlite';
 import { afterEach, describe, expect, it } from 'bun:test';
 
-import { openDrizzle } from './repository/db';
+import { openConnection, type openDrizzle } from './repository/db';
 import { DrizzleEventLogStore } from './repository/event-log';
 import { OPEN } from './repository/gate';
-import { WriteCoordinator } from './repository/gate';
 import { runMigrations } from './repository/migrate';
 import { allocateGeneration } from './repository/optimization-generation';
 import { ProjectRepository } from './repository/project';
-import { optimizedScheduleCache } from './repository/schema';
+import { SavedPlanRepository } from './repository/saved-plan';
+import { SavedPlanCaptureRepository } from './repository/saved-plan-capture';
+import { scheduleInputHash } from './repository/schedule-input-hash';
+import {
+  optimizationGeneration,
+  optimizedScheduleCache,
+  solverQueue,
+  solverSlot,
+} from './repository/schema';
 import { UserRepository } from './repository/user';
+import { WorkItemRepository } from './repository/work-item';
+import { nodeDigest } from './runtime/bun-runtime';
+import { subscriptionFor } from './service/broadcast';
 import type { ReservedSpawner, ReservedSpawnRequest } from './service/optimization-coordinator';
+import { PlanCommandRunner } from './service/plan-commands';
+import { SavedPlanService } from './service/saved-plan.service';
 import { readRuntimeSolverVersion } from './service/solver-launcher-process';
 import { buildServices } from './services';
 import { projectRow } from './testing/project-fixture';
@@ -23,6 +35,16 @@ import { projectRow } from './testing/project-fixture';
 const FOLDER = new URL('../drizzle', import.meta.url).pathname;
 
 const dirs: string[] = [];
+
+function signal(): { readonly promise: Promise<void>; readonly resolve: () => void } {
+  let resolve = (): void => {
+    throw new Error('signal resolved before construction');
+  };
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
@@ -38,10 +60,10 @@ function bootstrap(optimizer?: {
   dirs.push(dir);
   const path = join(dir, 'test.db');
   runMigrations(path, FOLDER);
-  const db = openDrizzle(path);
+  const source = openSqliteSource({ dbPath: path });
+  const db = source.db;
   const services = buildServices({
-    db,
-    gate: new WriteCoordinator(),
+    source,
     logger: createLogger({ service: 'be-01' }),
     jwtKey: 'k'.repeat(32),
     gwUrl: 'http://gw.invalid',
@@ -55,7 +77,7 @@ function bootstrap(optimizer?: {
     },
     optimizer,
   });
-  return { db, services, pushUrls };
+  return { db, path, services, pushUrls };
 }
 
 async function seedProject(db: ReturnType<typeof openDrizzle>): Promise<{
@@ -85,6 +107,71 @@ async function seedProject(db: ReturnType<typeof openDrizzle>): Promise<{
 }
 
 describe('buildServices', () => {
+  it('saves an idle optimized capture without admitting solver state', async () => {
+    const { db, path, services } = bootstrap({
+      solverVersion: '2.4',
+      budgetMs: 12_345,
+      spawn: () => {
+        throw new Error('captured scheduling admitted a solver process');
+      },
+    });
+    const { projectId, ownerId } = await seedProject(db);
+    await new ProjectRepository(db, OPEN).update(
+      projectId,
+      { optimizationEnabled: true, scheduleEngine: 'optimized', scheduleObjective: 'pri' },
+      { at: 2, by: ownerId },
+    );
+    await new WorkItemRepository(db, OPEN).insert(
+      {
+        id: 'captured-work',
+        projectId,
+        parentId: null,
+        position: 10,
+        name: 'Captured work',
+        notes: '',
+        frozenNumber: null,
+        priority: null,
+        startNoEarlierThan: null,
+        startNoEarlierThanReason: null,
+        deadline: null,
+        serviceTeamId: null,
+        serviceId: null,
+        maxParallel: 1,
+        revision: 0,
+      },
+      [],
+      { at: 2, by: ownerId },
+    );
+    const state = () => ({
+      generations: db.select().from(optimizationGeneration).all(),
+      slots: db.select().from(solverSlot).all(),
+      queue: db.select().from(solverQueue).all(),
+    });
+    const before = state();
+    const savedPlans = new SavedPlanService({
+      scheduler: services.scheduler,
+      digest: nodeDigest,
+      capture: new SavedPlanCaptureRepository({ openConnection: () => openConnection(path) }),
+      plans: new SavedPlanRepository({ openConnection: () => openConnection(path) }),
+      newId: () => 'saved-idle',
+      now: () => 3,
+    });
+
+    const saved = await savedPlans.save({
+      projectId,
+      name: 'idle optimized capture',
+      createdBy: 'owner',
+      createdById: ownerId,
+    });
+
+    expect(saved.outcome).toBe('saved');
+    if (saved.outcome !== 'saved') return;
+    expect(saved.record.schedule).toEqual({ present: false, absentReason: 'pending' });
+    // Proof: routing capture through the live coordinator allocated generation 1
+    // before save returned, instead of leaving all three admission tables empty.
+    expect(state()).toEqual(before);
+  });
+
   it('gives the broadcaster and the replay orchestrator the same buffer', async () => {
     // The wiring, not the classes. `GatewayBroadcaster` filling a buffer and
     // `ReplayOrchestrator` reading one were each proven in isolation, and both
@@ -258,11 +345,14 @@ describe('buildServices', () => {
     // than asserted away, because a `null` slipping through would make every
     // equality below hold vacuously — the one way this case could pass while
     // reading nothing at all.
-    type Tree = NonNullable<Awaited<ReturnType<typeof services.workItems.tree>>>;
+    type Tree = Exclude<
+      Awaited<ReturnType<typeof services.workItems.tree>>,
+      { kind: 'engine_unavailable' } | null
+    >;
     const treeOf = async (): Promise<Tree> => {
       const tree = await services.workItems.tree(projectId);
       expect(tree).not.toBeNull();
-      if (tree === null) throw new Error('the seeded project answered no tree');
+      if (tree === null || 'kind' in tree) throw new Error('the seeded project answered no tree');
       return tree;
     };
 
@@ -315,6 +405,89 @@ describe('buildServices', () => {
 
     expect((await services.calendarMarkers.remove(projectId, markerId, ownerId)).ok).toBe(true);
     unchangedExceptSeq(await treeOf(), recoloured);
+  });
+
+  it('returns engine unavailable from the real service graph without an optimizer adapter', async () => {
+    const { db, services } = bootstrap();
+    const { projectId, ownerId } = await seedProject(db);
+    await services.workItems.create(projectId, ownerId, {
+      parentId: null,
+      afterId: null,
+      name: 'Must not receive Fast dates',
+    });
+    await new ProjectRepository(db, OPEN).update(
+      projectId,
+      { optimizationEnabled: true, scheduleEngine: 'optimized' },
+      { at: 2, by: ownerId },
+    );
+
+    const tree = await services.workItems.tree(projectId);
+
+    expect(tree).toEqual({
+      kind: 'engine_unavailable',
+      error: 'engine_unavailable',
+      engine: 'optimized',
+    });
+    expect(tree === null || 'slices' in tree).toBe(false);
+  });
+
+  it('commits a batch and durably announces one unavailable plan without a Fast tree', async () => {
+    const { db, services } = bootstrap();
+    const { projectId, ownerId } = await seedProject(db);
+    await new ProjectRepository(db, OPEN).update(
+      projectId,
+      { optimizationEnabled: true, scheduleEngine: 'optimized' },
+      { at: 1, by: ownerId },
+    );
+    const runner = new PlanCommandRunner({
+      batchServices: services.batch,
+      publicServices: services,
+      uow: services.uow,
+      announcements: services.announcements,
+    });
+
+    const applied = await runner.run(projectId, ownerId, [
+      {
+        kind: 'createWorkItem',
+        ref: 'created',
+        parentId: null,
+        afterId: null,
+        name: 'Committed before publication',
+      },
+    ]);
+
+    expect(applied.ok).toBe(true);
+    expect(
+      (await new WorkItemRepository(db, OPEN).listByProject(projectId)).map((row) => row.name),
+    ).toEqual(['Committed before publication']);
+    expect(await services.workItems.tree(projectId)).toEqual({
+      kind: 'engine_unavailable',
+      error: 'engine_unavailable',
+      engine: 'optimized',
+    });
+    const events = await new DrizzleEventLogStore(db, OPEN).rangeSince(
+      subscriptionFor(projectId),
+      -1,
+    );
+    expect(events.map((event) => event.message)).toEqual([
+      { type: 'plan_unavailable', error: 'engine_unavailable', engine: 'optimized' },
+    ]);
+    expect(
+      events.some((event) => (event.message as { type?: unknown }).type === 'tree_replaced'),
+    ).toBe(false);
+
+    const refused = await runner.run(projectId, ownerId, [
+      {
+        kind: 'setEstimate',
+        workItemId: 'missing',
+        stepId: 'missing',
+        days: { optimistic: 1, realistic: 1, pessimistic: 1 },
+      },
+    ]);
+    expect(refused.ok).toBe(false);
+    expect(
+      await new DrizzleEventLogStore(db, OPEN).rangeSince(subscriptionFor(projectId), -1),
+    ).toHaveLength(1);
   });
 
   it('builds one available optimizer whose first enabled read launches both release-keyed variants', async () => {
@@ -450,5 +623,57 @@ describe('buildServices', () => {
         .all()
         .filter(({ contractVersion }) => contractVersion === legacyContract),
     ).toHaveLength(2);
+  });
+
+  it('returns a live plan read while its newly admitted solver is still unresolved', async () => {
+    const entered = signal();
+    const release = signal();
+    const { db, services } = bootstrap({
+      solverVersion: readRuntimeSolverVersion('development'),
+      budgetMs: 60_000,
+      spawn: async () => {
+        entered.resolve();
+        await release.promise;
+        const empty = () =>
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.close();
+            },
+          });
+        return {
+          pid: 31_001,
+          stdout: empty(),
+          stderr: empty(),
+          exited: Promise.resolve(1),
+          verdict: () => undefined,
+          kill: () => undefined,
+        };
+      },
+    });
+    const { projectId, ownerId } = await seedProject(db);
+    await services.workItems.create(projectId, ownerId, {
+      parentId: null,
+      afterId: null,
+      name: 'Rewire',
+    });
+    expect(
+      await services.projects.update(projectId, ownerId, {
+        optimizationEnabled: true,
+        scheduleEngine: 'optimized',
+      }),
+    ).toHaveProperty('ok', true);
+
+    const treePromise = services.workItems.tree(projectId);
+    await entered.promise;
+    let settled = false;
+    void treePromise.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    // Proof: inserting `await services.optimizer.drain()` between the admitted
+    // spawn and this read left `settled` false until `release.resolve()`.
+    expect(settled).toBe(true);
+    release.resolve();
+    await services.optimizer?.drain();
   });
 });

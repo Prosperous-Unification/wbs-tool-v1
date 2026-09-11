@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import type { Digest, PasswordHasher, SessionClaims, TokenCodec } from '@wbs/core';
+import type { Digest, Intervals, PasswordHasher, SessionClaims, TokenCodec } from '@wbs/core';
 import { errors, type JWTPayload, jwtVerify, SignJWT } from 'jose';
 
 /**
@@ -74,9 +74,11 @@ export const nodeDigest: Digest = {
  * has no `setInterval` — a browser tab that is asleep, a worker with its own
  * scheduler — has to be able to give a different one.
  */
-export const systemInterval = {
-  setInterval: (fn: () => void, ms: number): unknown => setInterval(fn, ms),
-  clearInterval: (handle: unknown): void => {
-    clearInterval(handle as ReturnType<typeof setInterval>);
+export const systemInterval: Intervals = {
+  every: (milliseconds, callback) => {
+    const interval = setInterval(callback, milliseconds);
+    return () => {
+      clearInterval(interval);
+    };
   },
 };

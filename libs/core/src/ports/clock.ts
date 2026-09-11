@@ -37,14 +37,13 @@ export interface Clock {
 }
 
 /**
- * A clock over `now` and `newId`, defaulting to the real ones.
+ * A clock over required `now` and `newId` capabilities.
  *
  * `stampFor` is derived from `now` rather than injectable: a stamp whose
  * instant did not come from this clock is the drift the type exists to stop.
  */
-export function clockOf(parts: { now?: () => number; newId?: () => string } = {}): Clock {
-  const now = parts.now ?? ((): number => Date.now());
-  const newId = parts.newId ?? ((): string => crypto.randomUUID());
+export function clockOf(parts: { now: () => number; newId: () => string }): Clock {
+  const { now, newId } = parts;
   return {
     now,
     newId,

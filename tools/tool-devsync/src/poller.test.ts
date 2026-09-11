@@ -1,7 +1,7 @@
-import { chmod, mkdir, mkdtemp, readdir, readFile, utimes, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { chmod, mkdir, readdir, readFile, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { scratchAsync } from '@wbs/tool-test-scratch';
 import { describe, expect, it } from 'bun:test';
 
 interface CommandResult {
@@ -39,27 +39,32 @@ function candidateDeployer(installed: string, sha: string): string {
 }
 
 /**
- * A fake `git` whose `archive` answers with a tar holding one deployer file,
- * the shape the loader extracts. `body` runs first with the requested commit
- * in `$sha` and must set `CONTENT`; it may block, which is what the race
- * cases use it for.
+ * A fake `git` that materializes one deployer file when the loader checks out
+ * its private clone. `body` runs first with the requested commit in `$sha` and
+ * must set `CONTENT`; it may block, which is what the race cases use it for.
+ *
+ * The fake clone carries no `.git/info`: the loader has nothing to write there
+ * since TASK-376 took the borrowed `node_modules` link out, and the exclude
+ * that hid that link was the only thing that ever needed the directory.
  */
 function fakeGitArchiving(body: string): string {
   return `#!/usr/bin/env bash
 set -eu
-case " $* " in *" fetch "*) exit 0;; esac
-sha=$4
+if [ "$1" = clone ]; then
+  candidate=$6
+  mkdir -p "$candidate/tools/tool-devsync/src"
+  exit 0
+fi
+if [ "$1" != -C ] || [ "$3" != checkout ] || [ "$4" != --quiet ] || [ "$5" != --detach ]; then exit 64; fi
+candidate=$2
+sha=$6
 ${body}
-tree=$(mktemp -d)
-mkdir -p "$tree/tools/tool-devsync/src"
-printf '%s\\n' "$CONTENT" > "$tree/${DEPLOYER}"
-tar -c -C "$tree" tools
-rm -rf "$tree"
+printf '%s\\n' "$CONTENT" > "$candidate/${DEPLOYER}"
 `;
 }
 
 /**
- * The files a candidate is archived from, in the shape the real repository has
+ * The files a candidate clone carries in the shape the real repository has
  * them: the deployer's project, the contract it imports through an `@wbs/*`
  * path, and the root configs Bun resolves that path with.
  */
@@ -108,7 +113,8 @@ describe('durable dev poller', () => {
   it('guards the installed poller source shape for its interpreter, target ref, and proof hooks', async () => {
     const poller = await readFile(new URL('../../../bin/dev-poll.sh', import.meta.url), 'utf8');
     expect(poller).toContain('flock -n 9');
-    expect(poller).toContain('dev-poll-sync.sh');
+    expect(poller).toContain('git show "$remote_sha:bin/dev-poll-sync.sh"');
+    expect(poller).not.toContain('"$BIN/dev-poll-sync.sh"');
     expect(poller).not.toContain('"$SRC/tools/tool-devsync/src/sync.ts"');
     expect(poller).toContain('BUN=/home/puni1/wbs-dev/bin/bun');
     expect(poller).not.toContain('/wbs-dark/');
@@ -125,7 +131,7 @@ describe('durable dev poller', () => {
   });
 
   it('names the managed Bun installation remedy before reading the target', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'wbs-dev-poller-missing-bun-'));
+    const root = await scratchAsync('wbs-dev-poller-missing-bun-');
     const source = join(root, 'src');
     const installed = join(root, 'bin');
     const helper = new URL('../../../bin/dev-poll-sync.sh', import.meta.url).pathname;
@@ -148,7 +154,7 @@ describe('durable dev poller', () => {
   });
 
   it('removes its private candidate when target extraction fails', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'wbs-dev-poller-extract-failure-'));
+    const root = await scratchAsync('wbs-dev-poller-extract-failure-');
     const source = join(root, 'src');
     const installed = join(root, 'bin');
     const commands = join(root, 'commands');
@@ -174,8 +180,8 @@ describe('durable dev poller', () => {
     expect(await readdir(installed)).toEqual([]);
   });
 
-  it('prunes stale installed and interrupted candidates before running the target', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'wbs-dev-poller-prune-'));
+  it('prunes stale candidates while preserving a fresh interrupted candidate', async () => {
+    const root = await scratchAsync('wbs-dev-poller-prune-');
     const source = join(root, 'src');
     const installed = join(root, 'bin');
     const commands = join(root, 'commands');
@@ -187,6 +193,7 @@ describe('durable dev poller', () => {
     const staleInstalled = join(installed, `sync.${staleSha}`);
     const staleInterrupted = join(installed, `sync.${staleSha}.deadbeef`);
     const staleSingleFile = join(installed, `sync.${staleSha}.ts`);
+    const freshInterrupted = join(installed, `sync.${'c'.repeat(40)}.deadbeef`);
 
     await requireCommand(['mkdir', '-p', source, installed, commands]);
     await writeFile(fakeGit, fakeGitArchiving('CONTENT=CURRENT'));
@@ -197,6 +204,7 @@ describe('durable dev poller', () => {
     await Promise.all([
       mkdir(join(staleInstalled, 'tools'), { recursive: true }),
       mkdir(staleInterrupted, { recursive: true }),
+      mkdir(freshInterrupted, { recursive: true }),
       writeFile(staleSingleFile, 'a candidate the loader wrote before 2026-09-07'),
     ]);
     const staleTime = new Date(Date.now() - 9 * 24 * 60 * 60 * 1_000);
@@ -216,11 +224,47 @@ describe('durable dev poller', () => {
     // directories and fails here on `Received + 2`: `sync.bbbb…` and
     // `sync.bbbb….deadbeef` beside the fresh candidate.
     expect(result.code).toBe(0);
-    expect(await readdir(installed)).toEqual([`sync.${sha}`]);
+    expect((await readdir(installed)).sort()).toEqual(
+      [`sync.${'c'.repeat(40)}.deadbeef`, `sync.${sha}`].sort(),
+    );
+  });
+
+  it('prunes stale candidates before refusing a managed Bun version mismatch', async () => {
+    const root = await scratchAsync('wbs-dev-poller-prune-refusal-');
+    const source = join(root, 'src');
+    const installed = join(root, 'bin');
+    const staleCandidate = join(installed, `sync.${'b'.repeat(40)}.deadbeef`);
+    const freshCandidate = join(installed, `sync.${'c'.repeat(40)}.deadbeef`);
+    const fakeBun = join(root, 'bun');
+    const helper = new URL('../../../bin/dev-poll-sync.sh', import.meta.url).pathname;
+
+    await Promise.all([
+      mkdir(source, { recursive: true }),
+      mkdir(staleCandidate, { recursive: true }),
+      mkdir(freshCandidate, { recursive: true }),
+      writeFile(fakeBun, '#!/usr/bin/env bash\necho 1.2.20\n'),
+    ]);
+    const staleTime = new Date(Date.now() - 9 * 24 * 60 * 60 * 1_000);
+    await utimes(staleCandidate, staleTime, staleTime);
+    await chmod(fakeBun, 0o755);
+
+    const failed = await command([
+      'bash',
+      helper,
+      source,
+      installed,
+      fakeBun,
+      'a'.repeat(40),
+      '1.3.14',
+    ]);
+
+    expect(failed.code).not.toBe(0);
+    expect(failed.stderr).toContain('does not match 1.3.14');
+    expect(await readdir(installed)).toEqual([`sync.${'c'.repeat(40)}.deadbeef`]);
   });
 
   it('a repaired target deployer replaces a broken candidate without bypassing sync', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'wbs-dev-poller-'));
+    const root = await scratchAsync('wbs-dev-poller-');
     const source = join(root, 'src');
     const installed = join(root, 'bin');
     const fakeBun = join(root, 'bun');
@@ -238,7 +282,11 @@ describe('durable dev poller', () => {
 
     await writeFile(
       fakeBun,
-      '#!/usr/bin/env bash\nset -eu\nif [ "$1" = --version ]; then echo 1.3.14; exit 0; fi\nif grep -qx BROKEN "$1"; then exit 23; fi\ngit -C "$POLL_TEST_SRC" reset --hard --quiet "$2"\n',
+      '#!/usr/bin/env bash\nset -eu\nif [ "$1" = --version ]; then echo 1.3.14; exit 0; fi\n' +
+        // A fake Bun's `build` is a fake resolution guard that succeeds; this
+        // case is about recovery, not about the candidate's import graph.
+        'if [ "$1" = build ] || [ "$1" = -e ]; then exit 0; fi\n' +
+        'if grep -qx BROKEN "$1"; then exit 23; fi\ngit -C "$POLL_TEST_SRC" reset --hard --quiet "$2"\n',
     );
     await chmod(fakeBun, 0o755);
 
@@ -257,7 +305,7 @@ describe('durable dev poller', () => {
   });
 
   it('runs the target deployer against the contract the target commit carries', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'wbs-dev-poller-contract-'));
+    const root = await scratchAsync('wbs-dev-poller-contract-');
     const source = join(root, 'src');
     const installed = join(root, 'bin');
 
@@ -301,19 +349,22 @@ describe('durable dev poller', () => {
   });
 
   it('extracts everything the committed deployer imports, resolved by the real bundler', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'wbs-dev-poller-repository-'));
+    const root = await scratchAsync('wbs-dev-poller-repository-');
     const installed = join(root, 'bin');
     const out = join(root, 'out');
     const repository = new URL('../../../', import.meta.url).pathname;
     const head = await requireCommand(['git', '-C', repository, 'rev-parse', 'HEAD']);
     // Resolves the whole import graph of the candidate's deployer without
-    // running it: an alias outside the archived pathspecs fails the build.
+    // running it: an alias whose target the clone does not carry fails the
+    // build. `build` is forwarded verbatim because the loader now runs its
+    // own resolution guard through this same Bun before it runs the deployer.
     const bundlingBun = join(root, 'bun');
     await writeFile(
       bundlingBun,
       `#!/usr/bin/env bash
 set -eu
 if [ "$1" = --version ]; then echo ${Bun.version}; exit 0; fi
+if [ "$1" = build ] || [ "$1" = -e ]; then exec ${process.execPath} "$@"; fi
 exec ${process.execPath} build --target=bun --outdir=${out} "$1"
 `,
     );
@@ -330,19 +381,253 @@ exec ${process.execPath} build --target=bun --outdir=${out} "$1"
     ]);
 
     // Proof: the single-file loader fails here on
-    // `error: Could not resolve: "@wbs/deploy-contract". Maybe you need to "bun install"?`;
-    // `tools` dropped from the archived pathspecs fails on exit 1 with
-    // `ENOENT opening root directory "…/sync.<sha>/tools/tool-devsync/src"`.
-    // `libs` dropped stays green today because the deployer imports only from
-    // `tools/`; the day it imports `@wbs/contracts`, this is the case that says
-    // the archive no longer covers it.
+    // `error: Could not resolve: "@wbs/deploy-contract". Maybe you need to "bun install"?`
+    // (observed 2026-09-07, when the candidate was an archive of pathspecs;
+    // since TASK-326 it is a clone of the whole commit, so no pathspec can be
+    // dropped any more).
+    //
+    // Since TASK-376 this is also the negative control for the removed
+    // `node_modules` symlink: the candidate has no install in or above it, so
+    // green here is the statement that the real deployer's whole graph
+    // resolves from the clone alone.
     expect(built.stderr).not.toContain('Could not resolve');
     expect(built.code).toBe(0);
     expect(await readdir(out)).toEqual(['sync.js']);
   });
 
+  it('refuses a target whose deployer needs a package the source install does not have', async () => {
+    const root = await scratchAsync('wbs-dev-poller-thirdparty-');
+    const source = join(root, 'source');
+    const installed = join(root, 'bin');
+    const ran = join(root, 'ran');
+    await initFixtureRepository(source);
+    // The target adds a real npm dependency to the deployer's graph. Nothing
+    // about that is unreasonable; it is the case the loader has to survive.
+    await seedDeployerTree(
+      source,
+      'export const PROBE = 1;\n',
+      `import { PROBE } from '@wbs/probe-contract';\n` +
+        `import { fixtureOnly } from 'fixture-only-dependency';\n` +
+        `console.log(PROBE, fixtureOnly);\n`,
+    );
+    const head = await commitAll(source, 'deployer that needs a third-party package');
+    // The source checkout's install is the one it had BEFORE that commit: the
+    // pinned install can never contain a package the target just added. This
+    // is the stale-install fixture the pre-TASK-376 symlink borrowed from.
+    await mkdir(join(source, 'node_modules/already-installed'), { recursive: true });
+    await writeFile(
+      join(source, 'node_modules/already-installed/package.json'),
+      '{ "name": "already-installed", "version": "1.0.0", "main": "index.js" }\n',
+    );
+
+    // Forwards the loader's resolution guard to the real bundler, and records
+    // it if the deployer is ever reached. Reaching it is the defect.
+    const recordingBun = join(root, 'bun');
+    await writeFile(
+      recordingBun,
+      `#!/usr/bin/env bash
+set -eu
+if [ "$1" = --version ]; then echo ${Bun.version}; exit 0; fi
+if [ "$1" = build ] || [ "$1" = -e ]; then exec ${process.execPath} "$@"; fi
+echo deployed >> ${ran}
+`,
+    );
+    await chmod(recordingBun, 0o755);
+
+    const attempt = await command([
+      'bash',
+      HELPER,
+      source,
+      installed,
+      recordingBun,
+      head,
+      Bun.version,
+    ]);
+
+    // Before TASK-376 the candidate linked `$SRC/node_modules`, the bare
+    // specifier resolved against the pinned install or not at all, and the
+    // loader ran the deployer regardless — so this file existed.
+    expect(await command(['test', '-e', ran])).toMatchObject({ code: 1 });
+    expect(attempt.code).not.toBe(0);
+    expect(attempt.stderr).toContain('fixture-only-dependency');
+    expect(attempt.stderr).toContain('@wbs/* aliases and Bun/Node builtins');
+    // And it leaves nothing installed under the target's name to be re-run.
+    expect(await readdir(installed)).toEqual([]);
+  });
+
+  it('refuses a target whose deployer hides its dependency behind an opaque dynamic import', async () => {
+    const root = await scratchAsync('wbs-dev-poller-opaque-');
+    const source = join(root, 'source');
+    const installed = join(root, 'bin');
+    const ran = join(root, 'ran');
+    await initFixtureRepository(source);
+    // Bun's default is `--allow-unresolved='*'`, so a specifier the bundler
+    // cannot see through is waved past unless the guard rejects it. This is
+    // the same defect as the static case wearing a disguise: a deployer that
+    // reaches for a package no install under the candidate can supply.
+    await seedDeployerTree(
+      source,
+      'export const PROBE = 1;\n',
+      `import { PROBE } from '@wbs/probe-contract';\n` +
+        `const name = ['fixture-only', 'dependency'].join('-');\n` +
+        `console.log(PROBE, await import(name));\n`,
+    );
+    const head = await commitAll(source, 'deployer hiding a dependency behind a dynamic import');
+    await mkdir(join(source, 'node_modules'), { recursive: true });
+
+    const recordingBun = join(root, 'bun');
+    await writeFile(
+      recordingBun,
+      `#!/usr/bin/env bash
+set -eu
+if [ "$1" = --version ]; then echo ${Bun.version}; exit 0; fi
+if [ "$1" = build ] || [ "$1" = -e ]; then exec ${process.execPath} "$@"; fi
+echo deployed >> ${ran}
+`,
+    );
+    await chmod(recordingBun, 0o755);
+
+    const attempt = await command([
+      'bash',
+      HELPER,
+      source,
+      installed,
+      recordingBun,
+      head,
+      Bun.version,
+    ]);
+
+    // Without `--reject-unresolved` on the guard build this passes the guard
+    // and the deployer runs, so this file exists.
+    expect(await command(['test', '-e', ran])).toMatchObject({ code: 1 });
+    expect(attempt.code).not.toBe(0);
+    expect(attempt.stderr).toContain('@wbs/* aliases and Bun/Node builtins');
+    expect(await readdir(installed)).toEqual([]);
+  });
+
+  it('refuses a target whose deployer reaches out of the candidate into the pinned install', async () => {
+    const root = await scratchAsync('wbs-dev-poller-escape-');
+    const source = join(root, 'source');
+    const installed = join(root, 'bin');
+    const ran = join(root, 'ran');
+    await initFixtureRepository(source);
+    // Resolving is not the same as staying home. This import resolves
+    // perfectly — straight into the pinned checkout's install, which is the
+    // borrowed stale dependency the whole task is about, arriving by absolute
+    // path instead of by symlink.
+    const borrowed = join(source, 'node_modules/borrowed/index.js');
+    await seedDeployerTree(
+      source,
+      'export const PROBE = 1;\n',
+      `import { PROBE } from '@wbs/probe-contract';\n` +
+        `import { borrowed } from '${borrowed}';\n` +
+        `console.log(PROBE, borrowed);\n`,
+    );
+    const head = await commitAll(source, 'deployer reaching into the pinned install');
+    // Written after the commit: the install is never part of the archive, which
+    // is exactly why the candidate cannot legitimately reach it.
+    await mkdir(join(source, 'node_modules/borrowed'), { recursive: true });
+    await writeFile(borrowed, 'export const borrowed = "stale";\n');
+
+    const recordingBun = join(root, 'bun');
+    await writeFile(
+      recordingBun,
+      `#!/usr/bin/env bash
+set -eu
+if [ "$1" = --version ]; then echo ${Bun.version}; exit 0; fi
+if [ "$1" = build ] || [ "$1" = -e ]; then exec ${process.execPath} "$@"; fi
+echo deployed >> ${ran}
+`,
+    );
+    await chmod(recordingBun, 0o755);
+
+    const attempt = await command([
+      'bash',
+      HELPER,
+      source,
+      installed,
+      recordingBun,
+      head,
+      Bun.version,
+    ]);
+
+    // The build itself succeeds here — that is the point. Only the audit of
+    // the resolved input set catches it.
+    expect(await command(['test', '-e', ran])).toMatchObject({ code: 1 });
+    expect(attempt.code).not.toBe(0);
+    expect(attempt.stderr).toContain('resolves files outside the extracted candidate');
+    // Named, so an operator reading a tick log sees which file escaped. Bun's
+    // metafile reports it relative to the build root, hence the leading `../`
+    // the audit keys on rather than the absolute path the source wrote.
+    expect(attempt.stderr).toContain('../');
+    expect(attempt.stderr).toContain('node_modules/borrowed/index.js');
+    expect(await readdir(installed)).toEqual([]);
+  });
+
+  it('runs the deployer from a complete, clean, uninstalled target-revision tree', async () => {
+    const root = await scratchAsync('wbs-dev-poller-build-tree-');
+    const installed = join(root, 'bin');
+    const probe = join(root, 'probe');
+    const repository = new URL('../../../', import.meta.url).pathname;
+    const head = await requireCommand(['git', '-C', repository, 'rev-parse', 'HEAD']);
+    // Two contracts meet on the candidate. TASK-326 needs the target's whole
+    // build context — Dockerfile, publisher, supervisor unit, lockfile — at
+    // the target SHA, clean, with the deployer's cwd at its root. TASK-376
+    // needs no install borrowed into it. The guard runs through the real Bun
+    // against the real deployer, so green here is also the statement that
+    // sync.ts's whole graph, solver preparation included, resolves from the
+    // clone alone.
+    const probingBun = join(root, 'bun');
+    await writeFile(
+      probingBun,
+      `#!/usr/bin/env bash
+set -eu
+if [ "$1" = --version ]; then echo ${Bun.version}; exit 0; fi
+if [ "$1" = build ] || [ "$1" = -e ]; then exec ${process.execPath} "$@"; fi
+target_root=$(cd "$(dirname "$1")/../../.." && pwd)
+[ "$PWD" = "$target_root" ] || { echo "wrong cwd: $PWD" >&2; exit 41; }
+for required in apps/be-01/Dockerfile bin/publish-release.sh deploy/solver-supervisor/wbs-solver-supervisor.service bun.lock; do
+  [ -f "$target_root/$required" ] || { echo "missing target file: $required" >&2; exit 42; }
+done
+[ "$(git -C "$target_root" rev-parse HEAD)" = "$2" ] || { echo 'wrong target HEAD' >&2; exit 43; }
+[ -z "$(git -C "$target_root" status --porcelain)" ] || { echo 'target tree is dirty' >&2; exit 44; }
+if [ -e "$target_root/node_modules" ] || [ -L "$target_root/node_modules" ]; then
+  echo 'target tree borrows an install' >&2; exit 45
+fi
+printf '%s\n' "$target_root" > "$POLL_TARGET_PROBE"
+`,
+    );
+    await chmod(probingBun, 0o755);
+
+    const run = await command(
+      ['bash', HELPER, repository, installed, probingBun, head, Bun.version],
+      { POLL_TARGET_PROBE: probe },
+    );
+
+    // Proof, each watched failing on the merged loader (2026-09-09), all as
+    // `Received` stderr on the `toEqual` below: the pre-TASK-326 `git archive`
+    // of tools/libs/root configs — `missing target file: apps/be-01/Dockerfile`;
+    // `cd "$SRC"` restored before the exec — `wrong cwd: <the source checkout>`;
+    // the guard's `rm -rf` of its scratch removed — `target tree is dirty`;
+    // the pre-TASK-376 `ln -s "$SRC/node_modules"` restored, with or without
+    // the `.git/info/exclude` line that used to hide it — `target tree borrows
+    // an install` (watched 2026-09-10, both variants). It reaches that check
+    // rather than the dirty one because `.gitignore` now carries a bare
+    // `node_modules` beside `node_modules/`: the slashed form matches a
+    // directory only, so before that line a symlink was `?? node_modules` and
+    // this failed one check earlier on `target tree is dirty` instead. The
+    // borrows-an-install probe is what makes the guarantee hold either way,
+    // which is the point — the dirty check could never see a symlink.
+    //
+    // And `import '@dagger.io/dagger'` committed into sync.ts — the guard
+    // refuses before the probe runs, on
+    // `error: Could not resolve: "@dagger.io/dagger". Maybe you need to "bun install"?`.
+    expect(run).toEqual({ code: 0, stdout: '', stderr: '' });
+    expect(await readFile(probe, 'utf8')).toBe(`${join(installed, `sync.${head}`)}\n`);
+  });
+
   it('keeps concurrent target candidates isolated by commit', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'wbs-dev-poller-race-'));
+    const root = await scratchAsync('wbs-dev-poller-race-');
     const source = join(root, 'src');
     const installed = join(root, 'bin');
     const commands = join(root, 'commands');
@@ -379,7 +664,11 @@ esac`),
     // this case read `cccc…:FIXEDbbbb…:BROKEN` in CI run 34169031212.
     await writeFile(
       fakeBun,
-      '#!/usr/bin/env bash\nset -eu\nif [ "$1" = --version ]; then echo 1.3.14; exit 0; fi\nprintf "%s:%s\\n" "$2" "$(cat "$1")" >> "$POLL_OBSERVATIONS"\n',
+      '#!/usr/bin/env bash\nset -eu\nif [ "$1" = --version ]; then echo 1.3.14; exit 0; fi\n' +
+        // The loader's resolution guard runs through this same fake Bun; only
+        // the deployer invocation is an observation.
+        'if [ "$1" = build ] || [ "$1" = -e ]; then exit 0; fi\n' +
+        'printf "%s:%s\\n" "$2" "$(cat "$1")" >> "$POLL_OBSERVATIONS"\n',
     );
     await chmod(fakeGit, 0o755);
     await chmod(fakeBun, 0o755);
@@ -401,7 +690,7 @@ esac`),
   });
 
   it('runs byte-identical candidates when the same target overlaps itself', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'wbs-dev-poller-same-sha-'));
+    const root = await scratchAsync('wbs-dev-poller-same-sha-');
     const source = join(root, 'src');
     const installed = join(root, 'bin');
     const commands = join(root, 'commands');
@@ -425,7 +714,11 @@ CONTENT=SAME`),
     );
     await writeFile(
       fakeBun,
-      '#!/usr/bin/env bash\nset -eu\nif [ "$1" = --version ]; then echo 1.3.14; exit 0; fi\nprintf "%s:%s\\n" "$2" "$(cat "$1")" >> "$POLL_OBSERVATIONS"\n',
+      '#!/usr/bin/env bash\nset -eu\nif [ "$1" = --version ]; then echo 1.3.14; exit 0; fi\n' +
+        // The loader's resolution guard runs through this same fake Bun; only
+        // the deployer invocation is an observation.
+        'if [ "$1" = build ] || [ "$1" = -e ]; then exit 0; fi\n' +
+        'printf "%s:%s\\n" "$2" "$(cat "$1")" >> "$POLL_OBSERVATIONS"\n',
     );
     await chmod(fakeGit, 0o755);
     await chmod(fakeBun, 0o755);

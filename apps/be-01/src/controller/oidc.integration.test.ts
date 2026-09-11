@@ -12,8 +12,10 @@ import { buildApp } from '../app';
 import { inMemoryUsers, testAuthService } from '../testing/auth-fixture';
 import { testCalendarMarkerService } from '../testing/calendar-marker-fixture';
 import { testCapacityService } from '../testing/capacity-fixture';
+import { testClock } from '../testing/clock-fixture';
 import { testDirectoryService } from '../testing/directory-fixture';
 import { testHistoryService } from '../testing/history-fixture';
+import { testLoginThrottle } from '../testing/login-throttle-fixture';
 import { testPriorityBandService } from '../testing/priority-band-fixture';
 import { testProjectService } from '../testing/project-fixture';
 import { testReplay } from '../testing/replay-fixture';
@@ -152,6 +154,8 @@ function fixture(
   };
   const users = inMemoryUsers();
   const app = buildApp({
+    loginThrottle: testLoginThrottle(),
+    clock: testClock,
     appOrigin: oidc.appOrigin,
     auth: testAuthService(users, oidc),
     capacity: testCapacityService(),

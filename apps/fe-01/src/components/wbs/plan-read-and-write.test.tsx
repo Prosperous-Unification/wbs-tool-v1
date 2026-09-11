@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { WorkItemView } from '@/lib/wbs-api';
+import { WbsRequestError, type WorkItemView } from '@/lib/wbs-api';
 import { fakeProjectApi as fakeApi } from '@/testing/fake-project-api';
 import { recordCalls } from '@/testing/record-calls';
 
@@ -668,6 +668,28 @@ describe('someone else editing while you are typing', () => {
 });
 
 describe('failures you can see', () => {
+  itDom(
+    'names an unavailable optimizer and offers no export before a plan is installed',
+    async () => {
+      const api = fakeApi();
+      api.tree = () =>
+        Promise.reject(
+          new WbsRequestError({
+            kind: 'refusal',
+            operation: 'getApiProjectsByIdWork-items',
+            refusal: { error: 'engine_unavailable', engine: 'optimized' },
+          }),
+        );
+
+      render(<WbsTable projectId="p1" api={api} />);
+
+      await waitFor(() => {
+        expect(toastTexts()).toContain('Optimized scheduling is unavailable in this runtime.');
+      });
+      expect(document.querySelector('[data-export]')).toBeNull();
+    },
+  );
+
   /** Types a dependency list into a row's cell and sends it. */
   const typeDeps = (rowNumber: string, value: string) => {
     const input = screen.getByLabelText(`Add a dependency to ${rowNumber}`);
@@ -694,11 +716,34 @@ describe('failures you can see', () => {
     });
     return {
       api,
-      notify: () => {
-        notify();
+      notify: (changed?: string | null) => {
+        notify(changed);
       },
     };
   }
+
+  itDom('keeps the installed plan and names an unavailable peer refetch', async () => {
+    const { api, notify } = await subscribedTable();
+    api.tree = () =>
+      Promise.reject(
+        new WbsRequestError({
+          kind: 'refusal',
+          operation: 'getApiProjectsByIdWork-items',
+          refusal: { error: 'engine_unavailable', engine: 'optimized' },
+        }),
+      );
+
+    act(() => {
+      notify('plan_unavailable');
+    });
+
+    await waitFor(() => {
+      expect(staleBanner()?.textContent).toContain(
+        'Optimized scheduling is unavailable in this runtime.',
+      );
+    });
+    expect(numbersOnScreen()).toEqual([]);
+  });
 
   itDom('says a refused rename in a toast, and puts nothing above the table', async () => {
     const api = await threeRoots();
@@ -925,7 +970,7 @@ describe('failures you can see', () => {
     await waitFor(() => {
       expect(staleBanner()).not.toBeNull();
     });
-    expect(staleBanner()?.textContent).toContain('may be out of date');
+    expect(staleBanner()?.textContent).toContain('That change could not be completed (offline).');
     // The rows that were on screen are still on screen: a failed refetch does
     // not throw the plan away, it says the plan may have moved on without it.
     expect(numbersOnScreen()).toEqual([]);

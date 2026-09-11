@@ -6,15 +6,18 @@ import type {
   OptimizationVariantState,
   OptimizedScheduleReader,
 } from '../service/optimized-schedule-reader';
+import { optimizerWiring } from '../service/optimizer-wiring';
 import { ProjectService } from '../service/project.service';
 import { WorkItemService } from '../service/work-item.service';
 import { inMemoryUsers, testAuthService } from '../testing/auth-fixture';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
 import { testCalendarMarkerService } from '../testing/calendar-marker-fixture';
 import { testCapacityService } from '../testing/capacity-fixture';
+import { testClock } from '../testing/clock-fixture';
 import { testDirectoryService } from '../testing/directory-fixture';
 import { inMemoryServices } from '../testing/harness';
 import { testHistoryService } from '../testing/history-fixture';
+import { testLoginThrottle } from '../testing/login-throttle-fixture';
 import { testPriorityBandService } from '../testing/priority-band-fixture';
 import { testReplay } from '../testing/replay-fixture';
 import { testSavedPlanService } from '../testing/saved-plan-fixture';
@@ -29,6 +32,7 @@ function buildHarness(optimized?: OptimizedScheduleReader) {
   const capacity = testCapacityService();
   const priorityBands = testPriorityBandService();
   const projects = new ProjectService({
+    clock: testClock,
     projects: projectStore,
     broadcast: recordingBroadcaster(),
     ...(optimized === undefined ? {} : { optimizerAvailable: () => true }),
@@ -37,8 +41,18 @@ function buildHarness(optimized?: OptimizedScheduleReader) {
   const calendarMarkers = testCalendarMarkerService();
   const workItems =
     optimized === undefined
-      ? plan.service
-      : new WorkItemService({ ...plan.stores, broadcast: plan.broadcast, optimized });
+      ? new WorkItemService({
+          clock: testClock,
+          ...plan.stores,
+          broadcast: plan.broadcast,
+          scheduler: plan.scheduler,
+        })
+      : new WorkItemService({
+          clock: testClock,
+          ...plan.stores,
+          broadcast: plan.broadcast,
+          scheduler: optimizerWiring({ readLive: optimized, readCaptured: optimized }).scheduler,
+        });
   // The batch writes through the **same** services the routes do: on the
   // in-memory fixtures there is one set of stores and no turn to hold, so the
   // two graphs the composition root keeps apart are one object here. Given a
@@ -53,6 +67,8 @@ function buildHarness(optimized?: OptimizedScheduleReader) {
     calendarMarkers,
   });
   const app = buildApp({
+    loginThrottle: testLoginThrottle(),
+    clock: testClock,
     appOrigin: 'http://localhost',
     // **One** directory, shared with the work item service below. Two would
     // both look healthy while a person created through a `createPerson`
@@ -106,7 +122,15 @@ function buildHarness(optimized?: OptimizedScheduleReader) {
   // would be asserting against a read that does not exist. Every other store
   // stays private, as it should: this one is temporary and section 5 takes it
   // out again.
-  return { register, send, measures: measureStore, users, workItems, writes };
+  return {
+    register,
+    send,
+    measures: measureStore,
+    users,
+    workItems,
+    projects: projectStore,
+    writes,
+  };
 }
 
 type Send = (
@@ -116,7 +140,8 @@ type Send = (
 ) => Promise<Response>;
 
 async function setup(optimized?: OptimizedScheduleReader) {
-  const { register, send, measures, users, workItems, writes } = buildHarness(optimized);
+  const { register, send, measures, users, workItems, projects, writes } =
+    buildHarness(optimized);
   const token = await register('owner');
   const actor = await users.findByUsername('owner');
   if (actor === null) throw new Error('registered owner is missing');
@@ -231,6 +256,21 @@ async function firstRow(
 }
 
 describe('work item routes', () => {
+  it('refuses a directly stored optimized project when this runtime has no adapter', async () => {
+    const { projects, projectId, send, token } = await setup();
+    await projects.update(
+      projectId,
+      { optimizationEnabled: true, scheduleEngine: 'optimized' },
+      { at: 1, by: 'owner' },
+    );
+
+    const response = await send(`/api/projects/${projectId}/work-items`, token);
+
+    expect(response.status).toBe(409);
+    expect(response.headers.get('content-type')).toContain('application/json');
+    expect(await response.json()).toEqual({ error: 'engine_unavailable', engine: 'optimized' });
+  });
+
   it('serializes every optimizer variant state and keeps empty plans idle', async () => {
     type Variants = Readonly<Record<'pri' | 'time', OptimizationVariantState>>;
     let variants: Variants = { pri: { state: 'pending' }, time: { state: 'pending' } };

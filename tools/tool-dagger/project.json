@@ -83,7 +83,7 @@
         "{workspaceRoot}/docs/runbook-prod-deploy.md"
       ],
       "options": {
-        "command": "bun test",
+        "command": "bun test --preload ../test/scratch/preload.ts",
         "cwd": "tools/tool-dagger"
       }
     },

@@ -2,6 +2,7 @@ import { type } from 'arktype';
 
 import { defineEndpointShape } from './endpoint-shape';
 import { project, projectWithSteps } from './project-response';
+import { engineUnavailableRefusal } from './scheduler-shapes';
 import { requestSchema, responseSchema } from './schema-shape';
 import { workItemTree } from './work-item-response';
 
@@ -113,6 +114,7 @@ export const exportProject = defineEndpointShape({
   refusals: [
     ...readRefusals,
     notFound,
+    engineUnavailableRefusal,
     { status: 403, schema: responseSchema(type({ error: "'insufficient_scope'" })) },
     { status: 400, schema: responseSchema(type({ error: "'unsupported_format'" })) },
   ],

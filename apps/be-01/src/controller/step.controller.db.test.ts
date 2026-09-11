@@ -24,6 +24,7 @@ import { bunPasswordHasher, joseTokenCodec } from '../runtime/bun-runtime';
 import { AuthService } from '../service/auth.service';
 import { AnnouncementCollector } from '../service/broadcast';
 import { DirectoryService } from '../service/directory.service';
+import { fastScheduler } from '../service/optimizer-wiring';
 import { ProjectService } from '../service/project.service';
 import { StepService } from '../service/step.service';
 import { WorkItemService } from '../service/work-item.service';
@@ -31,8 +32,10 @@ import { TEST_JWT_KEY } from '../testing/auth-fixture';
 import { type RecordingBroadcaster, recordingBroadcaster } from '../testing/broadcast-fixture';
 import { testCalendarMarkerService } from '../testing/calendar-marker-fixture';
 import { inMemoryCapacity, testCapacityService } from '../testing/capacity-fixture';
+import { testClock } from '../testing/clock-fixture';
 import { personAdded } from '../testing/directory-fixture';
 import { testHistoryService } from '../testing/history-fixture';
+import { testLoginThrottle } from '../testing/login-throttle-fixture';
 import { inMemoryPriorityBands, testPriorityBandService } from '../testing/priority-band-fixture';
 import { testReplay } from '../testing/replay-fixture';
 import { testSavedPlanService } from '../testing/saved-plan-fixture';
@@ -110,6 +113,7 @@ beforeEach(async () => {
   const announcements = broadcast;
 
   auth = new AuthService({
+    clock: testClock,
     users: new UserRepository(db, OPEN),
     tokens: joseTokenCodec(TEST_JWT_KEY),
     passwords: bunPasswordHasher,
@@ -118,7 +122,11 @@ beforeEach(async () => {
   // so there is nothing for a second graph to keep apart, and a batch given its
   // own would write into stores nothing here reads.
   const writing = {
-    directory: new DirectoryService({ directory, broadcast: recordingBroadcaster() }),
+    directory: new DirectoryService({
+      clock: testClock,
+      directory,
+      broadcast: recordingBroadcaster(),
+    }),
     capacity: testCapacityService(),
     priorityBands: testPriorityBandService(),
     calendarMarkers: testCalendarMarkerService(),
@@ -127,11 +135,18 @@ beforeEach(async () => {
     // landed in a log nothing reads. Harmless while no step route mutates
     // project settings — and exactly the shape in which a future assertion
     // reads an empty log and passes. See {@link writes}.
-    projects: new ProjectService({ projects, broadcast: announcements }),
+    projects: new ProjectService({ clock: testClock, projects, broadcast: announcements }),
     // The shared wrapper, as `services.ts` wires `StepService` — not a private
     // recorder. See {@link writes}.
-    steps: new StepService({ projects, steps: stepStore, broadcast: announcements }),
+    steps: new StepService({
+      clock: testClock,
+      projects,
+      steps: stepStore,
+      broadcast: announcements,
+    }),
     workItems: new WorkItemService({
+      scheduler: fastScheduler,
+      clock: testClock,
       workItems,
       projects,
       estimates,
@@ -149,6 +164,8 @@ beforeEach(async () => {
   };
   writes = testWrites(broadcast, writing);
   app = buildApp({
+    loginThrottle: testLoginThrottle(),
+    clock: testClock,
     appOrigin: 'http://localhost',
     savedPlans: testSavedPlanService(),
     history: testHistoryService(),
@@ -310,8 +327,8 @@ describe('the steps routes are the only spelling', () => {
  * Steps are the worst case rather than another instance of it: `readScopeFor`
  * maps `step_added` / `step_renamed` / `step_removed` to `tree-and-steps`, so
  * these are the events the table refetches on. `PlanCommandKind`
- * (`service/plan-command.ts:16-94`) declares no step command and
- * `plan-commands.ts` never references `StepService`, so a step mutation is
+ * (`libs/core/src/service/plan-command.ts`) declares no step command and
+ * `libs/core/src/service/plan-commands.ts` never references `StepService`, so a step mutation is
  * reachable only through this controller — it is never *inside* a batch, and
  * being captured by one is always wrong.
  *

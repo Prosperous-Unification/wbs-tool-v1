@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Ports live in a framework-free core lib; adapters live outside it

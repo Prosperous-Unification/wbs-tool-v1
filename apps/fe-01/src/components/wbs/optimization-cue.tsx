@@ -85,27 +85,34 @@ function dotState(
   const states = [optimization.variants.pri.state, optimization.variants.time.state];
   if (states.includes('failed') || states.includes('corrupt')) return 'unavailable';
   if (states.includes('plan-infeasible')) return 'infeasible';
+  // A settled variant does not end the other variant's solve. Keep the only
+  // state that will change on its own visible until every search has stopped.
+  if (states.includes('pending') || states.includes('retrying')) return 'solving';
   if (
     Object.values(optimization.variants).some(
       (variant) => variant.state === 'ready' && variant.proof === 'incomplete',
     )
   )
     return 'incomplete';
-  if (states.includes('pending') || states.includes('retrying')) return 'solving';
   // An admitted `idle` is waiting for a solver seat, which is the same news as
   // `pending` — `variantStateWords` has the whole of why the two words differ.
   if (optimization.generation !== null && states.includes('idle')) return 'solving';
+  // A quantisation-floor publication is Fast's own schedule, substituted
+  // because the quantised solver result was worse in the real domain. It is
+  // neither an unfinished search nor a degraded schedule, so the figures and
+  // comparison already say all that a reader can act on.
   return null;
 }
 
 /**
  * What each dot is painted in, and why it is a colour rather than a shade.
  *
- * `--destructive` for the two states a reader has to act on, told apart by
- * which of them it is: a plan that cannot meet a work item deadline is the
- * plan's problem, and a variant that failed to solve is the solver's — the
- * card says which. `--muted-foreground` for a solve in flight, pulsing, which
- * is the only state that is going to change on its own.
+ * `--destructive` for a plan that cannot meet a work item deadline, and
+ * `--muted-foreground` for a solve in flight, pulsing, which is the only state
+ * that is going to change on its own. Incomplete and unavailable deliberately
+ * share the warning highlight: both mean the
+ * optimizer could not supply a proved answer, while the adjacent card names
+ * whether it stopped with a usable schedule or supplied none.
  */
 const DOT: Readonly<Record<'solving' | 'unavailable' | 'infeasible' | 'incomplete', string>> = {
   solving: 'var(--muted-foreground)',

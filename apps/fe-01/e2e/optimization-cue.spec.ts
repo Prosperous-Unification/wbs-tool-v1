@@ -30,7 +30,7 @@ import { createProject } from './create-project';
  * on a fresh project where the toggle is off and the pill is not drawn at all;
  * this is the figure with it.
  */
-const LAID_OUT_WITH_THE_CUE_AT_1280 = 1563;
+const LAID_OUT_WITH_THE_CUE_AT_1280 = 1566;
 
 /** How far a measured edge may be from a pinned figure, in CSS px — `project-settings.spec.ts`'s. */
 const NEARLY = 2;
@@ -152,11 +152,10 @@ test.describe('the schedule cue, in a browser', () => {
     });
     // A bar that lost controls would flatter the budget below.
     expect(measured.controls, 'the toolbar lost controls').toBeGreaterThanOrEqual(16);
-    // Proof: the pill's face given `reading.sentence` instead of the active
-    // schedule's label — the banner this change deleted, wearing a pill's
-    // clothes — and this failed on `2082px of controls to lay out, against the
-    // 1563px this change left · Expected: <= 1565 · Received: 2081.92`.
-    // Watched 2026-09-08.
+    // Proof: the cue's fixed width widened from 11.5rem to 44rem, and this
+    // failed on `2086px of controls to lay out, against the 1566px this change
+    // left · Expected: <= 1568 · Received: 2085.875`. Watched 2026-09-10 after
+    // the landing browser measured the unchanged cue at 1565.875px.
     expect(
       measured.laidOut,
       `${String(Math.round(measured.laidOut))}px of controls to lay out, against the ${String(

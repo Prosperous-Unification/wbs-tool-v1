@@ -1,7 +1,7 @@
 /**
  * Task 1.1: the canonical form of a `schedule()` call, as one string.
  *
- * A cached optimized result is keyed on the hash of this string, so the rule it
+ * A cached optimized result is keyed on an adapter-owned hash of this string, so the rule it
  * has to satisfy is narrow and total: **two calls that would produce different
  * schedules must produce different strings, and two that would produce the same
  * schedule should produce the same string.** The first half is a correctness
@@ -15,27 +15,10 @@
  * {@link groupSlicesByLeaf} groups by them, both with the refusals the engine
  * itself makes.
  *
- * **Not in the barrel** (`index.ts`), deliberately: {@link scheduleInputHash}
- * imports `node:crypto` and `libs/domain/src` has no other `node:` import in it.
- * `apps/fe-01` imports this library exclusively by subpath — 0 root-barrel
- * imports at `9a8e4a98` — so keeping the module out of `export *` is what stops
- * a future root import from pulling a Node builtin into a browser bundle.
- * `fast-golden-corpus.ts` and `effective-label.ts` are out of it for their own
- * reasons already.
- *
- * That sentence was FALSE between run 42 and `02cfe57f`: run 42 added
- * `export * from './canonical-schedule-input'` to `index.ts` when the plan read
- * became the first caller outside this library, and the docstring kept claiming
- * the safeguard the export had removed (Sol M1 on PR 203). The export is gone
- * again and the callers reach this module by the explicit Node subpath
- * `@wbs/domain/canonical-schedule-input`, declared in `tsconfig.base.json`
- * beside the other `@wbs/domain/*` subpaths. Run 42's reason survives intact —
- * there is still exactly ONE canonicaliser, which is what stops an app-side
- * copy from ordering an argument differently and serving another plan's
- * schedule; only the door it is reached through changed.
+ * The explicit `@wbs/domain/canonical-schedule-input` subpath keeps one
+ * canonicalizer without making backend cache addressing part of the browser
+ * root domain API. The SHA-256 adapter lives beside the SQLite key it creates.
  */
-
-import { createHash } from 'node:crypto';
 
 import type { DependencyReach } from './dependency-reach';
 import type { PlannedRow } from './derive-numbers';
@@ -243,21 +226,4 @@ export function canonicalScheduleInput(input: ScheduleInput): string {
     reach: input.reach,
     deadlines: sortedPairs(input.deadlines),
   });
-}
-
-/**
- * Task 1.2: the exact-input hash — SHA-256 of {@link canonicalScheduleInput},
- * hex.
- *
- * Hex rather than base64 because this becomes a SQLite primary-key column and a
- * value that is written by hand into a query during an incident should not have
- * `+` or `/` in it. 64 characters, fixed width.
- *
- * `budgetMs` and `contractVersion` are deliberately **not** hashed. They are
- * cache-key *columns* beside this hash (task 4.2): a longer budget on the same
- * plan is the same question asked with more time, and a contract bump must
- * evict every row rather than move each one to a new address.
- */
-export function scheduleInputHash(input: ScheduleInput): string {
-  return createHash('sha256').update(canonicalScheduleInput(input), 'utf8').digest('hex');
 }

@@ -1,4 +1,7 @@
 node_modules/
+# Without this second line the trailing slash above matches a directory only,
+# so a `node_modules` SYMLINK is untracked-but-addable and `git add -A` commits it.
+node_modules
 dist/
 coverage/
 .nx/cache
@@ -42,6 +45,11 @@ test-results/
 test-results-packaged/
 playwright-report/
 .claude/worktrees
+# `.nxignore` codifies `.worktrees/<name>` as the convention for agent lanes, and
+# a nested worktree is untracked. `bin/h2puni-gate.sh` refuses a tree that is
+# dirty after its checkout (exit 65), so without this line one lane following
+# that convention makes every gate in the shared h2puni tree refuse.
+.worktrees/
 .nx/polygraph
 .nx/self-healing
 

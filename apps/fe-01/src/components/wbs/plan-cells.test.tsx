@@ -1953,8 +1953,13 @@ describe('names wrap and notes carry markdown', () => {
     await screen.findByRole('tooltip');
 
     expect(Number(cell().style.zIndex)).toBe(POPOVER_ROW_LAYER);
-    fireEvent.mouseLeave(notesMarkerOf('010'));
-    expect(cell().style.zIndex).toBe('1');
+    // The lift goes with the card, and the card goes after the reach the hand
+    // is given ({@link REACH_FOR_THE_PREVIEW_MS}) — so this waits rather than
+    // reading the frame the pointer left on.
+    fireEvent.mouseOut(nameCellOf('010'), { relatedTarget: document.body });
+    await waitFor(() => {
+      expect(cell().style.zIndex).toBe('1');
+    });
   });
 
   itDom('renders a script in a note as the text somebody typed', async () => {
@@ -2259,10 +2264,21 @@ describe('names wrap and notes carry markdown', () => {
     expect(screen.queryByRole('tooltip')).not.toBeNull();
 
     // And off the cell altogether, which is what closes it — or the assertion
-    // above would hold for a card nothing could ever close.
+    // above would hold for a card nothing could ever close. **After the reach**,
+    // since 2026-09-10: leaving the cell starts a 300ms hold rather than closing
+    // at once, because the card now hangs diagonally off the cell and the hand
+    // going to it leaves the cell's subtree on the way
+    // ({@link REACH_FOR_THE_PREVIEW_MS}).
     fireEvent.mouseOut(nameCellOf('010'), { relatedTarget: document.body });
 
-    expect(screen.queryByRole('tooltip')).toBeNull();
+    // Held, first — which is the new half of the behaviour and is asserted
+    // here rather than left to the browser: this is the window the fault lives
+    // in.
+    expect(screen.queryByRole('tooltip')).not.toBeNull();
+
+    await waitFor(() => {
+      expect(screen.queryByRole('tooltip')).toBeNull();
+    });
   });
 });
 
@@ -2988,8 +3004,14 @@ describe('the links column', () => {
 
     expect(Number(cell().style.zIndex)).toBe(POPOVER_ROW_LAYER);
 
+    // The lift goes with the card, and the card goes **after the reach** the
+    // hand is given ({@link REACH_FOR_THE_CARD_MS}) — the card hangs diagonally
+    // off this cell now, so an immediate clear would lose it under a hand on its
+    // way to a link.
     fireEvent.mouseLeave(screen.getByLabelText('Links for 010'));
-    expect(cell().style.zIndex).toBe('1');
+    await waitFor(() => {
+      expect(cell().style.zIndex).toBe('1');
+    });
   });
 
   itDom('a non-http URL is not a link, on the card or in the editor', async () => {

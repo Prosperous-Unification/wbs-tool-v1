@@ -29,9 +29,9 @@ import { defineConfig, loadEnv, type ProxyOptions } from 'vite';
  *
  * @throws When the app has no `.env`, rather than starting a dev server that
  * proxies nowhere. `bun run dev:setup` writes one; `nx run fe-01:e2e` runs that
- * first for the same reason. `vite preview` is a `serve` command too, so it
- * throws the same way on a checkout with no `.env`; nothing in this repo runs
- * it, and a preview that quietly proxied nowhere would be the worse default.
+ * first for the same reason. `vite preview` is a `serve` command too, and the
+ * browser gate supplies these values explicitly; a preview that quietly
+ * proxied nowhere would fail later as an application refusal.
  */
 function edgeRoutes(mode: string): Record<string, ProxyOptions> {
   const env = loadEnv(mode, process.cwd(), 'VITE_');
@@ -195,6 +195,15 @@ export default defineConfig(({ command, mode }) => ({
     // Serve only. `vite build` has no proxy to configure, and the gate job
     // builds fe-01 on a checkout with no `.env` at all — reading one there
     // would turn this into a build that fails for want of a dev setting.
+    proxy: command === 'serve' ? edgeRoutes(mode) : undefined,
+  },
+  // The browser gate serves the built app, which reduces a source page's more
+  // than 100 module requests to the bundle it is meant to deploy. Preview has
+  // its own server options; without this block it would ignore the shifted port
+  // and the two edge routes the browser exercises.
+  preview: {
+    port: Number(process.env['PORT'] ?? 4200),
+    strictPort: true,
     proxy: command === 'serve' ? edgeRoutes(mode) : undefined,
   },
   build: {

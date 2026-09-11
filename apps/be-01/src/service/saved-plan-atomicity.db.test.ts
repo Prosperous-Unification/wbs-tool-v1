@@ -20,6 +20,7 @@ import { UserRepository } from '../repository/user';
 import { WorkItemRepository } from '../repository/work-item';
 import { nodeDigest } from '../runtime/bun-runtime';
 import { projectRow } from '../testing/project-fixture';
+import { fastScheduler } from './optimizer-wiring';
 import { SavedPlanService } from './saved-plan.service';
 import { planInputRowsOf } from './saved-plan-input';
 
@@ -209,6 +210,7 @@ describe('SavedPlanService.save is atomic', () => {
       const before = await livePlanBytes();
       const faulting = faultingAt(path, boundary);
       const service = new SavedPlanService({
+        scheduler: fastScheduler,
         digest: nodeDigest,
         capture: capture(),
         plans: new SavedPlanRepository({ openConnection: faulting.open }),

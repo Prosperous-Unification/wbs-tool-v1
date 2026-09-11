@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
 
 import type { DirectoryStore, ProjectStore, WriteStamp } from '../repository';
+import { AvailableWorkItemService as WorkItemService } from '../testing/available-work-item-service';
+import { testClock } from '../testing/clock-fixture';
 import { inMemoryServices } from '../testing/harness';
 import { projectRow, testProjectService } from '../testing/project-fixture';
 import type { OptimizedScheduleAsk, OptimizedScheduleRead } from './optimized-schedule-reader';
-import { WorkItemService, type WorkItemServiceOptions } from './work-item.service';
+import { optimizerWiring } from './optimizer-wiring';
+import type { WorkItemServiceOptions } from './work-item.service';
 
 /**
  * The read path that turns a **stored** deadline into the offset `schedule()`
@@ -56,7 +59,12 @@ let stepId: string;
 beforeEach(async () => {
   const harness = inMemoryServices();
   ({ projects, directory } = harness.stores);
-  serviceOptions = { ...harness.stores, broadcast: harness.broadcast };
+  serviceOptions = {
+    clock: testClock,
+    ...harness.stores,
+    broadcast: harness.broadcast,
+    scheduler: harness.scheduler,
+  };
   service = harness.service;
   stepId = crypto.randomUUID();
   const project = projectRow({
@@ -330,13 +338,20 @@ describe('the plan read and stored deadlines', () => {
     );
     if (on === null) throw new Error('project vanished');
     const before = recordingReader();
-    await new WorkItemService({ ...serviceOptions, optimized: before.read }).tree(projectId);
+    const probe = new WorkItemService({
+      ...serviceOptions,
+      scheduler: optimizerWiring({ readLive: before.read, readCaptured: before.read }).scheduler,
+    });
+    await probe.tree(projectId);
     expect(before.asks.map((ask) => [...ask.input.deadlines])).toEqual([[]]);
 
-    await setDeadline(rewire, '2026-03-04');
+    expect((await probe.patch(rewire, OWNER, { deadline: '2026-03-04' })).ok).toBe(true);
 
     const after = recordingReader();
-    await new WorkItemService({ ...serviceOptions, optimized: after.read }).tree(projectId);
+    await new WorkItemService({
+      ...serviceOptions,
+      scheduler: optimizerWiring({ readLive: after.read, readCaptured: after.read }).scheduler,
+    }).tree(projectId);
     // Keyed by the work item's own id and holding the resolved **offset**, not
     // the calendar date: a date in the key would make the hash depend on the
     // project's start twice (`canonical-schedule-input.ts` (d) and (g)).

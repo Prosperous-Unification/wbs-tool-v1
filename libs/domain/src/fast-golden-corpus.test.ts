@@ -28,7 +28,7 @@ import { schedule, ScheduleInvalidOptimizedStartError } from './schedule';
  *
  * **What they do not close, and where that is closed instead.** Both compare
  * this tree's fixture against this tree's computation, and
- * `write-fast-golden-corpus.ts` writes the current constant beside the current
+ * `tools/dev/write-fast-golden-corpus.ts` writes the current constant beside the current
  * cases — so regenerating after a semantic change, with the version left where
  * it is, is green here. TASK-338 added CI's `Corpus version lint`
  * (`tools/tool-git-hooks/src/hooks/corpus-version-lint.ts`), which reads this

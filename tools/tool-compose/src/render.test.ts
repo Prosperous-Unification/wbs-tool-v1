@@ -1,8 +1,8 @@
 import { readdirSync, readFileSync } from 'node:fs';
-import { mkdtemp, readFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { scratchAsync } from '@wbs/tool-test-scratch';
 import { describe, expect, it } from 'bun:test';
 
 import { previewContext, renderAll, renderTemplate } from './render';
@@ -31,7 +31,7 @@ describe('previewContext', () => {
 
 describe('renderAll', () => {
   it('renders all .tmpl files under templates/ into outDir', async () => {
-    const outDir = await mkdtemp(join(tmpdir(), 'tool-compose-'));
+    const outDir = await scratchAsync('tool-compose-');
     const written = await renderAll({
       templatesDir: join(import.meta.dir, 'templates'),
       outDir,

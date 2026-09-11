@@ -3,6 +3,7 @@ import { type Type, type } from 'arktype';
 import { defineEndpointShape } from './endpoint-shape';
 import { planCommandsBody } from './plan-command-shapes';
 import type { ParserRefusalCode, PlanCommandKind } from './refusal';
+import { engineUnavailableRefusal } from './scheduler-shapes';
 import { requestSchema, responseSchema } from './schema-shape';
 import { workItemTree } from './work-item-response';
 
@@ -560,6 +561,7 @@ export const getWorkItems = defineEndpointShape({
   refusals: [
     ...genericRefusals,
     { status: 404, schema: responseSchema(type({ error: "'not_found'" })) },
+    engineUnavailableRefusal,
   ],
   document: { summary: 'Read the project work-item tree.' },
 });

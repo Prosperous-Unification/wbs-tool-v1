@@ -1,12 +1,12 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { scratchSync } from '@wbs/tool-test-scratch';
 import { afterAll, describe, expect, it } from 'bun:test';
 
 import { checkCap, DOC_CAPS } from './doc-caps';
 
-const dir = mkdtempSync(join(tmpdir(), 'wbs-doc-caps-'));
+const dir = scratchSync('wbs-doc-caps-');
 
 afterAll(() => {
   rmSync(dir, { recursive: true, force: true });

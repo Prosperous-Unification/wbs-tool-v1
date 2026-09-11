@@ -572,6 +572,39 @@
   }
 
   /*
+   * Every hover card's own type, wherever the card is drawn.
+   *
+   * A card that opens from a cell is a **child of that cell**, so it takes the
+   * grid's 13px over a 1.4 line from the rule above by inheritance and always
+   * has. A card that is **portalled** — the hint layer's, which is what most of
+   * the table's columns answer with, the Gantt's, and the project picker's — is
+   * a child of `<body>`, which is outside the `font-sans` on `<main>` and
+   * outside `[data-grid]` both. Measured in Chromium on 2026-09-11: the Slack
+   * cell's fact came out `Times / 16px / normal` beside the notes preview's
+   * `sans-serif / 13px / 18.2px`. One pop-up, two typefaces and three points of
+   * size, in a table where Dany had just asked for _"same look and feel"_ across
+   * every column.
+   *
+   * `@apply font-sans` rather than the family written out, so the one place a
+   * face is chosen stays `--font-sans` above — and the geometry warning beside
+   * it, that a different face is a different `not-before` column, keeps
+   * applying. The size is the grid's own, written here rather than added to the
+   * selector list above because that rule is about the grid **body** and this is
+   * a box that is usually not in it.
+   *
+   * Proof: this block deleted — `e2e/hints.spec.ts`'s `a card reads in the
+   * table's own type, wherever it is drawn` failed on `the portalled card's type
+   * · Expected: "sans-serif / 13px / 18.2px" · Received: "Times / 16px /
+   * normal"`. Watched in Chromium, 2026-09-11.
+   */
+  [role='tooltip'] {
+    @apply font-sans;
+
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
+  /*
    * The five pixels under every box, which are a row's height and nothing a
    * reader can see.
    *

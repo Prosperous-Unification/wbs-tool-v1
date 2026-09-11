@@ -1,8 +1,8 @@
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolve } from 'node:path';
 
+import { scratchSync } from '@wbs/tool-test-scratch';
 import { describe, expect, it } from 'bun:test';
 
 import {
@@ -89,7 +89,7 @@ describe('verifySolverEnvironment', () => {
    * not throw`.
    */
   it('refuses an install whose recorded and importable versions disagree', () => {
-    const root = mkdtempSync(join(tmpdir(), 'solver-env-'));
+    const root = scratchSync('solver-env-');
     mkdirSync(join(root, 'bin'), { recursive: true });
     const python = join(root, 'bin', 'python');
     writeFileSync(
@@ -104,7 +104,7 @@ describe('verifySolverEnvironment', () => {
 
   it('refuses an environment that was never provisioned', () => {
     expect(() => {
-      verifySolverEnvironment(solverEnvironment(mkdtempSync(join(tmpdir(), 'absent-'))));
+      verifySolverEnvironment(solverEnvironment(scratchSync('absent-')));
     }).toThrow('not provisioned');
   });
 });

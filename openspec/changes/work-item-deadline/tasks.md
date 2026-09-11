@@ -1245,24 +1245,28 @@ in **one declared unit** and includes JSX text and `aria-label`.
 
 **Two corrections that survive the withdrawn count, and they change the item.**
 
-- The claim that the two cell sentences are unqualified-but-unambiguous "because
-  the **Work item deadline** label is above them" is **false**. The visible
-  column heading is `Due` (`wbs-table.tsx:10238-10242`); `Work item deadline` is
-  the separate Columns-control label (`:2560-2562`). The referent those
-  sentences were said to inherit is not on screen beside them.
-- **A pinned exception list cannot satisfy 8.9, because a standing SHALL forbids
-  one.** This change's own scenario "no unqualified deadline copy remains"
-  (`specs/scheduler-optimization/spec.md:390-394`) requires that **every**
-  occurrence be qualified as Project deadline or Work item deadline. So 8.9 has
-  exactly two honest closures: qualify all five unqualified occurrences, or
-  amend that scenario to define a contextual exception precisely — and the
-  second is a normative change, not an assertion.
+- The withdrawn measurement claimed that the two cell sentences were
+  unqualified-but-unambiguous "because the **Work item deadline** label is above
+  them". That was **false at its measured head**: the visible heading then read
+  `Due`, while `Work item deadline` was a separate Columns-control label. The
+  referent those sentences were said to inherit was not on screen beside them.
+  The later normative amendment now makes that compact heading one of the two
+  exact **Deadline** contract labels; the historical correction does not
+  describe the current tree.
+- **The original standing SHALL allowed no exception.** Closing 8.9 therefore
+  required both changes that now ship: qualify the reader-facing copy, then
+  amend the scenario to name exactly two product-contract exceptions — the
+  table heading and matching Columns-control label. The repository oracle
+  enforces both sides: no other bare occurrence and exactly one label at each
+  named source site.
 
 ## 8.9, closed
 
-The first of the two honest closures above: **all five occurrences qualified**,
-not an exception list. The scenario says _every_, so a pinned list could not
-have closed it.
+Both closures above now ship. The formerly bare reader-facing occurrences
+are qualified, and the later normative amendment defines the only two exact
+**Deadline** labels: the table heading and its matching Columns-control entry.
+The scanner recognizes those labels by AST shape rather than by a permissive
+file list, and a real-tree assertion requires exactly one at each source site.
 
 | was                                                                      | is                                                              |
 | ------------------------------------------------------------------------ | --------------------------------------------------------------- |
@@ -1285,19 +1289,18 @@ parser and not from a regex over the source is the point — identifiers
 (`setDeadline`), member reads (`row.original.deadline`), keys and comments are
 not runs, so they are not occurrences and no exclusion list has to name them —
 and it reaches the two kinds of copy the withdrawn measurement never scanned,
-JSX text and `aria-label`. The one heuristic is that a run with no whitespace
-in it (`'deadline'`, a column id) cannot be a sentence.
+JSX text and `aria-label`. The narrow heuristic exempts only a lower-case
+identifier token in a position a reader is not shown; one-word displayed copy
+remains in scope.
 
-**The control is eight cases that run every time, and that is a deliberate
-choice over one watched red.** Six drive the scan over sources written to fail
-it: a bare `aria-label`, the same label qualified, JSX text both ways, one
-sentence saying the word twice (which a distinct-values measure would call
-one — this item's own Critical, as a case), identifiers and comments, and a
-qualifier split across a template hole. Two more stop the tree scan going
-vacuous: it must still find both components, and must still find the five
-occurrences **by their text**, since lines move and a citation that moves is
-exactly the fault the withdrawn count had. A watched red would have proved one
-of those eight once; these prove all eight on every run.
+**The controls run every time, without pinning their number.** Focused source
+fixtures cover bare and qualified attributes and JSX, repeated occurrences,
+identifiers, comments, quoted keys, module specifiers, shallow syntax trees and
+template holes. Real-tree checks prevent vacuity: they require both copy-bearing
+components, require exactly the two AST-shaped contract labels at their named
+sites, and retain the formerly bare occurrences by text rather than movable
+line numbers. A watched red would prove one mutation once; these controls keep
+the relevant boundaries executable on every run.
 
 **The peer found the hole in the first draft of that scan, and it was the
 whitespace rule.** Sol r6b (`queue/reviews/t241-r6b-sol.md`, 9173 bytes, sha256
@@ -1317,11 +1320,10 @@ Quoted names are now excluded by position. Minor 1 corrected the cwd note: the
 config, and `test-tiers.test.ts` overstates that too.
 
 **Measured before pushing, not after.** A standalone parser scan over the
-committed tree reports **12 runs carrying 13 occurrences** — six in
-`optimization-indicator.tsx`, six in `wbs-table.tsx`, the extra occurrence
-being the impossible sentence saying the word twice — and **0 unqualified**.
-All twelve control expectations were checked against the same predicates
-before the suite was pushed.
+committed tree found the shipped deadline-copy runs and **0 unqualified**. The
+control expectations were checked against the same predicates before the suite
+was pushed; their behaviours, rather than a brittle case or occurrence count,
+are the durable contract.
 
 **No h2puni gate ran, and the reason is a host, not a decision.** h2puni is at
 **100% inodes** — `df -i /` reports `9849520 / 9849520`, `IFree 0` — so `scp`

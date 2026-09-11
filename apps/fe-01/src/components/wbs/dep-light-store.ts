@@ -79,7 +79,7 @@ export function createDepLights(): DepLights {
    * the successor, and lighting it would answer "what does this wait for" by
    * pointing at the question. Nothing filters the row back out of its own set,
    * because nothing can put it there: be-01's dependency service refuses an
-   * edge that closes a cycle (`service/dependency.ts`), and a row waiting for
+   * edge that closes a cycle (`libs/core/src/service/dependency.ts`), and a row waiting for
    * itself is the shortest cycle there is.
    *
    * `pillId` is checked against the set rather than trusted, which is what

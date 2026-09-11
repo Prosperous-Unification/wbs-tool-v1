@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { Schedule } from '@wbs/domain';
+import type { ScheduleInput } from '@wbs/domain/canonical-schedule-input';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { CapacityRepository } from '../repository/capacity';
@@ -14,16 +14,15 @@ import type { WriteStamp } from '../repository/index';
 import { runMigrations } from '../repository/migrate';
 import { ProjectRepository } from '../repository/project';
 import { SavedPlanRepository } from '../repository/saved-plan';
-import type { PlanInputReads } from '../repository/saved-plan-capture';
 import { SavedPlanCaptureRepository } from '../repository/saved-plan-capture';
 import { planEvent, savedPlan, savedPlanBody } from '../repository/schema';
 import { UserRepository } from '../repository/user';
 import { WorkItemRepository } from '../repository/work-item';
 import { nodeDigest } from '../runtime/bun-runtime';
 import { projectRow } from '../testing/project-fixture';
+import { fastScheduler } from './optimizer-wiring';
 import { SavedPlanService } from './saved-plan.service';
 import { bodySha256, UnknownSavedPlanBodyVersionError } from './saved-plan-integrity';
-import { schedulePlanInput } from './saved-plan-schedule';
 
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 
@@ -68,7 +67,8 @@ describe('reading a saved plan back', () => {
   let dir: string;
   let path: string;
   let reader: Connection;
-  let scheduleCalls: PlanInputReads[];
+  let scheduleCalls: ScheduleInput[];
+  let schedulerMayRun: boolean;
 
   const item = (id: string, position: number) => ({
     id,
@@ -90,6 +90,7 @@ describe('reading a saved plan back', () => {
 
   beforeEach(async () => {
     scheduleCalls = [];
+    schedulerMayRun = true;
     dir = mkdtempSync(join(tmpdir(), 'wbs-saved-plan-read-'));
     path = join(dir, 'test.db');
     runMigrations(path, FOLDER);
@@ -129,15 +130,19 @@ describe('reading a saved plan back', () => {
   /** The service under test, with a scheduler that records every call. */
   const service = (id = 'sp-1') =>
     new SavedPlanService({
+      scheduler: {
+        supports: (engine) => fastScheduler.supports(engine),
+        read: (ask) => {
+          if (!schedulerMayRun) throw new Error('stored history invoked the scheduler');
+          scheduleCalls.push(ask.input);
+          return fastScheduler.read(ask);
+        },
+      },
       digest: nodeDigest,
       capture: new SavedPlanCaptureRepository({ openConnection: () => openConnection(path) }),
       plans: new SavedPlanRepository({ openConnection: () => openConnection(path) }),
       newId: () => id,
       now: () => OPENED_AT,
-      schedule: (reads: PlanInputReads): Schedule => {
-        scheduleCalls.push(reads);
-        return schedulePlanInput(reads);
-      },
     });
 
   /**
@@ -164,11 +169,13 @@ describe('reading a saved plan back', () => {
     // is about the read alone.
     expect(scheduleCalls.length).toBe(1);
     scheduleCalls = [];
+    schedulerMayRun = false;
 
     const read = await service().read('sp-1');
     if (read.outcome !== 'read') throw new Error(`expected a read, got ${read.outcome}`);
 
-    // THE PROPERTY: not one call into the scheduler on the read path.
+    // THE PROPERTY: not one call into the scheduler on the read path. The fake
+    // throws as well as counting, so recomputation cannot fail later and be hidden.
     expect(scheduleCalls.length).toBe(0);
 
     // And what came back is the bytes on disk, byte for byte.

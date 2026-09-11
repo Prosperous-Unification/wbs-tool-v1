@@ -1,7 +1,7 @@
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { scratchSync } from '@wbs/tool-test-scratch';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { installedDaggerSdkVersion } from './main';
@@ -111,7 +111,7 @@ describe('readBuildCapacity', () => {
   let root: string;
 
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), 'wbs-capacity-'));
+    root = scratchSync('wbs-capacity-');
   });
 
   afterEach(() => {
@@ -336,7 +336,7 @@ describe('runEngineLifecycle', () => {
   });
 
   it('stops the engine before a real SIGTERM exits the publish process', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'wbs-engine-signal-'));
+    const root = scratchSync('wbs-engine-signal-');
     const marker = join(root, 'lifecycle.log');
     const moduleUrl = new URL('./main.ts', import.meta.url).href;
     const childScript = `
@@ -386,7 +386,7 @@ describe('runEngineLifecycle', () => {
   });
 
   it('owns SIGTERM cleanup while engine startup is still in progress', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'wbs-engine-start-signal-'));
+    const root = scratchSync('wbs-engine-start-signal-');
     const marker = join(root, 'lifecycle.log');
     const moduleUrl = new URL('./main.ts', import.meta.url).href;
     const childScript = `
@@ -540,7 +540,7 @@ describe('assertCleanTree', () => {
 
   beforeEach(() => {
     cwd = process.cwd();
-    repo = mkdtempSync(join(tmpdir(), 'wbs-cleantree-'));
+    repo = scratchSync('wbs-cleantree-');
     git('init', '-q');
     git('config', 'user.email', 'test@example.com');
     git('config', 'user.name', 'test');

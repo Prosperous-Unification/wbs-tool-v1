@@ -1,14 +1,6 @@
-import type { OptimizedScheduleReader } from './optimized-schedule-reader';
-
-/**
- * Whether *this deployment* can honour optimized scheduling at all.
- *
- * A predicate rather than a boolean, and never constructed by hand — see
- * {@link optimizerWiring}. The distinction it draws is not about a project: it
- * is about whether an optimized cache is wired into the process the settings
- * PATCH just landed in.
- */
-export type OptimizerAvailability = () => boolean;
+import type { OptimizedScheduleAdapter, OptimizerAvailability, Scheduler } from '@wbs/core';
+import { schedule } from '@wbs/domain';
+import { createScheduler } from '@wbs/runtime-portable';
 
 /**
  * The reader the plan read consults and the availability predicate the settings
@@ -19,14 +11,14 @@ export type OptimizerAvailability = () => boolean;
  * given different answers.
  */
 export interface OptimizerWiring {
-  /**
-   * Where a published solver schedule is looked up, or absent when no optimizer
-   * is deployed. Handed to {@link WorkItemServiceOptions.optimized} verbatim.
-   */
-  readonly read: OptimizedScheduleReader | undefined;
-  /** True exactly when {@link OptimizerWiring.read} is there. Never anything else. */
+  /** The scheduler handed to every live plan service. */
+  readonly scheduler: Scheduler;
+  /** True exactly when {@link OptimizerWiring.scheduler} supports optimized reads. */
   readonly available: OptimizerAvailability;
 }
+
+/** Fast-only scheduler for isolated service fixtures. */
+export const fastScheduler = createScheduler(schedule);
 
 /**
  * One reader in, both halves of the optimizer's wiring out.
@@ -48,6 +40,8 @@ export interface OptimizerWiring {
  * `read` is captured rather than re-read, because the argument is the whole of
  * what this knows; there is nothing else for the predicate to consult.
  */
-export function optimizerWiring(read: OptimizedScheduleReader | undefined): OptimizerWiring {
-  return { read, available: () => read !== undefined };
+export function optimizerWiring(optimized: OptimizedScheduleAdapter | undefined): OptimizerWiring {
+  const scheduler = optimized === undefined ? fastScheduler : createScheduler(schedule, optimized);
+  return { scheduler, available: () => scheduler.supports('optimized') };
 }
+export type { OptimizerAvailability } from '@wbs/core';

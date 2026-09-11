@@ -5,8 +5,10 @@ import type { AuthService } from './service/auth.service';
 import { inMemoryUsers, testAuthService } from './testing/auth-fixture';
 import { testCalendarMarkerService } from './testing/calendar-marker-fixture';
 import { testCapacityService } from './testing/capacity-fixture';
+import { testClock } from './testing/clock-fixture';
 import { testDirectoryService } from './testing/directory-fixture';
 import { testHistoryService } from './testing/history-fixture';
+import { testLoginThrottle } from './testing/login-throttle-fixture';
 import { testPriorityBandService } from './testing/priority-band-fixture';
 import { testProjectService } from './testing/project-fixture';
 import { testReplay } from './testing/replay-fixture';
@@ -58,7 +60,9 @@ async function signedInProbe(): Promise<{
 
 function appWith(auth: AuthService): ReturnType<typeof buildApp> {
   return buildApp({
+    clock: testClock,
     appOrigin: 'http://localhost',
+    loginThrottle: testLoginThrottle(),
     directory: testDirectoryService(),
     capacity: testCapacityService(),
     priorityBands: testPriorityBandService(),

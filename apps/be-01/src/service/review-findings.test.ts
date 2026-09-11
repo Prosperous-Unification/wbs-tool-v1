@@ -2,10 +2,10 @@ import { deriveNumbers } from '@wbs/domain';
 import { beforeEach, describe, expect, it } from 'bun:test';
 
 import type { Project, ProjectStore } from '../repository';
+import type { AvailableWorkItemService as WorkItemService } from '../testing/available-work-item-service';
 import { type RecordingBroadcaster } from '../testing/broadcast-fixture';
 import { inMemoryServices } from '../testing/harness';
 import { projectRow } from '../testing/project-fixture';
-import type { WorkItemService } from './work-item.service';
 
 const OWNER = 'owner-account';
 

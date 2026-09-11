@@ -71,6 +71,8 @@ export function FoldedStepCard({
 }: FoldedStepCardProps) {
   const estimated = points.some((each) => each.days.trim() !== '');
   return (
+    // Placed diagonally — past this cell and past this row — like every other
+    // card a plan cell opens. {@link sidewaysPlacement} picks the side.
     <HoverCard id={id}>
       <div style={{ fontWeight: 600 }}>
         {stepName} for {number}

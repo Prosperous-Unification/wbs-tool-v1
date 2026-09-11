@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Authoritative dev poller. Install this file and dev-poll-sync.sh together in
-# /home/puni1/wbs-dev/bin; they stay outside the checkout that sync.ts resets.
+# Authoritative dev poller. Its installed shell stays outside the checkout that
+# sync.ts resets; every tick streams the target commit's candidate loader.
 set -euo pipefail
 
 SRC=/home/puni1/wbs-dev/src
@@ -36,10 +36,13 @@ read_served_commit() {
 {
   echo "=== $(date -u +%Y-%m-%dT%H:%M:%SZ) ${local_sha:0:7} -> ${remote_sha:0:7}"
 
-  # dev-poll-sync extracts sync.ts from remote_sha into BIN before executing
-  # it. Therefore a pre-reset failure cannot pin the checkout forever: a later
-  # repaired remote_sha supplies and runs its repaired deployer directly.
-  "$BIN/dev-poll-sync.sh" "$SRC" "$BIN" "$BUN" "$remote_sha" "$BUN_VERSION"
+  # Read the loader from remote_sha, not from the installed poller generation.
+  # The loader changed from a narrow archive to a complete Git tree in the same
+  # change that first required Git identity, so an installed older copy cannot
+  # materialize a target its sync.ts is able to run. A later repaired target
+  # likewise supplies the recovery path before the live checkout moves.
+  git show "$remote_sha:bin/dev-poll-sync.sh" |
+    bash -s -- "$SRC" "$BIN" "$BUN" "$remote_sha" "$BUN_VERSION"
 
   served=''
   for attempt in 1 2 3 4 5 6; do
