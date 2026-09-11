@@ -138,15 +138,20 @@ rather than absence, and restores mode `600` in `finally` before cleanup.
 | point the missing-file dependency at the existing readable external mapping | observe returned accepted true; the test failed on `Expected: 1 / Received: 0`; restored fault reports `ENOENT` |
 | make the mode-`000` external mapping readable | observe returned accepted true; the test failed on `Expected: 1 / Received: 0`; restored fault reports `EACCES`, not `ENOENT` |
 | remove the bound-digest comparison | observe returned accepted true; the test failed on `Expected: 1 / Received: 0` |
-| remove the source-revision comparison | the test missed its own error and failed on `Received: "candidate pilot module mapping does not match externally bound identity: ..."` |
+| remove the source-revision comparison after committing identical wrong revisions to both mapping copies and regenerating all candidate-bound authority/evidence | observe returned accepted true; the test failed on `Expected: 1 / Received: 0` |
 
-Verification on proof commit `1c98e3a3`:
+The source-revision row supersedes the round-2 diagnostic-only mutation. Commit `56811ee7`
+regenerates the external mapping, binding digest, candidate identity, source base and authority from
+the committed wrong-revision candidate, so mapping identity agrees and only the source guard can
+refuse it.
+
+Verification on proof commits `1c98e3a3` and `56811ee7`:
 
 - Five new production CLI negatives: 5 pass, 0 fail, 53 assertions in 9.60 seconds after every
   injected fault was restored.
-- Full pilot production CLI file: 15 pass, 0 fail, 216 assertions in 177.96 seconds.
-- Existing trusted-policy production CLI file: 47 pass, 0 fail, 1,272 assertions in 88.32 seconds.
-- `NX_DAEMON=false NX_INVOCATION_ROOT_PID=91305 bunx nx run-many -t lint typecheck -p
+- Full pilot production CLI file: 15 pass, 0 fail, 219 assertions in 177.45 seconds.
+- Existing trusted-policy production CLI file: 47 pass, 0 fail, 1,272 assertions in 89.00 seconds.
+- `NX_DAEMON=false NX_INVOCATION_ROOT_PID=91309 bunx nx run-many -t lint typecheck -p
   tool-wiki --skip-nx-cache --output-style=static`: exit 0; cache skipped and no target skipped.
 - `NX_DAEMON=false NX_INVOCATION_ROOT_PID=91306 bunx nx test tool-wiki --skip-nx-cache
   --output-style=static`: exit 0; 294 pass, 0 fail, 3,847 assertions across 15 files in 643.27
@@ -156,5 +161,13 @@ Verification on proof commit `1c98e3a3`:
 - `git diff --check`: exit 0.
 - `bin/h2puni-gate.sh 1c98e3a3`: unavailable, exit 70 immediately because required heavy-lock
   path `/home/puni1/.cache` does not exist. No host-gate step ran; the host gate is not green.
+- Round-3 `NX_DAEMON=false NX_INVOCATION_ROOT_PID=91310 bunx nx test tool-wiki
+  --skip-nx-cache --output-style=static`: exit 0; 294 pass, 0 fail, 3,850 assertions across 15
+  files in 651.15 seconds (10m51s Nx duration); cache skipped and no target skipped.
+- Round-3 strict pinned OpenSpec 1.3.0: exit 0, change valid.
+- `NX_DAEMON=false NX_INVOCATION_ROOT_PID=91311 bunx nx format:check --all` and
+  `git diff --check`: exit 0.
+- `bin/h2puni-gate.sh 56811ee7`: unavailable, exit 70 immediately because required heavy-lock
+  path `/home/puni1/.cache` does not exist. No host-gate step ran.
 
 Only Task 2.4 remains marked complete. No production activation or later task changed.

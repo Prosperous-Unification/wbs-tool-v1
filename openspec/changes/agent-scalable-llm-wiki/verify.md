@@ -1611,23 +1611,35 @@ without changing its behavior: candidate-internal resolution, missing artifact, 
 artifact, digest mismatch and source-revision mismatch. The unreadable fixture is mode `000`, its
 oracle requires `EACCES` and rejects `ENOENT`, and `finally` restores mode `600`.
 
-| Deliberate one-at-a-time fault          | Observed production-path failure                                                                                      |
-| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| remove external-location guard          | candidate-owned mapping returned accepted true; `Expected: 1 / Received: 0`                                           |
-| make the missing dependency exist       | observe returned accepted true; `Expected: 1 / Received: 0`; restored fault names `ENOENT`                            |
-| make the unreadable dependency readable | observe returned accepted true; `Expected: 1 / Received: 0`; restored fault names `EACCES`, not `ENOENT`              |
-| remove digest comparison                | wrong digest returned accepted true; `Expected: 1 / Received: 0`                                                      |
-| remove source-revision comparison       | own assertion received the later `candidate pilot module mapping does not match externally bound identity: ...` error |
+| Deliberate one-at-a-time fault                                                                                                           | Observed production-path failure                                                                         |
+| ---------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| remove external-location guard                                                                                                           | candidate-owned mapping returned accepted true; `Expected: 1 / Received: 0`                              |
+| make the missing dependency exist                                                                                                        | observe returned accepted true; `Expected: 1 / Received: 0`; restored fault names `ENOENT`               |
+| make the unreadable dependency readable                                                                                                  | observe returned accepted true; `Expected: 1 / Received: 0`; restored fault names `EACCES`, not `ENOENT` |
+| remove digest comparison                                                                                                                 | wrong digest returned accepted true; `Expected: 1 / Received: 0`                                         |
+| remove source-revision comparison after both mapping copies and candidate-bound evidence were regenerated from one wrong-revision commit | observe returned accepted true; `Expected: 1 / Received: 0`                                              |
 
 - New negative selection: 5 pass, 0 fail, 53 assertions in 9.60 seconds.
-- Full pilot file: 15 pass, 0 fail, 216 assertions in 177.96 seconds.
-- Existing trusted-policy file: 47 pass, 0 fail, 1,272 assertions in 88.32 seconds.
+- Full pilot file after the source-proof correction: 15 pass, 0 fail, 219 assertions in 177.45
+  seconds.
+- Existing trusted-policy file: 47 pass, 0 fail, 1,272 assertions in 89.00 seconds.
 - Uncached lint and forced typecheck: exit 0; cache skipped and no target skipped.
 - Exact uncached configured suite: 294 pass, 0 fail, 3,847 assertions across 15 files in 643.27
   seconds (10m43s Nx duration); cache skipped and no target skipped.
 - Strict pinned OpenSpec 1.3.0: exit 0, change valid.
 - Repository-wide Nx format check and `git diff --check`: exit 0.
 - `bin/h2puni-gate.sh 1c98e3a3`: unavailable, exit 70 immediately because required heavy-lock
+  path `/home/puni1/.cache` does not exist; no host-gate step ran.
+
+The source-revision row is corrected by `56811ee7` and supersedes the prior diagnostic-only
+mutation. Both mapping copies, the binding digest and every candidate-bound authority/evidence
+field now derive from the same committed wrong-revision candidate.
+
+- Round-3 exact uncached configured suite: 294 pass, 0 fail, 3,850 assertions across 15 files in
+  651.15 seconds (10m51s Nx duration); cache skipped and no target skipped.
+- Strict pinned OpenSpec 1.3.0: exit 0, change valid.
+- Repository-wide Nx format check and `git diff --check`: exit 0.
+- `bin/h2puni-gate.sh 56811ee7`: unavailable, exit 70 immediately because required heavy-lock
   path `/home/puni1/.cache` does not exist; no host-gate step ran.
 
 Only Task 2.4 remains complete; no activation or later task changed.
