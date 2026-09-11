@@ -140,8 +140,7 @@ type Send = (
 ) => Promise<Response>;
 
 async function setup(optimized?: OptimizedScheduleReader) {
-  const { register, send, measures, users, workItems, projects, writes } =
-    buildHarness(optimized);
+  const { register, send, measures, users, workItems, projects, writes } = buildHarness(optimized);
   const token = await register('owner');
   const actor = await users.findByUsername('owner');
   if (actor === null) throw new Error('registered owner is missing');
