@@ -271,7 +271,7 @@ export class PlanCommandRunner {
           const tree = await graph.workItems.tree(projectId);
           if (tree === null)
             throw new Error(`Project ${projectId} disappeared inside its command batch`);
-          if ('kind' in tree && tree.kind === 'engine_unavailable') {
+          if ('kind' in tree) {
             throw new Error('The scheduler became unavailable inside a command batch');
           }
           if (tree.scheduleError === 'calendar_range') {

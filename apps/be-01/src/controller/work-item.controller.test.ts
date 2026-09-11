@@ -164,6 +164,7 @@ async function setup(optimized?: OptimizedScheduleReader) {
     send,
     measures,
     workItems,
+    projects,
     writes,
     actorId: actor.id,
     projectId: body.project.id,
