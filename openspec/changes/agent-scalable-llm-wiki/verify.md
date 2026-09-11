@@ -1259,3 +1259,59 @@ Verification on the restored source:
 - `NX_DAEMON=false bunx nx run-many -t lint typecheck test -p tool-wiki --skip-nx-cache --output-style=static` — exit 0; 182 pass, 0 fail, 2,180 assertions in 388.75 seconds (6m29s Nx duration), cache skipped, no target skipped.
 
 Only task 3.1 remains marked complete. Task 3.2 and all later task checkboxes were not changed.
+
+## Slice 3.2 Evidence Currency and Obligations
+
+Currency now compares four explicitly tagged input axes: content, structural, semantic and
+topology. Each judgment carries typed bindings to only the inputs that support it, with navigation
+and relationship as distinct judgment kinds. Selector identity comparisons include complete
+declared or extracted provenance. Candidate selectors remain comparable across candidate source
+bases, while historical selector provenance includes its exact revision. Impact classifications
+separately pin both reviewed/current source bases and reviewed/current candidate identities.
+
+Obligation evaluation selects consumer and conformance checks for every changed implementation,
+including same-type changes. A missing, stale or unknown impact classification is a named refusal
+and selects the rule's expanded reviews. Current check, review and known impact evidence can
+discharge the corresponding named obligation after an earlier failed or unknown observation;
+writer-supplied `implementation-only` labels are retained as claims but never consulted as waivers.
+
+Focused TDD began with `currency.test.ts` failing because `./currency` did not exist (zero pass,
+one failure), then with the obligation slice failing because `../policy/obligations` did not exist
+(zero pass, one failure). Later RED steps observed the stale selector review missing, an absent
+classification being accepted, and earlier negative evidence shadowing later positive evidence.
+The restored focused command passed 12 tests with zero failures and 26 assertions.
+
+| Deliberate one-at-a-time fault                        | Observed focused production-path failure                                                                             |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| broaden navigation currency to every changed child    | ancestor navigation received `stale` with a content change instead of `current` with no changes                      |
+| omit structural and semantic binding axes             | both changed consumer judgments received `current` with no changes instead of `stale`                                |
+| omit the topology binding axis                        | reverse-edge relationship and index navigation judgments both received `current` instead of `stale`                  |
+| compare selector text without provenance              | changed extractor and declaration versions both received `current` instead of `stale`                                |
+| accept duplicate inputs or an absent reviewed binding | duplicate input returned a report; absent structural binding returned `current` instead of throwing the named errors |
+| delete consumer/conformance selection                 | the same-type behavior-change case received `accepted: true` instead of `false`                                      |
+| skip checks for writer `implementation-only`          | required checks were empty instead of containing `check.consumer`                                                    |
+| treat a missing classification as success             | the missing-classification case received `accepted: true` instead of `false`                                         |
+| treat a bound unknown classification as success       | the unknown-impact case received `accepted: true` instead of `false`                                                 |
+| select the first check observation                    | later passing evidence remained refused as `required check failed`                                                   |
+| select the first review observation                   | later current evidence retained `expanded review failed`                                                             |
+| select the first impact classification                | later exact known evidence retained unknown-impact and missing-expanded-review refusals                              |
+| omit current-candidate classification binding         | a foreign candidate produced no refusals instead of the named `does not bind` refusal                                |
+
+Every deliberate fault was restored before the next. Adjacent `Proof:` comments reproduce the
+observed mismatch. Verification on the restored source:
+
+- `bun test --preload ../test/scratch/preload.ts src/evidence/currency.test.ts` from
+  `tools/tool-wiki` — exit 0; 12 pass, 0 fail, 26 assertions.
+- `bunx eslint src/evidence/currency.ts src/evidence/currency.test.ts
+src/policy/obligations.ts` — exit 0.
+- `bunx tsc --build --force tsconfig.json` from `tools/tool-wiki` — exit 0.
+- `NX_DAEMON=false bunx nx run-many -t lint typecheck test -p tool-wiki --skip-nx-cache
+--output-style=static` — exit 0; 194 pass, 0 fail, 2,206 assertions in 374.30 seconds
+  (6m14s Nx duration), cache skipped, no target skipped. Nx used the documented main-process
+  plugin fallback after sandbox socket denial.
+- `bunx nx format:check --all` — exit 0.
+- `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate
+agent-scalable-llm-wiki --strict` — exit 0; change valid.
+- `git diff --check` — exit 0.
+
+Only task 3.2 was newly marked complete. Task 3.3 and all later task checkboxes remain untouched.

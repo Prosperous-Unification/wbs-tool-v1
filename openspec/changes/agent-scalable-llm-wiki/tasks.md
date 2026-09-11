@@ -87,7 +87,7 @@ No `verify.md` exists until implementation produces observations.
       yes; production receipt validation must fail. Missing required telemetry is unverified.
       Provision trusted harness/CI receipts separately; a local cooperative transcript alone
       cannot satisfy externally enforced provenance.
-- [ ] 3.2 Implement `evidence/currency.ts` and `policy/obligations.ts` with independent
+- [x] 3.2 Implement `evidence/currency.ts` and `policy/obligations.ts` with independent
       content/structural/semantic/topology inputs. Test `currency.test.ts`: content-only child
       edit leaves ancestor navigation current; public or semantic selector edit stales its
       consumers; new reverse/index edge stales matching relationship judgment. Negative:
