@@ -1674,6 +1674,49 @@ Every fault below was applied alone through the production API and restored befo
 - `bin/h2puni-gate.sh 0965be29`: unavailable, exit 70 immediately because required heavy-lock
   path `/home/puni1/.cache` does not exist. No host-gate step ran and the host gate is not green.
 
+### Review Fix Round 1
+
+Schema discovery now excludes only SQLite's exact reserved `sqlite_` prefix. A hostile
+`sqliteXerase` trigger is therefore an unexpected schema object, as are additional tables,
+indexes and views. Its production negative starts with one real claim; the old wildcard opened
+the database, the next acquisition fired the trigger and the observed claim count became zero.
+The corrected opener refuses the schema before the trigger can execute and preserves the claim.
+
+The owner and claim decoders now share the request boundary's strict session, worktree, path,
+access and conflict-group validators. Opening existing state performs this decode, so malformed
+persisted identities are corruption rather than alternative spellings that can bypass overlap.
+SQLite's own strict check catches an invalid persisted access first; the same closed access
+decoder also guards transaction state in both adapters.
+
+The SQLite transaction retry now covers BEGIN, state read, callback, state write and COMMIT. A
+retryable failure rolls back before delay and repeats from fresh state; the callback contract now
+requires deterministic, synchronous, externally effect-free work because it can rerun. No callback
+value returns before COMMIT succeeds. A failed rollback raises both causes immediately and cannot
+retry on an unknown transaction state.
+
+| Deliberate one-at-a-time fault                   | Observed production-path failure                                                                |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| restore `LIKE 'sqlite_%'` schema filtering       | `sqliteXerase` opened, the next acquisition ran it and the stored claim count fell from 1 to 0  |
+| omit persisted domain-identity decoding          | bad session, relative worktree, `libs/./contracts` and `bad/group` each opened without throwing |
+| retry only a failed BEGIN                        | a held reader made COMMIT leak raw `SQLITE_BUSY`; the callback ran once and convergence failed  |
+| ignore an injected rollback failure before retry | the next BEGIN leaked `cannot start a transaction within a transaction` instead of both causes  |
+
+- Focused memory plus production SQLite suite: exit 0; 27 pass, 0 fail, 87 assertions.
+- Uncached lint plus forced typecheck: exit 0; lint remained truthfully inactive/non-certifying
+  pending Task 5.3; cache skipped and no target skipped.
+- The first uncached aggregate exposed a too-small convergence-test scheduling budget: 373 pass,
+  1 fail in 738.81 seconds, with the held-writer case exhausting its approximately 100 ms budget.
+  It passed 20 isolated repetitions and 12 complete SQLite-file repetitions. Raising only the two
+  finite convergence fixtures to a 500 ms budget retained their 10/40 ms holder releases and left
+  the terminal attempt/delay oracle unchanged.
+- Final uncached configured Tool Wiki suite at `b6737bac`: exit 0; 374 pass, 0 fail, 4,356
+  assertions across 19 files in 738.80 seconds (12m19s Nx duration); cache skipped and no target
+  skipped.
+- Pinned strict OpenSpec 1.3.0 validation: exit 0; one change valid with no issues.
+- Repository-wide `nx format:check --all` and `git diff --check`: exit 0.
+- `bin/h2puni-gate.sh b6737bac`: unavailable, exit 70 immediately because required heavy-lock
+  path `/home/puni1/.cache` does not exist. No host-gate step ran and the host gate is not green.
+
 Only Task 4.1 is completed by this slice; generation lifecycle transitions remain Task 4.2.
 
 ## Slice 3.5 Review Fix Round 4
