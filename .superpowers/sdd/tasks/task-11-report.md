@@ -166,3 +166,45 @@ comment containing the observed failure.
 - Whole-workspace `nx format:check --all` and `git diff --check`: exit 0.
 - Exact-code-commit host gate: unavailable, not green. `bin/h2puni-gate.sh 21007d9f` exited 70
   with `heavy lock: /home/puni1/.cache does not exist`.
+
+## Fix round 3
+
+The final review round closes three integration edges without broadening Task 3.4:
+
+- Review obligations are discharged only by an accepted `enforce` audit with no refusals or
+  unmet obligations. An `observe` audit remains useful debt reporting but cannot certify CI.
+- The audit selection source base must equal the immutable source base selected for lint. Existing
+  audit validation continues to bind every review to that audit source base, candidate identity,
+  generation, invocation, retained response, and verifier journal.
+- The common trust loader now reads, externally contains, hashes, decodes, and evaluates the
+  authority artifact for lint and for both sides of compatible activation. Predecessor identities
+  retain authority identity, journal, and scope. Compatible activation cannot remove existing
+  authority behavior rules, check/review requirements, or judgments, and any authority change is
+  explicitly declared and deterministically reselects both policy and authority checks/reviews.
+
+### Fix-round-3 failure proof
+
+Each guard was faulted alone on its production CLI or activation path, then restored with an
+adjacent comment containing the observed failure.
+
+| Deliberate fault | Observed production-path failure |
+| --- | --- |
+| omit enforce-mode/refusal/debt audit guard | an observe audit with `reviews: []` certified; `Expected: 1, Received: 0` |
+| omit audit source-base reconciliation | an all-zero audit/review source base certified the real committed candidate; `Expected: 1, Received: 0` |
+| skip successor authority loading | `authority.does-not-exist.json` activated as compatible with empty reselection; `Expected: 1, Received: 0` |
+| skip authority monotonicity | removal of `check.application` reached only the weaker `authority change declaration does not match` refusal |
+| omit authority check reselection | `check.authority.new` was absent from the exact production activation report array |
+| omit authority review reselection | `review.authority.new` was absent from the exact production activation report array |
+
+### Fix-round-3 verification
+
+- Focused trusted-policy production CLI: 40 pass, 0 fail, 1,000 assertions in 67.24 seconds.
+- Forced uncached tool-wiki TypeScript build: exit 0.
+- Uncached tool-wiki ESLint: exit 0 after its first run exposed and autofix corrected an import
+  ordering error.
+- Exact final-tree full tool-wiki suite: 272 pass, 0 fail, 3,359 assertions across 14 files in
+  453.16 seconds.
+- Strict pinned OpenSpec 1.3.0 validation: `Change 'agent-scalable-llm-wiki' is valid`.
+- Whole-workspace `nx format:check --all` and `git diff --check`: exit 0.
+- Exact-code-commit host gate: unavailable, not green. `bin/h2puni-gate.sh 8df0c8b7` exited 70
+  with `heavy lock: /home/puni1/.cache does not exist`.

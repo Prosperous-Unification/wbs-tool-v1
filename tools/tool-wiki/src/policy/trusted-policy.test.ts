@@ -654,7 +654,12 @@ function writeActivation(
     bindingId: string;
     trustScope: 'ci' | 'local-operator';
     policy: { path: string; sha256: string };
-    authority: object;
+    authority: {
+      authorityId: string;
+      journalId: string;
+      trustScope: 'trusted-harness' | 'external-verifier';
+      artifact: { path: string; sha256: string };
+    };
     validator: { validatorId: string; artifacts: { path: string; sha256: string }[] };
   };
   const nextPolicyPath = join(fixture.trustDirectory, 'policy-next.json');
@@ -679,10 +684,14 @@ function writeActivation(
         bindingIdentity: sha256(previousBindingBytes),
         policyId: 'policy.trusted.v1',
         policyIdentity: previousBinding.policy.sha256,
+        authorityId: previousBinding.authority.authorityId,
+        authorityIdentity: previousBinding.authority.artifact.sha256,
+        authorityJournalId: previousBinding.authority.journalId,
+        authorityTrustScope: previousBinding.authority.trustScope,
         validatorId: previousBinding.validator.validatorId,
         validatorIdentity: artifactIdentity(previousBinding.validator.artifacts),
       },
-      activation: declaredChanges,
+      activation: { authorityChanged: false, ...declaredChanges },
     })}\n`,
   );
   return nextBindingPath;
@@ -1022,6 +1031,52 @@ describe('trusted policy production CLI', () => {
       accepted: false,
       certified: false,
     });
+    expect(report.unmetObligationIds).toContain('obligation.application');
+  });
+
+  test('observe audit debt cannot discharge enforce review obligations', () => {
+    const fixture = createFixture('enforce');
+    satisfyApplication(fixture);
+    const authority = JSON.parse(readFileSync(fixture.authorityPath, 'utf8')) as {
+      audit: { mode: string; reviews: object[] };
+    };
+    authority.audit.mode = 'observe';
+    authority.audit.reviews = [];
+    write(fixture.authorityPath, `${JSON.stringify(authority)}\n`);
+    rebindAuthority(fixture);
+
+    const invocation = runCi(fixture);
+    const output = outputOf(invocation);
+    expect(invocation.exitCode, output).toBe(1);
+    const report = JSON.parse(pipeText(invocation.stdout, 'lint stdout')) as {
+      accepted: boolean;
+      certified: boolean;
+      unmetObligationIds: string[];
+    };
+    expect(report).toMatchObject({ accepted: false, certified: false });
+    expect(report.unmetObligationIds).toContain('obligation.application');
+  });
+
+  test('audit source base must bind the selected candidate source base', () => {
+    const fixture = createFixture('enforce');
+    satisfyApplication(fixture);
+    const authority = JSON.parse(readFileSync(fixture.authorityPath, 'utf8')) as {
+      audit: { sourceBase: string; reviews: { sourceBase: string }[] };
+    };
+    authority.audit.sourceBase = '0'.repeat(40);
+    for (const review of authority.audit.reviews) review.sourceBase = '0'.repeat(40);
+    write(fixture.authorityPath, `${JSON.stringify(authority)}\n`);
+    rebindAuthority(fixture);
+
+    const invocation = runCi(fixture);
+    const output = outputOf(invocation);
+    expect(invocation.exitCode, output).toBe(1);
+    const report = JSON.parse(pipeText(invocation.stdout, 'lint stdout')) as {
+      accepted: boolean;
+      certified: boolean;
+      unmetObligationIds: string[];
+    };
+    expect(report).toMatchObject({ accepted: false, certified: false });
     expect(report.unmetObligationIds).toContain('obligation.application');
   });
 
@@ -1420,6 +1475,145 @@ describe('trusted policy production CLI', () => {
     const output = outputOf(invocation);
     expect(invocation.exitCode, output).toBe(1);
     expect(output).toContain('activation predecessor does not match the previous trusted binding');
+  });
+
+  test('compatible activation loads and validates the successor authority artifact', () => {
+    const fixture = createFixture('enforce');
+    const nextBindingPath = writeActivation(fixture, () => undefined, {
+      addedBoundaryIds: [],
+      changedBoundaryIds: [],
+      addedObligationIds: [],
+      removedExemptionIds: [],
+      validatorChanged: false,
+    });
+    const binding = JSON.parse(readFileSync(nextBindingPath, 'utf8')) as {
+      authority: { artifact: { path: string; sha256: string } };
+    };
+    binding.authority.artifact = {
+      path: join(fixture.trustDirectory, 'authority.does-not-exist.json'),
+      sha256: '0'.repeat(64),
+    };
+    write(nextBindingPath, `${JSON.stringify(binding)}\n`);
+
+    const invocation = runActivation(fixture, nextBindingPath);
+    const output = outputOf(invocation);
+    expect(invocation.exitCode, output).toBe(1);
+    expect(output).toContain('cannot open trusted authority');
+  });
+
+  test('compatible activation cannot remove authority-owned check requirements', () => {
+    const fixture = createFixture('enforce');
+    const authority = JSON.parse(readFileSync(fixture.authorityPath, 'utf8')) as {
+      obligationRequest: { policy: { behaviorRules: object[] } };
+    };
+    authority.obligationRequest.policy.behaviorRules = [
+      {
+        contentInputId: 'content.3',
+        consumerChecks: ['check.application'],
+        conformanceChecks: [],
+        expandedReviewJudgments: [],
+      },
+    ];
+    write(fixture.authorityPath, `${JSON.stringify(authority)}\n`);
+    rebindAuthority(fixture);
+    const nextBindingPath = writeActivation(fixture, () => undefined, {
+      addedBoundaryIds: [],
+      changedBoundaryIds: [],
+      addedObligationIds: [],
+      removedExemptionIds: [],
+      validatorChanged: false,
+    });
+    const nextAuthorityPath = join(fixture.trustDirectory, 'authority-next.json');
+    const nextAuthority = structuredClone(authority);
+    const nextRule = nextAuthority.obligationRequest.policy.behaviorRules[0] as {
+      consumerChecks: string[];
+    };
+    nextRule.consumerChecks = [];
+    write(nextAuthorityPath, `${JSON.stringify(nextAuthority)}\n`);
+    const binding = JSON.parse(readFileSync(nextBindingPath, 'utf8')) as {
+      authority: { artifact: { path: string; sha256: string } };
+    };
+    binding.authority.artifact = {
+      path: nextAuthorityPath,
+      sha256: sha256(readFileSync(nextAuthorityPath)),
+    };
+    write(nextBindingPath, `${JSON.stringify(binding)}\n`);
+
+    const invocation = runActivation(fixture, nextBindingPath);
+    const output = outputOf(invocation);
+    expect(invocation.exitCode, output).toBe(1);
+    expect(output).toContain(
+      'compatible activation cannot remove authority check requirement from content.3: check.application',
+    );
+  });
+
+  test('compatible authority activation deterministically reselects its checks and reviews', () => {
+    const fixture = createFixture('enforce');
+    const nextBindingPath = writeActivation(fixture, () => undefined, {
+      addedBoundaryIds: [],
+      changedBoundaryIds: [],
+      addedObligationIds: [],
+      removedExemptionIds: [],
+      validatorChanged: false,
+      authorityChanged: true,
+    });
+    const nextAuthorityPath = join(fixture.trustDirectory, 'authority-next.json');
+    const authority = JSON.parse(readFileSync(fixture.authorityPath, 'utf8')) as {
+      obligationRequest: {
+        policy: { behaviorRules: object[] };
+        judgments: object[];
+      };
+    };
+    authority.obligationRequest.policy.behaviorRules.push({
+      contentInputId: 'content.3',
+      consumerChecks: ['check.authority.new'],
+      conformanceChecks: [],
+      expandedReviewJudgments: ['review.authority.new'],
+    });
+    authority.obligationRequest.judgments.push({
+      judgmentId: 'review.authority.new',
+      kind: 'content',
+      subjectId: 'subject.authority.new',
+      bindings: {
+        content: [{ kind: 'content', inputId: 'content.3' }],
+        structural: [],
+        semantic: [],
+        topology: [],
+      },
+    });
+    write(nextAuthorityPath, `${JSON.stringify(authority)}\n`);
+    const binding = JSON.parse(readFileSync(nextBindingPath, 'utf8')) as {
+      authority: { artifact: { path: string; sha256: string } };
+      activation: { authorityChanged: boolean };
+    };
+    binding.authority.artifact = {
+      path: nextAuthorityPath,
+      sha256: sha256(readFileSync(nextAuthorityPath)),
+    };
+    binding.activation.authorityChanged = true;
+    write(nextBindingPath, `${JSON.stringify(binding)}\n`);
+
+    const invocation = runActivation(fixture, nextBindingPath);
+    const output = outputOf(invocation);
+    expect(invocation.exitCode, output).toBe(0);
+    const report = JSON.parse(pipeText(invocation.stdout, 'activation stdout')) as {
+      reselectedCheckIds: string[];
+      reselectedReviewIds: string[];
+    };
+    expect(report.reselectedCheckIds).toEqual([
+      'check.application',
+      'check.authority.new',
+      'check.exemptions',
+      'check.policy',
+      'check.validator',
+    ]);
+    expect(report.reselectedReviewIds).toEqual([
+      'review.application',
+      'review.authority.new',
+      'review.exemptions',
+      'review.policy',
+      'review.validator',
+    ]);
   });
 
   test('compatible activation rejects a boundary addition omitted from its declaration', () => {

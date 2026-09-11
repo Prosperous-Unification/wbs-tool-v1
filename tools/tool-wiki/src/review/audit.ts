@@ -213,6 +213,7 @@ export interface AuditCosts {
 
 export interface AuditReport {
   auditId: string;
+  mode: 'observe' | 'enforce';
   candidateIdentity: string;
   generation: number;
   claimedCoverage: 'sampled' | 'exhaustive';
@@ -973,6 +974,7 @@ export function evaluateAudit(input: unknown): AuditReport {
   ].sort(compareText);
   return {
     auditId: envelope.auditId,
+    mode: envelope.mode,
     candidateIdentity: envelope.candidateIdentity,
     generation: envelope.generation,
     claimedCoverage: envelope.claimedCoverage,

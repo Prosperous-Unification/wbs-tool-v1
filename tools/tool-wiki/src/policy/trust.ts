@@ -25,10 +25,11 @@ import {
   readCandidate,
 } from '../inventory/read-candidate';
 import { extractRelationships } from '../relationships';
-import { evaluateAudit } from '../review/audit';
+import { type AuditReport, evaluateAudit } from '../review/audit';
 import {
   decodeObligationRequest,
   evaluateObligations,
+  type ObligationReport,
   type ObligationRequest,
 } from './obligations';
 
@@ -83,6 +84,10 @@ const Predecessor = type({
   bindingIdentity: Sha256,
   policyId: OpaqueId,
   policyIdentity: Sha256,
+  authorityId: OpaqueId,
+  authorityIdentity: Sha256,
+  authorityJournalId: OpaqueId,
+  authorityTrustScope: "'trusted-harness'|'external-verifier'",
   validatorId: OpaqueId,
   validatorIdentity: Sha256,
 }).onUndeclaredKey('reject');
@@ -91,6 +96,7 @@ const ActivationDeclaration = type({
   changedBoundaryIds: OpaqueId.array(),
   addedObligationIds: OpaqueId.array(),
   removedExemptionIds: OpaqueId.array(),
+  authorityChanged: 'boolean',
   validatorChanged: 'boolean',
 }).onUndeclaredKey('reject');
 const TrustedBindingRecord = type({
@@ -157,9 +163,14 @@ export interface LoadedTrust {
   policy: TrustedPolicy;
   bindingPath: string;
   policyPath: string;
+  authorityPath: string;
   bindingIdentity: string;
   policyIdentity: string;
+  authorityIdentity: string;
   validatorIdentity: string;
+  authority: TrustedAuthority;
+  authorityObligations: ObligationReport;
+  authorityAudit: AuditReport;
   relationshipRequest?: RelationshipRequestValue;
 }
 
@@ -205,6 +216,10 @@ export interface ActivationIdentity {
   bindingIdentity: string;
   policyId: string;
   policyIdentity: string;
+  authorityId: string;
+  authorityIdentity: string;
+  authorityJournalId: string;
+  authorityTrustScope: 'trusted-harness' | 'external-verifier';
   validatorId: string;
   validatorIdentity: string;
 }
@@ -482,6 +497,27 @@ export function loadTrustedPolicy(
     parseJson(policyArtifact.bytes, 'trusted policy JSON'),
   );
   validatePolicy(policy);
+  // Proof: skipping authority loading let authority.does-not-exist.json activate as compatible
+  // with empty reselection; the production activation test failed on `Expected: 1, Received: 0`.
+  const authorityArtifact = readStableArtifact(
+    resolveReference(bindingArtifact.path, binding.authority.artifact.path),
+    'trusted authority',
+  );
+  assertExternal(candidateRoot, authorityArtifact, 'trusted authority');
+  // Proof: omitting the digest let changed authority bytes delete check.failed and certify;
+  // the production CI test failed on `Expected: 1, Received: 0`.
+  if (hashBytes(authorityArtifact.bytes) !== binding.authority.artifact.sha256) {
+    throw new Error('trusted authority digest does not match binding');
+  }
+  const authority = decodeTrustedAuthority(authorityArtifact.bytes);
+  if (authority.authorityId !== binding.authority.authorityId) {
+    throw new Error('trusted authority identity does not match binding');
+  }
+  if (authority.obligationRequest.policy.policyId !== policy.policyId) {
+    throw new Error('trusted authority obligation policy does not match trusted policy');
+  }
+  const authorityObligations = evaluateObligations(authority.obligationRequest);
+  const authorityAudit = evaluateAudit(authority.audit);
   const relationshipRequest =
     policy.relationshipRequest === undefined
       ? undefined
@@ -491,9 +527,14 @@ export function loadTrustedPolicy(
     policy,
     bindingPath: bindingArtifact.path,
     policyPath: policyArtifact.path,
+    authorityPath: authorityArtifact.path,
     bindingIdentity: hashBytes(bindingArtifact.bytes),
     policyIdentity: hashBytes(policyArtifact.bytes),
+    authorityIdentity: hashBytes(authorityArtifact.bytes),
     validatorIdentity: boundIdentity,
+    authority,
+    authorityObligations,
+    authorityAudit,
     relationshipRequest,
   };
 }
@@ -504,6 +545,10 @@ function activationIdentity(trust: LoadedTrust): ActivationIdentity {
     bindingIdentity: trust.bindingIdentity,
     policyId: trust.policy.policyId,
     policyIdentity: trust.policyIdentity,
+    authorityId: trust.binding.authority.authorityId,
+    authorityIdentity: trust.authorityIdentity,
+    authorityJournalId: trust.binding.authority.journalId,
+    authorityTrustScope: trust.binding.authority.trustScope,
     validatorId: trust.binding.validator.validatorId,
     validatorIdentity: trust.validatorIdentity,
   };
@@ -521,6 +566,104 @@ function activationBoundaryShape(
       .filter(({ boundaryId }) => boundaryId === boundary.boundaryId)
       .sort((left, right) => compareText(left.obligationId, right.obligationId)),
   };
+}
+
+function assertRetainsAuthorityIds(
+  previousIds: readonly string[],
+  nextIds: readonly string[],
+  kind: string,
+  subjectId: string,
+): void {
+  for (const id of previousIds) {
+    if (!nextIds.includes(id)) {
+      throw new Error(
+        `compatible activation cannot remove authority ${kind} requirement from ${subjectId}: ${id}`,
+      );
+    }
+  }
+}
+
+function validateCompatibleAuthority(previous: LoadedTrust, next: LoadedTrust): void {
+  const previousRules = new Map(
+    previous.authority.obligationRequest.policy.behaviorRules.map((rule) => [
+      rule.contentInputId,
+      rule,
+    ]),
+  );
+  const nextRules = new Map(
+    next.authority.obligationRequest.policy.behaviorRules.map((rule) => [
+      rule.contentInputId,
+      rule,
+    ]),
+  );
+  for (const [contentInputId, previousRule] of previousRules) {
+    const nextRule = nextRules.get(contentInputId);
+    if (nextRule === undefined) {
+      throw new Error(
+        `compatible activation cannot remove authority behavior rule: ${contentInputId}`,
+      );
+    }
+    assertRetainsAuthorityIds(
+      [...previousRule.consumerChecks, ...previousRule.conformanceChecks],
+      [...nextRule.consumerChecks, ...nextRule.conformanceChecks],
+      'check',
+      contentInputId,
+    );
+    assertRetainsAuthorityIds(
+      previousRule.expandedReviewJudgments,
+      nextRule.expandedReviewJudgments,
+      'review',
+      contentInputId,
+    );
+  }
+  const nextJudgments = new Map(
+    next.authority.obligationRequest.judgments.map((judgment) => [judgment.judgmentId, judgment]),
+  );
+  for (const judgment of previous.authority.obligationRequest.judgments) {
+    const retained = nextJudgments.get(judgment.judgmentId);
+    if (retained === undefined || hashCanonical(retained) !== hashCanonical(judgment)) {
+      throw new Error(
+        `compatible activation cannot remove or weaken authority judgment: ${judgment.judgmentId}`,
+      );
+    }
+  }
+  assertRetainsAuthorityIds(
+    previous.authorityObligations.requiredChecks,
+    next.authorityObligations.requiredChecks,
+    'check',
+    'selected-obligations',
+  );
+  assertRetainsAuthorityIds(
+    previous.authorityObligations.requiredReviews,
+    next.authorityObligations.requiredReviews,
+    'review',
+    'selected-obligations',
+  );
+  assertRetainsAuthorityIds(
+    previous.authorityAudit.requiredObligationIds,
+    next.authorityAudit.requiredObligationIds,
+    'review',
+    'audit',
+  );
+}
+
+function authorityCheckIds(trust: LoadedTrust): string[] {
+  return orderedIds(
+    trust.authority.obligationRequest.policy.behaviorRules.flatMap((rule) => [
+      ...rule.consumerChecks,
+      ...rule.conformanceChecks,
+    ]),
+  );
+}
+
+function authorityReviewIds(trust: LoadedTrust): string[] {
+  return orderedIds([
+    ...trust.authority.obligationRequest.judgments.map(({ judgmentId }) => judgmentId),
+    ...trust.authority.obligationRequest.policy.behaviorRules.flatMap(
+      ({ expandedReviewJudgments }) => expandedReviewJudgments,
+    ),
+    ...trust.authorityAudit.requiredObligationIds,
+  ]);
 }
 
 /** Validates a monotonic, explicitly described transition between two reviewed bindings. */
@@ -541,6 +684,9 @@ export function validateCompatibleActivation(
   if (hashCanonical(predecessor) !== hashCanonical(previousIdentity)) {
     throw new Error('activation predecessor does not match the previous trusted binding');
   }
+  // Proof: skipping authority monotonicity changed the production refusal from the removed
+  // check.application requirement to only `authority change declaration does not match`.
+  validateCompatibleAuthority(previous, next);
   // Proof: without this compatibility guard an enforce-to-observe activation exited 0 with
   // compatible true and merely reselected the four existing checks and reviews.
   if (modeRank(next.policy.minimumMode) < modeRank(previous.policy.minimumMode)) {
@@ -676,9 +822,17 @@ export function validateCompatibleActivation(
   if (declaration.validatorChanged !== validatorChanged) {
     throw new Error('validator change declaration does not match executable identities');
   }
+  const authorityChanged =
+    previous.authorityIdentity !== next.authorityIdentity ||
+    previous.binding.authority.authorityId !== next.binding.authority.authorityId ||
+    previous.binding.authority.journalId !== next.binding.authority.journalId ||
+    previous.binding.authority.trustScope !== next.binding.authority.trustScope;
+  if (declaration.authorityChanged !== authorityChanged) {
+    throw new Error('authority change declaration does not match trusted authority identities');
+  }
   const policyChanged = previous.policyIdentity !== next.policyIdentity;
   const affectedObligations =
-    policyChanged || validatorChanged
+    policyChanged || validatorChanged || authorityChanged
       ? [...next.policy.obligations]
       : next.policy.obligations.filter(
           ({ boundaryId, obligationId }) =>
@@ -693,8 +847,18 @@ export function validateCompatibleActivation(
     changedBoundaryIds,
     addedObligationIds,
     removedExemptionIds,
-    reselectedCheckIds: orderedIds(affectedObligations.flatMap(({ checkIds }) => checkIds)),
-    reselectedReviewIds: orderedIds(affectedObligations.flatMap(({ reviewIds }) => reviewIds)),
+    reselectedCheckIds: orderedIds([
+      ...affectedObligations.flatMap(({ checkIds }) => checkIds),
+      // Proof: omitting authority checks left check.authority.new out of the production
+      // activation report; the test's exact array comparison failed at that missing ID.
+      ...(authorityChanged ? authorityCheckIds(next) : []),
+    ]),
+    reselectedReviewIds: orderedIds([
+      ...affectedObligations.flatMap(({ reviewIds }) => reviewIds),
+      // Proof: omitting authority reviews left review.authority.new out of the production
+      // activation report; the test's exact array comparison failed at that missing ID.
+      ...(authorityChanged ? authorityReviewIds(next) : []),
+    ]),
   };
 }
 
@@ -839,14 +1003,13 @@ interface ValidatedEvidence {
 }
 
 function validateEvidence(
-  authority: TrustedAuthority,
+  trust: LoadedTrust,
   candidate: CandidateSnapshot,
   identity: string,
-  policy: TrustedPolicy,
-  binding: TrustedBinding,
 ): ValidatedEvidence {
+  const { authority, authorityAudit: audit, authorityObligations: obligationReport } = trust;
+  const { binding, policy } = trust;
   const request = authority.obligationRequest;
-  const obligationReport = evaluateObligations(request);
   const currentBinds =
     request.policy.policyId === policy.policyId &&
     request.current.candidateIdentity === identity &&
@@ -880,11 +1043,18 @@ function validateEvidence(
     }
   }
   const currentReviewIds = new Set<string>();
-  const audit = evaluateAudit(authority.audit);
   const auditBinds =
     audit.accepted &&
+    // Proof: accepting observe-mode debt let an audit with reviews [] certify enforced lint;
+    // the production CI test failed on `Expected: 1, Received: 0`.
+    audit.mode === 'enforce' &&
+    audit.refusals.length === 0 &&
+    audit.unmetObligationIds.length === 0 &&
     audit.claimedCoverage === 'exhaustive' &&
     audit.candidateIdentity === identity &&
+    // Proof: dropping source-base reconciliation let an all-zero audit source certify the real
+    // committed candidate; the production CI test failed on `Expected: 1, Received: 0`.
+    audit.selection.sourceBase === sourceBase(candidate) &&
     // Proof: omitting the externally selected journal/scope match let receipts relabeled with
     // invocation.never-executed and journal.does-not-exist certify; the production CI test
     // failed on `Expected: 1, Received: 0`.
@@ -961,18 +1131,6 @@ export function lintTrustedCandidate(request: TrustedLintRequest): TrustedLintRe
   );
   const evidenceArtifact = readStableArtifact(request.evidencePath, 'lint evidence');
   const evidence = decodeLintEvidence(evidenceArtifact.bytes);
-  const authorityArtifact = readStableArtifact(
-    resolveReference(trust.bindingPath, trust.binding.authority.artifact.path),
-    'trusted authority',
-  );
-  assertExternal(repository, authorityArtifact, 'trusted authority');
-  // Proof: omitting this digest check let changed authority bytes delete check.failed from the
-  // selected behavior rule and certify; the production CI test failed on `Expected: 1,
-  // Received: 0`.
-  if (hashBytes(authorityArtifact.bytes) !== trust.binding.authority.artifact.sha256) {
-    throw new Error('trusted authority digest does not match binding');
-  }
-  const authority = decodeTrustedAuthority(authorityArtifact.bytes);
   const mode = request.mode ?? trust.policy.minimumMode;
   assertUnique(
     evidence.obligations.map(({ obligationId }) => obligationId),
@@ -995,13 +1153,7 @@ export function lintTrustedCandidate(request: TrustedLintRequest): TrustedLintRe
   const indexes = checkIndexes(repository, indexCandidate);
   const relationshipIdentity = validateSelectedInputs(repository, indexCandidate, trust);
   const identity = candidateIdentity(candidate);
-  const validatedEvidence = validateEvidence(
-    authority,
-    candidate,
-    identity,
-    trust.policy,
-    trust.binding,
-  );
+  const validatedEvidence = validateEvidence(trust, candidate, identity);
   const changedBoundaryIds = changedBoundaries(candidate, trust.policy);
   const met = new Set(
     trust.policy.obligations
@@ -1096,7 +1248,7 @@ export function lintTrustedCandidate(request: TrustedLintRequest): TrustedLintRe
       identity: hashCanonical({
         policy: trust.policyIdentity,
         evidence: hashBytes(evidenceArtifact.bytes),
-        authority: hashBytes(authorityArtifact.bytes),
+        authority: trust.authorityIdentity,
       }),
     },
     { kind: 'metadata-links', identity: hashCanonical(indexes) },
@@ -1122,7 +1274,7 @@ export function lintTrustedCandidate(request: TrustedLintRequest): TrustedLintRe
     policyId: trust.policy.policyId,
     policyIdentity: trust.policyIdentity,
     authorityId: trust.binding.authority.authorityId,
-    authorityIdentity: hashBytes(authorityArtifact.bytes),
+    authorityIdentity: trust.authorityIdentity,
     authorityJournalId: trust.binding.authority.journalId,
     validatorId: trust.binding.validator.validatorId,
     validatorIdentity: trust.validatorIdentity,
