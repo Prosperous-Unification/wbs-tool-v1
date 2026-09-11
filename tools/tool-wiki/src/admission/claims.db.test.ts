@@ -494,6 +494,89 @@ test('refuses malformed persisted owner and claim identities before overlap deci
   }
 });
 
+test('opens one valid snapshot while another store commits between state queries', async () => {
+  const fixture = fixtureRepository();
+  const initial = openAuthorityStore(fixture.root);
+  initial.close();
+  const databasePath = resolveAuthorityDatabasePath(fixture.root);
+  const writerStart = join(fixture.root, 'snapshot-writer-start');
+  const writerPrepared = join(fixture.root, 'snapshot-writer-prepared');
+  const writerRelease = join(fixture.root, 'snapshot-writer-release');
+  const writerCommitting = join(fixture.root, 'snapshot-writer-committing');
+  const writerDone = join(fixture.root, 'snapshot-writer-done');
+  const writer = Bun.spawn(
+    [
+      process.execPath,
+      '--eval',
+      `import { Database } from 'bun:sqlite'; import { existsSync, writeFileSync } from 'node:fs'; while (!existsSync(process.argv[2])) Bun.sleepSync(1); const db = new Database(process.argv[1]); db.run('PRAGMA foreign_keys = ON'); db.run('PRAGMA busy_timeout = 5000'); db.run('BEGIN IMMEDIATE'); db.query('UPDATE authority_meta SET next_generation = ? WHERE singleton = 1').run(2); db.query('INSERT INTO authority_owner(session_id, worktree_path, generation) VALUES (?, ?, ?)').run('session-snapshot', process.argv[7], 1); db.query('INSERT INTO authority_claim(session_id, generation, kind, access, identity) VALUES (?, ?, ?, ?, ?)').run('session-snapshot', 1, 'path', 'write', 'apps/snapshot'); writeFileSync(process.argv[3], 'prepared'); while (!existsSync(process.argv[4])) Bun.sleepSync(1); writeFileSync(process.argv[5], 'committing'); db.run('COMMIT'); db.close(); writeFileSync(process.argv[6], 'done');`,
+      databasePath,
+      writerStart,
+      writerPrepared,
+      writerRelease,
+      writerCommitting,
+      writerDone,
+      fixture.worktreeB,
+    ],
+    { stderr: 'pipe', stdout: 'pipe' },
+  );
+  const queryDescriptor = Object.getOwnPropertyDescriptor(Database.prototype, 'query');
+  if (queryDescriptor === undefined) throw new Error('Database.query descriptor is absent');
+  const originalQuery: PropertyDescriptor = queryDescriptor;
+  let interleaved = false;
+  function queryAcrossCommit(this: Database, sql: string) {
+    if (!interleaved && sql.includes('FROM authority_owner ORDER BY session_id')) {
+      interleaved = true;
+      writeFileSync(writerStart, 'start');
+      waitForFiles([writerPrepared]);
+      writeFileSync(writerRelease, 'release');
+      waitForFiles([this.inTransaction ? writerCommitting : writerDone]);
+    }
+    Object.defineProperty(Database.prototype, 'query', originalQuery);
+    try {
+      return this.query(sql);
+    } finally {
+      Object.defineProperty(Database.prototype, 'query', queryFault);
+    }
+  }
+  const queryFault: PropertyDescriptor = {
+    configurable: true,
+    value: queryAcrossCommit,
+    writable: true,
+  };
+  Object.defineProperty(Database.prototype, 'query', queryFault);
+
+  let opened: ReturnType<typeof openAuthorityStore> | undefined;
+  let failure: unknown;
+  try {
+    opened = openAuthorityStore(fixture.worktreeA);
+  } catch (error) {
+    failure = error;
+  } finally {
+    Object.defineProperty(Database.prototype, 'query', originalQuery);
+    // Test cleanup only: an earlier validation failure must not strand the child at a barrier.
+    writeFileSync(writerStart, 'start');
+    writeFileSync(writerRelease, 'release');
+  }
+  opened?.close();
+  const [writerExit, writerStderr] = await Promise.all([
+    writer.exited,
+    new Response(writer.stderr).text(),
+  ]);
+
+  expect(failure).toBeUndefined();
+  expect(writerExit).toBe(0);
+  expect(writerStderr).toBe('');
+  expect(interleaved).toBeTrue();
+  const final = openAuthorityStore(fixture.root);
+  expect(final.inspect().owners).toContainEqual({
+    claims: [{ access: 'write', identity: 'apps/snapshot', kind: 'path' }],
+    generation: 1,
+    sessionId: 'session-snapshot',
+    worktreePath: fixture.worktreeB,
+  });
+  final.close();
+});
+
 test('bounds terminal lock contention and retries until a held write commits', async () => {
   const fixture = fixtureRepository();
   const store = openAuthorityStore(fixture.root, {

@@ -421,12 +421,18 @@ function assertSchema(database: Database): void {
 function assertSchemaWithRetry(database: Database, options: RequiredAuthorityStoreOptions): void {
   for (let attempt = 1; attempt <= options.maxBusyAttempts; attempt += 1) {
     try {
+      // Proof: without this snapshot, a valid commit between the meta and owner reads produced
+      // `authority next generation does not follow existing generations`; the two-store snapshot
+      // test observed false corruption while both the preceding and following states were valid.
+      database.run('BEGIN');
       assertSchema(database);
+      database.run('COMMIT');
       return;
-    } catch (error) {
-      if (!isBusy(error)) throw error;
+    } catch (cause) {
+      rollbackTransaction(database, cause);
+      if (!isBusy(cause)) throw cause;
       if (attempt === options.maxBusyAttempts) {
-        throw new AuthorityContentionError(options.maxBusyAttempts);
+        throw new AuthorityContentionError(options.maxBusyAttempts, cause);
       }
       Bun.sleepSync(options.busyDelayMilliseconds);
     }
