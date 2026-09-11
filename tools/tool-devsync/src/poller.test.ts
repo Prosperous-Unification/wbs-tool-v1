@@ -744,8 +744,15 @@ CONTENT=SAME`),
 
   it('guards the canonical h2puni gate wiring for the real orphan process proof', async () => {
     const gate = await readFile(new URL('../../../bin/h2puni-gate.sh', import.meta.url), 'utf8');
+    const steps = await readFile(
+      new URL('../../../bin/h2puni-gate-steps.sh', import.meta.url),
+      'utf8',
+    );
     expect(gate).toContain('export NX_DAEMON=false');
-    expect(gate).toContain('WBS_RUN_SOLVER_ORPHAN_PROC=1');
-    expect(gate).toContain('bunx nx run be-01:solver-image-smoke');
+    expect(gate).toContain('bin/h2puni-gate-steps.sh');
+    // Proof: moving the smoke command into the steps script without following that production
+    // call failed here on `Expected to contain: WBS_RUN_SOLVER_ORPHAN_PROC=1`.
+    expect(steps).toContain('WBS_RUN_SOLVER_ORPHAN_PROC=1');
+    expect(steps).toContain('bunx nx run be-01:solver-image-smoke');
   });
 });

@@ -245,6 +245,11 @@ jobs:
       - name: Install solver dependencies
         run: python3 -m pip install --require-hashes -r libs/solver-py/requirements.lock
 
+      # Proof: deleting this step made gate-entrypoints.test.ts fail at the exact committed
+      # `$GITHUB_SHA` command, before any fixture could mistake the generic Nx gate for wiki lint.
+      - name: Tool wiki — committed candidate
+        run: bash bin/tool-wiki-lint.sh committed . "$GITHUB_SHA"
+
       # --all, not the default base..HEAD comparison. Without it the scope is
       # whatever `git diff main HEAD` returns, which is EMPTY on a push to main
       # — a format gate that checks nothing and passes. When the base ref is
@@ -302,8 +307,15 @@ jobs:
         id: nx_gate
         run: |
           set +e
-          bunx nx run-many -t test lint typecheck build --parallel=2 --output-style=stream \
-            > nx-gate.log 2>&1
+          # Proof: dropping this exclusion made gate-entrypoints.test.ts fail at
+          # `Expected to contain: --exclude=tool-wiki`; source lint remains explicit below.
+          {
+            bunx nx run-many -t test lint typecheck build --parallel=2 --output-style=stream \
+              --exclude=tool-wiki &&
+            bunx nx run-many -t test typecheck build -p tool-wiki --parallel=2 \
+              --output-style=stream &&
+            bunx nx run tool-wiki:lint:source --skip-nx-cache --output-style=stream
+          } > nx-gate.log 2>&1
           gate_status=$?
           annotation_status=0
           bun run tools/tool-git-hooks/src/hooks/ci-gate-annotations.ts nx-gate.log --tail 200 || annotation_status=$?

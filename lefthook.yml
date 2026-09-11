@@ -23,6 +23,11 @@ pre-commit:
       run: bun run tools/tool-git-hooks/src/hooks/doc-caps.ts
       glob: 'LLM_README.md'
 
+    # Proof: deleting this whole-tree command made gate-entrypoints.test.ts fail at the exact
+    # staged adapter invocation; the other hook commands only inspect their staged file lists.
+    tool-wiki:
+      run: bash bin/tool-wiki-lint.sh staged . HEAD
+
 # Stamp agent-authored commits without replacing lefthook's generated wrapper.
 # Both stages are required: normal git commits invoke prepare-commit-msg, while
 # commit-tree based automation invokes only commit-msg.
