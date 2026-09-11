@@ -120,3 +120,49 @@ Each restored guard below was faulted separately through its production CLI rout
 - Whole-workspace format check and `git diff --check`: exit 0.
 - Exact-code-commit host gate: unavailable, not green. `bin/h2puni-gate.sh HEAD` exited 70
   because `/home/puni1/.cache` does not exist.
+
+## Astra fix round 2
+
+- Split caller lint disposition from externally selected authority. The CI binding now pins one
+  separately located authority artifact by canonical path and digest, plus its authority,
+  verifier-scope and journal identities. The artifact owns the complete Task 3.2 obligation
+  request, judgments, behavior rules and check receipts; caller evidence can only state report
+  mode and exact obligation/check/review IDs.
+- Reused `evaluateObligations` over the bound authority request. A changed authority artifact that
+  removes a failed rule is rejected at the binding digest before its bytes can decide acceptance.
+- Reused `evaluateAudit` for review discharge. Certification requires accepted exhaustive audit
+  evidence for the exact candidate and requires every reconciled review receipt to match the
+  binding-selected non-local verifier scope and journal. The audit contract checks invocation,
+  cold/informed phase, retained response, executor/price/usage, source and reviewed-candidate
+  linkage; self-declared receipt labels no longer establish authority.
+- Reused the production relationship extractor for README selector validation. A trusted
+  relationship request is decoded with the Task 2.2 contract, executed against the frozen
+  candidate, and each README selector must identify an extracted relationship input. The resulting
+  manifest identity is included in the deterministic selector-input-coverage check.
+- Authority paths receive the same stable single-read, canonical external-containment and digest
+  treatment as policy and validator artifacts. No production binding or CI activation was added;
+  the fixtures remain the temporary external authority allowed for Task 3.4.
+
+### Fix-round-2 failure proof
+
+Each guard was faulted alone on the production `lint-ci` route, then restored with an adjacent
+comment containing the observed failure.
+
+| Deliberate fault | Observed production-path failure |
+| --- | --- |
+| omit binding-selected verifier scope/journal reconciliation | receipts relabeled with `invocation.never-executed` and `journal.does-not-exist` certified; `Expected: 1, Received: 0` |
+| omit trusted-authority digest comparison | deleting failed `check.failed` from the authority behavior rule certified the changed application; `Expected: 1, Received: 0` |
+| omit extracted relationship-input membership | README `relationshipSelectors: ["selector.does-not-exist"]` certified; `Expected: 1, Received: 0` |
+
+### Fix-round-2 verification
+
+- Focused trusted-policy production CLI: 35 pass, 0 fail, 895 assertions in 60.10 seconds.
+- Forced uncached tool-wiki TypeScript build: exit 0.
+- Uncached tool-wiki ESLint: exit 0.
+- Exact final-tree full tool-wiki suite: 267 pass, 0 fail, 3,254 assertions across 14 files in
+  444.81 seconds.
+- Strict pinned OpenSpec 1.3.0 validation: `Change 'agent-scalable-llm-wiki' is valid`; optional
+  PostHog telemetry could not resolve `edge.openspec.dev`, but validation exited 0.
+- Whole-workspace `nx format:check --all` and `git diff --check`: exit 0.
+- Exact-code-commit host gate: unavailable, not green. `bin/h2puni-gate.sh 21007d9f` exited 70
+  with `heavy lock: /home/puni1/.cache does not exist`.

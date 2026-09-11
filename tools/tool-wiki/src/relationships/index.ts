@@ -158,7 +158,7 @@ export function extractRelationships(
   repository: string,
   candidate: CandidateSnapshot,
   request: RelationshipRequest,
-): object {
+) {
   const workspace = materializeCandidate(repository, candidate);
   try {
     const typescript = extractTypeScriptRelationships(workspace, request.typescript);

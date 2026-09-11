@@ -30,6 +30,7 @@ interface CandidateFixture {
   revision: string;
   trustDirectory: string;
   bindingPath: string;
+  authorityPath: string;
   evidencePath: string;
   policyPath: string;
 }
@@ -69,14 +70,16 @@ function commit(repository: string, message: string): string {
   return runGit(repository, ['rev-parse', 'HEAD']);
 }
 
-function indexSource(paths: string[]): string {
+function indexSource(paths: string[], relationshipSelectors: string[] = []): string {
   const metadata = {
     schemaVersion: 1,
     moduleId: 'module.fixture',
     memberships: paths.map((path) => ({ kind: 'path', path })),
-    relationshipSelectors: [],
+    relationshipSelectors,
     inapplicableSections: [
-      { section: 'relationships', reason: 'The trust fixture has no declared relationships.' },
+      ...(relationshipSelectors.length === 0
+        ? [{ section: 'relationships', reason: 'The trust fixture has no declared relationships.' }]
+        : []),
       { section: 'invariants', reason: 'The trust fixture has no cross-file runtime invariant.' },
       { section: 'checks', reason: 'The trusted lint command is the fixture boundary check.' },
     ],
@@ -203,31 +206,156 @@ function checkReceipt(checkId: string, identity: string): object {
   };
 }
 
-function reviewReceipt(reviewId: string): object {
+function auditReview(reviewId: string, fixture: CandidateFixture, identity: string): object {
+  const invocationId = `invocation.${reviewId}`;
+  const subject = {
+    subjectId: `subject.${reviewId}`,
+    kind: 'project',
+    path: 'src',
+    contentIdentity: identity,
+  };
+  const protocolBlob = 'd'.repeat(64);
+  const executor = {
+    provider: 'fixture-provider',
+    model: 'fixture-model',
+    version: 'fixture-version',
+    effort: 'fixture-effort',
+    toolchain: 'fixture-toolchain',
+  };
+  const priceIdentity = {
+    priceId: 'price.fixture',
+    provider: 'fixture-provider',
+    model: 'fixture-model',
+    currency: 'USD',
+    source: 'fixture-price-list',
+  };
+  const startedAt = '2026-09-11T10:00:00.000Z';
+  const endedAt = '2026-09-11T10:00:01.000Z';
+  const coldResponse = `cold ${reviewId}\n`;
+  const informedResponse = `informed ${reviewId}\n`;
+  const cold = {
+    sequence: 1,
+    judgments: { purpose: 'yes', relationships: 'yes', impact: 'partial' },
+    observedReadIds: [identity],
+  };
+  const phase = (name: 'cold' | 'informed', response: string, charge: number) => ({
+    status: 'verified',
+    receipt: {
+      schemaVersion: 1,
+      receiptKind: 'invocation',
+      receiptId: `receipt.${reviewId}.${name}`,
+      invocationId,
+      startedAt,
+      endedAt,
+      status: 'completed',
+      executor,
+      rawUsage: [{ category: `${name}_tokens`, quantity: charge, unit: 'tokens' }],
+      priceIdentity,
+      chargedAmountMicros: charge,
+      inputArtifact: 'e'.repeat(64),
+      outputArtifact: sha256(response),
+    },
+    elapsedReceipts: [
+      {
+        schemaVersion: 1,
+        receiptKind: 'elapsed',
+        receiptId: `elapsed.${reviewId}.${name}`,
+        trialId: 'trial.fixture',
+        outcomeId: 'outcome.fixture',
+        attemptId: `attempt.${reviewId}.${name}`,
+        phase: 'review',
+        startedAt,
+        endedAt,
+        elapsedMs: 1000,
+        status: 'completed',
+      },
+    ],
+  });
+  const coldReceipt = phase('cold', coldResponse, 11);
+  const informedReceipt = phase('informed', informedResponse, 14);
+  return {
+    reviewId: `audit.${reviewId}`,
+    obligationId: reviewId,
+    sourceBase: fixture.revision,
+    candidateIdentity: identity,
+    generation: 1,
+    reviewRound: 1,
+    recordedAt: '2026-09-11T10:01:00.000Z',
+    evidence: {
+      schemaVersion: 1,
+      receipt: {
+        schemaVersion: 1,
+        receiptKind: 'review',
+        receiptId: `receipt.${reviewId}`,
+        invocationId,
+        executor,
+        suppliedContextIds: [protocolBlob, identity],
+        observedReadIds: [identity, identity],
+        rawResponseArtifact: sha256(informedResponse),
+        rawUsage: [coldReceipt.receipt.rawUsage[0], informedReceipt.receipt.rawUsage[0]],
+        priceIdentity,
+        trust: { scope: 'external-verifier', journalId: 'journal.fixture' },
+      },
+      protocolEvidence: {
+        schemaVersion: 1,
+        protocol: { protocolId: 'review.cold-informed.v1', protocolBlob },
+        subject,
+        cold,
+        expansion: {
+          sequence: 2,
+          coldJudgmentArtifact: hashCanonical(cold),
+          suppliedContextIds: [],
+        },
+        informed: {
+          sequence: 3,
+          judgments: { purpose: 'yes', relationships: 'yes', impact: 'yes' },
+          observedReadIds: [identity],
+        },
+      },
+      phaseReceipts: { cold: coldReceipt, informed: informedReceipt },
+      phaseTools: {
+        cold: [{ toolId: 'read-file', version: '1' }],
+        informed: [{ toolId: 'run-check', version: '1' }],
+      },
+      actualTools: [
+        { toolId: 'read-file', version: '1' },
+        { toolId: 'run-check', version: '1' },
+      ],
+      rawResponse: {
+        artifact: sha256(informedResponse),
+        retention: { kind: 'journal-inline' },
+      },
+    },
+    findings: [],
+  };
+}
+
+function auditEnvelope(fixture: CandidateFixture, reviewIds: string[], identity: string): object {
   return {
     schemaVersion: 1,
-    receiptKind: 'review',
-    receiptId: `receipt.${reviewId}`,
-    invocationId: `invocation.${reviewId}`,
-    executor: {
-      provider: 'fixture-provider',
-      model: 'fixture-model',
-      version: 'fixture-version',
-      effort: 'fixture-effort',
-      toolchain: 'fixture-toolchain',
-    },
-    suppliedContextIds: ['d'.repeat(64)],
-    observedReadIds: ['e'.repeat(64)],
-    rawResponseArtifact: 'f'.repeat(64),
-    rawUsage: [],
-    priceIdentity: {
-      priceId: 'price.fixture',
-      provider: 'fixture-provider',
-      model: 'fixture-model',
-      currency: 'USD',
-      source: 'fixture-price-list',
-    },
-    trust: { scope: 'trusted-harness', journalId: 'journal.fixture' },
+    auditId: 'audit.fixture',
+    sourceBase: fixture.revision,
+    candidateIdentity: identity,
+    generation: 1,
+    seed: 'seed.fixture',
+    coverage: 'exhaustive',
+    strata: [{ stratumId: 'risk.fixture', sampleRateBps: 10000, disagreementTriggerBps: 10000 }],
+    obligations: reviewIds.map((reviewId) => ({
+      obligationId: reviewId,
+      riskStratum: 'risk.fixture',
+      subject: {
+        subjectId: `subject.${reviewId}`,
+        kind: 'project',
+        path: 'src',
+        contentIdentity: identity,
+      },
+    })),
+    mode: 'enforce',
+    claimedCoverage: 'exhaustive',
+    reviews: reviewIds.map((reviewId) => auditReview(reviewId, fixture, identity)),
+    corrections: [],
+    closures: [],
+    adjudications: [],
   };
 }
 
@@ -236,6 +364,24 @@ function writeEvidence(
   reportMode: Mode,
   metObligationIds: string[],
 ): void {
+  write(
+    fixture.evidencePath,
+    `${JSON.stringify({
+      schemaVersion: 1,
+      reportMode,
+      obligations: metObligationIds.map((obligationId) => {
+        const name = obligationId.slice('obligation.'.length);
+        return {
+          obligationId,
+          checkIds: [`check.${name}`],
+          reviewIds: [`review.${name}`],
+        };
+      }),
+    })}\n`,
+  );
+}
+
+function writeAuthority(fixture: CandidateFixture): void {
   const reviewedEntries = entriesAt(fixture.repository, fixture.baselineRevision);
   const currentEntries = entriesAt(fixture.repository, fixture.revision);
   const identity = candidateIdentityAt(fixture.repository, fixture.revision);
@@ -243,10 +389,10 @@ function writeEvidence(
   const checks = obligationNames.map((name) => `check.${name}`);
   const reviews = obligationNames.map((name) => `review.${name}`);
   write(
-    fixture.evidencePath,
+    fixture.authorityPath,
     `${JSON.stringify({
       schemaVersion: 1,
-      reportMode,
+      authorityId: 'authority.fixture.v1',
       obligationRequest: {
         reviewed: {
           sourceBase: fixture.baselineRevision,
@@ -289,18 +435,7 @@ function writeEvidence(
         observationId: `observation.${checkId}`,
         receipt: checkReceipt(checkId, identity),
       })),
-      reviewReceipts: reviews.map((reviewId) => ({
-        observationId: `observation.${reviewId}`,
-        receipt: reviewReceipt(reviewId),
-      })),
-      obligations: metObligationIds.map((obligationId) => {
-        const name = obligationId.slice('obligation.'.length);
-        return {
-          obligationId,
-          checkIds: [`check.${name}`],
-          reviewIds: [`review.${name}`],
-        };
-      }),
+      audit: auditEnvelope(fixture, reviews, identity),
     })}\n`,
   );
 }
@@ -385,6 +520,15 @@ function writeTrust(fixture: CandidateFixture, mode: Mode): void {
     bindingId: `binding.${mode}.v1`,
     trustScope: mode === 'enforce' ? 'ci' : 'local-operator',
     policy: { path: fixture.policyPath, sha256: sha256(readFileSync(fixture.policyPath)) },
+    authority: {
+      authorityId: 'authority.fixture.v1',
+      journalId: 'journal.fixture',
+      trustScope: 'external-verifier',
+      artifact: {
+        path: fixture.authorityPath,
+        sha256: sha256(readFileSync(fixture.authorityPath)),
+      },
+    },
     validator: { validatorId: 'validator.tool-wiki.v1', artifacts: validatorArtifacts },
   };
   write(fixture.bindingPath, `${JSON.stringify(binding)}\n`);
@@ -410,6 +554,7 @@ function createFixture(mode: Mode, reportMode: Mode = mode): CandidateFixture {
     revision,
     trustDirectory,
     bindingPath: join(trustDirectory, 'binding.json'),
+    authorityPath: join(trustDirectory, 'authority.json'),
     evidencePath: join(trustDirectory, 'evidence.json'),
     policyPath: join(trustDirectory, 'policy.json'),
   };
@@ -418,6 +563,7 @@ function createFixture(mode: Mode, reportMode: Mode = mode): CandidateFixture {
     'obligation.validator',
     'obligation.exemptions',
   ]);
+  writeAuthority(fixture);
   writeTrust(fixture, mode);
   return fixture;
 }
@@ -475,6 +621,8 @@ function satisfyApplication(fixture: CandidateFixture): void {
     'obligation.exemptions',
     'obligation.application',
   ]);
+  writeAuthority(fixture);
+  rebindAuthority(fixture);
 }
 
 function artifactIdentity(artifacts: { path: string; sha256: string }[]): string {
@@ -485,6 +633,14 @@ function artifactIdentity(artifacts: { path: string; sha256: string }[]): string
         Buffer.compare(Buffer.from(left.path, 'utf8'), Buffer.from(right.path, 'utf8')),
       ),
   );
+}
+
+function rebindAuthority(fixture: CandidateFixture): void {
+  const binding = JSON.parse(readFileSync(fixture.bindingPath, 'utf8')) as {
+    authority: { artifact: { sha256: string } };
+  };
+  binding.authority.artifact.sha256 = sha256(readFileSync(fixture.authorityPath));
+  write(fixture.bindingPath, `${JSON.stringify(binding)}\n`);
 }
 
 function writeActivation(
@@ -498,6 +654,7 @@ function writeActivation(
     bindingId: string;
     trustScope: 'ci' | 'local-operator';
     policy: { path: string; sha256: string };
+    authority: object;
     validator: { validatorId: string; artifacts: { path: string; sha256: string }[] };
   };
   const nextPolicyPath = join(fixture.trustDirectory, 'policy-next.json');
@@ -512,6 +669,7 @@ function writeActivation(
       bindingId: 'binding.next.v1',
       trustScope: previousBinding.trustScope,
       policy: { path: nextPolicyPath, sha256: sha256(readFileSync(nextPolicyPath)) },
+      authority: previousBinding.authority,
       validator: {
         validatorId: previousBinding.validator.validatorId,
         artifacts: nextValidatorArtifacts ?? previousBinding.validator.artifacts,
@@ -793,25 +951,25 @@ describe('trusted policy production CLI', () => {
     for (const fault of ['missing-check-receipt', 'local-review'] as const) {
       const fixture = createFixture('enforce');
       satisfyApplication(fixture);
-      const evidence = JSON.parse(readFileSync(fixture.evidencePath, 'utf8')) as {
+      const authority = JSON.parse(readFileSync(fixture.authorityPath, 'utf8')) as {
         checkReceipts: { observationId: string }[];
-        reviewReceipts: {
-          observationId: string;
-          receipt: { trust: { scope: string } };
-        }[];
+        audit: {
+          reviews: { evidence: { receipt: { receiptId: string; trust: { scope: string } } } }[];
+        };
       };
       if (fault === 'missing-check-receipt') {
-        evidence.checkReceipts = evidence.checkReceipts.filter(
+        authority.checkReceipts = authority.checkReceipts.filter(
           ({ observationId }) => observationId !== 'observation.check.application',
         );
       } else {
-        const review = evidence.reviewReceipts.find(
-          ({ observationId }) => observationId === 'observation.review.application',
+        const review = authority.audit.reviews.find(
+          ({ evidence }) => evidence.receipt.receiptId === 'receipt.review.application',
         );
         if (review === undefined) throw new Error('application review receipt disappeared');
-        review.receipt.trust.scope = 'local-cooperative';
+        review.evidence.receipt.trust.scope = 'local-cooperative';
       }
-      write(fixture.evidencePath, `${JSON.stringify(evidence)}\n`);
+      write(fixture.authorityPath, `${JSON.stringify(authority)}\n`);
+      rebindAuthority(fixture);
 
       const invocation = runCi(fixture);
       const output = outputOf(invocation);
@@ -823,6 +981,119 @@ describe('trusted policy production CLI', () => {
       expect(report.accepted).toBe(false);
       expect(report.unmetObligationIds).toContain('obligation.application');
     }
+  });
+
+  test('self-declared journal and invocation labels cannot certify reviews', () => {
+    const fixture = createFixture('enforce');
+    satisfyApplication(fixture);
+    const authority = JSON.parse(readFileSync(fixture.authorityPath, 'utf8')) as {
+      audit: {
+        reviews: {
+          obligationId: string;
+          evidence: {
+            receipt: { invocationId: string; trust: { journalId: string } };
+            phaseReceipts: {
+              cold: { receipt: { invocationId: string } };
+              informed: { receipt: { invocationId: string } };
+            };
+          };
+        }[];
+      };
+    };
+    for (const review of authority.audit.reviews) {
+      const invocationId = `invocation.never-executed.${review.obligationId}`;
+      review.evidence.receipt.invocationId = invocationId;
+      review.evidence.phaseReceipts.cold.receipt.invocationId = invocationId;
+      review.evidence.phaseReceipts.informed.receipt.invocationId = invocationId;
+      review.evidence.receipt.trust.journalId = 'journal.does-not-exist';
+    }
+    write(fixture.authorityPath, `${JSON.stringify(authority)}\n`);
+    rebindAuthority(fixture);
+
+    const invocation = runCi(fixture);
+    const output = outputOf(invocation);
+    expect(invocation.exitCode, output).toBe(1);
+    const report = JSON.parse(pipeText(invocation.stdout, 'lint stdout')) as {
+      accepted: boolean;
+      certified: boolean;
+      unmetObligationIds: string[];
+    };
+    expect(report).toMatchObject({
+      accepted: false,
+      certified: false,
+    });
+    expect(report.unmetObligationIds).toContain('obligation.application');
+  });
+
+  test('changed authority bytes cannot remove a trusted failed behavior check', () => {
+    const fixture = createFixture('enforce');
+    write(join(fixture.repository, 'src/app.ts'), 'export const value = 2;\n');
+    fixture.revision = commit(fixture.repository, 'change application behavior');
+    satisfyApplication(fixture);
+    const authority = JSON.parse(readFileSync(fixture.authorityPath, 'utf8')) as {
+      obligationRequest: {
+        reviewed: { sourceBase: string; candidateIdentity: string; inputs: { content: object[] } };
+        current: { sourceBase: string; candidateIdentity: string; inputs: { content: object[] } };
+        policy: { behaviorRules: object[] };
+        impactClassifications: object[];
+        checks: object[];
+      };
+    };
+    const reviewedApp = entriesAt(fixture.repository, fixture.baselineRevision).find(
+      ({ path }) => path === 'src/app.ts',
+    );
+    const currentApp = entriesAt(fixture.repository, fixture.revision).find(
+      ({ path }) => path === 'src/app.ts',
+    );
+    if (reviewedApp === undefined || currentApp === undefined) {
+      throw new Error('application fixture disappeared');
+    }
+    authority.obligationRequest.policy.behaviorRules = [
+      {
+        contentInputId: 'content.3',
+        consumerChecks: ['check.failed'],
+        conformanceChecks: [],
+        expandedReviewJudgments: [],
+      },
+    ];
+    authority.obligationRequest.impactClassifications = [
+      {
+        classificationId: 'classification.application',
+        contentInputId: 'content.3',
+        reviewedSourceBase: fixture.baselineRevision,
+        currentSourceBase: fixture.revision,
+        reviewedCandidateIdentity: candidateIdentityAt(
+          fixture.repository,
+          fixture.baselineRevision,
+        ),
+        currentCandidateIdentity: candidateIdentityAt(fixture.repository, fixture.revision),
+        classification: 'behavior-preserving',
+        authority: { kind: 'declared', declarationIdentity: '1'.repeat(64) },
+        change: 'changed',
+        reviewedIdentity: reviewedApp.blob,
+        currentIdentity: currentApp.blob,
+      },
+    ];
+    authority.obligationRequest.checks.push({
+      observationId: 'observation.check.failed',
+      checkId: 'check.failed',
+      candidateIdentity: candidateIdentityAt(fixture.repository, fixture.revision),
+      status: 'failed',
+    });
+    write(fixture.authorityPath, `${JSON.stringify(authority)}\n`);
+    rebindAuthority(fixture);
+    const failed = runCi(fixture);
+    expect(failed.exitCode, outputOf(failed)).toBe(1);
+
+    const rule = authority.obligationRequest.policy.behaviorRules[0] as {
+      consumerChecks: string[];
+    };
+    rule.consumerChecks = [];
+    write(fixture.authorityPath, `${JSON.stringify(authority)}\n`);
+    const weakened = runCi(fixture);
+    const output = outputOf(weakened);
+    expect(weakened.exitCode, output).toBe(1);
+    expect(output).toContain('trusted authority digest does not match binding');
   });
 
   test('a candidate child whose name starts with two dots is still inside the candidate', () => {
@@ -860,43 +1131,6 @@ describe('trusted policy production CLI', () => {
     const fixture = createFixture('enforce');
     satisfyApplication(fixture);
     write(join(fixture.repository, 'untracked.ts'), 'export const untracked = true;\n');
-    const selected = Bun.spawnSync(
-      [
-        process.execPath,
-        'run',
-        cliPath,
-        'read-candidate',
-        'working',
-        fixture.repository,
-        fixture.revision,
-      ],
-      { cwd: import.meta.dir, stderr: 'pipe', stdout: 'pipe' },
-    );
-    expect(selected.exitCode, outputOf(selected)).toBe(0);
-    const snapshot = JSON.parse(pipeText(selected.stdout, 'candidate stdout')) as {
-      selection: object;
-      entries: ExactTupleFixture[];
-      untracked: string[];
-    };
-    const identity = hashCanonical(snapshot);
-    const evidence = JSON.parse(readFileSync(fixture.evidencePath, 'utf8')) as {
-      obligationRequest: {
-        current: { candidateIdentity: string; inputs: { content: object[] } };
-        checks: { candidateIdentity: string }[];
-        reviews: { candidateIdentity: string }[];
-      };
-      checkReceipts: { receipt: { candidateManifest: string } }[];
-    };
-    evidence.obligationRequest.current.candidateIdentity = identity;
-    evidence.obligationRequest.current.inputs.content = contentInputs(snapshot.entries);
-    for (const observation of evidence.obligationRequest.checks) {
-      observation.candidateIdentity = identity;
-    }
-    for (const observation of evidence.obligationRequest.reviews) {
-      observation.candidateIdentity = identity;
-    }
-    for (const { receipt } of evidence.checkReceipts) receipt.candidateManifest = identity;
-    write(fixture.evidencePath, `${JSON.stringify(evidence)}\n`);
 
     const invocation = runCi(fixture, fixture.bindingPath, [], 'working');
     const output = outputOf(invocation);
@@ -946,6 +1180,47 @@ describe('trusted policy production CLI', () => {
       'trusted boundary selector selects no candidate input: boundary.application',
     );
     expect(output).not.toContain('trusted policy digest does not match binding');
+  });
+
+  test('CI resolves README relationship selectors against extracted candidate inputs', () => {
+    const fixture = createFixture('enforce');
+    write(
+      join(fixture.repository, 'tsconfig.json'),
+      `${JSON.stringify({ compilerOptions: { module: 'ESNext' }, include: ['src/**/*.ts'] })}\n`,
+    );
+    write(
+      join(fixture.repository, 'README.md'),
+      indexSource(
+        ['exemptions.json', 'policy.json', 'src/app.ts', 'tsconfig.json', 'validator.ts'],
+        ['selector.does-not-exist'],
+      ),
+    );
+    fixture.revision = commit(fixture.repository, 'declare unresolved relationship selector');
+    fixture.baselineRevision = fixture.revision;
+    writeEvidence(fixture, 'enforce', [
+      'obligation.application',
+      'obligation.exemptions',
+      'obligation.policy',
+      'obligation.validator',
+    ]);
+    writeAuthority(fixture);
+    writeTrust(fixture, 'enforce');
+    const policy = JSON.parse(readFileSync(fixture.policyPath, 'utf8')) as Record<string, unknown>;
+    policy['relationshipRequest'] = {
+      schemaVersion: 1,
+      typescript: { configPaths: ['tsconfig.json'], publicEntrypoints: ['src/app.ts'] },
+    };
+    write(fixture.policyPath, `${JSON.stringify(policy)}\n`);
+    const binding = JSON.parse(readFileSync(fixture.bindingPath, 'utf8')) as {
+      policy: { sha256: string };
+    };
+    binding.policy.sha256 = sha256(readFileSync(fixture.policyPath));
+    write(fixture.bindingPath, `${JSON.stringify(binding)}\n`);
+
+    const invocation = runCi(fixture);
+    const output = outputOf(invocation);
+    expect(invocation.exitCode, output).toBe(1);
+    expect(output).toContain('unknown relationship selector in README.md: selector.does-not-exist');
   });
 
   test('trusted obligations must retain one exact boundary assignment', () => {
@@ -1033,6 +1308,26 @@ describe('trusted policy production CLI', () => {
       expect(invocation.exitCode, output).toBe(1);
       expect(output).toContain('resolves inside selected candidate');
     }
+  });
+
+  test('trusted authority aliases cannot resolve inside the selected candidate', () => {
+    const fixture = createFixture('enforce');
+    satisfyApplication(fixture);
+    const candidateAuthority = join(fixture.repository, 'candidate-authority.json');
+    write(candidateAuthority, readFileSync(fixture.authorityPath, 'utf8'));
+    const binding = JSON.parse(readFileSync(fixture.bindingPath, 'utf8')) as {
+      authority: { artifact: { path: string; sha256: string } };
+    };
+    binding.authority.artifact = {
+      path: candidateAuthority,
+      sha256: sha256(readFileSync(candidateAuthority)),
+    };
+    write(fixture.bindingPath, `${JSON.stringify(binding)}\n`);
+
+    const invocation = runCi(fixture);
+    const output = outputOf(invocation);
+    expect(invocation.exitCode, output).toBe(1);
+    expect(output).toContain('trusted authority resolves inside selected candidate');
   });
 
   test('binding cannot omit executable source that actually decides acceptance', () => {

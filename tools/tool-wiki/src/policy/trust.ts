@@ -9,13 +9,14 @@ import {
   type CheckReceipt as CheckReceiptValue,
   ClassificationPolicy,
   OpaqueId,
+  RelationshipRequest,
+  type RelationshipRequest as RelationshipRequestValue,
   RelativePath,
-  ReviewReceipt,
-  type ReviewReceipt as ReviewReceiptValue,
   SchemaVersion,
 } from '../contracts/records';
 import { hashBytes, hashCanonical } from '../evidence/content-manifest';
 import { checkIndexes } from '../indexes/check-indexes';
+import { readIndexes } from '../indexes/read-indexes';
 import { classifyEntries } from '../inventory/classify-entries';
 import {
   type CandidateEntry,
@@ -23,6 +24,8 @@ import {
   type CandidateSnapshot,
   readCandidate,
 } from '../inventory/read-candidate';
+import { extractRelationships } from '../relationships';
+import { evaluateAudit } from '../review/audit';
 import {
   decodeObligationRequest,
   evaluateObligations,
@@ -70,6 +73,7 @@ const TrustedPolicyRecord = type({
   boundaries: TrustedBoundary.array(),
   obligations: TrustedObligation.array(),
   exemptions: TrustedExemption.array(),
+  'relationshipRequest?': 'unknown',
 }).onUndeclaredKey('reject');
 export type TrustedPolicy = typeof TrustedPolicyRecord.infer;
 
@@ -94,6 +98,12 @@ const TrustedBindingRecord = type({
   bindingId: OpaqueId,
   trustScope: "'local-operator'|'ci'",
   policy: ArtifactReference,
+  authority: type({
+    authorityId: OpaqueId,
+    journalId: OpaqueId,
+    trustScope: "'trusted-harness'|'external-verifier'",
+    artifact: ArtifactReference,
+  }).onUndeclaredKey('reject'),
   validator: type({ validatorId: OpaqueId, artifacts: ArtifactReference.array() }).onUndeclaredKey(
     'reject',
   ),
@@ -110,13 +120,6 @@ const ObligationEvidence = type({
 const LintEvidenceRecord = type({
   schemaVersion: SchemaVersion,
   reportMode: Mode,
-  obligationRequest: 'unknown',
-  checkReceipts: type({ observationId: OpaqueId, receipt: 'unknown' })
-    .onUndeclaredKey('reject')
-    .array(),
-  reviewReceipts: type({ observationId: OpaqueId, receipt: 'unknown' })
-    .onUndeclaredKey('reject')
-    .array(),
   obligations: ObligationEvidence.array(),
   // Proof: changing this boundary to ignore undeclared keys made trustedBindingPath in
   // candidate evidence exit 0 with accepted and certified both true on the CI route.
@@ -124,10 +127,24 @@ const LintEvidenceRecord = type({
 interface LintEvidence {
   schemaVersion: 1;
   reportMode: LintMode;
+  obligations: (typeof ObligationEvidence.infer)[];
+}
+
+const TrustedAuthorityRecord = type({
+  schemaVersion: SchemaVersion,
+  authorityId: OpaqueId,
+  obligationRequest: 'unknown',
+  checkReceipts: type({ observationId: OpaqueId, receipt: 'unknown' })
+    .onUndeclaredKey('reject')
+    .array(),
+  audit: 'unknown',
+}).onUndeclaredKey('reject');
+
+interface TrustedAuthority {
+  authorityId: string;
   obligationRequest: ObligationRequest;
   checkReceipts: { observationId: string; receipt: CheckReceiptValue }[];
-  reviewReceipts: { observationId: string; receipt: ReviewReceiptValue }[];
-  obligations: (typeof ObligationEvidence.infer)[];
+  audit: unknown;
 }
 
 interface StableArtifact {
@@ -143,6 +160,7 @@ export interface LoadedTrust {
   bindingIdentity: string;
   policyIdentity: string;
   validatorIdentity: string;
+  relationshipRequest?: RelationshipRequestValue;
 }
 
 export interface TrustRefusal {
@@ -165,6 +183,9 @@ export interface TrustedLintReport {
   bindingIdentity: string;
   policyId: string;
   policyIdentity: string;
+  authorityId: string;
+  authorityIdentity: string;
+  authorityJournalId: string;
   validatorId: string;
   validatorIdentity: string;
   candidateIdentity: string;
@@ -461,6 +482,10 @@ export function loadTrustedPolicy(
     parseJson(policyArtifact.bytes, 'trusted policy JSON'),
   );
   validatePolicy(policy);
+  const relationshipRequest =
+    policy.relationshipRequest === undefined
+      ? undefined
+      : parseOrThrow(RelationshipRequest, policy.relationshipRequest);
   return {
     binding,
     policy,
@@ -469,6 +494,7 @@ export function loadTrustedPolicy(
     bindingIdentity: hashBytes(bindingArtifact.bytes),
     policyIdentity: hashBytes(policyArtifact.bytes),
     validatorIdentity: boundIdentity,
+    relationshipRequest,
   };
 }
 
@@ -715,7 +741,12 @@ function changedBoundaries(candidate: CandidateSnapshot, policy: TrustedPolicy):
     .sort(compareText);
 }
 
-function validateSelectedInputs(candidate: CandidateSnapshot, policy: TrustedPolicy): void {
+function validateSelectedInputs(
+  repository: string,
+  candidate: CandidateSnapshot,
+  trust: LoadedTrust,
+): string {
+  const policy = trust.policy;
   for (const boundary of policy.boundaries) {
     // Proof: replacing this validation with the selector digest made a nonexistent selector
     // certify on production CI after its trusted policy digest was correctly updated.
@@ -725,6 +756,26 @@ function validateSelectedInputs(candidate: CandidateSnapshot, policy: TrustedPol
       );
     }
   }
+  const selectors = readIndexes(repository, candidate).indexes.flatMap(({ indexPath, metadata }) =>
+    metadata.relationshipSelectors.map((selectorId) => ({ indexPath, selectorId })),
+  );
+  if (selectors.length === 0) return hashCanonical([]);
+  if (trust.relationshipRequest === undefined) {
+    throw new Error('trusted policy has no relationship request for declared selectors');
+  }
+  const relationships = extractRelationships(repository, candidate, trust.relationshipRequest);
+  const available = new Set(
+    relationships.manifestInputs.relationshipInputs.map(({ inputId }) => inputId),
+  );
+  for (const { indexPath, selectorId } of selectors) {
+    // Proof: omitting production relationship extraction/resolution made README metadata with
+    // selector.does-not-exist certify; the production CI test failed on `Expected: 1,
+    // Received: 0`.
+    if (!available.has(selectorId)) {
+      throw new Error(`unknown relationship selector in ${indexPath}: ${selectorId}`);
+    }
+  }
+  return hashCanonical(relationships.manifestInputs);
 }
 
 function modeRank(mode: LintMode): number {
@@ -733,37 +784,32 @@ function modeRank(mode: LintMode): number {
 
 function decodeLintEvidence(bytes: Uint8Array): LintEvidence {
   const envelope = parseOrThrow(LintEvidenceRecord, parseJson(bytes, 'lint evidence JSON'));
+  return {
+    schemaVersion: envelope.schemaVersion,
+    reportMode: envelope.reportMode,
+    obligations: envelope.obligations,
+  };
+}
+
+function decodeTrustedAuthority(bytes: Uint8Array): TrustedAuthority {
+  const envelope = parseOrThrow(TrustedAuthorityRecord, parseJson(bytes, 'trusted authority JSON'));
   const checkReceipts = envelope.checkReceipts.map(({ observationId, receipt }) => ({
     observationId,
     receipt: parseOrThrow(CheckReceipt, receipt),
-  }));
-  const reviewReceipts = envelope.reviewReceipts.map(({ observationId, receipt }) => ({
-    observationId,
-    receipt: parseOrThrow(ReviewReceipt, receipt),
   }));
   assertUnique(
     checkReceipts.map(({ observationId }) => observationId),
     'check receipt observation',
   );
   assertUnique(
-    reviewReceipts.map(({ observationId }) => observationId),
-    'review receipt observation',
-  );
-  assertUnique(
     checkReceipts.map(({ receipt }) => receipt.receiptId),
     'check receipt',
   );
-  assertUnique(
-    reviewReceipts.map(({ receipt }) => receipt.receiptId),
-    'review receipt',
-  );
   return {
-    schemaVersion: envelope.schemaVersion,
-    reportMode: envelope.reportMode,
+    authorityId: envelope.authorityId,
     obligationRequest: decodeObligationRequest(envelope.obligationRequest),
     checkReceipts,
-    reviewReceipts,
-    obligations: envelope.obligations,
+    audit: envelope.audit,
   };
 }
 
@@ -793,12 +839,13 @@ interface ValidatedEvidence {
 }
 
 function validateEvidence(
-  evidence: LintEvidence,
+  authority: TrustedAuthority,
   candidate: CandidateSnapshot,
   identity: string,
   policy: TrustedPolicy,
+  binding: TrustedBinding,
 ): ValidatedEvidence {
-  const request = evidence.obligationRequest;
+  const request = authority.obligationRequest;
   const obligationReport = evaluateObligations(request);
   const currentBinds =
     request.policy.policyId === policy.policyId &&
@@ -816,7 +863,7 @@ function validateEvidence(
   );
   const passedCheckIds = new Set<string>();
   for (const observation of request.checks) {
-    const receipt = evidence.checkReceipts.find(
+    const receipt = authority.checkReceipts.find(
       (candidateReceipt) => candidateReceipt.observationId === observation.observationId,
     )?.receipt;
     if (
@@ -833,23 +880,29 @@ function validateEvidence(
     }
   }
   const currentReviewIds = new Set<string>();
-  for (const observation of request.reviews) {
-    const receipt = evidence.reviewReceipts.find(
-      (candidateReceipt) => candidateReceipt.observationId === observation.observationId,
-    )?.receipt;
-    if (
-      observation.candidateIdentity === request.current.candidateIdentity &&
-      observation.status === 'current' &&
-      receipt !== undefined &&
-      // Proof: accepting local-cooperative provenance made caller review.application labels
-      // certify on production CI; the test expected exit 1 and received certified true.
-      receipt.trust.scope !== 'local-cooperative'
-    ) {
-      currentReviewIds.add(observation.judgmentId);
-    }
+  const audit = evaluateAudit(authority.audit);
+  const auditBinds =
+    audit.accepted &&
+    audit.claimedCoverage === 'exhaustive' &&
+    audit.candidateIdentity === identity &&
+    // Proof: omitting the externally selected journal/scope match let receipts relabeled with
+    // invocation.never-executed and journal.does-not-exist certify; the production CI test
+    // failed on `Expected: 1, Received: 0`.
+    audit.costs.reviews.every(
+      ({ trustScope, reviewReceipt }) =>
+        trustScope === binding.authority.trustScope &&
+        reviewReceipt.trust.journalId === binding.authority.journalId,
+    );
+  if (auditBinds) {
+    for (const reviewId of audit.requiredObligationIds) currentReviewIds.add(reviewId);
   }
   return {
-    bindsCandidate: currentBinds && reviewedBinds && obligationReport.accepted,
+    bindsCandidate:
+      authority.authorityId === binding.authority.authorityId &&
+      currentBinds &&
+      reviewedBinds &&
+      obligationReport.accepted &&
+      auditBinds,
     passedCheckIds,
     currentReviewIds,
   };
@@ -908,6 +961,18 @@ export function lintTrustedCandidate(request: TrustedLintRequest): TrustedLintRe
   );
   const evidenceArtifact = readStableArtifact(request.evidencePath, 'lint evidence');
   const evidence = decodeLintEvidence(evidenceArtifact.bytes);
+  const authorityArtifact = readStableArtifact(
+    resolveReference(trust.bindingPath, trust.binding.authority.artifact.path),
+    'trusted authority',
+  );
+  assertExternal(repository, authorityArtifact, 'trusted authority');
+  // Proof: omitting this digest check let changed authority bytes delete check.failed from the
+  // selected behavior rule and certify; the production CI test failed on `Expected: 1,
+  // Received: 0`.
+  if (hashBytes(authorityArtifact.bytes) !== trust.binding.authority.artifact.sha256) {
+    throw new Error('trusted authority digest does not match binding');
+  }
+  const authority = decodeTrustedAuthority(authorityArtifact.bytes);
   const mode = request.mode ?? trust.policy.minimumMode;
   assertUnique(
     evidence.obligations.map(({ obligationId }) => obligationId),
@@ -928,9 +993,15 @@ export function lintTrustedCandidate(request: TrustedLintRequest): TrustedLintRe
       ? { ...candidate, untracked: [] }
       : candidate;
   const indexes = checkIndexes(repository, indexCandidate);
-  validateSelectedInputs(candidate, trust.policy);
+  const relationshipIdentity = validateSelectedInputs(repository, indexCandidate, trust);
   const identity = candidateIdentity(candidate);
-  const validatedEvidence = validateEvidence(evidence, candidate, identity, trust.policy);
+  const validatedEvidence = validateEvidence(
+    authority,
+    candidate,
+    identity,
+    trust.policy,
+    trust.binding,
+  );
   const changedBoundaryIds = changedBoundaries(candidate, trust.policy);
   const met = new Set(
     trust.policy.obligations
@@ -1025,6 +1096,7 @@ export function lintTrustedCandidate(request: TrustedLintRequest): TrustedLintRe
       identity: hashCanonical({
         policy: trust.policyIdentity,
         evidence: hashBytes(evidenceArtifact.bytes),
+        authority: hashBytes(authorityArtifact.bytes),
       }),
     },
     { kind: 'metadata-links', identity: hashCanonical(indexes) },
@@ -1036,6 +1108,7 @@ export function lintTrustedCandidate(request: TrustedLintRequest): TrustedLintRe
           selector,
         })),
         entries: candidate.entries.map(({ path, mode, blob }) => ({ path, mode, blob })),
+        relationships: relationshipIdentity,
       }),
     },
   ];
@@ -1048,6 +1121,9 @@ export function lintTrustedCandidate(request: TrustedLintRequest): TrustedLintRe
     bindingIdentity: trust.bindingIdentity,
     policyId: trust.policy.policyId,
     policyIdentity: trust.policyIdentity,
+    authorityId: trust.binding.authority.authorityId,
+    authorityIdentity: hashBytes(authorityArtifact.bytes),
+    authorityJournalId: trust.binding.authority.journalId,
     validatorId: trust.binding.validator.validatorId,
     validatorIdentity: trust.validatorIdentity,
     candidateIdentity: identity,
