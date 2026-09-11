@@ -1,10 +1,19 @@
 import { Buffer } from 'node:buffer';
 import { closeSync, fstatSync, openSync, readFileSync, realpathSync } from 'node:fs';
-import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 
 import { parseOrThrow, type } from '@wbs/validation';
 
-import { ClassificationPolicy, OpaqueId, RelativePath, SchemaVersion } from '../contracts/records';
+import {
+  CheckReceipt,
+  type CheckReceipt as CheckReceiptValue,
+  ClassificationPolicy,
+  OpaqueId,
+  RelativePath,
+  ReviewReceipt,
+  type ReviewReceipt as ReviewReceiptValue,
+  SchemaVersion,
+} from '../contracts/records';
 import { hashBytes, hashCanonical } from '../evidence/content-manifest';
 import { checkIndexes } from '../indexes/check-indexes';
 import { classifyEntries } from '../inventory/classify-entries';
@@ -14,6 +23,11 @@ import {
   type CandidateSnapshot,
   readCandidate,
 } from '../inventory/read-candidate';
+import {
+  decodeObligationRequest,
+  evaluateObligations,
+  type ObligationRequest,
+} from './obligations';
 
 const Sha256 = type(/^[0-9a-f]{64}$/);
 const GitIdentity = type(/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/);
@@ -90,18 +104,31 @@ export type TrustedBinding = typeof TrustedBindingRecord.infer;
 
 const ObligationEvidence = type({
   obligationId: OpaqueId,
-  status: "'met'|'unmet'",
   checkIds: OpaqueId.array(),
   reviewIds: OpaqueId.array(),
 }).onUndeclaredKey('reject');
 const LintEvidenceRecord = type({
   schemaVersion: SchemaVersion,
   reportMode: Mode,
+  obligationRequest: 'unknown',
+  checkReceipts: type({ observationId: OpaqueId, receipt: 'unknown' })
+    .onUndeclaredKey('reject')
+    .array(),
+  reviewReceipts: type({ observationId: OpaqueId, receipt: 'unknown' })
+    .onUndeclaredKey('reject')
+    .array(),
   obligations: ObligationEvidence.array(),
   // Proof: changing this boundary to ignore undeclared keys made trustedBindingPath in
   // candidate evidence exit 0 with accepted and certified both true on the CI route.
 }).onUndeclaredKey('reject');
-type LintEvidence = typeof LintEvidenceRecord.infer;
+interface LintEvidence {
+  schemaVersion: 1;
+  reportMode: LintMode;
+  obligationRequest: ObligationRequest;
+  checkReceipts: { observationId: string; receipt: CheckReceiptValue }[];
+  reviewReceipts: { observationId: string; receipt: ReviewReceiptValue }[];
+  obligations: (typeof ObligationEvidence.infer)[];
+}
 
 interface StableArtifact {
   path: string;
@@ -119,7 +146,7 @@ export interface LoadedTrust {
 }
 
 export interface TrustRefusal {
-  kind: 'activation' | 'mode' | 'obligation' | 'ratchet';
+  kind: 'activation' | 'mode' | 'obligation' | 'ratchet' | 'selection';
   obligationId?: string;
   boundaryId?: string;
   reason: string;
@@ -141,6 +168,8 @@ export interface TrustedLintReport {
   validatorId: string;
   validatorIdentity: string;
   candidateIdentity: string;
+  candidateSelection: CandidateSnapshot['selection'];
+  untrackedPaths: string[];
   deterministicChecks: DeterministicCheck[];
   changedBoundaryIds: string[];
   debtObligationIds: string[];
@@ -206,7 +235,10 @@ function readStableArtifact(path: string, subject: string): StableArtifact {
 
 function isInside(root: string, path: string): boolean {
   const offset = relative(root, path);
-  return offset === '' || (!offset.startsWith('..') && !isAbsolute(offset));
+  // Proof: treating every `..` prefix as traversal made production CI certify a binding at
+  // candidate/..trust/binding.json; the containment test expected exit 1 and received 0.
+  const escapes = offset === '..' || offset.startsWith(`..${sep}`);
+  return offset === '' || (!escapes && !isAbsolute(offset));
 }
 
 function assertExternal(candidateRoot: string, artifact: StableArtifact, subject: string): void {
@@ -296,6 +328,16 @@ function validatePolicy(policy: TrustedPolicy): void {
         `obligation ${obligation.obligationId} has unknown boundary: ${obligation.boundaryId}`,
       );
     }
+    const assignedBoundaryIds = policy.boundaries
+      .filter(({ obligationIds }) => obligationIds.includes(obligation.obligationId))
+      .map(({ boundaryId }) => boundaryId);
+    // Proof: removing this exact assignment check made production CI certify a policy where
+    // obligation.application named boundary.policy while boundary.application still claimed it.
+    if (assignedBoundaryIds.length !== 1 || assignedBoundaryIds[0] !== obligation.boundaryId) {
+      throw new Error(
+        `trusted obligation boundary assignment mismatch: ${obligation.obligationId}`,
+      );
+    }
     assertUnique(obligation.checkIds, `check in obligation ${obligation.obligationId}`);
     assertUnique(obligation.reviewIds, `review in obligation ${obligation.obligationId}`);
   }
@@ -318,11 +360,51 @@ function validatorIdentity(artifacts: readonly StableArtifact[]): string {
   );
 }
 
+function importedSpecifiers(path: string, source: string): string[] {
+  const loader = path.endsWith('.ts') ? 'ts' : 'js';
+  return new Bun.Transpiler({ loader }).scanImports(source).map(({ path: specifier }) => specifier);
+}
+
+/** Resolves the exact transitive source closure executed by trust-capable CLI routes. */
+export function resolveValidatorArtifactPaths(entryPaths: readonly string[]): string[] {
+  const pending = [...entryPaths.map((path) => realpathSync(path))];
+  const visited = new Set<string>();
+  while (pending.length > 0) {
+    const path = pending.pop();
+    if (path === undefined || visited.has(path)) continue;
+    visited.add(path);
+    const source = readFileSync(path, 'utf8');
+    for (const specifier of importedSpecifiers(path, source)) {
+      if (specifier.startsWith('node:') || specifier.startsWith('bun:')) continue;
+      let dependency: string;
+      try {
+        const resolvedDependency = Bun.resolveSync(specifier, dirname(path));
+        if (resolvedDependency.startsWith('node:') || resolvedDependency.startsWith('bun:')) {
+          continue;
+        }
+        dependency = realpathSync(resolvedDependency);
+      } catch (cause) {
+        const detail = cause instanceof Error ? cause.message : String(cause);
+        throw new Error(
+          `cannot resolve validator dependency ${specifier} from ${path}: ${detail}`,
+          {
+            cause,
+          },
+        );
+      }
+      pending.push(dependency);
+    }
+  }
+  // Proof: removing transitive discovery made the production CI route certify a binding that
+  // omitted indexes/check-indexes.ts (expected executable-implementation refusal).
+  return [...visited].sort(compareText);
+}
+
 /** Loads exact policy and executable identities through an external, stable trust binding. */
 export function loadTrustedPolicy(
   bindingInputPath: string,
   candidateRepository: string,
-  runtimeArtifactPaths?: readonly string[],
+  runtimeEntryPaths?: readonly string[],
   requiredScope?: TrustedBinding['trustScope'],
 ): LoadedTrust {
   const candidateRoot = realpathSync(candidateRepository);
@@ -347,9 +429,12 @@ export function loadTrustedPolicy(
   if (hashBytes(policyArtifact.bytes) !== binding.policy.sha256) {
     throw new Error('trusted policy digest does not match binding');
   }
-  const runtimeArtifacts = runtimeArtifactPaths?.map((path) =>
-    readStableArtifact(path, 'validator runtime artifact'),
-  );
+  const runtimeArtifacts =
+    runtimeEntryPaths === undefined
+      ? undefined
+      : resolveValidatorArtifactPaths(runtimeEntryPaths).map((path) =>
+          readStableArtifact(path, 'validator runtime artifact'),
+        );
   for (const artifact of runtimeArtifacts ?? [])
     assertExternal(candidateRoot, artifact, 'validator');
   const boundArtifacts = binding.validator.artifacts.map((reference) => {
@@ -457,6 +542,21 @@ export function validateCompatibleActivation(
       throw new Error(`compatible activation cannot remove boundary: ${boundaryId}`);
     }
   }
+  for (const [boundaryId, previousBoundary] of previousBoundaries) {
+    const nextBoundary = nextBoundaries.get(boundaryId);
+    if (nextBoundary === undefined) continue;
+    const previousSelector = previousBoundary.selector;
+    const nextSelector = nextBoundary.selector;
+    const selectorRetained =
+      nextSelector.kind === 'prefix' &&
+      (previousSelector.value === nextSelector.value ||
+        previousSelector.value.startsWith(`${nextSelector.value}/`));
+    // Proof: removing this monotonic selector comparison made prefix src narrow to path
+    // src/app.ts and exit 0 with compatible true on the production activation route.
+    if (!selectorRetained && hashCanonical(previousSelector) !== hashCanonical(nextSelector)) {
+      throw new Error(`compatible activation cannot narrow selector coverage: ${boundaryId}`);
+    }
+  }
   const addedBoundaryIds = orderedIds(
     [...nextBoundaries.keys()].filter((boundaryId) => !previousBoundaries.has(boundaryId)),
   );
@@ -487,6 +587,31 @@ export function validateCompatibleActivation(
   for (const obligationId of previousObligations.keys()) {
     if (!nextObligations.has(obligationId)) {
       throw new Error(`compatible activation cannot remove obligation: ${obligationId}`);
+    }
+  }
+  for (const [obligationId, previousObligation] of previousObligations) {
+    const nextObligation = nextObligations.get(obligationId);
+    if (nextObligation === undefined) continue;
+    // Proof: removing this guard made obligation.application move to boundary.policy and exit 0
+    // with compatible true after both changed boundaries were explicitly declared.
+    if (nextObligation.boundaryId !== previousObligation.boundaryId) {
+      throw new Error(
+        `compatible activation cannot move obligation ${obligationId} from ${previousObligation.boundaryId}`,
+      );
+    }
+    for (const [kind, previousIds, nextIds] of [
+      ['check', previousObligation.checkIds, nextObligation.checkIds],
+      ['review', previousObligation.reviewIds, nextObligation.reviewIds],
+    ] as const) {
+      // Proof: removing this monotonic requirement comparison made the production activation
+      // route delete each of check.application and review.application and exit 0 compatible.
+      for (const id of previousIds) {
+        if (!nextIds.includes(id)) {
+          throw new Error(
+            `compatible activation cannot remove ${kind} requirement from ${obligationId}: ${id}`,
+          );
+        }
+      }
     }
   }
   const addedObligationIds = orderedIds(
@@ -590,12 +715,149 @@ function changedBoundaries(candidate: CandidateSnapshot, policy: TrustedPolicy):
     .sort(compareText);
 }
 
+function validateSelectedInputs(candidate: CandidateSnapshot, policy: TrustedPolicy): void {
+  for (const boundary of policy.boundaries) {
+    // Proof: replacing this validation with the selector digest made a nonexistent selector
+    // certify on production CI after its trusted policy digest was correctly updated.
+    if (selectedMembers(candidate, boundary.selector).length === 0) {
+      throw new Error(
+        `trusted boundary selector selects no candidate input: ${boundary.boundaryId}`,
+      );
+    }
+  }
+}
+
 function modeRank(mode: LintMode): number {
   return mode === 'observe' ? 0 : mode === 'ratchet' ? 1 : 2;
 }
 
+function decodeLintEvidence(bytes: Uint8Array): LintEvidence {
+  const envelope = parseOrThrow(LintEvidenceRecord, parseJson(bytes, 'lint evidence JSON'));
+  const checkReceipts = envelope.checkReceipts.map(({ observationId, receipt }) => ({
+    observationId,
+    receipt: parseOrThrow(CheckReceipt, receipt),
+  }));
+  const reviewReceipts = envelope.reviewReceipts.map(({ observationId, receipt }) => ({
+    observationId,
+    receipt: parseOrThrow(ReviewReceipt, receipt),
+  }));
+  assertUnique(
+    checkReceipts.map(({ observationId }) => observationId),
+    'check receipt observation',
+  );
+  assertUnique(
+    reviewReceipts.map(({ observationId }) => observationId),
+    'review receipt observation',
+  );
+  assertUnique(
+    checkReceipts.map(({ receipt }) => receipt.receiptId),
+    'check receipt',
+  );
+  assertUnique(
+    reviewReceipts.map(({ receipt }) => receipt.receiptId),
+    'review receipt',
+  );
+  return {
+    schemaVersion: envelope.schemaVersion,
+    reportMode: envelope.reportMode,
+    obligationRequest: decodeObligationRequest(envelope.obligationRequest),
+    checkReceipts,
+    reviewReceipts,
+    obligations: envelope.obligations,
+  };
+}
+
+function sameContentInputs(
+  candidateEntries: readonly CandidateEntry[],
+  content: ObligationRequest['current']['inputs']['content'],
+): boolean {
+  const candidateTuples = candidateEntries
+    .map(({ path, mode, blob }) => ({ path, mode, blob }))
+    .sort((left, right) => compareText(left.path, right.path));
+  const evidenceTuples = content
+    .map(({ path, mode, blob }) => ({ path, mode, blob }))
+    .sort((left, right) => compareText(left.path, right.path));
+  return hashCanonical(candidateTuples) === hashCanonical(evidenceTuples);
+}
+
+function sourceBase(candidate: CandidateSnapshot): string {
+  return candidate.selection.kind === 'committed'
+    ? candidate.selection.revision
+    : candidate.selection.base;
+}
+
+interface ValidatedEvidence {
+  bindsCandidate: boolean;
+  passedCheckIds: Set<string>;
+  currentReviewIds: Set<string>;
+}
+
+function validateEvidence(
+  evidence: LintEvidence,
+  candidate: CandidateSnapshot,
+  identity: string,
+  policy: TrustedPolicy,
+): ValidatedEvidence {
+  const request = evidence.obligationRequest;
+  const obligationReport = evaluateObligations(request);
+  const currentBinds =
+    request.policy.policyId === policy.policyId &&
+    request.current.candidateIdentity === identity &&
+    request.current.sourceBase === sourceBase(candidate) &&
+    sameContentInputs(candidate.entries, request.current.inputs.content);
+  const reviewedByPath = new Map(
+    request.reviewed.inputs.content.map((input) => [input.path, input]),
+  );
+  const reviewedBinds = policy.boundaries.every((boundary) =>
+    boundary.baselineEntries.every((baseline) => {
+      const reviewed = reviewedByPath.get(baseline.path);
+      return reviewed !== undefined && sameTuple(reviewed, baseline);
+    }),
+  );
+  const passedCheckIds = new Set<string>();
+  for (const observation of request.checks) {
+    const receipt = evidence.checkReceipts.find(
+      (candidateReceipt) => candidateReceipt.observationId === observation.observationId,
+    )?.receipt;
+    if (
+      observation.candidateIdentity === request.current.candidateIdentity &&
+      observation.status === 'passed' &&
+      // Proof: dropping these receipt requirements made a missing check.application receipt
+      // certify on production CI; the test expected exit 1 and received certified true.
+      receipt?.candidateManifest === request.current.candidateIdentity &&
+      receipt.status === 'passed' &&
+      receipt.exitCode === 0 &&
+      receipt.skips.length === 0
+    ) {
+      passedCheckIds.add(observation.checkId);
+    }
+  }
+  const currentReviewIds = new Set<string>();
+  for (const observation of request.reviews) {
+    const receipt = evidence.reviewReceipts.find(
+      (candidateReceipt) => candidateReceipt.observationId === observation.observationId,
+    )?.receipt;
+    if (
+      observation.candidateIdentity === request.current.candidateIdentity &&
+      observation.status === 'current' &&
+      receipt !== undefined &&
+      // Proof: accepting local-cooperative provenance made caller review.application labels
+      // certify on production CI; the test expected exit 1 and received certified true.
+      receipt.trust.scope !== 'local-cooperative'
+    ) {
+      currentReviewIds.add(observation.judgmentId);
+    }
+  }
+  return {
+    bindsCandidate: currentBinds && reviewedBinds && obligationReport.accepted,
+    passedCheckIds,
+    currentReviewIds,
+  };
+}
+
 function evidenceMeets(
   evidence: LintEvidence,
+  validated: ValidatedEvidence,
   obligation: TrustedPolicy['obligations'][number],
 ): boolean {
   const matching = evidence.obligations.filter(
@@ -604,11 +866,15 @@ function evidenceMeets(
   if (matching.length !== 1) return false;
   const observation = matching[0];
   return (
-    observation.status === 'met' &&
+    // Proof: removing this candidate-bound evidence gate made unchanged evidence certify a later
+    // src/app.ts blob; production CI expected exit 1 and received certified true.
+    validated.bindsCandidate &&
     hashCanonical([...observation.checkIds].sort(compareText)) ===
       hashCanonical([...obligation.checkIds].sort(compareText)) &&
     hashCanonical([...observation.reviewIds].sort(compareText)) ===
-      hashCanonical([...obligation.reviewIds].sort(compareText))
+      hashCanonical([...obligation.reviewIds].sort(compareText)) &&
+    obligation.checkIds.every((checkId) => validated.passedCheckIds.has(checkId)) &&
+    obligation.reviewIds.every((reviewId) => validated.currentReviewIds.has(reviewId))
   );
 }
 
@@ -626,7 +892,7 @@ export interface TrustedLintRequest {
   mode?: LintMode;
   bindingPath: string;
   evidencePath: string;
-  runtimeArtifactPaths: readonly string[];
+  runtimeEntryPaths: readonly string[];
   trustProvenance: TrustedLintReport['trustProvenance'];
   requiredScope?: TrustedBinding['trustScope'];
 }
@@ -637,14 +903,11 @@ export function lintTrustedCandidate(request: TrustedLintRequest): TrustedLintRe
   const trust = loadTrustedPolicy(
     request.bindingPath,
     repository,
-    request.runtimeArtifactPaths,
+    request.runtimeEntryPaths,
     request.requiredScope,
   );
   const evidenceArtifact = readStableArtifact(request.evidencePath, 'lint evidence');
-  const evidence = parseOrThrow(
-    LintEvidenceRecord,
-    parseJson(evidenceArtifact.bytes, 'lint evidence JSON'),
-  );
+  const evidence = decodeLintEvidence(evidenceArtifact.bytes);
   const mode = request.mode ?? trust.policy.minimumMode;
   assertUnique(
     evidence.obligations.map(({ obligationId }) => obligationId),
@@ -658,12 +921,20 @@ export function lintTrustedCandidate(request: TrustedLintRequest): TrustedLintRe
   );
   // Proof: replacing this production whole-tree index check with an empty report made an
   // unindexed src/unindexed.ts candidate exit 0 with accepted true.
-  const indexes = checkIndexes(repository, candidate);
+  // Working selection intentionally keeps untracked paths outside its frozen tuple set. CI
+  // checks every tracked tuple, reports that separate set, and refuses certification below.
+  const indexCandidate =
+    request.trustProvenance === 'ci-preselected' && candidate.selection.kind === 'working'
+      ? { ...candidate, untracked: [] }
+      : candidate;
+  const indexes = checkIndexes(repository, indexCandidate);
+  validateSelectedInputs(candidate, trust.policy);
   const identity = candidateIdentity(candidate);
+  const validatedEvidence = validateEvidence(evidence, candidate, identity, trust.policy);
   const changedBoundaryIds = changedBoundaries(candidate, trust.policy);
   const met = new Set(
     trust.policy.obligations
-      .filter((obligation) => evidenceMeets(evidence, obligation))
+      .filter((obligation) => evidenceMeets(evidence, validatedEvidence, obligation))
       .map(({ obligationId }) => obligationId),
   );
   const exempt = new Set(trust.policy.exemptions.map(({ obligationId }) => obligationId));
@@ -707,6 +978,14 @@ export function lintTrustedCandidate(request: TrustedLintRequest): TrustedLintRe
         mode === 'enforce' && evidence.reportMode === 'observe'
           ? 'observe evidence cannot satisfy enforce work'
           : `${evidence.reportMode} evidence cannot satisfy ${mode} work`,
+    });
+  }
+  if (request.trustProvenance === 'ci-preselected' && candidate.selection.kind === 'working') {
+    // Proof: removing this refusal made production lint-ci certify a working selection while
+    // its report exposed untracked.ts outside the immutable candidate tuple set.
+    refusals.push({
+      kind: 'selection',
+      reason: 'mutable working selection cannot receive CI certification',
     });
   }
   // Proof: removing this disposition made an exact blob-tuple change under
@@ -772,6 +1051,8 @@ export function lintTrustedCandidate(request: TrustedLintRequest): TrustedLintRe
     validatorId: trust.binding.validator.validatorId,
     validatorIdentity: trust.validatorIdentity,
     candidateIdentity: identity,
+    candidateSelection: candidate.selection,
+    untrackedPaths: [...candidate.untracked],
     deterministicChecks,
     changedBoundaryIds,
     debtObligationIds,
@@ -803,7 +1084,7 @@ function writeLintReport(report: TrustedLintReport): void {
 }
 
 /** Runs the local/operator trust adapter without elevating its provenance to CI. */
-export function writeLocalLintCommand(argv: string[], runtimeArtifactPaths: string[]): void {
+export function writeLocalLintCommand(argv: string[], runtimeEntryPaths: string[]): void {
   const [, modeInput, kind, repository, revision, bindingPath, evidencePath] = argv;
   writeLintReport(
     lintTrustedCandidate({
@@ -812,14 +1093,14 @@ export function writeLocalLintCommand(argv: string[], runtimeArtifactPaths: stri
       mode: lintMode(modeInput),
       bindingPath,
       evidencePath,
-      runtimeArtifactPaths,
+      runtimeEntryPaths,
       trustProvenance: 'local-operator',
     }),
   );
 }
 
 /** Runs CI only with the binding its caller preselected outside candidate input. */
-export function writeCiLintCommand(argv: string[], runtimeArtifactPaths: string[]): void {
+export function writeCiLintCommand(argv: string[], runtimeEntryPaths: string[]): void {
   const [, kind, repository, revision, evidencePath] = argv;
   const bindingPath = process.env['TOOL_WIKI_CI_TRUSTED_BINDING'];
   if (bindingPath === undefined || bindingPath.length === 0) {
@@ -831,7 +1112,7 @@ export function writeCiLintCommand(argv: string[], runtimeArtifactPaths: string[
       candidate: candidateRequest(kind, revision),
       bindingPath,
       evidencePath,
-      runtimeArtifactPaths,
+      runtimeEntryPaths,
       trustProvenance: 'ci-preselected',
       requiredScope: 'ci',
     }),
@@ -839,9 +1120,9 @@ export function writeCiLintCommand(argv: string[], runtimeArtifactPaths: string[
 }
 
 /** Validates a new binding against exact historical and currently executable identities. */
-export function writePolicyActivationCommand(argv: string[], runtimeArtifactPaths: string[]): void {
+export function writePolicyActivationCommand(argv: string[], runtimeEntryPaths: string[]): void {
   const [, repository, previousBindingPath, nextBindingPath] = argv;
   const previous = loadTrustedPolicy(previousBindingPath, repository);
-  const next = loadTrustedPolicy(nextBindingPath, repository, runtimeArtifactPaths);
+  const next = loadTrustedPolicy(nextBindingPath, repository, runtimeEntryPaths);
   process.stdout.write(`${JSON.stringify(validateCompatibleActivation(previous, next))}\n`);
 }

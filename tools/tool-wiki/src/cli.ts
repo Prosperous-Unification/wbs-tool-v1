@@ -216,7 +216,7 @@ function writeReviewProvenance(argv: string[]): void {
   process.stdout.write(`${JSON.stringify(validation)}\n`);
 }
 
-function validatorArtifactPaths(): string[] {
+function validatorEntryPaths(): string[] {
   return [join(import.meta.dir, 'cli.ts'), join(import.meta.dir, 'policy', 'trust.ts')];
 }
 
@@ -255,17 +255,17 @@ function run(argv: string[]): Promise<void> | void {
   }
   if (argv.length === 7 && argv[0] === 'lint-local') {
     return import('./policy/trust').then(({ writeLocalLintCommand }) => {
-      writeLocalLintCommand(argv, validatorArtifactPaths());
+      writeLocalLintCommand(argv, validatorEntryPaths());
     });
   }
   if (argv.length === 5 && argv[0] === 'lint-ci') {
     return import('./policy/trust').then(({ writeCiLintCommand }) => {
-      writeCiLintCommand(argv, validatorArtifactPaths());
+      writeCiLintCommand(argv, validatorEntryPaths());
     });
   }
   if (argv.length === 4 && argv[0] === 'validate-policy-activation') {
     return import('./policy/trust').then(({ writePolicyActivationCommand }) => {
-      writePolicyActivationCommand(argv, validatorArtifactPaths());
+      writePolicyActivationCommand(argv, validatorEntryPaths());
     });
   }
   throw new Error(

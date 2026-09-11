@@ -67,3 +67,56 @@ an adjacent `Proof:` comment.
 Only OpenSpec task 3.4 is marked complete. No production trusted binding or gate activation was
 added: that authority bootstrap remains task 5.3, and gate/lefthook wiring remains task 3.5. Tasks
 2.4 and 2.5 were not changed.
+
+## Astra fix round 1
+
+- Replaced caller-declared obligation `status` with strict Task 3.2 obligation/currency input,
+  candidate-bound check observations plus `CheckReceipt` records, and review observations plus
+  non-local `ReviewReceipt` provenance. Enforce now compares the exact candidate identity, source
+  base, full content tuple population and trusted boundary baselines before any receipt can
+  discharge an obligation.
+- Corrected candidate containment to recognize `..` only as a complete traversal component, so a
+  real child named `..trust` is inside the candidate and cannot host a trusted binding.
+- Expanded validator identity from two seed files to the deterministic transitive executable
+  import closure rooted at CLI dispatch and `policy/trust.ts`, including literal lazy routes,
+  acceptance modules, workspace libraries and resolved runtime packages.
+- Made compatible activation monotonic for selector coverage, check/review requirements and exact
+  obligation-to-boundary assignments. Existing IDs no longer conceal narrowed content.
+- Turned selector-input coverage into an executed validation: each trusted selector must resolve at
+  least one exact candidate tuple before its deterministic identity is reported.
+- Added exact candidate selection and untracked-path diagnostics to every report. CI checks the
+  complete frozen tracked tuple set but always refuses a working selection, even when otherwise
+  current receipts cover it; local working output remains diagnostic and non-certifying.
+
+### Fix-round failure proof
+
+Each restored guard below was faulted separately through its production CLI route.
+
+| Deliberate fault | Observed production-path failure |
+| --- | --- |
+| remove candidate-bound evidence gate | changed `src/app.ts` certified with unchanged evidence; expected exit 1, received 0 |
+| accept a check label without its receipt | missing `check.application` receipt certified; expected exit 1, received 0 |
+| accept local-cooperative review provenance | local `review.application` certified; expected exit 1, received 0 |
+| classify every `..` prefix as traversal | candidate child `..trust/binding.json` certified; expected exit 1, received 0 |
+| reduce validator closure to its seed files | binding omitting `indexes/check-indexes.ts` certified; expected exit 1, received 0 |
+| omit actual selector resolution | `selector.does-not-exist` certified after its policy digest was updated; expected exit 1, received 0 |
+| omit exact obligation boundary assignment | policy moved `obligation.application` only in its record and certified; expected exit 1, received 0 |
+| permit selector narrowing | `prefix:src` became `path:src/app.ts` and returned `compatible: true`; expected exit 1, received 0 |
+| permit check deletion | activation deleted `check.application` and returned `compatible: true`; expected exit 1, received 0 |
+| permit review deletion | activation deleted `review.application` and returned `compatible: true`; expected exit 1, received 0 |
+| permit obligation moves | activation moved `obligation.application` to `boundary.policy` and returned `compatible: true`; expected exit 1, received 0 |
+| remove working-selection CI refusal | exact working evidence certified while the report exposed `untracked.ts`; expected exit 1, received 0 |
+
+### Fix-round verification
+
+- Focused trusted-policy production CLI: 31 pass, 0 fail, 780 assertions in 50.63 seconds.
+- Forced uncached `tool-wiki:typecheck`: exit 0; cache skipped.
+- Uncached `tool-wiki:lint`: exit 0; cache skipped.
+- Exact final-tree full tool-wiki command (the target's underlying uncached Bun command): 263 pass,
+  0 fail, 3,139 assertions across 14 files in 436.51 seconds. The Nx wrapper itself refused a
+  nested `tool-wiki:test -> tool-wiki:test` invocation inherited from the controller, so it was not
+  reported as green; the exact configured command ran directly instead.
+- Strict pinned OpenSpec 1.3.0 validation: `Change 'agent-scalable-llm-wiki' is valid`.
+- Whole-workspace format check and `git diff --check`: exit 0.
+- Exact-code-commit host gate: unavailable, not green. `bin/h2puni-gate.sh HEAD` exited 70
+  because `/home/puni1/.cache` does not exist.

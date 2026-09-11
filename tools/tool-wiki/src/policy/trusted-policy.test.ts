@@ -16,6 +16,7 @@ import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 
 import { hashCanonical } from '../evidence/content-manifest';
+import { resolveValidatorArtifactPaths } from './trust';
 
 const cliPath = join(import.meta.dir, '..', 'cli.ts');
 const trustPath = join(import.meta.dir, 'trust.ts');
@@ -25,6 +26,7 @@ type Mode = 'observe' | 'ratchet' | 'enforce';
 
 interface CandidateFixture {
   repository: string;
+  baselineRevision: string;
   revision: string;
   trustDirectory: string;
   bindingPath: string;
@@ -35,6 +37,8 @@ interface CandidateFixture {
 interface LintReportFixture {
   accepted: boolean;
   certified: boolean;
+  candidateSelection: { kind: string };
+  untrackedPaths: string[];
   debtObligationIds: string[];
   unmetObligationIds: string[];
   deterministicChecks: { kind: string }[];
@@ -138,6 +142,169 @@ function exactTuple(repository: string, revision: string, path: string): object 
   return { path: match[3], mode: match[1], blob: match[2] };
 }
 
+interface ExactTupleFixture {
+  path: string;
+  mode: '100644' | '100755' | '120000' | '160000';
+  blob: string;
+}
+
+function entriesAt(repository: string, revision: string): ExactTupleFixture[] {
+  const source = runGit(repository, ['ls-tree', '-r', revision]);
+  return source.length === 0
+    ? []
+    : source.split('\n').map((record) => {
+        const match = /^(100644|100755|120000|160000) (?:blob|commit) ([0-9a-f]+)\t(.+)$/.exec(
+          record,
+        );
+        if (match === null) throw new Error(`malformed fixture tuple: ${record}`);
+        const mode = match[1];
+        if (mode !== '100644' && mode !== '100755' && mode !== '120000' && mode !== '160000') {
+          throw new Error(`unsupported fixture mode: ${mode}`);
+        }
+        return { path: match[3], mode, blob: match[2] };
+      });
+}
+
+function candidateIdentityAt(repository: string, revision: string): string {
+  const tree = runGit(repository, ['rev-parse', `${revision}^{tree}`]);
+  return hashCanonical({
+    selection: { kind: 'committed', revision, tree },
+    entries: entriesAt(repository, revision),
+    untracked: [],
+  });
+}
+
+function contentInputs(entries: ExactTupleFixture[]): object[] {
+  return entries.map((entry, index) => ({
+    kind: 'content',
+    inputId: `content.${String(index)}`,
+    ...entry,
+  }));
+}
+
+function checkReceipt(checkId: string, identity: string): object {
+  return {
+    schemaVersion: 1,
+    receiptKind: 'check',
+    receiptId: `receipt.${checkId}`,
+    command: ['bun', 'run', checkId],
+    cwdIdentity: 'fixture.repository',
+    startedAt: '2026-09-11T10:00:00.000Z',
+    endedAt: '2026-09-11T10:00:01.000Z',
+    elapsedMs: 1000,
+    status: 'passed',
+    exitCode: 0,
+    candidateManifest: identity,
+    toolIdentity: 'a'.repeat(64),
+    resourceLane: 'fixture',
+    stdoutArtifact: 'b'.repeat(64),
+    stderrArtifact: 'c'.repeat(64),
+    skips: [],
+  };
+}
+
+function reviewReceipt(reviewId: string): object {
+  return {
+    schemaVersion: 1,
+    receiptKind: 'review',
+    receiptId: `receipt.${reviewId}`,
+    invocationId: `invocation.${reviewId}`,
+    executor: {
+      provider: 'fixture-provider',
+      model: 'fixture-model',
+      version: 'fixture-version',
+      effort: 'fixture-effort',
+      toolchain: 'fixture-toolchain',
+    },
+    suppliedContextIds: ['d'.repeat(64)],
+    observedReadIds: ['e'.repeat(64)],
+    rawResponseArtifact: 'f'.repeat(64),
+    rawUsage: [],
+    priceIdentity: {
+      priceId: 'price.fixture',
+      provider: 'fixture-provider',
+      model: 'fixture-model',
+      currency: 'USD',
+      source: 'fixture-price-list',
+    },
+    trust: { scope: 'trusted-harness', journalId: 'journal.fixture' },
+  };
+}
+
+function writeEvidence(
+  fixture: CandidateFixture,
+  reportMode: Mode,
+  metObligationIds: string[],
+): void {
+  const reviewedEntries = entriesAt(fixture.repository, fixture.baselineRevision);
+  const currentEntries = entriesAt(fixture.repository, fixture.revision);
+  const identity = candidateIdentityAt(fixture.repository, fixture.revision);
+  const obligationNames = ['policy', 'validator', 'exemptions', 'application'];
+  const checks = obligationNames.map((name) => `check.${name}`);
+  const reviews = obligationNames.map((name) => `review.${name}`);
+  write(
+    fixture.evidencePath,
+    `${JSON.stringify({
+      schemaVersion: 1,
+      reportMode,
+      obligationRequest: {
+        reviewed: {
+          sourceBase: fixture.baselineRevision,
+          candidateIdentity: candidateIdentityAt(fixture.repository, fixture.baselineRevision),
+          inputs: {
+            content: contentInputs(reviewedEntries),
+            structural: [],
+            semantic: [],
+            topology: [],
+          },
+        },
+        current: {
+          sourceBase: fixture.revision,
+          candidateIdentity: identity,
+          inputs: {
+            content: contentInputs(currentEntries),
+            structural: [],
+            semantic: [],
+            topology: [],
+          },
+        },
+        judgments: [],
+        policy: { policyId: 'policy.trusted.v1', behaviorRules: [] },
+        impactClassifications: [],
+        writerLabels: [],
+        checks: checks.map((checkId) => ({
+          observationId: `observation.${checkId}`,
+          checkId,
+          candidateIdentity: identity,
+          status: 'passed',
+        })),
+        reviews: reviews.map((judgmentId) => ({
+          observationId: `observation.${judgmentId}`,
+          judgmentId,
+          candidateIdentity: identity,
+          status: 'current',
+        })),
+      },
+      checkReceipts: checks.map((checkId) => ({
+        observationId: `observation.${checkId}`,
+        receipt: checkReceipt(checkId, identity),
+      })),
+      reviewReceipts: reviews.map((reviewId) => ({
+        observationId: `observation.${reviewId}`,
+        receipt: reviewReceipt(reviewId),
+      })),
+      obligations: metObligationIds.map((obligationId) => {
+        const name = obligationId.slice('obligation.'.length);
+        return {
+          obligationId,
+          checkIds: [`check.${name}`],
+          reviewIds: [`review.${name}`],
+        };
+      }),
+    })}\n`,
+  );
+}
+
 function writeTrust(fixture: CandidateFixture, mode: Mode): void {
   const baselineEntries = ['policy.json', 'validator.ts', 'exemptions.json', 'src/app.ts'].map(
     (path) => exactTuple(fixture.repository, fixture.revision, path),
@@ -209,9 +376,10 @@ function writeTrust(fixture: CandidateFixture, mode: Mode): void {
     exemptions: [],
   };
   write(fixture.policyPath, `${JSON.stringify(policy)}\n`);
-  const validatorArtifacts = [cliPath, ...(existsSync(trustPath) ? [trustPath] : [])].map(
-    (path) => ({ path, sha256: sha256(readFileSync(path)) }),
-  );
+  const validatorArtifacts = resolveValidatorArtifactPaths([
+    cliPath,
+    ...(existsSync(trustPath) ? [trustPath] : []),
+  ]).map((path) => ({ path, sha256: sha256(readFileSync(path)) }));
   const binding = {
     schemaVersion: 1,
     bindingId: `binding.${mode}.v1`,
@@ -238,45 +406,18 @@ function createFixture(mode: Mode, reportMode: Mode = mode): CandidateFixture {
   const revision = commit(repository, 'baseline');
   const fixture: CandidateFixture = {
     repository,
+    baselineRevision: revision,
     revision,
     trustDirectory,
     bindingPath: join(trustDirectory, 'binding.json'),
     evidencePath: join(trustDirectory, 'evidence.json'),
     policyPath: join(trustDirectory, 'policy.json'),
   };
-  write(
-    fixture.evidencePath,
-    `${JSON.stringify({
-      schemaVersion: 1,
-      reportMode,
-      obligations: [
-        {
-          obligationId: 'obligation.policy',
-          status: 'met',
-          checkIds: ['check.policy'],
-          reviewIds: ['review.policy'],
-        },
-        {
-          obligationId: 'obligation.validator',
-          status: 'met',
-          checkIds: ['check.validator'],
-          reviewIds: ['review.validator'],
-        },
-        {
-          obligationId: 'obligation.exemptions',
-          status: 'met',
-          checkIds: ['check.exemptions'],
-          reviewIds: ['review.exemptions'],
-        },
-        {
-          obligationId: 'obligation.application',
-          status: 'unmet',
-          checkIds: [],
-          reviewIds: [],
-        },
-      ],
-    })}\n`,
-  );
+  writeEvidence(fixture, reportMode, [
+    'obligation.policy',
+    'obligation.validator',
+    'obligation.exemptions',
+  ]);
   writeTrust(fixture, mode);
   return fixture;
 }
@@ -303,6 +444,7 @@ function runCi(
   fixture: CandidateFixture,
   bindingPath: string | null = fixture.bindingPath,
   extraArguments: string[] = [],
+  kind: 'committed' | 'staged' | 'working' = 'committed',
 ): ReturnType<typeof Bun.spawnSync> {
   const env = { ...process.env };
   if (bindingPath === null) delete env['TOOL_WIKI_CI_TRUSTED_BINDING'];
@@ -314,7 +456,7 @@ function runCi(
       cliPath,
       'lint-ci',
       ...extraArguments,
-      'committed',
+      kind,
       fixture.repository,
       fixture.revision,
       fixture.evidencePath,
@@ -325,28 +467,23 @@ function runCi(
 
 function satisfyApplication(fixture: CandidateFixture): void {
   const evidence = JSON.parse(readFileSync(fixture.evidencePath, 'utf8')) as {
-    obligations: {
-      obligationId: string;
-      status: 'met' | 'unmet';
-      checkIds: string[];
-      reviewIds: string[];
-    }[];
+    reportMode: Mode;
   };
-  const application = evidence.obligations.find(
-    ({ obligationId }) => obligationId === 'obligation.application',
-  );
-  if (application === undefined) throw new Error('application evidence disappeared');
-  application.status = 'met';
-  application.checkIds = ['check.application'];
-  application.reviewIds = ['review.application'];
-  write(fixture.evidencePath, `${JSON.stringify(evidence)}\n`);
+  writeEvidence(fixture, evidence.reportMode, [
+    'obligation.policy',
+    'obligation.validator',
+    'obligation.exemptions',
+    'obligation.application',
+  ]);
 }
 
 function artifactIdentity(artifacts: { path: string; sha256: string }[]): string {
   return hashCanonical(
     artifacts
       .map(({ path, sha256: digest }) => ({ path: realpathSync(path), sha256: digest }))
-      .sort((left, right) => left.path.localeCompare(right.path)),
+      .sort((left, right) =>
+        Buffer.compare(Buffer.from(left.path, 'utf8'), Buffer.from(right.path, 'utf8')),
+      ),
   );
 }
 
@@ -537,16 +674,19 @@ describe('trusted policy production CLI', () => {
     const invocation = runLocal(fixture, 'ratchet');
     const output = outputOf(invocation);
     expect(invocation.exitCode, output).toBe(1);
-    expect(JSON.parse(pipeText(invocation.stdout, 'lint stdout'))).toMatchObject({
+    const report = JSON.parse(pipeText(invocation.stdout, 'lint stdout')) as {
+      accepted: boolean;
+      changedBoundaryIds: string[];
+      refusals: object[];
+    };
+    expect(report).toMatchObject({
       accepted: false,
       changedBoundaryIds: ['boundary.policy'],
-      refusals: [
-        {
-          kind: 'activation',
-          boundaryId: 'boundary.policy',
-          reason: 'trusted authority boundary changed without a separate activation',
-        },
-      ],
+    });
+    expect(report.refusals).toContainEqual({
+      kind: 'activation',
+      boundaryId: 'boundary.policy',
+      reason: 'trusted authority boundary changed without a separate activation',
     });
   });
 
@@ -561,16 +701,19 @@ describe('trusted policy production CLI', () => {
     const invocation = runLocal(fixture, 'ratchet');
     const output = outputOf(invocation);
     expect(invocation.exitCode, output).toBe(1);
-    expect(JSON.parse(pipeText(invocation.stdout, 'lint stdout'))).toMatchObject({
+    const report = JSON.parse(pipeText(invocation.stdout, 'lint stdout')) as {
+      accepted: boolean;
+      changedBoundaryIds: string[];
+      refusals: object[];
+    };
+    expect(report).toMatchObject({
       accepted: false,
       changedBoundaryIds: ['boundary.validator'],
-      refusals: [
-        {
-          kind: 'activation',
-          boundaryId: 'boundary.validator',
-          reason: 'trusted authority boundary changed without a separate activation',
-        },
-      ],
+    });
+    expect(report.refusals).toContainEqual({
+      kind: 'activation',
+      boundaryId: 'boundary.validator',
+      reason: 'trusted authority boundary changed without a separate activation',
     });
   });
 
@@ -582,16 +725,19 @@ describe('trusted policy production CLI', () => {
     const invocation = runLocal(fixture, 'ratchet');
     const output = outputOf(invocation);
     expect(invocation.exitCode, output).toBe(1);
-    expect(JSON.parse(pipeText(invocation.stdout, 'lint stdout'))).toMatchObject({
+    const report = JSON.parse(pipeText(invocation.stdout, 'lint stdout')) as {
+      accepted: boolean;
+      changedBoundaryIds: string[];
+      refusals: object[];
+    };
+    expect(report).toMatchObject({
       accepted: false,
       changedBoundaryIds: ['boundary.exemptions'],
-      refusals: [
-        {
-          kind: 'activation',
-          boundaryId: 'boundary.exemptions',
-          reason: 'trusted authority boundary changed without a separate activation',
-        },
-      ],
+    });
+    expect(report.refusals).toContainEqual({
+      kind: 'activation',
+      boundaryId: 'boundary.exemptions',
+      reason: 'trusted authority boundary changed without a separate activation',
     });
   });
 
@@ -620,6 +766,212 @@ describe('trusted policy production CLI', () => {
       certified: true,
       accepted: true,
     });
+  });
+
+  test('CI cannot certify changed candidate bytes with unchanged obligation evidence', () => {
+    const fixture = createFixture('enforce');
+    satisfyApplication(fixture);
+    write(join(fixture.repository, 'src/app.ts'), 'export const value = 2;\n');
+    fixture.revision = commit(fixture.repository, 'change source after evidence');
+
+    const invocation = runCi(fixture);
+    const output = outputOf(invocation);
+    expect(invocation.exitCode, output).toBe(1);
+    const report = JSON.parse(pipeText(invocation.stdout, 'lint stdout')) as {
+      accepted: boolean;
+      certified: boolean;
+      unmetObligationIds: string[];
+    };
+    expect(report).toMatchObject({
+      accepted: false,
+      certified: false,
+    });
+    expect(report.unmetObligationIds).toContain('obligation.application');
+  });
+
+  test('caller labels cannot replace check receipts or trusted review provenance', () => {
+    for (const fault of ['missing-check-receipt', 'local-review'] as const) {
+      const fixture = createFixture('enforce');
+      satisfyApplication(fixture);
+      const evidence = JSON.parse(readFileSync(fixture.evidencePath, 'utf8')) as {
+        checkReceipts: { observationId: string }[];
+        reviewReceipts: {
+          observationId: string;
+          receipt: { trust: { scope: string } };
+        }[];
+      };
+      if (fault === 'missing-check-receipt') {
+        evidence.checkReceipts = evidence.checkReceipts.filter(
+          ({ observationId }) => observationId !== 'observation.check.application',
+        );
+      } else {
+        const review = evidence.reviewReceipts.find(
+          ({ observationId }) => observationId === 'observation.review.application',
+        );
+        if (review === undefined) throw new Error('application review receipt disappeared');
+        review.receipt.trust.scope = 'local-cooperative';
+      }
+      write(fixture.evidencePath, `${JSON.stringify(evidence)}\n`);
+
+      const invocation = runCi(fixture);
+      const output = outputOf(invocation);
+      expect(invocation.exitCode, `${fault}: ${output}`).toBe(1);
+      const report = JSON.parse(pipeText(invocation.stdout, 'lint stdout')) as {
+        accepted: boolean;
+        unmetObligationIds: string[];
+      };
+      expect(report.accepted).toBe(false);
+      expect(report.unmetObligationIds).toContain('obligation.application');
+    }
+  });
+
+  test('a candidate child whose name starts with two dots is still inside the candidate', () => {
+    const fixture = createFixture('enforce');
+    satisfyApplication(fixture);
+    const candidateBinding = join(fixture.repository, '..trust', 'binding.json');
+    write(candidateBinding, readFileSync(fixture.bindingPath, 'utf8'));
+
+    const invocation = runCi(fixture, candidateBinding);
+    const output = outputOf(invocation);
+    expect(invocation.exitCode, output).toBe(1);
+    expect(output).toContain('trusted binding resolves inside selected candidate');
+  });
+
+  test('binding cannot omit a transitive production module that decides acceptance', () => {
+    const fixture = createFixture('enforce');
+    satisfyApplication(fixture);
+    const binding = JSON.parse(readFileSync(fixture.bindingPath, 'utf8')) as {
+      validator: { artifacts: { path: string; sha256: string }[] };
+    };
+    binding.validator.artifacts = binding.validator.artifacts.filter(
+      ({ path }) => !path.endsWith('/indexes/check-indexes.ts'),
+    );
+    write(fixture.bindingPath, `${JSON.stringify(binding)}\n`);
+
+    const invocation = runCi(fixture);
+    const output = outputOf(invocation);
+    expect(invocation.exitCode, output).toBe(1);
+    expect(output).toContain(
+      'trusted validator artifacts do not match the executable implementation',
+    );
+  });
+
+  test('CI reports but cannot certify a mutable working selection or its untracked paths', () => {
+    const fixture = createFixture('enforce');
+    satisfyApplication(fixture);
+    write(join(fixture.repository, 'untracked.ts'), 'export const untracked = true;\n');
+    const selected = Bun.spawnSync(
+      [
+        process.execPath,
+        'run',
+        cliPath,
+        'read-candidate',
+        'working',
+        fixture.repository,
+        fixture.revision,
+      ],
+      { cwd: import.meta.dir, stderr: 'pipe', stdout: 'pipe' },
+    );
+    expect(selected.exitCode, outputOf(selected)).toBe(0);
+    const snapshot = JSON.parse(pipeText(selected.stdout, 'candidate stdout')) as {
+      selection: object;
+      entries: ExactTupleFixture[];
+      untracked: string[];
+    };
+    const identity = hashCanonical(snapshot);
+    const evidence = JSON.parse(readFileSync(fixture.evidencePath, 'utf8')) as {
+      obligationRequest: {
+        current: { candidateIdentity: string; inputs: { content: object[] } };
+        checks: { candidateIdentity: string }[];
+        reviews: { candidateIdentity: string }[];
+      };
+      checkReceipts: { receipt: { candidateManifest: string } }[];
+    };
+    evidence.obligationRequest.current.candidateIdentity = identity;
+    evidence.obligationRequest.current.inputs.content = contentInputs(snapshot.entries);
+    for (const observation of evidence.obligationRequest.checks) {
+      observation.candidateIdentity = identity;
+    }
+    for (const observation of evidence.obligationRequest.reviews) {
+      observation.candidateIdentity = identity;
+    }
+    for (const { receipt } of evidence.checkReceipts) receipt.candidateManifest = identity;
+    write(fixture.evidencePath, `${JSON.stringify(evidence)}\n`);
+
+    const invocation = runCi(fixture, fixture.bindingPath, [], 'working');
+    const output = outputOf(invocation);
+    expect(invocation.exitCode, output).toBe(1);
+    const stdout = pipeText(invocation.stdout, 'lint stdout');
+    expect(stdout.length, output).toBeGreaterThan(0);
+    const report = JSON.parse(stdout) as LintReportFixture & { refusals: object[] };
+    expect(report).toMatchObject({
+      accepted: false,
+      certified: false,
+      candidateSelection: { kind: 'working' },
+      untrackedPaths: ['untracked.ts'],
+    });
+    expect(report.refusals).toContainEqual({
+      kind: 'selection',
+      reason: 'mutable working selection cannot receive CI certification',
+    });
+  });
+
+  test('lint validates that every trusted selector actually selects candidate inputs', () => {
+    const fixture = createFixture('enforce');
+    satisfyApplication(fixture);
+    const policy = JSON.parse(readFileSync(fixture.policyPath, 'utf8')) as {
+      boundaries: {
+        boundaryId: string;
+        selector: { kind: 'path'; value: string };
+        baselineEntries: object[];
+      }[];
+    };
+    const application = policy.boundaries.find(
+      ({ boundaryId }) => boundaryId === 'boundary.application',
+    );
+    if (application === undefined) throw new Error('application boundary disappeared');
+    application.selector = { kind: 'path', value: 'selector.does-not-exist' };
+    application.baselineEntries = [];
+    write(fixture.policyPath, `${JSON.stringify(policy)}\n`);
+    const binding = JSON.parse(readFileSync(fixture.bindingPath, 'utf8')) as {
+      policy: { path: string; sha256: string };
+    };
+    binding.policy.sha256 = sha256(readFileSync(fixture.policyPath));
+    write(fixture.bindingPath, `${JSON.stringify(binding)}\n`);
+
+    const invocation = runCi(fixture);
+    const output = outputOf(invocation);
+    expect(invocation.exitCode, output).toBe(1);
+    expect(output).toContain(
+      'trusted boundary selector selects no candidate input: boundary.application',
+    );
+    expect(output).not.toContain('trusted policy digest does not match binding');
+  });
+
+  test('trusted obligations must retain one exact boundary assignment', () => {
+    const fixture = createFixture('enforce');
+    satisfyApplication(fixture);
+    const policy = JSON.parse(readFileSync(fixture.policyPath, 'utf8')) as {
+      obligations: { obligationId: string; boundaryId: string }[];
+    };
+    const application = policy.obligations.find(
+      ({ obligationId }) => obligationId === 'obligation.application',
+    );
+    if (application === undefined) throw new Error('application obligation disappeared');
+    application.boundaryId = 'boundary.policy';
+    write(fixture.policyPath, `${JSON.stringify(policy)}\n`);
+    const binding = JSON.parse(readFileSync(fixture.bindingPath, 'utf8')) as {
+      policy: { sha256: string };
+    };
+    binding.policy.sha256 = sha256(readFileSync(fixture.policyPath));
+    write(fixture.bindingPath, `${JSON.stringify(binding)}\n`);
+
+    const invocation = runCi(fixture);
+    const output = outputOf(invocation);
+    expect(invocation.exitCode, output).toBe(1);
+    expect(output).toContain(
+      'trusted obligation boundary assignment mismatch: obligation.application',
+    );
   });
 
   test('CI rejects an ordinary mode argument and a candidate field that tries to select trust', () => {
@@ -848,7 +1200,7 @@ describe('trusted policy production CLI', () => {
       { path: historicalValidatorPath, sha256: sha256(readFileSync(historicalValidatorPath)) },
     ];
     write(fixture.bindingPath, `${JSON.stringify(previousBinding)}\n`);
-    const nextArtifacts = [cliPath, trustPath].map((path) => ({
+    const nextArtifacts = resolveValidatorArtifactPaths([cliPath, trustPath]).map((path) => ({
       path,
       sha256: sha256(readFileSync(path)),
     }));
@@ -910,6 +1262,120 @@ describe('trusted policy production CLI', () => {
     const output = outputOf(invocation);
     expect(invocation.exitCode, output).toBe(1);
     expect(output).toContain('compatible activation cannot remove boundary: boundary.application');
+  });
+
+  test('compatible activation cannot narrow an existing selector', () => {
+    const fixture = createFixture('enforce');
+    const nextBindingPath = writeActivation(
+      fixture,
+      (policy) => {
+        const boundaries = policy['boundaries'] as {
+          boundaryId: string;
+          selector: { kind: string; value: string };
+        }[];
+        const application = boundaries.find(
+          ({ boundaryId }) => boundaryId === 'boundary.application',
+        );
+        if (application === undefined) throw new Error('application boundary disappeared');
+        application.selector = { kind: 'path', value: 'src/app.ts' };
+      },
+      {
+        addedBoundaryIds: [],
+        changedBoundaryIds: ['boundary.application'],
+        addedObligationIds: [],
+        removedExemptionIds: [],
+        validatorChanged: false,
+      },
+    );
+
+    const invocation = runActivation(fixture, nextBindingPath);
+    const output = outputOf(invocation);
+    expect(invocation.exitCode, output).toBe(1);
+    expect(output).toContain(
+      'compatible activation cannot narrow selector coverage: boundary.application',
+    );
+  });
+
+  test('compatible activation cannot delete existing check or review requirements', () => {
+    for (const requirement of ['checkIds', 'reviewIds'] as const) {
+      const fixture = createFixture('enforce');
+      const nextBindingPath = writeActivation(
+        fixture,
+        (policy) => {
+          const obligations = policy['obligations'] as {
+            obligationId: string;
+            checkIds: string[];
+            reviewIds: string[];
+          }[];
+          const application = obligations.find(
+            ({ obligationId }) => obligationId === 'obligation.application',
+          );
+          if (application === undefined) throw new Error('application obligation disappeared');
+          application[requirement] = [];
+        },
+        {
+          addedBoundaryIds: [],
+          changedBoundaryIds: ['boundary.application'],
+          addedObligationIds: [],
+          removedExemptionIds: [],
+          validatorChanged: false,
+        },
+      );
+
+      const invocation = runActivation(fixture, nextBindingPath);
+      const output = outputOf(invocation);
+      expect(invocation.exitCode, `${requirement}: ${output}`).toBe(1);
+      expect(output).toContain(
+        `compatible activation cannot remove ${requirement === 'checkIds' ? 'check' : 'review'} requirement from obligation.application`,
+      );
+    }
+  });
+
+  test('compatible activation cannot move an existing obligation to another boundary', () => {
+    const fixture = createFixture('enforce');
+    const nextBindingPath = writeActivation(
+      fixture,
+      (policy) => {
+        const boundaries = policy['boundaries'] as {
+          boundaryId: string;
+          obligationIds: string[];
+        }[];
+        const obligations = policy['obligations'] as {
+          obligationId: string;
+          boundaryId: string;
+        }[];
+        const application = obligations.find(
+          ({ obligationId }) => obligationId === 'obligation.application',
+        );
+        if (application === undefined) throw new Error('application obligation disappeared');
+        application.boundaryId = 'boundary.policy';
+        const applicationBoundary = boundaries.find(
+          ({ boundaryId }) => boundaryId === 'boundary.application',
+        );
+        const policyBoundary = boundaries.find(
+          ({ boundaryId }) => boundaryId === 'boundary.policy',
+        );
+        if (applicationBoundary === undefined || policyBoundary === undefined) {
+          throw new Error('fixture boundary disappeared');
+        }
+        applicationBoundary.obligationIds = [];
+        policyBoundary.obligationIds.push('obligation.application');
+      },
+      {
+        addedBoundaryIds: [],
+        changedBoundaryIds: ['boundary.application', 'boundary.policy'],
+        addedObligationIds: [],
+        removedExemptionIds: [],
+        validatorChanged: false,
+      },
+    );
+
+    const invocation = runActivation(fixture, nextBindingPath);
+    const output = outputOf(invocation);
+    expect(invocation.exitCode, output).toBe(1);
+    expect(output).toContain(
+      'compatible activation cannot move obligation obligation.application from boundary.application',
+    );
   });
 
   test('compatible activation rejects a minimum-mode weakening', () => {
