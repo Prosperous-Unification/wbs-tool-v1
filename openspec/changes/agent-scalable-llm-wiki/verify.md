@@ -1367,6 +1367,60 @@ agent-scalable-llm-wiki --strict` — exit 0; change valid.
 
 Task 3.2 remains complete. Task 3.3 and all later task checkboxes remain untouched.
 
+## Slice 3.3 Review Fix Round 1
+
+Disagreements are now evaluated independently for every current, discharge-capable review round.
+An adjudication names its exact round and exact conflicting review set; a second conflict in a
+later round creates a new adjudication and fresh-review duty instead of inheriting an earlier
+resolution. Threshold expansion still widens each conflict to its risk shard, and every applicable
+adjudication must explicitly name a completed fresh review later than the conflict it resolves.
+
+Only reviews with verified evidence and completed cold and informed invocation receipts discharge
+ordinary coverage, participate in disagreement, satisfy fresh work or close a corrected finding.
+Failed and censored attempts remain in the complete cost/receipt report. Unverified phase evidence
+is rejected by the audit boundary and cannot become a review.
+
+Review-receipt context and read summaries are reconciled exactly with the protocol blob, subject,
+informed expansion and both phases' observed reads. Empty or duplicated summary entries therefore
+cannot hide or inflate model/context overlap.
+
+| Deliberate one-at-a-time fault                | Observed production-path failure                                                                                 |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| inspect only the earliest review round        | the later-round test received no adjudication obligations instead of `review.directory.src`                      |
+| ignore the adjudication's round               | a round-1 adjudication erased both duties for the round-2 conflict                                               |
+| bypass exact conflicting review IDs           | `review.later.round-one` erased both duties for the round-2 conflict                                             |
+| check only the first conflict's fresh work    | a new round-4 conflict lost `fresh-review:review.directory.src`                                                  |
+| remove semantic adjudication-round uniqueness | two IDs for one obligation/round reached an ordinary report; the test reported `function did not throw`          |
+| check only cold completion                    | censored informed work discharged `review.project.tool-wiki`                                                     |
+| check only informed completion                | failed cold work discharged `review.directory.src`                                                               |
+| omit completion from fresh review             | a failed cold attempt erased `fresh-review:review.directory.src`                                                 |
+| omit completion from post-correction review   | a failed cold attempt closed `finding.alpha`                                                                     |
+| omit supplied-context reconciliation          | empty and duplicated summaries each reported `function did not throw`                                            |
+| omit observed-read reconciliation             | empty and duplicated summaries each reported `function did not throw`                                            |
+| make adjudication round optional              | a roundless adjudication reached an ordinary refused report; the boundary test reported `function did not throw` |
+
+Every fault ran alone through `evaluateAudit`, was restored before the next, and has an adjacent
+`Proof:` comment written from the observed failure. Verification on restored source:
+
+- `bun test --preload ../test/scratch/preload.ts src/review/audit.test.ts` from `tools/tool-wiki`
+  — exit 0; 17 pass, 0 fail, 109 assertions.
+- `bunx eslint src/review/audit.ts src/review/audit.test.ts` from `tools/tool-wiki` — exit 0.
+- `bunx tsc --build --force tsconfig.json` from `tools/tool-wiki` — exit 0.
+- The unchanged production CLI contract matrix passed twice: 56 assertions, 24.665 and 24.675
+  seconds test duration (24.98 seconds process duration each).
+- `NX_DAEMON=false bunx nx run-many -t lint typecheck test -p tool-wiki --skip-nx-cache
+--output-style=static` — exit 0; 230 pass, 0 fail, 2,349 assertions in 386.20 seconds (6m26s Nx,
+  386.72 seconds wall), cache skipped and no target skipped. Nx used its documented main-process
+  fallback after sandbox socket denial.
+- `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate
+agent-scalable-llm-wiki --strict` — exit 0; change valid.
+- `bunx nx format:check --all` and `git diff --check` — exit 0.
+
+The host gate remains unavailable in this environment: its heavy-lock preflight requires
+`/home/puni1/.cache` and exits 70 before format, repository-wide test/lint/typecheck/build or the
+solver image smoke starts. Task 3.3 remains complete; task 3.4 and every later checkbox remain
+untouched.
+
 ## Slice 3.3 Reproducible Review Audit
 
 Audit selection now derives a canonical SHA-256 score from the candidate, seed, risk stratum,
