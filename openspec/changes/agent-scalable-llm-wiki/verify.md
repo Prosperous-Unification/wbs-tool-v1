@@ -1367,6 +1367,45 @@ agent-scalable-llm-wiki --strict` — exit 0; change valid.
 
 Task 3.2 remains complete. Task 3.3 and all later task checkboxes remain untouched.
 
+## Slice 3.3 Review Fix Round 2
+
+Audit accounting now rejects a repeated receipt identity before aggregation across the complete
+audit receipt set: review summaries, both cold/informed invocation receipts, every elapsed receipt,
+all reviews, and even collisions between receipt kinds. Invocation receipts are the authoritative
+records for their exact price identity, raw usage and charged amount, so zero-charge phases remain
+subject to the same identity rule.
+
+The former cross-currency scalar is replaced atomically by `currencyCharges`. Each bucket retains
+the receipt's exact native currency, uses checked safe-integer addition independently, and is
+returned in canonical byte order. Review cost rows still retain the original review and phase
+receipts, including their native currency and complete price identities.
+
+| Deliberate one-at-a-time fault        | Observed public `evaluateAudit` failure                                                                      |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| remove whole-audit receipt uniqueness | a zero-charge invocation receipt identified both phases; the test reported `Received function did not throw` |
+| force every native currency into USD  | the report returned USD 50 instead of EUR 25 and USD 25                                                      |
+| remove canonical currency ordering    | the report returned USD then EUR instead of the required EUR then USD                                        |
+
+Every fault ran alone and the production guard was restored before verification. Verification on
+the restored code commit `49ce8230`:
+
+- `bun test --preload ../test/scratch/preload.ts src/review/audit.test.ts` from `tools/tool-wiki`
+  — exit 0; 19 pass, 0 fail, 119 assertions.
+- `bunx eslint src/review/audit.ts src/review/audit.test.ts` and
+  `bunx tsc --build --force tsconfig.json` from `tools/tool-wiki` — exit 0.
+- `NX_DAEMON=false bunx nx run-many -t lint typecheck test -p tool-wiki --skip-nx-cache
+--output-style=static` — exit 0; 232 pass, 0 fail, 2,359 assertions in 386.86 seconds (6m27s
+  Nx duration), cache skipped and no target skipped. The existing production CLI matrix remained
+  below its unchanged ceiling at 24.7685 seconds. Nx used its documented main-process fallback
+  after sandbox socket denial.
+- `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate
+agent-scalable-llm-wiki --strict`, `bunx nx format:check --all`, and `git diff --check` — exit 0.
+- `bin/h2puni-gate.sh 49ce8230` — unavailable, exit 70 in under 0.01 seconds: required heavy-lock
+  path `/home/puni1/.cache` does not exist, so no host-gate step ran.
+
+Task 3.3 remains the only completed checkbox in this slice. Task 3.4 remains untouched, and this
+fix does not elevate local cooperative provenance to external trust.
+
 ## Slice 3.3 Review Fix Round 1
 
 Disagreements are now evaluated independently for every current, discharge-capable review round.
