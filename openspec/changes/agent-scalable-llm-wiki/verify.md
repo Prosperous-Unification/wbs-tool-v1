@@ -1604,6 +1604,64 @@ validate agent-scalable-llm-wiki --strict` — exit 0; change valid.
 
 Task 3.4 remains complete. Task 3.5 and every later task remain untouched.
 
+## Slice 3.5 Review Fix Round 4
+
+Candidate containment now treats only the exact `..` component or a path beginning with
+`..${sep}` as a parent traversal. A child named `..trust` is inside the candidate on every
+platform and cannot supply active validator code. The production adapter fixture binds an external
+CLI that imports `candidate/..trust/dependency.ts`; the dependency's top level writes a marker if
+it runs, so refusal is observed before any validator execution.
+
+The snapshotter now captures each regular, non-symlink artifact's bytes at digest validation time,
+scans those bytes once, and pins every import to an exact internal artifact or Bun/Node runtime
+specifier. `Bun.build` starts at a virtual entry and a catch-all resolver/loader serves only the
+captured artifact map. An unexpected request fails rather than falling back to the original or
+candidate filesystem. Exact closure equality continues to reject missing or extra binding paths;
+the committed external-trust fixture remains the positive control for the complete real validator
+closure and package/runtime resolution.
+
+| Deliberate production-path fault                                                                                                                     | Observed failure before the fix                                                                                                                          |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| restore the prefix-only `offset.startsWith('..')` containment rule, then bind an external CLI importing `candidate/..trust/dependency.ts`            | the production adapter returned 0 and executed the candidate child; its marker assertion failed with `Expected: false / Received: true`                  |
+| let `Bun.build` read original paths, replace one dependency exactly while the build runs, and restore its reviewed bytes before the post-build check | the post-check accepted the restored bytes, but the bundle executed the replacement; its marker assertion failed with `Expected: false / Received: true` |
+
+Both faults were watched separately through the active production launcher and restored. Adjacent
+`Proof:` comments name the injected fault and the exact observed assertion. The race fixture also
+asserts the original dependency was restored, locating the mutation entirely inside compilation.
+
+A fresh `node_modules/.bin/tsc --build --force tools/tool-wiki/tsconfig.json` at the starting
+`d9ec0ccd` failed despite Review Fix Round 3's green typecheck report:
+`tools/tool-wiki/src/cli.ts(289,42): error TS2345: Argument of type 'string[] | { artifactManifest: string; }' is not assignable to parameter of type 'string[]'.`
+The activation writer's parameter now represents the already decoded source-list/bundled-manifest
+union directly, without a cast or assertion. The same forced command exits 0 in the final tree.
+
+- `bun test tools/tool-wiki/src/policy/gate-entrypoints.test.ts` — exit 0; 31 pass, 0 fail, 98
+  assertions.
+- `bun test --preload ../test/scratch/preload.ts src/policy/trusted-policy.test.ts src/cli.test.ts`
+  from `tools/tool-wiki` — exit 0; 61 pass, 0 fail, 1,451 assertions in 92.85 seconds.
+- `bash bin/h2puni-gate.test.sh` — exit 0; all host-gate cases passed. `bash -n` over the four gate
+  and adapter scripts and `shellcheck -x -e SC2016` passed; SC2016 is the existing intentional
+  single-quoted inner-shell exclusion.
+- Relevant devsync/workflow selection — exit 0; 28 pass, 0 fail, 89 assertions across
+  `poller.test.ts`, `toolchain-pins.test.ts`, `corpus-lint-workflow.test.ts` and
+  `pixels-workflow.test.ts`.
+- `NX_DAEMON=false node_modules/.bin/nx run tool-wiki:lint:source --skip-nx-cache
+--output-style=static` and the corresponding `tool-wiki:typecheck` command — exit 0; both targets
+  succeeded, cache skipped and no target skipped. Nx used its explicit in-process plugin fallback
+  because sandbox sockets were unavailable.
+- `NX_DAEMON=false node_modules/.bin/nx run tool-wiki:test --skip-nx-cache
+--output-style=static` — exit 0; 347 pass, 0 fail, 4,269 assertions across 17 files in 734.26
+  seconds (12m14s Nx duration); cache skipped and no target skipped.
+- Pinned OpenSpec 1.3.0 strict JSON validation — exit 0; one change passed and zero failed.
+- Repository-wide Nx format check and `git diff --check` — exit 0.
+- `bash bin/tool-wiki-lint.sh committed . 140dad14` — exit 0 with visible
+  `status: inactive`, `certified: false`; no external activation root is provisioned.
+- `bin/h2puni-gate.sh 140dad14` — unavailable, exit 70 immediately because required heavy-lock
+  path `/home/puni1/.cache` does not exist; no host-gate step ran and the host gate is not green.
+
+Task 3.5 remains complete. Task 5.3 still owns production activation; no production binding or
+later task changed.
+
 ## Slice 3.5 Review Fix Round 1
 
 Trusted lint wiring now separates rollout state from candidate bytes. An absent external activation
