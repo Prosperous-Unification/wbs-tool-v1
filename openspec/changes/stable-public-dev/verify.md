@@ -12,20 +12,20 @@
 
 ## Commands
 
-| Exact head | Command | Result |
-| --- | --- | --- |
-| `f11a5a04` | focused `vite-config.test.ts` on h2puni | red as intended: 1 failed, 15 passed; public HMR was `undefined` |
-| `e84f315d` | focused `vite-config.test.ts` on h2puni | 16 passed |
-| `e84f315d` | `docker compose -f deploy/dev-src/compose.yml config -q` on h2puni | green |
-| `e84f315d` | `bunx @fission-ai/openspec validate stable-public-dev --json` on h2puni | 1 passed, 0 failed |
-| `c29ec89c` | focused `vite-config.test.ts` on h2puni | 17 passed |
+| Exact head | Command                                                                 | Result                                                           |
+| ---------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `f11a5a04` | focused `vite-config.test.ts` on h2puni                                 | red as intended: 1 failed, 15 passed; public HMR was `undefined` |
+| `e84f315d` | focused `vite-config.test.ts` on h2puni                                 | 16 passed                                                        |
+| `e84f315d` | `docker compose -f deploy/dev-src/compose.yml config -q` on h2puni      | green                                                            |
+| `e84f315d` | `bunx @fission-ai/openspec validate stable-public-dev --json` on h2puni | 1 passed, 0 failed                                               |
+| `c29ec89c` | focused `vite-config.test.ts` on h2puni                                 | 17 passed                                                        |
 
 Both exact-head runs used a fresh h2puni dependency tree whose 78 root declarations resolved with
 `BAD_COUNT=0`. No build or autotest ran on h1claw.
 
 ## Failure-proof table
 
-| Check | Injected fault | Observed failure |
-| --- | --- | --- |
-| Public mode disables HMR | production `hmr` assignment absent at `f11a5a04` | expected `false`, received `undefined` |
+| Check                              | Injected fault                                   | Observed failure                                             |
+| ---------------------------------- | ------------------------------------------------ | ------------------------------------------------------------ |
+| Public mode disables HMR           | production `hmr` assignment absent at `f11a5a04` | expected `false`, received `undefined`                       |
 | Deploy process selects public mode | reverse-applied the compose wiring at `c29ec89c` | 1 failed, 16 passed; compose lacked `WBS_PUBLIC_DEV: 'true'` |

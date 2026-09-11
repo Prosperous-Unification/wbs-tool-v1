@@ -67,7 +67,10 @@ beforeEach(() => {
 // the dev site fail in a way that looks like a proxy misconfiguration.
 describe('vite dev server config', () => {
   it('declares public mode in the source-run container', () => {
-    const compose = readFileSync(new URL('../../deploy/dev-src/compose.yml', import.meta.url), 'utf8');
+    const compose = readFileSync(
+      new URL('../../deploy/dev-src/compose.yml', import.meta.url),
+      'utf8',
+    );
     expect(compose).toContain("      WBS_PUBLIC_DEV: 'true'");
   });
 
