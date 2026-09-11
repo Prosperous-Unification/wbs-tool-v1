@@ -745,3 +745,59 @@ Direct project ESLint and the solution-style source/spec TypeScript build passed
 PostHog flush failed DNS afterward. Exact changed-file formatting and `git diff --check` passed. No
 checkbox changed, Task 2.3 remains untouched, and full repository/browser gates remain with the
 parent integration pass.
+
+## Slice 2.3 — Recursive index reading and checking
+
+Version-1 `wbs-index` metadata is decoded once from one ordinary Markdown comment per indexed
+`README.md`. It carries a stable module id, exact or directory-prefix membership with bounded
+exclusions, relationship selector identities, explicit inapplicability reasons, and external
+consumer knowledge limits. The checker expands declarations against immutable candidate tuples and
+assigns each selected path to exactly one nearest index. A nested index README remains its parent's
+member while the nested index owns its descendants. Concrete members, index identities and the
+whole topology identity use Git byte ordering and canonical JSON hashing.
+
+Markdown navigation is parsed as Markdown rather than source text. Candidate-relative links resolve
+case-sensitively inside the selected tree, directory links resolve their selected `README.md`, and
+heading or explicit HTML anchors must exist. External schemes remain external. Globs, repository
+escapes, ambiguous path case and selected-symlink escapes are refused without consulting host
+filesystem bytes. Frozen archive proposal members require a link to their proposal entrypoint.
+More than forty metadata entries emit review debt while the checker remains read-only.
+
+The initial focused RED was
+`bun test src/indexes/indexes.test.ts --preload ../test/scratch/preload.ts`: zero pass, eleven fail
+and 88 assertions. Both success cases received the old CLI usage failure; every required negative
+failed to reach its named assertion. First GREEN was eleven pass, zero fail and 96 assertions. The
+post-format suite, extended with candidate confinement, symlink escape, duplicate identity and
+missing-index checks, passed fifteen tests, zero failures and 129 assertions.
+
+Every fault below ran alone through `check-indexes` against a temporary real Git repository and was
+restored before the next. Adjacent `Proof:` comments record the observed output.
+
+| Deliberate one-at-a-time fault               | Observed production-CLI oracle failure                                            |
+| -------------------------------------------- | --------------------------------------------------------------------------------- |
+| ignore an absent exact member                | failure moved to `Markdown path absent in README.md: docs/guide.md`               |
+| ignore a selected path with no declaration   | CLI exited 0 while `unindexed.txt` was absent from every index                    |
+| classify wrong case as ordinary absence      | received `Markdown path absent ... docs/Guide.md`, not the required case mismatch |
+| skip the absent-anchor refusal               | CLI exited 0 with all three indexes                                               |
+| widen metadata version to any number         | version 2 reached later membership inference                                      |
+| widen membership path to arbitrary text      | `../outside.ts` reached an unrelated later anchor failure                         |
+| ignore a path matched by two declarations    | overlapping test membership reached a later frozen-proposal failure               |
+| skip a Markdown link containing a glob       | `tests/*.ts` disappeared from validation and the CLI exited 0                     |
+| raise the direct-entry threshold to 41       | the forty-one-entry report returned `reviewDebt: []`                              |
+| substitute empty bytes for failed blob reads | unreadable candidate exited 0 with `indexes: []`                                  |
+| omit selected-symlink lexical confinement    | `escape -> ../../outside` exited 0 as a valid member                              |
+| read the working path instead of its blob    | dirty host metadata version 99 replaced the selected committed README             |
+| omit duplicate module-id detection           | CLI exited 0 with `module.alpha` reported for two indexes                         |
+| permit a candidate with no index metadata    | ordinary README exited 0 with empty indexes and review debt                       |
+
+Final uncached project verification was
+`NX_DAEMON=false bunx nx run-many -t lint typecheck test -p tool-wiki --skip-nx-cache
+--output-style=static`: exit 0, source/spec TypeScript and lint passed, and 103 tests passed with
+zero failures and 1,603 assertions in 277.29 seconds. Nx used its in-process plugin fallback after
+the sandbox denied its socket; no target was skipped. The pilot policy and repository README
+migration remain Task 2.4 and were not started. Full repository and browser gates remain with the
+parent integration pass.
+
+Pinned OpenSpec 1.3.0 strict validation returned
+`Change 'agent-scalable-llm-wiki' is valid` with exit 0. Its optional PostHog telemetry flush
+reported the sandbox's DNS failure afterward without changing validation or its exit status.

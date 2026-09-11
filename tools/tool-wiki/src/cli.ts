@@ -15,6 +15,7 @@ import {
   hashBytes,
   validateArtifacts,
 } from './evidence/content-manifest';
+import { checkIndexes } from './indexes';
 import { type ClassifiedCandidate, classifyEntries } from './inventory/classify-entries';
 import { type CandidateRequest, readCandidate } from './inventory/read-candidate';
 import { extractRelationships } from './relationships';
@@ -183,6 +184,18 @@ function writeRelationships(argv: string[]): void {
   );
 }
 
+function writeIndexChecks(argv: string[]): void {
+  const [kind, repository, revision] = argv.slice(1);
+  if (kind !== 'committed' && kind !== 'staged' && kind !== 'working') {
+    throw new Error('index candidate kind must be committed, staged or working');
+  }
+  const request: CandidateRequest =
+    kind === 'committed' ? { kind, revision } : { kind, base: revision };
+  process.stdout.write(
+    `${JSON.stringify(checkIndexes(repository, readCandidate(repository, request)))}\n`,
+  );
+}
+
 function run(argv: string[]): void {
   if (argv.length === 3 && argv[0] === 'validate') {
     validateRecord(argv);
@@ -208,8 +221,12 @@ function run(argv: string[]): void {
     writeRelationships(argv);
     return;
   }
+  if (argv.length === 4 && argv[0] === 'check-indexes') {
+    writeIndexChecks(argv);
+    return;
+  }
   throw new Error(
-    'usage: tool-wiki <validate|read-candidate|classify-candidate|content-manifest|validate-artifacts|extract-relationships> ...',
+    'usage: tool-wiki <validate|read-candidate|classify-candidate|content-manifest|validate-artifacts|extract-relationships|check-indexes> ...',
   );
 }
 

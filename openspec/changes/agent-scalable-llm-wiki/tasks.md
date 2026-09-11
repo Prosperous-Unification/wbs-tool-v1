@@ -54,7 +54,7 @@ No `verify.md` exists until implementation produces observations.
       negative: forge a selector/edge or change a current port/route/table/target and observe
       named mismatch. Explicitly historical selectors resolve against their historical base;
       unsupported relationships remain named unresolved, never silently certified.
-- [ ] 2.3 Implement `indexes/read-indexes.ts` and `indexes/check-indexes.ts`, versioned
+- [x] 2.3 Implement `indexes/read-indexes.ts` and `indexes/check-indexes.ts`, versioned
       metadata, exact bidirectional membership and Markdown path/case/anchor checks. Test
       `indexes.test.ts` in a fixture tree: nested projects, grouped test/vendor sets and frozen
       archive proposals. Negative: delete/add an indexed child, wrong-case link, missing
