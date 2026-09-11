@@ -1,3 +1,8 @@
+import { Buffer } from 'node:buffer';
+
+import { parseOrThrow, type } from '@wbs/validation';
+
+import { OpaqueId, RelativePath } from '../contracts/records';
 import { hashCanonical } from './content-manifest';
 
 export type SourceScope = { kind: 'candidate' } | { kind: 'historical'; revision: string };
@@ -92,11 +97,10 @@ export interface JudgmentCurrency {
   changes: CurrencyChange[];
 }
 
-export interface ContentChange {
-  inputId: string;
-  reviewed: ContentInput;
-  current: ContentInput | undefined;
-}
+export type ContentChange =
+  | { change: 'added'; inputId: string; current: ContentInput }
+  | { change: 'changed'; inputId: string; reviewed: ContentInput; current: ContentInput }
+  | { change: 'removed'; inputId: string; reviewed: ContentInput };
 
 export interface CurrencyReport {
   reviewedSourceBase: string;
@@ -107,6 +111,96 @@ export interface CurrencyReport {
 }
 
 type AxisInput = ContentInput | SemanticInput | StructuralInput | TopologyInput;
+
+const GitIdentity = type(/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/);
+const Sha256 = type(/^[0-9a-f]{64}$/);
+const SourceScopeRecord = type({ kind: "'candidate'" })
+  .onUndeclaredKey('reject')
+  .or(type({ kind: "'historical'", revision: GitIdentity }).onUndeclaredKey('reject'));
+const ExtractedProvenance = type({
+  kind: "'extracted'",
+  extractor: type({
+    extractorId: OpaqueId,
+    version: OpaqueId,
+    blob: Sha256,
+  }).onUndeclaredKey('reject'),
+  source: SourceScopeRecord,
+}).onUndeclaredKey('reject');
+const DeclaredProvenance = type({
+  kind: "'declared'",
+  declarationId: OpaqueId,
+  declarationPath: RelativePath,
+  selectorVersion: OpaqueId,
+  source: SourceScopeRecord,
+}).onUndeclaredKey('reject');
+const SelectorProvenanceRecord = ExtractedProvenance.or(DeclaredProvenance);
+const ContentInputRecord = type({
+  kind: "'content'",
+  inputId: OpaqueId,
+  path: RelativePath,
+  mode: "'100644'|'100755'|'120000'|'160000'",
+  blob: GitIdentity,
+}).onUndeclaredKey('reject');
+const StructuralInputRecord = type({
+  kind: "'structural'",
+  inputId: OpaqueId,
+  subjectId: OpaqueId,
+  identity: Sha256,
+  provenance: SelectorProvenanceRecord,
+}).onUndeclaredKey('reject');
+const SemanticInputRecord = type({
+  kind: "'semantic'",
+  inputId: OpaqueId,
+  subjectId: OpaqueId,
+  identity: Sha256,
+  provenance: SelectorProvenanceRecord,
+}).onUndeclaredKey('reject');
+const TopologyInputRecord = type({
+  kind: "'topology'",
+  inputId: OpaqueId,
+  topologyKind: "'index-membership'|'reverse-edges'",
+  subjectId: OpaqueId,
+  identity: Sha256,
+  provenance: SelectorProvenanceRecord,
+}).onUndeclaredKey('reject');
+const CurrencySnapshotRecord = type({
+  // Proof: widening this to any string made
+  // `rejects malformed currency snapshots at the public boundary` return a currency report whose
+  // reviewed source base was `working-tree` instead of throwing at the boundary.
+  sourceBase: GitIdentity,
+  candidateIdentity: Sha256,
+  inputs: type({
+    content: ContentInputRecord.array(),
+    structural: StructuralInputRecord.array(),
+    semantic: SemanticInputRecord.array(),
+    topology: TopologyInputRecord.array(),
+  }).onUndeclaredKey('reject'),
+}).onUndeclaredKey('reject');
+const JudgmentBindingsRecord = type({
+  content: type({ kind: "'content'", inputId: OpaqueId }).onUndeclaredKey('reject').array(),
+  structural: type({ kind: "'structural'", inputId: OpaqueId }).onUndeclaredKey('reject').array(),
+  semantic: type({ kind: "'semantic'", inputId: OpaqueId }).onUndeclaredKey('reject').array(),
+  topology: type({ kind: "'topology'", inputId: OpaqueId }).onUndeclaredKey('reject').array(),
+}).onUndeclaredKey('reject');
+const ReviewJudgmentRecord = type({
+  judgmentId: OpaqueId,
+  kind: "'content'|'navigation'|'relationship'|'semantic'|'structural'",
+  subjectId: OpaqueId,
+  bindings: JudgmentBindingsRecord,
+}).onUndeclaredKey('reject');
+
+/** Decodes one strict currency snapshot before currency logic can observe it. */
+export function decodeCurrencySnapshot(input: unknown): CurrencySnapshot {
+  return parseOrThrow(CurrencySnapshotRecord, input);
+}
+
+/** Decodes strict judgment bindings before currency logic can observe them. */
+export function decodeReviewJudgments(input: unknown): ReviewJudgment[] {
+  return parseOrThrow(ReviewJudgmentRecord.array(), input);
+}
+
+const compareText = (left: string, right: string): number =>
+  Buffer.compare(Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8'));
 
 function keyed<Input extends AxisInput>(
   inputs: readonly Input[],
@@ -131,12 +225,29 @@ function changed<Input extends AxisInput>(reviewed: Input, current: Input): bool
   return hashCanonical(reviewed) !== hashCanonical(current);
 }
 
+function assertUniqueJudgments(judgments: readonly ReviewJudgment[]): void {
+  const judgmentIds = new Set<string>();
+  for (const judgment of judgments) {
+    // Proof: deleting this refusal made
+    // `refuses conflicting judgments with the same identity` return two differently scoped
+    // `judgment.duplicate` currency entries instead of throwing the named duplicate error.
+    if (judgmentIds.has(judgment.judgmentId)) {
+      throw new Error(`duplicate review judgment: ${judgment.judgmentId}`);
+    }
+    judgmentIds.add(judgment.judgmentId);
+  }
+}
+
 /** Classifies each review judgment from only its explicitly typed input bindings. */
 export function classifyCurrency(
-  reviewed: CurrencySnapshot,
-  current: CurrencySnapshot,
-  judgments: readonly ReviewJudgment[],
+  reviewedInput: unknown,
+  currentInput: unknown,
+  judgmentsInput: unknown,
 ): CurrencyReport {
+  const reviewed = decodeCurrencySnapshot(reviewedInput);
+  const current = decodeCurrencySnapshot(currentInput);
+  const judgments = decodeReviewJudgments(judgmentsInput);
+  assertUniqueJudgments(judgments);
   const reviewedInputs = {
     content: keyed(reviewed.inputs.content, 'content'),
     structural: keyed(reviewed.inputs.structural, 'structural'),
@@ -187,11 +298,26 @@ export function classifyCurrency(
       changes,
     };
   });
-  const contentChanges = reviewed.inputs.content.flatMap((prior): ContentChange[] => {
-    const next = currentInputs.content.get(prior.inputId);
-    return next === undefined || changed(prior, next)
-      ? [{ inputId: prior.inputId, reviewed: prior, current: next }]
-      : [];
+  // Proof: enumerating only reviewed content made
+  // `reports content introduced only by the current candidate as added` receive `[]` instead of
+  // the explicit `content.added` change; enumerating only current content made
+  // `reports content absent from the current candidate as removed` receive `[]` instead of the
+  // explicit `content.child` removal.
+  const contentInputIds = [
+    ...new Set([...reviewedInputs.content.keys(), ...currentInputs.content.keys()]),
+  ].sort(compareText);
+  const contentChanges = contentInputIds.flatMap((inputId): ContentChange[] => {
+    const prior = reviewedInputs.content.get(inputId);
+    const next = currentInputs.content.get(inputId);
+    if (prior === undefined && next !== undefined)
+      return [{ change: 'added', inputId, current: next }];
+    if (prior !== undefined && next === undefined) {
+      return [{ change: 'removed', inputId, reviewed: prior }];
+    }
+    if (prior !== undefined && next !== undefined && changed(prior, next)) {
+      return [{ change: 'changed', inputId, reviewed: prior, current: next }];
+    }
+    return [];
   });
   return {
     reviewedSourceBase: reviewed.sourceBase,

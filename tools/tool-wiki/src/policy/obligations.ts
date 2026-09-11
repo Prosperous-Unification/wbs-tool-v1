@@ -1,9 +1,15 @@
 import { Buffer } from 'node:buffer';
 
+import { parseOrThrow, type } from '@wbs/validation';
+
+import { OpaqueId } from '../contracts/records';
 import {
   classifyCurrency,
+  type ContentChange,
   type CurrencyReport,
   type CurrencySnapshot,
+  decodeCurrencySnapshot,
+  decodeReviewJudgments,
   type ReviewJudgment,
 } from '../evidence/currency';
 
@@ -19,10 +25,9 @@ export interface ObligationPolicy {
   behaviorRules: BehaviorRule[];
 }
 
-export interface ImpactClassification {
+interface ImpactClassificationBase {
+  classificationId: string;
   contentInputId: string;
-  reviewedIdentity: string;
-  currentIdentity: string | null;
   reviewedSourceBase: string;
   currentSourceBase: string;
   reviewedCandidateIdentity: string;
@@ -33,18 +38,28 @@ export interface ImpactClassification {
     | { kind: 'declared'; declarationIdentity: string };
 }
 
+export type ImpactClassification = ImpactClassificationBase &
+  (
+    | { change: 'added'; currentIdentity: string }
+    | { change: 'changed'; reviewedIdentity: string; currentIdentity: string }
+    | { change: 'removed'; reviewedIdentity: string }
+  );
+
 export interface WriterImpactLabel {
+  labelId: string;
   contentInputId: string;
   label: 'implementation-only';
 }
 
 export interface CheckEvidence {
+  observationId: string;
   checkId: string;
   candidateIdentity: string;
   status: 'failed' | 'passed' | 'skipped';
 }
 
 export interface ReviewEvidence {
+  observationId: string;
   judgmentId: string;
   candidateIdentity: string;
   status: 'current' | 'failed';
@@ -82,8 +97,144 @@ export interface ObligationReport {
   accepted: boolean;
 }
 
+const GitIdentity = type(/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/);
+const Sha256 = type(/^[0-9a-f]{64}$/);
+const AuthorityRecord = type({ kind: "'reviewed'", reviewIdentity: Sha256 })
+  .onUndeclaredKey('reject')
+  .or(type({ kind: "'declared'", declarationIdentity: Sha256 }).onUndeclaredKey('reject'));
+const ImpactClassificationBaseShape = {
+  classificationId: OpaqueId,
+  contentInputId: OpaqueId,
+  reviewedSourceBase: GitIdentity,
+  currentSourceBase: GitIdentity,
+  reviewedCandidateIdentity: Sha256,
+  currentCandidateIdentity: Sha256,
+  // Proof: widening this to an opaque string made
+  // `rejects an unrecognized impact classification at the public boundary` accept
+  // `implementation-only` as known with no refusals; making it optional let an absent
+  // classification through with the same accepted report instead of throwing.
+  classification: "'behavior-changing'|'behavior-preserving'|'unknown'",
+  authority: AuthorityRecord,
+} as const;
+const ImpactClassificationRecord = type({
+  ...ImpactClassificationBaseShape,
+  change: "'added'",
+  currentIdentity: GitIdentity,
+})
+  .onUndeclaredKey('reject')
+  .or(
+    type({
+      ...ImpactClassificationBaseShape,
+      change: "'changed'",
+      reviewedIdentity: GitIdentity,
+      currentIdentity: GitIdentity,
+    }).onUndeclaredKey('reject'),
+  )
+  .or(
+    type({
+      ...ImpactClassificationBaseShape,
+      change: "'removed'",
+      reviewedIdentity: GitIdentity,
+    }).onUndeclaredKey('reject'),
+  );
+const BehaviorRuleRecord = type({
+  contentInputId: OpaqueId,
+  consumerChecks: OpaqueId.array(),
+  conformanceChecks: OpaqueId.array(),
+  expandedReviewJudgments: OpaqueId.array(),
+}).onUndeclaredKey('reject');
+const ObligationRequestRecord = type({
+  reviewed: 'unknown',
+  current: 'unknown',
+  judgments: 'unknown',
+  policy: type({ policyId: OpaqueId, behaviorRules: BehaviorRuleRecord.array() }).onUndeclaredKey(
+    'reject',
+  ),
+  impactClassifications: ImpactClassificationRecord.array(),
+  writerLabels: type({
+    labelId: OpaqueId,
+    contentInputId: OpaqueId,
+    label: "'implementation-only'",
+  })
+    .onUndeclaredKey('reject')
+    .array(),
+  checks: type({
+    observationId: OpaqueId,
+    checkId: OpaqueId,
+    candidateIdentity: Sha256,
+    status: "'failed'|'passed'|'skipped'",
+  })
+    .onUndeclaredKey('reject')
+    .array(),
+  reviews: type({
+    observationId: OpaqueId,
+    judgmentId: OpaqueId,
+    candidateIdentity: Sha256,
+    status: "'current'|'failed'",
+  })
+    .onUndeclaredKey('reject')
+    .array(),
+}).onUndeclaredKey('reject');
+
 const compareText = (left: string, right: string): number =>
   Buffer.compare(Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8'));
+
+function assertUniqueEvidenceIds(request: ObligationRequest): void {
+  for (const [kind, ids] of [
+    // Proof: omitting this family made `refuses duplicate impact-classification identities`
+    // return an accepted report instead of throwing for `classification.child`.
+    ['impact classification', request.impactClassifications.map((entry) => entry.classificationId)],
+    // Proof: omitting this family made `refuses duplicate writer-label identities` return an
+    // accepted report containing both duplicate labels instead of throwing for `writer-label.child`.
+    ['writer label', request.writerLabels.map((entry) => entry.labelId)],
+    // Proof: omitting this family made `refuses duplicate check-observation identities` return
+    // accepted instead of throwing for `check-observation.consumer`.
+    ['check observation', request.checks.map((entry) => entry.observationId)],
+    // Proof: omitting this family made `refuses duplicate review-observation identities` return
+    // accepted instead of throwing for `review-observation.child`.
+    ['review observation', request.reviews.map((entry) => entry.observationId)],
+  ] as const) {
+    const seen = new Set<string>();
+    for (const id of ids) {
+      if (seen.has(id)) throw new Error(`duplicate ${kind}: ${id}`);
+      seen.add(id);
+    }
+  }
+}
+
+/** Decodes and semantically validates one obligation request at its public boundary. */
+export function decodeObligationRequest(input: unknown): ObligationRequest {
+  const envelope = parseOrThrow(ObligationRequestRecord, input);
+  const request: ObligationRequest = {
+    reviewed: decodeCurrencySnapshot(envelope.reviewed),
+    current: decodeCurrencySnapshot(envelope.current),
+    judgments: decodeReviewJudgments(envelope.judgments),
+    policy: envelope.policy,
+    impactClassifications: envelope.impactClassifications,
+    writerLabels: envelope.writerLabels,
+    checks: envelope.checks,
+    reviews: envelope.reviews,
+  };
+  // Proof: skipping semantic duplicate validation made
+  // `refuses duplicate impact-classification identities` accept two `classification.child`
+  // observations instead of throwing the named duplicate error.
+  assertUniqueEvidenceIds(request);
+  return request;
+}
+
+function indexBehaviorRules(rules: readonly BehaviorRule[]): Map<string, BehaviorRule> {
+  const byContentInput = new Map<string, BehaviorRule>();
+  for (const rule of rules) {
+    // Proof: deleting this refusal made
+    // `refuses duplicate behavior rules instead of selecting by array order` return accepted
+    // with only `check.consumer` selected instead of throwing the named duplicate error.
+    if (byContentInput.has(rule.contentInputId)) {
+      throw new Error(`duplicate behavior rule content input: ${rule.contentInputId}`);
+    }
+    byContentInput.set(rule.contentInputId, rule);
+  }
+  return byContentInput;
+}
 
 function currentCheck(
   evidence: readonly CheckEvidence[],
@@ -91,6 +242,9 @@ function currentCheck(
   candidateIdentity: string,
 ): CheckEvidence | undefined {
   const matching = evidence.filter(
+    // Proof: dropping candidate identity from this match made
+    // `foreign candidate observations cannot discharge current checks or reviews` accept the
+    // foreign passed check and receive no refusals instead of its missing-current-check refusal.
     (observation) =>
       observation.checkId === checkId && observation.candidateIdentity === candidateIdentity,
   );
@@ -110,6 +264,9 @@ function currentReview(
   candidateIdentity: string,
 ): ReviewEvidence | undefined {
   const matching = evidence.filter(
+    // Proof: dropping candidate identity from this match made
+    // `foreign candidate observations cannot discharge current checks or reviews` lose its
+    // missing expanded-review refusal because a foreign current review discharged it.
     (observation) =>
       observation.judgmentId === judgmentId && observation.candidateIdentity === candidateIdentity,
   );
@@ -122,9 +279,51 @@ function currentReview(
   );
 }
 
+function classificationBinds(
+  classification: ImpactClassification,
+  contentChange: ContentChange,
+  reviewed: CurrencySnapshot,
+  current: CurrencySnapshot,
+): boolean {
+  if (
+    classification.reviewedSourceBase !== reviewed.sourceBase ||
+    classification.currentSourceBase !== current.sourceBase ||
+    classification.reviewedCandidateIdentity !== reviewed.candidateIdentity ||
+    classification.currentCandidateIdentity !== current.candidateIdentity
+  ) {
+    return false;
+  }
+  switch (contentChange.change) {
+    case 'added':
+      // Proof: refusing all added bindings made
+      // `requires behavior checks and exact impact classification for added content` gain an
+      // impact refusal and missing expanded review beside its expected failed consumer check.
+      return (
+        classification.change === 'added' &&
+        classification.currentIdentity === contentChange.current.blob
+      );
+    case 'changed':
+      return (
+        classification.change === 'changed' &&
+        classification.reviewedIdentity === contentChange.reviewed.blob &&
+        classification.currentIdentity === contentChange.current.blob
+      );
+    case 'removed':
+      // Proof: refusing all removed bindings made
+      // `requires behavior checks and exact impact classification for removed content` gain an
+      // impact refusal and missing expanded review beside its expected failed consumer check.
+      return (
+        classification.change === 'removed' &&
+        classification.reviewedIdentity === contentChange.reviewed.blob
+      );
+  }
+}
+
 /** Evaluates the finite review and behavior obligations selected for one exact candidate. */
-export function evaluateObligations(request: ObligationRequest): ObligationReport {
+export function evaluateObligations(input: unknown): ObligationReport {
+  const request = decodeObligationRequest(input);
   const currency = classifyCurrency(request.reviewed, request.current, request.judgments);
+  const behaviorRules = indexBehaviorRules(request.policy.behaviorRules);
   const requiredChecks = new Set<string>();
   const reviewKinds = new Map<string, Set<'expanded-review' | 'review'>>();
   const refusals: Refusal[] = [];
@@ -135,9 +334,7 @@ export function evaluateObligations(request: ObligationRequest): ObligationRepor
   }
 
   for (const contentChange of currency.contentChanges) {
-    const rule = request.policy.behaviorRules.find(
-      (candidate) => candidate.contentInputId === contentChange.inputId,
-    );
+    const rule = behaviorRules.get(contentChange.inputId);
     if (rule === undefined) {
       refusals.push({
         obligationId: `behavior-policy:${contentChange.inputId}`,
@@ -156,21 +353,14 @@ export function evaluateObligations(request: ObligationRequest): ObligationRepor
     for (const checkId of [...rule.consumerChecks, ...rule.conformanceChecks]) {
       requiredChecks.add(checkId);
     }
-    const currentIdentity = contentChange.current?.blob ?? null;
     const classifications = request.impactClassifications.filter(
       (candidate) => candidate.contentInputId === contentChange.inputId,
     );
-    // Proof: omitting current-candidate bindings here and in `bindsChange` made
+    // Proof: omitting the current-candidate binding in `classificationBinds` made
     // `missing impact classification expands review and refuses instead of defaulting`
-    // receive no refusals for a foreign candidate instead of `does not bind`.
-    const exactClassifications = classifications.filter(
-      (candidate) =>
-        candidate.reviewedIdentity === contentChange.reviewed.blob &&
-        candidate.currentIdentity === currentIdentity &&
-        candidate.reviewedSourceBase === request.reviewed.sourceBase &&
-        candidate.currentSourceBase === request.current.sourceBase &&
-        candidate.reviewedCandidateIdentity === request.reviewed.candidateIdentity &&
-        candidate.currentCandidateIdentity === request.current.candidateIdentity,
+    // receive no refusals for a foreign candidate instead of its `does not bind` refusal.
+    const exactClassifications = classifications.filter((candidate) =>
+      classificationBinds(candidate, contentChange, request.reviewed, request.current),
     );
     // Proof: selecting the first classification made
     // `a same-type implementation change still requires its consumer and conformance checks`
@@ -181,12 +371,8 @@ export function evaluateObligations(request: ObligationRequest): ObligationRepor
       exactClassifications.at(0) ??
       classifications.at(0);
     const bindsChange =
-      classification?.reviewedIdentity === contentChange.reviewed.blob &&
-      classification.currentIdentity === currentIdentity &&
-      classification.reviewedSourceBase === request.reviewed.sourceBase &&
-      classification.currentSourceBase === request.current.sourceBase &&
-      classification.reviewedCandidateIdentity === request.reviewed.candidateIdentity &&
-      classification.currentCandidateIdentity === request.current.candidateIdentity;
+      classification !== undefined &&
+      classificationBinds(classification, contentChange, request.reviewed, request.current);
     // Proof: treating an absent classification as success made
     // `missing impact classification expands review and refuses instead of defaulting`
     // receive `accepted: true` instead of `false` at its first assertion.

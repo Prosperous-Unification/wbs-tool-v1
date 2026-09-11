@@ -1315,3 +1315,54 @@ agent-scalable-llm-wiki --strict` — exit 0; change valid.
 - `git diff --check` — exit 0.
 
 Only task 3.2 was newly marked complete. Task 3.3 and all later task checkboxes remain untouched.
+
+## Slice 3.2 Review Fix Round 1
+
+Currency now compares the byte-sorted union of reviewed and current content identities and emits
+an explicit discriminated `added`, `changed` or `removed` change. An absent side has no synthetic
+or nullable selector identity: added obligations bind the current content identity, removed
+obligations bind the reviewed identity, and every classification also pins both source bases and
+both candidate identities.
+
+The public currency and obligation entrypoints now strictly decode their complete inputs before
+evaluation. Missing or unrecognized impact classifications cannot become known classifications.
+Duplicate input IDs on every currency axis, duplicate behavior rules, duplicate judgment IDs and
+duplicate IDs in each evidence family fail closed. Check, review and classification evidence is
+matched only to its exact subject and current candidate; status selection is set-like and
+independent of observation order. Writer labels remain retained claims and cannot remove an
+obligation.
+
+| Deliberate one-at-a-time fault                | Observed focused production-path failure                                                       |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| enumerate only reviewed content               | the current-only `content.added` change became `[]`                                            |
+| enumerate only current content                | the reviewed-only `content.child` removal became `[]`                                          |
+| refuse all added classification bindings      | the added case gained impact and expanded-review refusals beside its failed check              |
+| refuse all removed classification bindings    | the removed case gained impact and expanded-review refusals beside its failed check            |
+| delete duplicate behavior-rule refusal        | an accepted report selected only `check.consumer` instead of throwing                          |
+| delete duplicate judgment refusal             | two differently scoped `judgment.duplicate` currency entries were returned                     |
+| omit each evidence-ID family in turn          | duplicate classification, label, check and review observations each reached an accepted report |
+| widen the classification enum                 | `implementation-only` was accepted as known with no refusals                                   |
+| make classification optional                  | an absent classification was accepted with no refusals                                         |
+| widen snapshot source base to any string      | a report retained `working-tree` as its reviewed source base                                   |
+| omit current-candidate classification binding | a foreign classification removed the expected `does not bind` refusal                          |
+| omit current-candidate check binding          | a foreign passed check removed the missing-current-check refusal                               |
+| omit current-candidate review binding         | a foreign current review removed the missing expanded-review refusal                           |
+
+Every fault was restored before the next. Adjacent `Proof:` comments name the test and observed
+mismatch. Verification on the restored source:
+
+- `bun test tools/tool-wiki/src/evidence/currency.test.ts` — exit 0; 25 pass, 0 fail, 48
+  assertions.
+- `bunx eslint tools/tool-wiki/src/evidence/currency.ts
+tools/tool-wiki/src/policy/obligations.ts tools/tool-wiki/src/evidence/currency.test.ts` — exit 0.
+- `bunx tsc --build --force tools/tool-wiki/tsconfig.json` — exit 0.
+- `NX_DAEMON=false bunx nx run-many -t lint typecheck test -p tool-wiki --skip-nx-cache
+--output-style=static` — exit 0; 207 pass, 0 fail, 2,228 assertions in 385.34 seconds (6m25s
+  Nx duration), cache skipped and no target skipped. Nx used its documented main-process fallback
+  after sandbox socket denial.
+- `bunx nx format:check --all` — exit 0.
+- `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate
+agent-scalable-llm-wiki --strict` — exit 0; change valid.
+- `git diff --check` — exit 0.
+
+Task 3.2 remains complete. Task 3.3 and all later task checkboxes remain untouched.
