@@ -154,6 +154,17 @@ const DIRECTORY_KINDS: ReadonlySet<PlanCommandKind> = new Set([
   'deleteService',
 ]);
 
+/** Commands that can lengthen or reorder the placed plan's calendar horizon. */
+const CALENDAR_AFFECTING_KINDS: ReadonlySet<PlanCommandKind> = new Set([
+  'patchWorkItem',
+  'duplicateWorkItem',
+  'setEstimate',
+  'setAssignee',
+  'addDependency',
+  'setCapacity',
+  'setPriorityBands',
+]);
+
 /** Thrown inside a batch to stop it; caught by `run`, never seen outside. */
 class Refused extends Error {
   constructor(
@@ -265,16 +276,16 @@ export class PlanCommandRunner {
           this.applyAll(graph, projectId, actorId, commands),
         );
         if (projectId !== null) {
-          const last = commands.at(-1);
-          if (last === undefined)
-            throw new Error('A project command batch completed without a command');
-          const tree = await graph.workItems.tree(projectId);
-          if (tree === null)
+          const needsCalendarPreflight = commands.some(({ kind }) =>
+            CALENDAR_AFFECTING_KINDS.has(kind),
+          );
+          const tree = needsCalendarPreflight ? await graph.workItems.tree(projectId) : null;
+          if (needsCalendarPreflight && tree === null)
             throw new Error(`Project ${projectId} disappeared inside its command batch`);
-          if ('kind' in tree) {
-            throw new Error('The scheduler became unavailable inside a command batch');
-          }
-          if (tree.scheduleError === 'calendar_range') {
+          if (tree !== null && !('kind' in tree) && tree.scheduleError === 'calendar_range') {
+            const last = commands.at(-1);
+            if (last === undefined)
+              throw new Error('A calendar-affecting batch completed without a command');
             applied = {
               ok: false,
               at: commands.length - 1,
