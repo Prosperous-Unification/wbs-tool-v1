@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import type { ScheduleInput } from '@wbs/domain/canonical-schedule-input';
 import { afterEach, describe, expect, it } from 'bun:test';
+import { eq } from 'drizzle-orm';
 
 import { openDatabase, openDrizzle } from '../repository/db';
 import { DrizzleEventLogStore } from '../repository/event-log';
@@ -54,6 +55,16 @@ const FEASIBLE_RESPONSE = `${JSON.stringify({
     makespan: { value: 96, stageValue: 96, bound: 96, status: 'optimal' },
     priority: { value: 0, stageValue: 0, bound: 0, status: 'optimal' },
     movement: { value: 0, stageValue: 0, bound: 0, status: 'optimal' },
+  },
+})}\n`;
+const INCOMPLETE_RESPONSE = `${JSON.stringify({
+  wireVersion: 1,
+  status: 'feasible',
+  offsets: { 'w-1\u0000step-dev': 0 },
+  objectiveValues: {
+    makespan: { value: 96, stageValue: 96, bound: 96, status: 'optimal' },
+    priority: { value: 0, stageValue: 0, bound: 0, status: 'feasible' },
+    movement: { value: 0, stageValue: null, bound: null, status: 'unknown' },
   },
 })}\n`;
 
@@ -854,6 +865,49 @@ describe('OptimizationCoordinator read', () => {
     expect(db.select().from(solverSlot).all()).toEqual([]);
     expect(instance.read({ projectId: 'p-1', objective: 'time', input: INPUT })).not.toBeNull();
     expect(calls).toHaveLength(2);
+  });
+
+  it('reports an admission-closed miss idle beside a ready incomplete result', async () => {
+    const { path, db } = database();
+    seedProject(path);
+    const calls: ReservedSpawnRequest[] = [];
+    const instance = coordinator(
+      db,
+      calls,
+      'blue',
+      () => ({
+        pid: 100 + calls.length,
+        stdout: stream(INCOMPLETE_RESPONSE),
+        stderr: stream(''),
+        exited: Promise.resolve(0),
+        verdict: () => undefined,
+        kill: () => undefined,
+      }),
+      runSolverChildLifecycle,
+    );
+
+    expect(instance.read({ projectId: 'p-1', objective: 'pri', input: INPUT })).toBeNull();
+    await instance.drain();
+    db.delete(optimizedScheduleCache)
+      .where(eq(optimizedScheduleCache.objective, 'time'))
+      .run();
+    const raw = openDatabase(path);
+    try {
+      raw.run(
+        "UPDATE optimization_generation SET admission_state = 'draining' WHERE project_id = 'p-1'",
+      );
+    } finally {
+      raw.close();
+    }
+
+    expect(instance.readPlan({ projectId: 'p-1', objective: 'pri', input: INPUT }).variants).toEqual({
+      pri: { state: 'ready', proof: 'incomplete' },
+      time: { state: 'idle' },
+    });
+    expect(calls).toHaveLength(2);
+    // Proof: reopening admission makes Time live and changes this exact
+    // production read to `pending`, so the mixed shape is pinned to the closed
+    // admission path rather than manufactured at the UI boundary.
   });
 
   it('stores an internal failure but retains admission when creation has no terminal proof', async () => {

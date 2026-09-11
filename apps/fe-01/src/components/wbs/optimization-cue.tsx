@@ -77,7 +77,7 @@ const PILL =
  * grey pill is not a quiet indicator, it is a smudge that reads as a margin
  * somebody got wrong (Dany, 2026-09-08). A plan whose variants are solved, or
  * whose input has nothing to solve, says so by the figures on the pill and in
- * its card; the dot is for the three states a reader has to notice.
+ * its card; the dot is for the four states a reader has to notice.
  */
 function dotState(
   optimization: PlanOptimizationView,
@@ -87,16 +87,21 @@ function dotState(
   if (states.includes('plan-infeasible')) return 'infeasible';
   // A settled variant does not end the other variant's solve. Keep the only
   // state that will change on its own visible until every search has stopped.
-  if (states.includes('pending') || states.includes('retrying')) return 'solving';
+  // A generation-bearing `idle` is the production plan-read state for a miss
+  // that admission could not start; it carries the same in-flight cue until a
+  // later read admits it or the generation retires.
+  if (
+    states.includes('pending') ||
+    states.includes('retrying') ||
+    (optimization.generation !== null && states.includes('idle'))
+  )
+    return 'solving';
   if (
     Object.values(optimization.variants).some(
       (variant) => variant.state === 'ready' && variant.proof === 'incomplete',
     )
   )
     return 'incomplete';
-  // An admitted `idle` is waiting for a solver seat, which is the same news as
-  // `pending` — `variantStateWords` has the whole of why the two words differ.
-  if (optimization.generation !== null && states.includes('idle')) return 'solving';
   // A quantisation-floor publication is Fast's own schedule, substituted
   // because the quantised solver result was worse in the real domain. It is
   // neither an unfinished search nor a degraded schedule, so the figures and
@@ -110,9 +115,9 @@ function dotState(
  * `--destructive` for a plan that cannot meet a work item deadline, and
  * `--muted-foreground` for a solve in flight, pulsing, which is the only state
  * that is going to change on its own. Incomplete and unavailable deliberately
- * share the warning highlight: both mean the
- * optimizer could not supply a proved answer, while the adjacent card names
- * whether it stopped with a usable schedule or supplied none.
+ * share the warning highlight: both mean the optimizer could not supply a
+ * proved answer, while the adjacent card names whether it stopped with a
+ * usable schedule or supplied none.
  */
 const DOT: Readonly<Record<'solving' | 'unavailable' | 'infeasible' | 'incomplete', string>> = {
   solving: 'var(--muted-foreground)',
