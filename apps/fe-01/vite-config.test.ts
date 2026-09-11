@@ -7,8 +7,9 @@
 // DOM to test anyway. The tag is read by a regex over the whole file
 // (`groupFilesByEnv`), so a line comment carries it as well as a docblock —
 // and a docblock would need a `@vitest-environment` the jsdoc lint rejects.
-import type * as Vite from 'vite';
 import { readFileSync } from 'node:fs';
+
+import type * as Vite from 'vite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // `edgeRoutes` reads `.env` off the disk through Vite's `loadEnv`. A test that
