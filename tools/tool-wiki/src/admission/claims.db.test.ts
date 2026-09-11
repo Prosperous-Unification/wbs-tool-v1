@@ -531,7 +531,7 @@ test('bounds terminal lock contention and retries until a held write commits', a
     worktreePath: fixture.worktreeB,
     request: claim('session-retry', fixture.worktreeB, 'apps/retry'),
     readyPath: contenderReady,
-    options: { maxBusyAttempts: 100, busyDelayMilliseconds: 1 },
+    options: { maxBusyAttempts: 100, busyDelayMilliseconds: 5 },
   });
   waitForFiles([contenderReady]);
   Bun.sleepSync(10);
@@ -544,7 +544,7 @@ test('retries the complete transaction until a rollback-journal reader releases 
   const fixture = fixtureRepository();
   const store = openAuthorityStore(fixture.root, {
     maxBusyAttempts: 100,
-    busyDelayMilliseconds: 2,
+    busyDelayMilliseconds: 5,
   });
   const databasePath = resolveAuthorityDatabasePath(fixture.root);
   const readerReady = join(fixture.root, 'reader-ready');
