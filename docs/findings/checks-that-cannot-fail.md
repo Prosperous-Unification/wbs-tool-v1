@@ -1,0 +1,721 @@
+# R5 incident catalogue
+
+Every payload below is preserved byte-for-byte from `AGENTS.md` at `7ab67cb0b6d843eca87f587124c0f3c0fbd35e67`.
+The stable anchors and source markers sit outside those historical payloads.
+
++## Stable incident IDs
+
+The IDs below are permanent catalogue keys. Several early source paragraphs grouped multiple
+incidents; those IDs deliberately share one preserved payload anchor.
+
+| Incident | Preserved source payload              |
+| -------- | ------------------------------------- |
+| R5-01    | [r5.catalogue.001](#r5-catalogue-001) |
+| R5-02    | [r5.catalogue.001](#r5-catalogue-001) |
+| R5-03    | [r5.catalogue.001](#r5-catalogue-001) |
+| R5-04    | [r5.catalogue.001](#r5-catalogue-001) |
+| R5-05    | [r5.catalogue.001](#r5-catalogue-001) |
+| R5-06    | [r5.catalogue.001](#r5-catalogue-001) |
+| R5-07    | [r5.catalogue.002](#r5-catalogue-002) |
+| R5-08    | [r5.catalogue.002](#r5-catalogue-002) |
+| R5-09    | [r5.catalogue.002](#r5-catalogue-002) |
+| R5-10    | [r5.catalogue.003](#r5-catalogue-003) |
+| R5-11    | [r5.catalogue.003](#r5-catalogue-003) |
+| R5-12    | [r5.catalogue.004](#r5-catalogue-004) |
+| R5-13    | [r5.catalogue.004](#r5-catalogue-004) |
+| R5-14    | [r5.catalogue.005](#r5-catalogue-005) |
+| R5-15    | [r5.catalogue.006](#r5-catalogue-006) |
+| R5-16    | [r5.catalogue.007](#r5-catalogue-007) |
+| R5-17    | [r5.catalogue.004](#r5-catalogue-004) |
+| R5-18    | [r5.catalogue.016](#r5-catalogue-016) |
+| R5-19    | [r5.catalogue.023](#r5-catalogue-023) |
+| R5-20    | [r5.catalogue.026](#r5-catalogue-026) |
+| R5-21    | [r5.catalogue.031](#r5-catalogue-031) |
+| R5-22    | [r5.catalogue.037](#r5-catalogue-037) |
+| R5-23    | [r5.catalogue.041](#r5-catalogue-041) |
+| R5-24    | [r5.catalogue.046](#r5-catalogue-046) |
+| R5-25    | [r5.catalogue.047](#r5-catalogue-047) |
+| R5-26    | [r5.catalogue.048](#r5-catalogue-048) |
+| R5-27    | [r5.catalogue.049](#r5-catalogue-049) |
+
+<a id="r5-catalogue-heading"></a>
+<!-- root-source:r5.catalogue.heading -->
+
+## Checks that cannot fail
+
+<a id="r5-catalogue-001"></a>
+<!-- root-source:r5.catalogue.001 -->
+
+R5 exists because this failure keeps recurring — twenty-seven times so far. Fixed: `assertPragmas` with no runtime
+caller, the migration lint's unreachable `ALTER TABLE ... RENAME COLUMN` branch, `readRemoteState`
+reading an unreadable file as never-deployed, `shellcheck … || echo`, the secrets scanner's
+`.catch(() => '')` (an unreadable file scanned as clean — in a CI gate), and `dev:setup` skipping a
+missing `.env.example`.
+
+<a id="r5-catalogue-002"></a>
+<!-- root-source:r5.catalogue.002 -->
+
+Three more on 2026-08-05: `swap.js`'s `readRecordedColor` reading an unreadable state file as
+never-deployed; `configure.sh` replacing an unreadable `.env` with one line, dropping every
+other secret; and the install target shipping whatever was left in `dist/` while reporting
+"checksums verified against the local build" — true, about the stale file it had just
+installed. The last one was caught by checking the installed artifact, not by reading code.
+
+<a id="r5-catalogue-003"></a>
+<!-- root-source:r5.catalogue.003 -->
+
+Two more on 2026-08-06, both in tests that guarded a real behaviour and could not see it break:
+`does not take the focus or the half-typed value` delivered a peer edit that left the field's
+value alone, so it passed with the `key` that caused the bug still in place; and the smoke's
+`internal-forward` check posts to be-01 itself, so it reports ok against a gw-01 whose secret
+be-01 rejects — watched passing, live, next to the new check failing.
+
+<a id="r5-catalogue-004"></a>
+<!-- root-source:r5.catalogue.004 -->
+
+One more on 2026-08-06, and the first one found in the gate itself: `nx typecheck` ran
+`tsc --noEmit -p apps/<app>/tsconfig.json` against a solution-style config — `"files": []`,
+`"include": []`, two `references` — so it compiled **nothing**. A deliberate
+`const x: number = 'not a number'` passed it. A missing required field on `buildApp` reached
+dev and 500'd every `/api/teams` request. Both targets now run `tsc --build --force` against
+the solution config, whose references include the spec project, watched catching that exact
+bug. The test projects are in the gate: measured 2026-09-07 at `3e17fb01`, all 23 spec projects
+compile with **0** errors and a deliberate `const deliberatelyWrong: number = 'not a number'` in a
+test file fails the target (`docs/refactoring/verify.md` § "Merged state").
+The seventeenth is gw-01's copy of the same fault sat unnoticed until the 2026-08-09 review sweep: its
+typecheck ran the solution config and compiled nothing, hiding a dead scaffold `index.ts`
+re-exporting a module that does not exist. Its target now runs `tsc --build --force` on the
+lib project too, watched failing on a deliberate `const deliberatelyWrong: number = 'not a
+number'` and green with it removed; the dead file is deleted. Its spec project's two
+errors (`forward-client.test.ts`) are gone with the rest: 0 on 2026-09-07.
+
+<a id="r5-catalogue-005"></a>
+<!-- root-source:r5.catalogue.005 -->
+
+The fourteenth, on 2026-08-09, found by driving real Chrome by hand and in the shape of the one
+above. `actions-menu.tsx`'s item guard refused a modified Enter by returning — **without**
+`preventDefault` — so the browser fired the button's own click and took the item anyway; a
+chord aimed at the plan duplicated a branch because a menu happened to be open. The proof
+that guarded it, `every chord is inert while a row's ⋯ menu is open`, dispatches synthetic
+keys into jsdom, which performs no default action at all: it could see the guard deleted and
+could never see the guard left half-done. The negative test for that fault has to be a
+browser, and it is now in `e2e/keyboard.spec.ts`, watched failing on Shift+Enter with a third
+row on screen.
+
+<a id="r5-catalogue-006"></a>
+<!-- root-source:r5.catalogue.006 -->
+
+The fifteenth, on 2026-08-09 in `M mobile-cards`, and the same shape as the fourteenth: the
+oracle was jsdom and the fault was a browser's. The toolbar sheet closed itself from an
+`onClickCapture`, so React flushed the discrete update **between** its capture and bubble
+dispatches, the control was unmounted before the bubble pass walked the fiber tree for
+handlers, and every toolbar control on the sheet did nothing at all — no request, no work
+item. All sixteen of `plan-cards.test.tsx`'s tests passed through it, `closes when a control
+on it acts on the plan` included, because jsdom had already collected `Add work item`'s own
+`onClick` when the close ran. Found in Chrome at 390×844 by the `POST …/work-items` simply
+missing from the network log. The close is on the bubble phase now, and the browser is the
+only thing that can say so.
+
+<a id="r5-catalogue-007"></a>
+<!-- root-source:r5.catalogue.007 -->
+
+The sixteenth, on 2026-08-09 in `G gantt-view`, and the first caught **inside a browser test
+as it was being written**. The e2e assertion that a not-before caret stays clear of its bar
+took the successor bar as `bars.at(1)` — which in a fresh project is the same row's second
+_role_: an unestimated QA slice of zero width standing at the same workday. The overlap check
+compared the caret against a bar that has no area, so it could not fail, and injecting the
+fault it was written for — the caret drawn on the bar — left it green. The bar is now found
+through the caret's own row, its width and height asserted non-zero first, and the injected
+fault was watched failing before the test was believed.
+
+<a id="r5-catalogue-008"></a>
+<!-- root-source:r5.catalogue.008 -->
+
+Two more the same day, in `P phases-ui`, and **neither shipped** — which is why neither is in
+the count above. `page-shortcuts.test.tsx` had six checks about an open modal and none about a
+closed one, so nothing could see `ModalContent` suspending the page's keyboard the moment a
+dialog was _declared_; `P` is `Modal`'s first production caller and 49 unrelated tests went
+red the hour it mounted one. And `P`'s own `unfoldedRoles` sanitizer, which the plan asked
+for, was written, its negative watched **passing** with the line deleted, and the line removed:
+`columns` maps over `roles`, so a dead id in the accordion selects nothing. Write the negative
+before you believe the line.
+
+<a id="r5-catalogue-009"></a>
+<!-- root-source:r5.catalogue.009 -->
+
+Two more on 2026-08-09 in `T2 compact-columns`, and **neither shipped**. The earliest-start cell
+opened its editor from `onMouseDown`, so React flushed the discrete update inside that dispatch
+and the at-rest input was gone before Chromium performed the event's **default action** — focusing
+the node it had hit-tested. Focusing a detached node moves the focus to `<body>`, that blurred the
+editor, a blur is an exit, and the editor closed: a click on the cell did nothing at all. All 314
+cases in `wbs-table.test.tsx` stayed green through it, because every one of them opens the editor
+with Enter and jsdom performs no default action. Found in Chromium by counting
+`input[type=date]` after a click and getting none; the open is on `click` now, and
+`e2e/keyboard.spec.ts` watched the fault. R5 #14/#15's fault class, third time.
+
+<a id="r5-catalogue-010"></a>
+<!-- root-source:r5.catalogue.010 -->
+
+And the fix written for the _other_ half of that contract was a check that could not fail. Escape
+had to stop the blur it causes from committing the abandoned day, so `DateField` grew a flag the
+next commit attempt would spend. Removing that flag was watched — and the browser test passed
+anyway: the row's editor is unmounted on the way out, so there is no blur to suppress, and on the
+one field that does stay on screen (the toolbar's project start date) the flag sat behind the
+`node.value = agreed.current` beside it and was never reached. The flag is deleted; the value
+reset is the guarantee, and it was watched failing on `expected "2026-09-09" to be "2026-06-01"`
+with a real blur, in a browser.
+
+<a id="r5-catalogue-011"></a>
+<!-- root-source:r5.catalogue.011 -->
+
+Two more on 2026-08-09 in `G gantt-calendar-axis`, and **neither shipped**. The calendar
+axis's cell count was asserted against the canvas it stands over — a real relation, and a
+vacuous check as written, because the canvas was **sized from the axis's own length**. The
+named fault (the axis built from the workday horizon while the canvas kept the calendar one)
+moved both and was watched **passing**; the canvas is now sized from the placed horizon, the
+two are computed apart, and the same fault was then watched failing on `expected …(6) to have
+a length of 8 but got 6`. And `bun run e2e` **reused another checkout's dev server**: the
+committed Playwright config sets `reuseExistingServer: !isCi`, a `bun run dev` from
+`~/wd/puni/wbs-tool-v1` held 3100/3200/4200, and 66 browser tests passed against code this
+worktree had never built — the two new gantt assertions failed only because they described a
+chart that checkout did not draw. A browser gate that silently measures a different checkout
+is the same fault wearing a third hat; see `LLM_README.md`'s landmine.
+
+<a id="r5-catalogue-012"></a>
+<!-- root-source:r5.catalogue.012 -->
+
+One more the same day, in `N name-title-body`, and it **did not ship** either. The hover
+preview must show a work item's name as text rather than as markdown source, and the negative
+written for it used the name `# not a heading <script>`. With the fault injected — the name
+concatenated into the source — it **passed**: `# # x` is an ATX heading whose content is the
+literal `# x`, so the parser handed back the exact string the test was asserting had never
+been parsed. The name carries `*not*` now, and the heading is asserted to contain no element
+the parser made; both failures were then watched. The test that catches a parser has to use
+punctuation a parser eats.
+
+<a id="r5-catalogue-013"></a>
+<!-- root-source:r5.catalogue.013 -->
+
+Two more on 2026-08-09 in `D directory-page`, and **neither shipped**. The directory page must
+show a membership only once be-01 has answered, and the negative written for that — refuse the
+patch, then assert the refused team is not chipped — was watched **passing** with the optimistic
+`setPeople` put back in front of the request. It had to: the page re-reads after every write, so
+an optimistic page and a patient one land on the same screen and the only difference is the
+window between the request and the answer. The fake holds the patch in flight now and the
+assertion is made **there**, where the fault was then watched failing on `expected <button …> to
+be null`. And `page-nav.tsx` carried an `activeOptions={{ exact: true }}` written on the
+reasoning that `/` is a prefix of `/directory`: removing it changed nothing at all, because the
+two are siblings under the root route and `Link` decides "active" by route match rather than by
+string. It is deleted, and why is written where it was going to be. **Assert in the window the
+fault lives in, and delete the guard whose removal you cannot see.**
+
+<a id="r5-catalogue-014"></a>
+<!-- root-source:r5.catalogue.014 -->
+
+One more on 2026-08-09 in `T1 column-widths-drag`, and it **did not ship**. The remembered
+column widths are read as a claim, and the plan asked for three per-entry rules with three
+negatives. The middle one — `if (!Number.isFinite(width)) continue;` — was written and its
+negative watched with the line deleted: it **passed**. `1e999` is the only non-finite width
+JSON can express, it parses to `Infinity`, and `Infinity` is above every ceiling exactly as
+`-Infinity` is below every floor; JSON has no `NaN` for the case the line would have been
+about. The range check beside it already refused both. The line is deleted and both storage
+cases watch the range check instead, watched failing on `expected '' to be '56px'`. Write the
+negative before you believe the line — `P phases-ui`, one change later.
+
+<a id="r5-catalogue-015"></a>
+<!-- root-source:r5.catalogue.015 -->
+
+One more on 2026-08-14 in `linked-row-hover`, and it **did not ship**. The pointed row's tint had
+to outrank the alternating band's hover, so `data-row-lit` joined that rule's `:not()` chain — and
+the negative written for it, pointing a row from a **Gantt bar**, was watched **passing** with the
+attribute taken back out. `nth-child(even):hover` needs the pointer on the `<tr>`: point from the
+chart and `:hover` never matches at all, so the banded rule cannot compete and there is nothing
+for the `:not()` to hold up. The collision needs both conditions on **one** row, which after the
+fix below is only a bar holding the focus while the pointer rests on that same row in the table —
+`depFocus`'s own arrangement. Rewritten that way it failed on `Expected "oklab(0.96448 …)"
+Received "oklab(0.917255 …)"`. **A negative about `:hover` has to hover the thing.**
+
+<a id="r5-catalogue-016"></a>
+<!-- root-source:r5.catalogue.016 -->
+
+And the fault that made the rewrite necessary is the shape worth remembering: the first cut wrote
+`data-row-lit` on **every** hovered row, which made the banded rule unmatchable and stopped the
+stripe moving under the pointer at all. All **1319** jsdom tests passed through it; four
+assertions in `e2e/hover-cards.spec.ts` failed, in both palettes. It was found by running the
+**whole** browser gate rather than the new tests in it — a change that edits a shared CSS rule has
+no business believing a filtered run.
+
+<a id="r5-catalogue-017"></a>
+<!-- root-source:r5.catalogue.017 -->
+
+Five more on 2026-08-30 in `estimate-triple-visible`, and **none shipped** — one family, and
+the family is worth the name: **an assertion made outside the window the fault lives in.**
+Four of them were the same mechanism. The folded estimate cell is an _uncontrolled_ box: it
+holds what was typed from the keystroke onwards, and only the round trip replaces that with
+what the row now says. So `await waitFor(() => expect(cell.value).toBe('2/3/10'))` is
+satisfied by its **first** sample, before the answer it is about, and it was watched passing
+with the whole change reverted. Wait on something only the answer can produce — the figure
+beside the cell, the row's total days — and _then_ read the box. The third was subtler and
+the same shape: typing a cell's own value back into itself proves nothing, because
+`LiveField` diffs it against its baseline and sends nothing at all; the round trip has to be
+made through a **second** row. The fourth assumed a draft where there is none — the folded
+cell writes no draft on a keystroke (`onTyped` belongs to the `@` list), so "typed and not
+left" is not the draft window and a live-preview fault was invisible in it; the window opens
+on the blur that holds a refusal. And the fifth is `G gantt-calendar-axis` again in a browser:
+the assertion that a 96px cell still shows its whole trio was proved by giving the figure
+beside it `flex: 1` — which makes both children share the slack, so nothing clips and the
+proof was watched **passing**. Replaced by the widest trio anybody has actually typed here,
+`20/24/30`, it found the design genuinely broken: the box clipped by 8px at the row's own
+type, `Expected: <= 0, Received: 8`. **Inject the fault the check is about, not the one that
+is easy to inject.**
+
+<a id="r5-catalogue-018"></a>
+<!-- root-source:r5.catalogue.018 -->
+
+One more on 2026-08-30 in `plan-toolbar-controls`, and it **did not ship**: the plan asked for
+the check and the plan's own shape was the vacuity. `tasks.md` 5.1 said to pin the folded
+toolbar's width **before** the change and assert the bar got narrower, with the negative being
+`Expand all` and `Collapse all` given their text labels back. But the pre-change bar carried
+those labels _and_ `Freeze numbering` and `Unfreeze all` as two buttons where there is now one
+`Freeze #` menu, so the faulted bar is **narrower** than the before-figure and `asked <=
+before` passes with the fault in — a pin measured against a bar that no longer exists. The pin
+is the shipped bar's own budget instead (1552.734375 measured, 1600 pinned), and the fault was
+then watched failing on `Expected: <= 1600 · Received: 1658.828125`, 106px above it. **A
+before-and-after pin is only a check when the fault rebuilds the whole "before".**
+
+<a id="r5-catalogue-019"></a>
+<!-- root-source:r5.catalogue.019 -->
+
+Two more on 2026-08-30 in `name-links-and-height`, and **neither shipped** — but they are
+the rule's own failure mode rather than a check's, which is why they are worth the paragraph.
+Both were `Proof:` comments **written before the failure was observed**: the
+`[data-cell-rendered] a` rule's, which guessed "the click opened the editor instead of the
+tab — expected 0 popups", and the notes' `a: LinkFollowable` mapping's, which guessed
+`expected … attribute "target" … received <null>`. Injected, the first failed on
+`page.waitForEvent: Test timeout of 60000ms exceeded` — no popup at all — and the second
+failed **earlier than the line it named**, on `expect(locator).toHaveText … element(s) not
+found`, because react-markdown's own `a` carries no `data-name-link` for the locator to find.
+Both comments were corrected to what was observed. A guessed `Proof:` is indistinguishable
+from an observed one to every future reader, and one of these two named an assertion the
+fault never reaches — which is exactly how a check that cannot fail acquires a comment saying
+it can. **Write the comment from the failure output, never from the expectation.**
+
+<a id="r5-catalogue-020"></a>
+<!-- root-source:r5.catalogue.020 -->
+
+One more on 2026-08-30 in `estimate-weights-and-rounding`, and it **did not ship**. The
+change's headline is an order — a step's three points are combined, that figure is rounded,
+and only then are steps summed — and the negative written for it injected the fault the
+change is _about_: the parent roll-up taken back to "roll the triples up, charge once". It
+was watched **passing**. It had to be: a leaf's steps were already charged one at a time
+before the change (`finalsOf` summed `finalDays` per step), so rolling triples up per step
+changes nothing on a leaf, and the order only becomes visible across **children**. The fault
+that test is actually about is the other order — charge the sum rather than the step — and
+injected that way it failed on `Expected: 1, Received: 0.5`. The parent half now carries the
+roll-up fault as its own proof, on a parent. **Inject the fault at the level the order lives
+at**, which is `estimate-triple-visible`'s "assert in the window the fault lives in" wearing
+a second hat.
+
+<a id="r5-catalogue-021"></a>
+<!-- root-source:r5.catalogue.021 -->
+
+Three on 2026-08-31 in `reference-cell-escape-and-hover`, and **none shipped** — but the one
+worth the paragraph is the check that was already on `main` and could not fail.
+`types-cell.spec.ts`'s headline, `a row of three types is the same height as a row of none`,
+carried a recorded note saying its own negative had been watched leaving all five cases
+green, and blamed the `<td>` clip for hiding a wrapped strip. Both halves were wrong: the
+column is exempt from that clip now and the case **still** passed with `flex-wrap: wrap`
+injected on the strip and both chip groups. The reason is that the row was measured **with
+the cell still being edited**, and an edited reference strip is an absolutely positioned
+panel — not in the row's flow at all, free to wrap to any height without moving anything. One
+`blur()` before the measurement, and the same injection failed on `Expected: 26.1875 /
+Received: 87.1875`. **A layout check has to be taken in the layout the reader lives in**, which
+is `estimate-triple-visible`'s "assert in the window the fault lives in" wearing a third hat —
+and a recorded explanation for a vacuity is itself a claim, worth re-checking before it is
+inherited. The other two were written this round and deleted rather than shipped: a focus
+handoff on a chip's `✕` whose negative cannot be reached because the button can never hold
+the focus (Shift+Tab in the box is the grid's move, measured), and an `elementFromPoint` probe
+four pixels past a cell's right edge, which passes with the clip removed because the next
+`<td>` paints its own background over the overflow.
+
+<a id="r5-catalogue-022"></a>
+<!-- root-source:r5.catalogue.022 -->
+
+One more on 2026-08-31 in `external-refs`, and it **did not ship**: the plan asked for a
+check the design could not break. `tasks.md` 6.1 said to measure "a row with four systems and
+a row with none ... to the same height", with the negative being "the marks moved into normal
+flow". Injected — `markStyle`'s `position: 'absolute'` changed to `'static'` — the height
+assertion was watched **passing**: 26.1875px either way. It had to. The ref cell's box is
+12px inside a row the Name cell already stands 26.19px tall, so the row is never this cell's
+to move and the equality is a true statement about a column that has nothing to do with it.
+What the fault really does is collapse the marks — a `<span>` in normal flow is inline, width
+and height do not apply, and four 6px discs become zero-width text boxes outside the box they
+were meant to sit in (`[164,150,0,15]`, measured). The check is now that each mark is a 6×6
+disc inside its box, and the same fault was then watched failing on `jira is not a 6×6 disc ·
+Expected {"height": 6, "width": 6} · Received {"height": 15, "width": 0}`. **A geometry claim
+about a small box inside a bigger one is a claim about the bigger one**, which is
+`estimate-triple-visible`'s "assert in the window the fault lives in" wearing a third hat.
+
+<a id="r5-catalogue-023"></a>
+<!-- root-source:r5.catalogue.023 -->
+
+One more on 2026-08-31 in `svg-export-and-gutter`, and it is the **gate** rather than a test:
+`fe-01:lint` names its inputs one by one in `project.json`, and `vitest.setup.ts` and
+`playwright-config.test.ts` — two of the seven `.ts` files at `apps/fe-01/` — were not among
+them. A real `@typescript-eslint/no-unnecessary-condition` error written into `vitest.setup.ts`
+was reported **clean** by `bunx nx lint fe-01`, and would have been by CI's `run-many -t lint`;
+**lefthook** caught it, which is the hook this file calls bypassable while CI is not. Both files
+are named now, watched failing on `vitest.setup.ts 153:18 error Unnecessary conditional` with
+the fault back in and green with it gone. Add a new root-level file to that command the day you
+add the file — a lint target scoped to a place the fault is not is the `main`-green landmine
+above wearing a second hat.
+
+<a id="r5-catalogue-024"></a>
+<!-- root-source:r5.catalogue.024 -->
+
+One more on 2026-08-31 in `steps-schema-rename`, and it **did not ship** — but it is the first one
+where the _migration_ and its check were wrong together. `ALTER TABLE role RENAME TO step` rewrites
+other tables' `REFERENCES` clauses **only when `foreign_keys` is on as the statement is prepared**,
+and `runMigrations` decided that pragma **once for the whole run**: if any pending migration carried
+`-- foreign-keys-off-rebuild`, every pending migration ran unenforced. On dev, where the one marker
+migration (`20260824010000_add_oidc_identity`) was applied a week earlier, nothing pending asked for
+it and the rename was correct. On a **fresh** database every migration is pending, so the whole
+bootstrap ran with foreign keys off and the rename left five tables pointing at a table that no
+longer existed — `no such table: main.role` on the first insert into any of them. One file, two
+schemas, decided by which database it landed on.
+
+<a id="r5-catalogue-025"></a>
+<!-- root-source:r5.catalogue.025 -->
+
+The check written to verify the rename — **"no table, column or index name carries the word
+`role`"**, which is the spec's own scenario — **passed against the broken database**, because the
+word survived only inside FK clauses and constraint names, neither of which is a table, column or
+index. What found it was running the 1249 tests that already existed: 161 of them failed. The window
+is now narrowed to the migrations that ask for it (`pendingNeedingForeignKeysOff`), and the check is
+the reference clause plus a live write through it, watched failing on `Expected to contain:
+"REFERENCES \"step\""` with the whole-run decision put back. **A check written from the spec's own
+words can still be blind to the fault the spec is about — run everything, not the new test.**
+
+<a id="r5-catalogue-026"></a>
+<!-- root-source:r5.catalogue.026 -->
+
+One more on 2026-09-01 in `audit-columns`, and it is the first where the thing that could not fail
+was a **type**. The 76 new audit columns were added to `schema.ts` by spreading a shared
+`auditColumns()` into 26 tables — drizzle's own idiom for shared columns — and one of those tables
+is `users`, which is the table the helper's `created_by` points **at**. So `users` needed the
+helper's return type and the helper's return type needed `users`; TypeScript resolved the cycle by
+inferring the spread as contributing **nothing**, in silence. Every row type in the schema lost all
+three columns: `db.select().from(tag)` came back typed `{ id, name }`. Nothing caught it — the
+migration created the columns, drizzle wrote and read them correctly at runtime, `nx typecheck`
+passed, and the new behaviour tests passed while asserting `row.createdBy` on a property TypeScript
+believed did not exist. What found it was the **LSP**, on the test file, because the test project is
+out of the typecheck gate. Fixed by writing `users`' own two columns inline with the annotated
+self-reference drizzle asks for, which breaks the cycle; proved by a throwaway probe asserting
+`typeof tag.$inferSelect` accepts all three. **A silently-widened type is a check that cannot fail,
+and the gate that would have caught this one does not read the files that noticed.**
+
+<a id="r5-catalogue-027"></a>
+<!-- root-source:r5.catalogue.027 -->
+
+Four on 2026-09-01 in `tool-hints-wait`, and **none shipped** — but two of them are new
+shapes and the browser one is the most reusable thing in this list.
+
+<a id="r5-catalogue-028"></a>
+<!-- root-source:r5.catalogue.028 -->
+
+**Playwright's `toHaveCount(0)` is a _retrying_ assertion, so it is not a way to say
+"nothing here right now".** The new hint layer must draw no wait ring inside its first
+400ms, and `await expect(ring).toHaveCount(0)` two hundred milliseconds in was watched
+**passing** with `RING_QUIET_MS` set to 0: the assertion polls for thirty seconds and is
+satisfied the moment the count reaches zero, which for a ring is the moment the card
+replaces it, three seconds later. The fault was then caught two assertions further down by
+a card that had also gone wrong, which reads in the report as a completely different bug.
+Every silence in `e2e/hints.spec.ts` is now `expect(await locator.count()).toBe(0)` — read
+once, at the instant it is about — and the same fault failed on `Expected: 0 · Received: 1`
+at the line it belongs to. **An auto-waiting matcher cannot assert an absence that is only
+temporary.**
+
+<a id="r5-catalogue-029"></a>
+<!-- root-source:r5.catalogue.029 -->
+
+**A locator that says "the first mark of this kind" is not about any particular mark.** The
+case that a project fact opens within 400ms found its subject with `page.locator('td
+[data-fact]').first()`, and passed with the fault it exists for — the row number turned back
+into a `data-hint` — because a row carries several facts and the locator simply moved on to
+the next one. Pinned to `td span[data-fact="010"]`, the same fault failed at the locator
+itself: `element(s) not found`.
+
+<a id="r5-catalogue-030"></a>
+<!-- root-source:r5.catalogue.030 -->
+
+The other two are old shapes wearing this change's clothes. An advance computed from the
+constant it asserts against (`waitOut(RING_QUIET_MS - 250)`) went **negative** under the
+injected fault and failed the run on `Negative ticks are not supported` rather than on the
+assertion — a failure that says nothing about the behaviour; the advances are literals now.
+And a ring read at the **end** of the wait rather than during it could not fail either way,
+because the opening clears the ring on its way past — `estimate-triple-visible`'s "assert in
+the window the fault lives in", again. Two `Proof:` comments in this change were also written
+from what the fault looked like it should do and were **wrong** in both cases; both were
+rewritten from the output.
+
+<a id="r5-catalogue-031"></a>
+<!-- root-source:r5.catalogue.031 -->
+
+And one on 2026-09-01 that is not a vacuous check but the reason this list keeps growing: **the
+whole gate was green over a feature that did not work.** With the wait shipped, adding a work item
+killed every toolbar hint for the rest of the visit — the write hands the keyboard to the new row's
+Name box a few milliseconds later, that `focusin` names a `<textarea>` with no hint of its own, and
+the layer's focus path answered by cancelling everything, the pointer's three-second wait included.
+The pointer has not moved, so nothing ever restarts it. 2020 jsdom tests and 276 browser tests
+passed through it, twenty of them written that hour and every one of them about a page **at rest**;
+the fault lives only in the second after a write. It was found by taking a screenshot and looking at
+it. And the first theory for it — a scroll from the settling table — was **wrong**: the document's
+own event log had no scroll in it at all. Instrument before you believe a mechanism, and look at the
+thing you built.
+
+<a id="r5-catalogue-032"></a>
+<!-- root-source:r5.catalogue.032 -->
+
+Three on 2026-09-08 in `dual-optimized-scheduler` slice 8b, and **none shipped** — but the first
+is a new shape and the most reusable thing here since the auto-waiting matcher. **An injected
+fault that is not the fault proves nothing, and it looks exactly like a proof.** The dense-rank
+form of the schedule order relation was replaced by _competition_ ranking (`indexOf` plus the
+count of equal values) to watch the tie cases go red, and they stayed green — correctly, because
+competition ranking still gives a tie group one shared value and therefore represents the same
+weak order. The fault the tie handling is actually about is a ranking that **splits** a tie
+group, and injected that way it failed on `seed 52 · Expected: false · Received: true` plus both
+named cases. A green negative is a fact about the injection, not about the check.
+
+<a id="r5-catalogue-033"></a>
+<!-- root-source:r5.catalogue.033 -->
+
+The second is R5 #22's own lesson wearing this change's clothes: a `Proof:` comment claimed
+`MenuControl` would **throw** when an item left an open menu, and what it really does is drop the
+focus to `<body>` — the effect that focuses is keyed on the index, so an unchanged index never
+re-runs it. Both the comment and the JSDoc were rewritten from the output. And the third is that
+the _whole gate_ is not what a local run is: `contracts:test` failed in CI on a wire fixture
+missing the two fields this change added, after local runs of `domain`, `be-01` and `fe-01` —
+every project **except** the one the schema lives in. Run the projects you changed, by name.
+
+<a id="r5-catalogue-034"></a>
+<!-- root-source:r5.catalogue.034 -->
+
+Two faults in that slice were found by neither, and both were found by rendering the thing and
+looking at it: a `HoverCard` anchored near the right edge laid out at its mark's own left edge
+and so measured **195px wide and eight lines tall** against a 420px ceiling (a fixed box has
+only the room between its left edge and the window to shrink-to-fit in, and the placement
+function was then handed a width that had already been squeezed); and no card wrapped a long
+unbroken token — 1396px of text inside a 388px phone card. 2,500 jsdom cases and seven browser
+assertions were green over both.
+
+<a id="r5-catalogue-035"></a>
+<!-- root-source:r5.catalogue.035 -->
+
+One on 2026-09-09, in `rendering-baseline.spec.ts`, and it is the browser gate's own version of
+"the oracle was jsdom": **a key is not the same key on both platforms, and the spec is green on
+the one CI runs.** `press('End')` leaves `selectionStart` at 0 in a focused `<textarea>` on
+macOS — that key belongs to the document there and scrolls it, while end-of-line is ⌘→ — so
+everything typed after it lands at the **start** of the field. On Linux, which is what CI runs,
+`End` is end-of-line and the same spec is green. The failure it produces, `Expected: "Row 0000
+half-typed" · Received: " half-typedRow 0000"`, looks exactly like interleaved keystrokes, and
+it was written into a verify.md as "one class of race" with a genuine CI flake before anybody
+measured it. `ControlOrMeta` does not paper over it either: `Control+ArrowRight` moves by a word
+on Linux. `e2e/caret.ts` carries the measured table and the per-platform press.
+
+<a id="r5-catalogue-036"></a>
+<!-- root-source:r5.catalogue.036 -->
+
+Its second half is `tool-hints-wait`'s locator lesson in a new file, and it was found **because**
+the fix asserted something the spec had not: `caretToLineEnd` waits for the field to hold the
+focus, and that turned the _other_ case in the file red at once —
+`page.locator('…input[data-cell$="-optimistic"]').first()` re-resolves on every action while the
+unfolded columns mount, so the node focused (`…7eaef440…`) was not the node typed into
+(`…c25249bc…`). It had passed for as long as nothing between the two resolutions asserted
+identity. An assertion added to a helper is a cheap way to find every caller that was relying on
+something it never said.
+
+<a id="r5-catalogue-037"></a>
+<!-- root-source:r5.catalogue.037 -->
+
+One on 2026-09-09 in `link-names-and-card`, and it **shipped** — the twenty-second, and R5
+#14/#15's fault class again: jsdom as the oracle for a fault that is a browser's. The links
+card had a whole describe block about it in `plan-cells.test.tsx` — `the card lists every ref
+and follows one`, `a non-http URL is not a link` — and every case passed while **no reader
+could see the card at all**. It was in the DOM, the right size, in the right place, and painted
+over: the Links column is pinned, a pinned cell is `position: sticky` _with_ a `z-index` and so
+a stacking context, and `raiseWhenOpen` was `columnId === 'name'` — the Name column named alone,
+by the change that discovered this exact fault in 2026-08-08 and fixed it for one column.
+Measured in Chromium on 2026-09-09: the card's rectangle `[94, 229, 284, 68]`, with
+`elementFromPoint` at its own middle answering the _next_ row's name `<textarea>`. The lift now
+asks the two facts — `layout.pinned.has(columnId) && opensAPopover(columnId)` — and
+`e2e/external-refs.spec.ts` asserts the element painted at the card's middle is part of the
+card. **A jsdom test can see a popover exist and can never see it be invisible.**
+
+<a id="r5-catalogue-038"></a>
+<!-- root-source:r5.catalogue.038 -->
+
+Three more the same day and in the same change, and **none shipped**. The first is a negative
+watched **passing**: the add row's name box holds `null` for "nobody has typed here" so that a
+box a reader **emptied on purpose** is not refilled with the URL's derived label, and the test
+written for it typed `My own words` and then changed the URL. Both readings keep non-empty
+words — that is what makes them both correct about that case — so the `''` sentinel was put back
+and the test stayed green. The case the sentinel exists for is the box cleared to empty, and
+rewritten that way it failed on `expect(element).toHaveValue() · Received: #4178`.
+**A sentinel that distinguishes "unset" from "empty" can only be tested with the empty one.**
+
+<a id="r5-catalogue-039"></a>
+<!-- root-source:r5.catalogue.039 -->
+
+The third is the browser proof written for the shipped fault above, and it **passed** with the
+fault injected. `raiseWhenOpen` narrowed back to `columnId === 'name'` and
+`e2e/external-refs.spec.ts`'s `the card is drawn on top of the rows below it` was watched green
+— because the same change had also made the cell's hover surface
+`position: absolute; inset: 0`, and an absolutely positioned wrapper keeps the card on top by
+itself. Two fixes, either sufficient, and a browser can only see that the card is visible. The
+lift's real negative is the jsdom one (`expected 1 to be 2`); the browser check is the
+end-to-end guarantee and now says so. **When two edits in one change fix one fault, the
+negative for either of them passes — inject them together or prove them apart.**
+
+<a id="r5-catalogue-040"></a>
+<!-- root-source:r5.catalogue.040 -->
+
+The second is a claim about **which boundary refuses what**, written from the code's shape
+rather than from the wire. `plan-command-shapes.ts` declares `'name?': 'string'`, so the JSDoc
+said a mistyped name is refused by the shape before the parser runs, the parser's `typeof` was
+demoted to "narrowing", and the two refusals were collapsed into one. Probed against `buildApp`:
+the shape refuses an unknown **key** (`{"error":"invalid_body"}`) and lets a mistyped **value**
+straight through, so `name: 7` was answered `externalRefs_entry_name_is_too_long` — `(7).length`
+is `undefined`, `undefined > 300` is false, the ref is **written** with a number in its name
+column, and the tree read then fails its own response schema. A 400 either way, a wrong reason,
+and a stored row no reader can name. Two codes now, both watched failing, and the probe's own
+answers are assertions in `work-item.controller.test.ts` rather than a sentence in a comment.
+**Which layer refuses a bad field is a measurement, not a reading.**
+
+<a id="r5-catalogue-041"></a>
+<!-- root-source:r5.catalogue.041 -->
+
+One more on 2026-09-09, in `links-card-takes-the-pointer`, and it **shipped** — the
+twenty-third, found by Dany moving a mouse at the thing an hour after it merged: _"i cannot
+hover over the dropdown - it disappears when i move cursor down to it"_. The links card was
+`pointer-events: none` with `padding: 6px 10px` and only its **lines** took the pointer, so the
+6px band around them hit-tested the row _beneath_ the card; a cursor moving down fired the
+cell's `mouseleave` and the card unmounted before the cursor reached a line. Measured in the
+running app: the card at `[88, 242, 370, 56]`, and `elementFromPoint` 1px and 4px inside its
+top edge both answering the next row's name `<textarea>`.
+
+<a id="r5-catalogue-042"></a>
+<!-- root-source:r5.catalogue.042 -->
+
+**The oracle was `locator.hover()`, which teleports.** Playwright puts the pointer straight on
+an element's centre, so `await name.hover()` never crossed the band the hand has to cross —
+and two browser assertions about reaching and clicking that link passed over the defect twice.
+The fix is `HoverCard`'s new `takesPointer`; the test now walks with
+`page.mouse.move(x, y, { steps: 12 })`, and the negative was watched on `the card closed on
+the way down to it`.
+
+<a id="r5-catalogue-043"></a>
+<!-- root-source:r5.catalogue.043 -->
+
+And the second half of the same report — reaching for a link on the right of a 400px card from
+a 40px cell — got a **grace period on closing** that was then **measured and deleted**, which
+is the more useful half of the story. `CARD_GRACE_MS` (200ms) held the card while the pointer
+crossed the Name column, and with the card _under_ the cell its negative was real: set to 0,
+`the card closed on a diagonal reach for a link`. Then Dany asked for the card **beside** the
+cell (_"so that i can move my cursor down to look at each item one by one uninterrupted"_), the
+card's left edge became the cell's right edge, and the gap the timer covered stopped existing.
+Re-measured with the whole timer **and** its re-arm removed: the walk still passed. So it went.
+**A guard can be genuinely load-bearing and then be made vacuous by the fix that follows it —
+re-run its negative after every change to the geometry it was about, not only when it is
+written.**
+
+<a id="r5-catalogue-044"></a>
+<!-- root-source:r5.catalogue.044 -->
+
+`locator.hover()` proves an element is clickable, never that a hand can get to it.
+
+<a id="r5-catalogue-045"></a>
+<!-- root-source:r5.catalogue.045 -->
+
+One more on 2026-09-09 in `notes-preview-clears-the-marker-lane`, and it **did not ship** —
+caught while the test was being written, which is where these belong. The Name cell's notes
+preview had to be pulled 24px left so the `≡` markers' lane stays hoverable, and the negative
+written for it — the preview's right edge against the next row's marker — was watched
+**passing** with the pull removed. The notes it typed were one sentence, so the card
+shrink-to-fit **well inside its own cell** and its right edge was 200px short of the lane: a
+true statement about a card that was never near the fault. Given a paragraph, and with the
+card's width asserted big enough to reach the lane from its cell's left edge first, the same
+injection failed on `the preview covers the marker lane · Expected: <= 486.40625 · Received:
+502`. The `100%` width cap beside the pull was then watched producing the **same** two figures,
+which is how a second load-bearing line got a proof of its own. **A geometry proof needs a box
+big enough to commit the fault** — `estimate-triple-visible`'s "assert in the window the fault
+lives in", now with a horizontal axis.
+
+<a id="r5-catalogue-046"></a>
+<!-- root-source:r5.catalogue.046 -->
+
+One more on 2026-09-09 in `every-cell-card-clears-its-lane`, and it is the previous entry's own
+fix half a day later: **a cap only binds while the box is above its minimum.** The notes preview
+was pulled `left: -24px` with `max-width: min(640px, 100%, 100vw)`, and both halves were watched
+failing — on a **555px** Name cell. `HoverCard` also carries `min-width: 260px`, so the moment the
+column is narrower than that the minimum wins, the cap is decoration, and the pull just moves a
+260px card 24px left of a 192px cell: 44px back over the lane. That is the Name column with the
+four reference columns on screen, which is one checkbox away from the layout every proof was taken
+in. The card is anchored by its **right** edge now — the edge that carries the promise — and the
+cap is deleted, because a promise about one edge should be made about that edge rather than
+inferred from a width. `min`/`max` pairs are not the same box at every size; test the size where
+the other constraint wins.
+
+<a id="r5-catalogue-047"></a>
+<!-- root-source:r5.catalogue.047 -->
+
+Two more in the same change, both about the **oracle for a walk**. The first cut of
+`e2e/card-lanes.spec.ts` walked the Depends on column at `box.x + 2` — the passive 2px strip the
+existing helper uses to open that card without hitting a chip — and the negative (the card put back
+under its cell) **passed**: the card starts at the cell's `<td>` padding, so those two pixels are
+the one lane in that column the card never covers. And once the walk moved to the column's middle,
+the negative passed **again**, because `mouse.move(..., { steps: 12 })` samples the row boundary,
+the enter fires there, the next row's card opens, and the pointer's final position on the card's
+line is never the state the assertion reads. A walk is an end-to-end fact and a poor geometric
+oracle; the geometry is now asserted separately, with `elementFromPoint` at the point the reader
+aims for, and **that** injection failed on `Received: "the open card (DIV)"`. Both claims are kept:
+the hit test sees a card in the way, the walk sees a guard that swallows the arrival.
+
+<a id="r5-catalogue-048"></a>
+<!-- root-source:r5.catalogue.048 -->
+
+One more from that change, and it is a **shipped** check that could not fail — the
+twenty-sixth. `e2e/hover-cards.spec.ts`'s `paints over the pinned cell of the row below it`
+compared two screenshots of the overlap between an open card and the pinned Name cell under it:
+one with the card open, one with the pointer moved away. Moving the pointer away also **unlights
+the row**, so the two shots differ whether the card was painted or hidden — watched green with
+`zIndex: 20` deleted.
+
+<a id="r5-catalogue-049"></a>
+<!-- root-source:r5.catalogue.049 -->
+
+**And its first replacement was wrong in the other direction, which is the twenty-seventh and the
+more useful half.** `elementFromPoint` at the middle of the overlap answered the pinned
+`<textarea>` **with the z-index in place**, and that was read as "the card is painted underneath"
+— a defect was written into `LLM_README.md`, a memory and a change's verify.md on the strength of
+it. A hover card is `pointer-events: none`: the hit test reports whatever is beneath it _however_
+the paint came out, so it cannot answer a paint question at all. The **third** oracle, one _pixel_ of the overlap screenshotted open against
+closed, passed on a Mac and failed on CI: `--popover` and `--cell-bg` are both white, so whether
+the two reads differ depends on whether that pixel lands on the card's own text — a fact about the
+font, not about the paint order. What settles it is asking the browser: the card's
+`pointer-events` is set to `auto` for the length of one `elementFromPoint` and restored, which
+changes what the hit test can **see** and nothing about which box is on **top**. `the card`
+against `TEXTAREA`, watched both ways. There was never a defect.
+
+<a id="r5-catalogue-050"></a>
+<!-- root-source:r5.catalogue.050 -->
+
+**Three wrong oracles for one claim**, and the shape they share is that each was chosen for being
+easy to write rather than for being able to distinguish the two states. When a check is replaced
+because it could not fail, the replacement needs its own watched negative **before** its answer is
+believed — not after it has been written down as a finding in three files.
+
+<a id="r5-catalogue-051"></a>
+<!-- root-source:r5.catalogue.051 -->
+
+Prove your check fails when the thing is broken, and say so in the comment. A check whose
+failure mode has never been observed is a claim, not a gate.

@@ -16,7 +16,7 @@ import {
   hashBytes,
   validateArtifacts,
 } from './evidence/content-manifest';
-import { checkIndexes } from './indexes';
+import { checkIndexes, checkRootMigration } from './indexes';
 import { type ClassifiedCandidate, classifyEntries } from './inventory/classify-entries';
 import { type CandidateRequest, readCandidate } from './inventory/read-candidate';
 import { extractRelationships } from './relationships';
@@ -202,6 +202,18 @@ function writeIndexChecks(argv: string[]): void {
   );
 }
 
+function writeRootMigrationCheck(argv: string[]): void {
+  const [kind, repository, revision, mapPath] = argv.slice(1);
+  if (kind !== 'committed' && kind !== 'staged' && kind !== 'working') {
+    throw new Error('root migration candidate kind must be committed, staged or working');
+  }
+  const request: CandidateRequest =
+    kind === 'committed' ? { kind, revision } : { kind, base: revision };
+  process.stdout.write(
+    `${JSON.stringify(checkRootMigration(repository, readCandidate(repository, request), mapPath))}\n`,
+  );
+}
+
 function writeReviewProvenance(argv: string[]): void {
   const [, journalPath, evidencePath, requirementInput] = argv;
   if (requirementInput !== 'allow-local' && requirementInput !== 'require-external') {
@@ -249,6 +261,10 @@ function run(argv: string[]): Promise<void> | void {
     writeIndexChecks(argv);
     return;
   }
+  if (argv.length === 5 && argv[0] === 'check-root-migration') {
+    writeRootMigrationCheck(argv);
+    return;
+  }
   if (argv.length === 4 && argv[0] === 'validate-review-provenance') {
     writeReviewProvenance(argv);
     return;
@@ -269,7 +285,7 @@ function run(argv: string[]): Promise<void> | void {
     });
   }
   throw new Error(
-    'usage: tool-wiki <validate|read-candidate|classify-candidate|content-manifest|validate-artifacts|extract-relationships|check-indexes|validate-review-provenance|lint-local|lint-ci|validate-policy-activation> ...',
+    'usage: tool-wiki <validate|read-candidate|classify-candidate|content-manifest|validate-artifacts|extract-relationships|check-indexes|check-root-migration|validate-review-provenance|lint-local|lint-ci|validate-policy-activation> ...',
   );
 }
 
