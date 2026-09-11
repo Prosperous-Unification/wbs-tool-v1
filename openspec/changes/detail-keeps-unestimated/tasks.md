@@ -25,6 +25,6 @@ detail is asked for`; negative: `drawnFlags` pinned to `placed.notBeforeFlags`.
 
 ## 4. Gate
 
-- [ ] 4.1 `bunx nx run-many -t test lint typecheck -p fe-01`, then `bun run e2e` on shifted
+- [x] 4.1 `bunx nx run-many -t test lint typecheck -p fe-01`, then `bun run e2e` on shifted
       ports, then the workspace gate in CI.
 - [x] 4.2 `verify.md` filled from the output.
