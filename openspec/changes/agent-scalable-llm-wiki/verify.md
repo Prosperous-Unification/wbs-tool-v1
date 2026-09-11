@@ -1604,6 +1604,56 @@ validate agent-scalable-llm-wiki --strict` — exit 0; change valid.
 
 Task 3.4 remains complete. Task 3.5 and every later task remain untouched.
 
+## Slice 2.4 Pilot Policy and Owned Indexes
+
+The reviewed pilot proposal pins six representative domain, application, adapter, infrastructure,
+documentation and archive boundaries at source revision
+`7851161bf96312750d07b933ca5d42b75ce575c7`. Each policy baseline is the exact pre-index
+path/mode/blob tuple array observed at that revision and is independently compared to `git ls-tree`
+in the production-path test. The README additions therefore cannot define their own membership.
+
+Stable module IDs, index paths, explicit first-version predecessor arrays, known external consumers
+and selected applicable checks are recorded through versioned schemas. The candidate-owned policy
+and module mapping remain observe-only reviewed proposal data: tests bind them from an external
+temporary local-operator trust root, and no production CI authority or Task 5.3 activation was
+added.
+
+| Deliberate one-at-a-time fault                        | Observed production-path failure                                                                                                                  |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| remove an actual saved-plan membership                | observe lint exited 1 with `unindexed candidate path in libs/domain/src/saved-plan/README.md: libs/domain/src/saved-plan/canonical-plan-input.ts` |
+| omit external-consumer target validation              | `consumer/absent.ts` certified; expected exit 1, received accepted true                                                                           |
+| omit applicable-check resolution                      | `check.does-not-exist` certified; expected exit 1, received accepted true                                                                         |
+| omit checks disposition completeness                  | no check and no explicit inapplicability certified; expected exit 1, received accepted true                                                       |
+| omit duplicate applicable-check validation            | two `check.fixture` references certified; expected exit 1, received accepted true                                                                 |
+| omit non-empty pilot baseline validation              | an empty saved-plan baseline was accepted and only reported changed; expected exit 1, received accepted true                                      |
+| omit pilot tuple-selector containment                 | a core replay tuple inside the saved-plan boundary was accepted; expected exit 1, received accepted true                                          |
+| inherit parent Nx task markers during graph discovery | configured testing failed with `tool-wiki:test -> tool-wiki:test` recursive task invocation                                                       |
+
+Every fault was observed alone and restored. The applicable-check and external-consumer cases run
+through production `lint-local`; the membership case changes a real pilot README and reaches its
+own exact index assertion.
+
+- `bun test --preload ../test/scratch/preload.ts src/policy/pilot-policy.test.ts
+src/policy/trusted-policy.test.ts` from `tools/tool-wiki` — exit 0; 50 pass, 0 fail, 1,331
+  assertions in 150.38 seconds.
+- `NX_DAEMON=false NX_INVOCATION_ROOT_PID=91209 bunx nx run-many -t lint typecheck -p
+tool-wiki --skip-nx-cache --output-style=static` — exit 0; cache skipped and no target skipped.
+- `NX_DAEMON=false NX_INVOCATION_ROOT_PID=91213 bunx nx test tool-wiki --skip-nx-cache
+--output-style=static` — exit 0; 282 pass, 0 fail, 3,690 assertions across 15 files in 536.97
+  seconds (8m57s Nx duration), cache skipped and no target skipped. The first post-commit run found
+  that a byte-identical reviewed overlay left no commit for the temporary candidate; an explicit
+  empty immutable commit corrected the harness, and the three pilot cases then passed under the
+  reproduced Nx task environment before this full rerun.
+- `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate
+agent-scalable-llm-wiki --strict` — exit 0; change valid.
+- `bunx nx format:check --all` initially named `verify.md`; formatting that evidence and rerunning
+  the repository-wide check exited 0. `git diff --check` also exited 0.
+- `bin/h2puni-gate.sh cebb1d77` — unavailable, exit 70 immediately because required heavy-lock
+  path `/home/puni1/.cache` does not exist; no host-gate step ran and the host gate is not green.
+
+Task 2.4 is complete. Task 2.5 and every production trust activation or gate-wiring task remain
+untouched.
+
 ## Slice 3.4 Review Fix Round 5
 
 Compatible activation now compares every referenced, schema-decoded audit risk stratum by semantic

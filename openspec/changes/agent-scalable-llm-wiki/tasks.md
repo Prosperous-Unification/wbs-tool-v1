@@ -61,7 +61,7 @@ No `verify.md` exists until implementation produces observations.
       anchor, invalid metadata, path escape or ambiguous membership declaration; each fails
       the CLI at its own assertion. Links contain no globs. More than forty direct entries
       reports review debt with no automatic file move.
-- [ ] 2.4 Pin pilot boundaries and exclusions in reviewed `docs/wiki-policy/policy.json`
+- [x] 2.4 Pin pilot boundaries and exclusions in reviewed `docs/wiki-policy/policy.json`
       and stable ids/path/predecessor mappings in `modules.json`. Use representative domain,
       application, adapter, infra, docs and archive boundaries that exist at the pinned base;
       freeze their exact paths in the manifest before work. Add corresponding READMEs and
