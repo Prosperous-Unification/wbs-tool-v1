@@ -916,7 +916,9 @@ describe('OptimizationCoordinator read', () => {
       raw.close();
     }
 
-    expect(instance.readPlan({ projectId: 'p-1', objective: 'pri', input: INPUT }).variants).toEqual({
+    expect(
+      instance.readPlan({ projectId: 'p-1', objective: 'pri', input: INPUT, enabled: true }).variants,
+    ).toEqual({
       pri: { state: 'ready', proof: 'incomplete' },
       time: { state: 'idle' },
     });
