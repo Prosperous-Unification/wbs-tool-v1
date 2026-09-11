@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
-import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 
 interface ArtifactReference {
   path: string;
@@ -21,7 +21,8 @@ function sha256(bytes: Uint8Array): string {
 
 function isWithin(root: string, path: string): boolean {
   const offset = relative(root, path);
-  return offset === '' || (!offset.startsWith('..') && !isAbsolute(offset));
+  const isParent = offset === '..' || offset.startsWith(`..${sep}`);
+  return offset === '' || (!isParent && !isAbsolute(offset));
 }
 
 function artifactReferences(bindingPath: string): ResolvedArtifact[] {
@@ -60,6 +61,8 @@ function validateArtifacts(
     if (status.isSymbolicLink() || !status.isFile())
       fail(`artifact is not a regular file: ${reference.path}`);
     const path = realpathSync(reference.path);
+    // Proof: gate-entrypoints.test.ts bound candidate/..trust/dependency.ts; the prefix-only
+    // comparison let it execute and failed on `Expected: false / Received: true`.
     if (isWithin(candidateRoot, path)) fail(`artifact resolves inside candidate: ${path}`);
     if (seen.has(path)) fail(`duplicate artifact path: ${path}`);
     seen.add(path);

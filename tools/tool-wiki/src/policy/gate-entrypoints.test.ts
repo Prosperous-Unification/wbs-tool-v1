@@ -12,7 +12,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
 
 import { afterEach, describe, expect, test } from 'bun:test';
 
@@ -532,6 +532,37 @@ describe('tool-wiki production entrypoint adapter', () => {
     expect(invocation.exitCode).not.toBe(0);
     expect(streamText(invocation.stderr, 'adapter stderr')).toContain('validator must be outside');
     expect(existsSync(marker)).toBe(false);
+  });
+
+  test('a candidate child whose name begins with two dots is refused before validator execution', () => {
+    const paths = fixture();
+    const marker = join(paths.directory, 'candidate-dot-prefix-dependency-ran');
+    const dependency = join(paths.repository, '..trust', 'dependency.ts');
+    const importPath = relative(dirname(paths.cliPath), dependency).split(sep).join('/');
+    write(dependency, `await Bun.write(${JSON.stringify(marker)}, 'ran\\n');\n`);
+    write(
+      paths.cliPath,
+      `import ${JSON.stringify(importPath)};\nprocess.stdout.write(JSON.stringify({ argv: process.argv.slice(2) }));\n`,
+    );
+    write(
+      paths.bindingPath,
+      `${JSON.stringify({
+        validator: {
+          artifacts: [paths.cliPath, dependency].map((path) => ({
+            path,
+            sha256: sha256(readFileSync(path)),
+          })),
+        },
+      })}\n`,
+    );
+
+    const invocation = runAdapter('committed', paths);
+
+    expect(existsSync(marker)).toBe(false);
+    expect(invocation.exitCode).not.toBe(0);
+    expect(streamText(invocation.stderr, 'adapter stderr')).toContain(
+      'artifact resolves inside candidate',
+    );
   });
 
   test('validator execution uses its complete snapshot after the reviewed original is swapped', () => {
