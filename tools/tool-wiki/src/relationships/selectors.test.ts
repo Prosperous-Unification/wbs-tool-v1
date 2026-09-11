@@ -583,6 +583,51 @@ describe('declared relationship selectors through the production CLI', () => {
     }
   }, 15_000);
 
+  test('refuses mutable or escaping HTTP object bindings while retaining static const spreads', () => {
+    const cases = [
+      {
+        name: 'static const object',
+        route:
+          "const defineEndpointShape = <T>(shape: T): T => shape;\nconst override = { path: '/changed' };\nexport const listWork = defineEndpointShape({ method: 'GET', path: '/api/work-items', ...override });\n",
+        expected:
+          'fact http.list-work authority-selector mismatch: expected {"method":"GET","path":"/api/work-items"}; received {"method":"GET","path":"/changed"}',
+      },
+      {
+        name: 'direct property write',
+        route:
+          "const defineEndpointShape = <T>(shape: T): T => shape;\nconst override = { path: '/api/work-items' };\noverride.path = '/changed';\nexport const listWork = defineEndpointShape({ method: 'GET', ...override });\n",
+        expected:
+          'fact http.list-work selector unsupported: HTTP object binding override is written or escapes',
+      },
+      {
+        name: 'alias escape',
+        route:
+          "const defineEndpointShape = <T>(shape: T): T => shape;\nconst override = { path: '/api/work-items' };\nconst alias = override;\nalias.path = '/changed';\nexport const listWork = defineEndpointShape({ method: 'GET', ...override });\n",
+        expected:
+          'fact http.list-work selector unsupported: HTTP object binding override is written or escapes',
+      },
+      {
+        name: 'call escape',
+        route:
+          "const defineEndpointShape = <T>(shape: T): T => shape;\nconst override = { path: '/api/work-items' };\nObject.assign(override, { path: '/changed' });\nexport const listWork = defineEndpointShape({ method: 'GET', ...override });\n",
+        expected:
+          'fact http.list-work selector unsupported: HTTP object binding override is written or escapes',
+      },
+    ];
+    for (const boundary of cases) {
+      const repository = createRepository();
+      write(repository, 'src/routes.ts', boundary.route);
+      const fact = currentFacts(repository).find(
+        (candidate) => candidate['factId'] === 'http.list-work',
+      );
+      if (fact === undefined) throw new Error('HTTP fixture absent');
+      const requestPath = writeInputs(repository, declaration([fact], []));
+      const failed = invoke(repository, commitAll(repository, boundary.name), requestPath);
+      expect(failed.exitCode).toBe(1);
+      expect(output(failed)).toContain(boundary.expected);
+    }
+  }, 15_000);
+
   test('reads current authorities only through exact selected candidate entries', () => {
     const repository = createRepository();
     const typescriptPackage = Bun.resolveSync('typescript/package.json', import.meta.dir);
@@ -664,6 +709,23 @@ describe('declared relationship selectors through the production CLI', () => {
         expected:
           'fact migration.work-item selector unsupported: migration statement 2 starts with INVALID',
       },
+      {
+        name: 'invalid supported statement',
+        migration: 'CREATE TABLE real (`id` text PRIMARY KEY);\nSELECT invalid SQL after;\n',
+        expected:
+          'fact migration.work-item selector unsupported: migration statement 2 rejected by SQLite',
+      },
+      {
+        name: 'invalid create tail',
+        migration: 'CREATE TABLE real unsupported SQL;\n',
+        expected:
+          'fact migration.work-item selector unsupported: migration statement 1 rejected by SQLite',
+      },
+      {
+        name: 'embedded NUL tail',
+        migration: 'CREATE TABLE real (`id` text)\0invalid SQL;\n',
+        expected: 'fact migration.work-item selector unsupported: migration contains NUL byte',
+      },
     ];
     for (const boundary of cases) {
       const repository = createRepository();
@@ -678,6 +740,52 @@ describe('declared relationship selectors through the production CLI', () => {
       expect(failed.exitCode).toBe(1);
       expect(output(failed)).toContain(boundary.expected);
     }
+  }, 15_000);
+
+  test('selects the table component of supported schema-qualified migration names', () => {
+    const cases = [
+      { name: 'unquoted schema', migration: 'CREATE TABLE main.real (`id` text);\n' },
+      { name: 'quoted schema', migration: 'CREATE TABLE "main"."real" (`id` text);\n' },
+    ];
+    for (const boundary of cases) {
+      const repository = createRepository();
+      write(repository, 'migrations/001_create_work_item/migration.sql', boundary.migration);
+      const fact = currentFacts(repository).find(
+        (candidate) => candidate['factId'] === 'migration.work-item',
+      );
+      if (fact === undefined) throw new Error('migration fixture absent');
+      fact['expected'] = 'real';
+      const requestPath = writeInputs(repository, declaration([fact], []));
+      const extracted = report(
+        invoke(repository, commitAll(repository, boundary.name), requestPath),
+      );
+      expect(extracted.declarations.facts.map(({ actual }) => actual)).toEqual(['real']);
+    }
+
+    const unsupportedRepository = createRepository();
+    write(
+      unsupportedRepository,
+      'migrations/001_create_work_item/migration.sql',
+      'CREATE TABLE tenant.real (`id` text);\n',
+    );
+    const unsupportedFact = currentFacts(unsupportedRepository).find(
+      (candidate) => candidate['factId'] === 'migration.work-item',
+    );
+    if (unsupportedFact === undefined) throw new Error('migration fixture absent');
+    unsupportedFact['expected'] = 'real';
+    const unsupportedRequest = writeInputs(
+      unsupportedRepository,
+      declaration([unsupportedFact], []),
+    );
+    const failed = invoke(
+      unsupportedRepository,
+      commitAll(unsupportedRepository, 'unsupported schema'),
+      unsupportedRequest,
+    );
+    expect(failed.exitCode).toBe(1);
+    expect(output(failed)).toContain(
+      'fact migration.work-item selector unsupported: migration statement 1 uses unsupported schema tenant',
+    );
   }, 15_000);
 
   test('selects one exact occurrence from the real four-table migration', () => {

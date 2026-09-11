@@ -650,3 +650,55 @@ Task 2.3 remains untouched.
 Pinned OpenSpec 1.3.0 strict validation returned `Change 'agent-scalable-llm-wiki' is valid` after
 the fix; only its optional PostHog flush failed DNS. Exact changed-file Prettier checking and
 `git diff --check` passed after the final evidence edit.
+
+## Slice 2.2 Fix Round 2
+
+Migration selection now requires every lexically complete statement to belong to the bounded
+statement families and to parse with Bun's SQLite parser before any table fact is returned. This
+closes both partial-certification forms: a valid CREATE followed by malformed SELECT syntax, and a
+CREATE whose recognized prefix is followed by invalid grammar. SQLite errors caused only by absent
+schema context (for example, preparing an ALTER for a table that is not present in the parser's
+empty validation database) remain modeled so syntactically valid historical migrations can still
+be selected. An embedded NUL is refused before parsing because SQLite otherwise stops at that byte.
+
+Qualified table names explicitly support the SQLite `main` and `temp` schemas and select the table
+component, including independently quoted schema and table identifiers. Any other schema is a named
+unsupported selector. The existing exact positive occurrence continues to disambiguate every table
+in a multi-table migration.
+
+HTTP object spreads now resolve identifiers through a TypeScript Program and TypeChecker rather
+than matching declaration text. A referenced object binding is accepted only when its symbol has a
+single initialized `const` declaration and every other reference is that object's direct spread.
+Property writes, assignment through an alias, call escape and other uses therefore fail named
+unsupported instead of certifying the initializer's stale value. A static unmodified literal spread
+continues to use executable last-write-wins object semantics.
+
+Initial production-CLI RED observations were: a valid CREATE followed by `SELECT invalid SQL after`
+expected exit 1 and received 0 after 29 assertions; `CREATE TABLE real unsupported SQL` expected exit
+1 and received 0 after 39 assertions; `main.real` was reported as `main`; and a direct
+`override.path = '/changed'` left the old initializer value certified, so its oracle expected exit 1
+and received 0 after 19 assertions. SQLite's embedded-NUL truncation was also observed as exit 0
+where the production oracle expected exit 1 after 49 assertions.
+
+| Deliberate one-at-a-time fault                    | Observed production-CLI failure                                            |
+| ------------------------------------------------- | -------------------------------------------------------------------------- |
+| bypass validation of every SQLite statement       | invalid trailing SELECT exited 0; the oracle expected exit 1               |
+| bypass SQLite validation only for CREATE TABLE    | invalid CREATE tail exited 0; the oracle expected exit 1                   |
+| return the qualifier from a qualified table name  | expected table `real`; received `main`                                     |
+| permit a binding reference outside its own spread | direct mutation retained the old path; expected exit 1, received 0         |
+| omit the migration NUL preflight                  | SQLite parsed the prefix and certified `real`; expected exit 1, received 0 |
+
+Every fault ran alone through `extract-relationships` in a temporary real Git repository and was
+restored before the next. Adjacent `Proof:` comments record the actual failures. The final
+post-format selector suite passed 13 tests, zero failures and 427 assertions in 82.35 seconds. The
+Task 2.1 relationship regression passed 14 tests, zero failures and 299 assertions in 91.77 seconds.
+The uncached full tool-wiki suite passed 87 tests, zero failures and 1394 assertions in 246.14
+seconds before the final arbitrary-schema negative was added; that added production-CLI case passed
+its focused run with 30 assertions, and the complete selector suite above includes it.
+
+The exact project lint and solution-style source/spec typecheck commands passed. The Nx wrapper
+exited zero but emitted only its sandbox socket fallback notices, so it is not claimed as the static
+gate evidence. Pinned OpenSpec 1.3.0 strict validation returned
+`Change 'agent-scalable-llm-wiki' is valid`; its optional PostHog flush alone failed DNS afterward.
+Exact changed-file Prettier and `git diff --check` passed before this evidence append and are rerun
+after it. No checkbox changed and Task 2.3 remains untouched.

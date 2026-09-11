@@ -3,6 +3,7 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 import { parseOrThrow } from '@wbs/validation';
+import { Database, SQLiteError } from 'bun:sqlite';
 import ts from 'typescript';
 import { parse as parseYaml } from 'yaml';
 
@@ -336,109 +337,189 @@ function unwrapExpression(expression: ts.Expression): ts.Expression {
   return unwrapped;
 }
 
-function constInitializer(
-  fact: RelationshipFact,
-  source: ts.SourceFile,
-  name: string,
-): ts.Expression | undefined {
-  const matches: ts.Expression[] = [];
-  for (const statement of source.statements) {
-    if (!ts.isVariableStatement(statement)) continue;
-    if ((statement.declarationList.flags & ts.NodeFlags.Const) === 0) continue;
-    for (const declaration of statement.declarationList.declarations) {
-      if (
-        ts.isIdentifier(declaration.name) &&
-        declaration.name.text === name &&
-        declaration.initializer !== undefined
-      ) {
-        matches.push(declaration.initializer);
-      }
-    }
+interface HttpAnalysis {
+  checker: ts.TypeChecker;
+  source: ts.SourceFile;
+}
+
+interface ConstBinding {
+  declaration: ts.VariableDeclaration;
+  initializer: ts.Expression;
+  symbol: ts.Symbol;
+}
+
+function analyzeHttpSource(source: ts.SourceFile): HttpAnalysis {
+  const options: ts.CompilerOptions = {
+    noLib: true,
+    noResolve: true,
+    target: ts.ScriptTarget.Latest,
+  };
+  const host = ts.createCompilerHost(options, true);
+  const readSource = host.getSourceFile.bind(host);
+  host.getSourceFile = (fileName, languageVersion, onError, shouldCreateNewSourceFile) =>
+    fileName === source.fileName
+      ? source
+      : readSource(fileName, languageVersion, onError, shouldCreateNewSourceFile);
+  const program = ts.createProgram({ host, options, rootNames: [source.fileName] });
+  if (program.getSourceFile(source.fileName) !== source) {
+    throw new Error(`HTTP authority ${source.fileName} was not bound into its analysis program`);
   }
-  if (matches.length > 1) unsupported(fact, `HTTP constant ${name} is declared twice`);
-  return matches.at(0);
+  return { checker: program.getTypeChecker(), source };
+}
+
+function constBinding(
+  fact: RelationshipFact,
+  analysis: HttpAnalysis,
+  reference: ts.Identifier,
+): ConstBinding | undefined {
+  const symbol = analysis.checker.getSymbolAtLocation(reference);
+  if (symbol === undefined) return undefined;
+  const declarations = (symbol.declarations ?? []).filter(ts.isVariableDeclaration);
+  if (declarations.length !== 1) {
+    unsupported(
+      fact,
+      `HTTP constant ${reference.text} has ${String(declarations.length)} bindings`,
+    );
+  }
+  const declaration = declarations[0];
+  if (
+    declaration.initializer === undefined ||
+    !ts.isIdentifier(declaration.name) ||
+    !ts.isVariableDeclarationList(declaration.parent) ||
+    (declaration.parent.flags & ts.NodeFlags.Const) === 0
+  ) {
+    return undefined;
+  }
+  if (declaration.getStart(analysis.source) >= reference.getStart(analysis.source)) {
+    unsupported(fact, `HTTP constant ${reference.text} is used before initialization`);
+  }
+  return { declaration, initializer: declaration.initializer, symbol };
+}
+
+function isObjectSpreadReference(reference: ts.Identifier): boolean {
+  let expression: ts.Node = reference;
+  while (
+    (ts.isParenthesizedExpression(expression.parent) &&
+      expression.parent.expression === expression) ||
+    (ts.isAsExpression(expression.parent) && expression.parent.expression === expression) ||
+    (ts.isTypeAssertionExpression(expression.parent) &&
+      expression.parent.expression === expression) ||
+    (ts.isNonNullExpression(expression.parent) && expression.parent.expression === expression) ||
+    (ts.isSatisfiesExpression(expression.parent) && expression.parent.expression === expression)
+  ) {
+    expression = expression.parent;
+  }
+  return ts.isSpreadAssignment(expression.parent) && expression.parent.expression === expression;
+}
+
+function assertStableObjectBinding(
+  fact: RelationshipFact,
+  analysis: HttpAnalysis,
+  binding: ConstBinding,
+): void {
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isIdentifier(node) &&
+      node !== binding.declaration.name &&
+      analysis.checker.getSymbolAtLocation(node) === binding.symbol &&
+      !isObjectSpreadReference(node)
+    ) {
+      // Proof: permitting non-spread references made `override.path = '/changed'` leave the
+      // initializer's old path certified; its production CLI test expected exit 1 and received 0.
+      unsupported(
+        fact,
+        `HTTP object binding ${node.text} is written or escapes at ${node.parent.getText(analysis.source)}`,
+      );
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(analysis.source);
 }
 
 function staticText(
   fact: RelationshipFact,
-  source: ts.SourceFile,
+  analysis: HttpAnalysis,
   expression: ts.Expression,
-  resolving: Set<string>,
+  resolving: Set<ts.Symbol>,
 ): string | undefined {
   const selected = unwrapExpression(expression);
   if (ts.isStringLiteral(selected) || ts.isNoSubstitutionTemplateLiteral(selected)) {
     return selected.text;
   }
   if (!ts.isIdentifier(selected)) return undefined;
-  if (resolving.has(selected.text)) {
+  const binding = constBinding(fact, analysis, selected);
+  if (binding === undefined) return undefined;
+  if (resolving.has(binding.symbol)) {
     unsupported(fact, `HTTP constant cycle at ${selected.text}`);
   }
-  const initializer = constInitializer(fact, source, selected.text);
-  if (initializer === undefined) return undefined;
-  resolving.add(selected.text);
-  const value = staticText(fact, source, initializer, resolving);
-  resolving.delete(selected.text);
+  resolving.add(binding.symbol);
+  const value = staticText(fact, analysis, binding.initializer, resolving);
+  resolving.delete(binding.symbol);
   return value;
 }
 
 function propertyName(
   fact: RelationshipFact,
-  source: ts.SourceFile,
+  analysis: HttpAnalysis,
   name: ts.PropertyName,
-  resolving: Set<string>,
+  resolving: Set<ts.Symbol>,
 ): string {
   if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) {
     return name.text;
   }
   if (!ts.isComputedPropertyName(name)) {
-    return unsupported(fact, `HTTP property name ${name.getText(source)}`);
+    return unsupported(fact, `HTTP property name ${name.getText(analysis.source)}`);
   }
   // Proof: treating a computed name as irrelevant made `['path']: '/computed'` leave the earlier
   // route certified; its production test expected exit 1 and received 0.
-  const computed = staticText(fact, source, name.expression, resolving);
+  const computed = staticText(fact, analysis, name.expression, resolving);
   if (computed === undefined) {
-    return unsupported(fact, `HTTP computed property ${name.expression.getText(source)}`);
+    return unsupported(fact, `HTTP computed property ${name.expression.getText(analysis.source)}`);
   }
   return computed;
 }
 
 function applyHttpObject(
   fact: RelationshipFact,
-  source: ts.SourceFile,
+  analysis: HttpAnalysis,
   expression: ts.Expression,
   properties: Map<string, string>,
-  resolving: Set<string>,
+  resolving: Set<ts.Symbol>,
 ): void {
   const selected = unwrapExpression(expression);
   if (ts.isIdentifier(selected)) {
-    if (resolving.has(selected.text)) unsupported(fact, `HTTP constant cycle at ${selected.text}`);
-    const initializer = constInitializer(fact, source, selected.text);
-    if (initializer === undefined) {
+    const binding = constBinding(fact, analysis, selected);
+    if (binding === undefined) {
       // Proof: ignoring an unresolved spread made the dynamic-spread production CLI exit 0;
       // its named unsupported-selector test expected exit 1 and received 0.
-      return unsupported(fact, `HTTP object spread ${selected.getText(source)}`);
+      return unsupported(fact, `HTTP object spread ${selected.getText(analysis.source)}`);
     }
-    resolving.add(selected.text);
-    applyHttpObject(fact, source, initializer, properties, resolving);
-    resolving.delete(selected.text);
+    if (resolving.has(binding.symbol)) unsupported(fact, `HTTP constant cycle at ${selected.text}`);
+    assertStableObjectBinding(fact, analysis, binding);
+    resolving.add(binding.symbol);
+    applyHttpObject(fact, analysis, binding.initializer, properties, resolving);
+    resolving.delete(binding.symbol);
     return;
   }
   if (!ts.isObjectLiteralExpression(selected)) {
-    return unsupported(fact, `HTTP object spread ${selected.getText(source)}`);
+    return unsupported(fact, `HTTP object spread ${selected.getText(analysis.source)}`);
   }
   for (const member of selected.properties) {
     if (ts.isSpreadAssignment(member)) {
       // Proof: skipping spread evaluation made the production CLI certify `/api/work-items`
       // despite the later `/changed`; its override test expected exit 1 and received 0.
-      applyHttpObject(fact, source, member.expression, properties, resolving);
+      applyHttpObject(fact, analysis, member.expression, properties, resolving);
       continue;
     }
     if (ts.isPropertyAssignment(member)) {
-      const name = propertyName(fact, source, member.name, resolving);
+      const name = propertyName(fact, analysis, member.name, resolving);
       if (name !== 'method' && name !== 'path') continue;
-      const value = staticText(fact, source, member.initializer, resolving);
+      const value = staticText(fact, analysis, member.initializer, resolving);
       if (value === undefined) {
-        unsupported(fact, `HTTP property ${name} value ${member.initializer.getText(source)}`);
+        unsupported(
+          fact,
+          `HTTP property ${name} value ${member.initializer.getText(analysis.source)}`,
+        );
       }
       properties.set(name, value);
       continue;
@@ -446,12 +527,12 @@ function applyHttpObject(
     if (ts.isShorthandPropertyAssignment(member)) {
       const name = member.name.text;
       if (name !== 'method' && name !== 'path') continue;
-      const value = staticText(fact, source, member.name, resolving);
+      const value = staticText(fact, analysis, member.name, resolving);
       if (value === undefined) unsupported(fact, `HTTP property ${name} value ${name}`);
       properties.set(name, value);
       continue;
     }
-    const name = propertyName(fact, source, member.name, resolving);
+    const name = propertyName(fact, analysis, member.name, resolving);
     if (name === 'method' || name === 'path') {
       unsupported(fact, `HTTP property ${name} is not a static value`);
     }
@@ -463,7 +544,8 @@ function httpProperties(
   object: ts.ObjectLiteralExpression,
 ): Map<string, string> {
   const properties = new Map<string, string>();
-  applyHttpObject(fact, object.getSourceFile(), object, properties, new Set());
+  const analysis = analyzeHttpSource(object.getSourceFile());
+  applyHttpObject(fact, analysis, object, properties, new Set());
   return properties;
 }
 
@@ -472,14 +554,26 @@ interface SqlToken {
   text: string;
 }
 
-function sqlStatements(fact: RelationshipFact, source: string): SqlToken[][] {
-  const statements: SqlToken[][] = [];
+interface SqlStatement {
+  source: string;
+  tokens: SqlToken[];
+}
+
+function sqlStatements(fact: RelationshipFact, source: string): SqlStatement[] {
+  // Proof: omitting this preflight let SQLite stop at an embedded NUL and certify the preceding
+  // CREATE; its production CLI test expected exit 1 and received 0 after 49 assertions.
+  if (source.includes('\0')) unsupported(fact, 'migration contains NUL byte');
+  const statements: SqlStatement[] = [];
   let statement: SqlToken[] = [];
+  let statementStart = 0;
   let depth = 0;
   let position = 0;
-  const pushStatement = (): void => {
-    if (statement.length > 0) statements.push(statement);
+  const pushStatement = (statementEnd: number): void => {
+    if (statement.length > 0) {
+      statements.push({ source: source.slice(statementStart, statementEnd), tokens: statement });
+    }
     statement = [];
+    statementStart = statementEnd + 1;
   };
   while (position < source.length) {
     const character = source[position];
@@ -555,14 +649,14 @@ function sqlStatements(fact: RelationshipFact, source: string): SqlToken[][] {
       if (depth < 0) unsupported(fact, 'migration has an unmatched closing parenthesis');
     }
     if (character === ';' && depth === 0) {
-      pushStatement();
+      pushStatement(position);
     } else {
       statement.push({ kind: 'symbol', text: character });
     }
     position += 1;
   }
   if (depth !== 0) unsupported(fact, 'migration has an unterminated parenthesized expression');
-  pushStatement();
+  pushStatement(source.length);
   return statements;
 }
 
@@ -584,6 +678,27 @@ function sqlIdentifier(
     unsupported(fact, `migration statement ${String(statementNumber)} has no table identifier`);
   }
   return token.text;
+}
+
+function sqlTableName(
+  fact: RelationshipFact,
+  statement: SqlToken[],
+  position: number,
+  statementNumber: number,
+): string {
+  const first = sqlIdentifier(fact, statement, position, statementNumber);
+  if (!(position + 1 in statement)) return first;
+  const separator = statement[position + 1];
+  if (separator.kind !== 'symbol' || separator.text !== '.') return first;
+  if (first.toLowerCase() !== 'main' && first.toLowerCase() !== 'temp') {
+    unsupported(
+      fact,
+      `migration statement ${String(statementNumber)} uses unsupported schema ${first}`,
+    );
+  }
+  // Proof: returning the first identifier made both `main.real` and `"main"."real"` publish
+  // `main`; their production CLI test expected a successful `real` fact and exited 1.
+  return sqlIdentifier(fact, statement, position + 2, statementNumber);
 }
 
 function createTablePosition(statement: SqlToken[]): number | undefined {
@@ -615,7 +730,7 @@ function statementKind(
   const keyword = root.text.toUpperCase();
   const createPosition = createTablePosition(statement);
   if (createPosition !== undefined) {
-    sqlIdentifier(fact, statement, createPosition, statementNumber);
+    sqlTableName(fact, statement, createPosition, statementNumber);
     return 'create-table';
   }
   if (keyword === 'CREATE') {
@@ -627,7 +742,7 @@ function statementKind(
     if (!sqlWord(statement[1], 'TABLE')) {
       unsupported(fact, `migration statement ${String(statementNumber)} uses unsupported ALTER`);
     }
-    sqlIdentifier(fact, statement, 2, statementNumber);
+    sqlTableName(fact, statement, 2, statementNumber);
     return 'alter-table';
   }
   if (keyword === 'DROP') {
@@ -640,7 +755,7 @@ function statementKind(
     if (sqlWord(statement[position], 'IF') && sqlWord(statement[position + 1], 'EXISTS')) {
       position += 2;
     }
-    sqlIdentifier(fact, statement, position, statementNumber);
+    sqlTableName(fact, statement, position, statementNumber);
     return 'drop-table';
   }
   if (['DELETE', 'INSERT', 'PRAGMA', 'SELECT', 'UPDATE', 'WITH'].includes(keyword)) return 'other';
@@ -650,6 +765,34 @@ function statementKind(
     fact,
     `migration statement ${String(statementNumber)} starts with ${root.text.toUpperCase()}`,
   );
+}
+
+function validateSqlStatement(
+  fact: RelationshipFact,
+  parser: Database,
+  statement: SqlStatement,
+  statementNumber: number,
+): void {
+  try {
+    parser.prepare(statement.source).finalize();
+  } catch (cause) {
+    if (
+      cause instanceof SQLiteError &&
+      [/^no such table:/, /^no such column:/, /^ambiguous column name:/, /^no such function:/].some(
+        (pattern) => pattern.test(cause.message),
+      )
+    ) {
+      return;
+    }
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    // Proof: skipping all SQLite parses made `SELECT invalid SQL after` follow a valid CREATE and
+    // exit 0 after 29 assertions; skipping only CREATE parses made `CREATE TABLE real unsupported
+    // SQL` exit 0 after 39 assertions. Both production CLI cases expected exit 1.
+    unsupported(
+      fact,
+      `migration statement ${String(statementNumber)} rejected by SQLite: ${detail}`,
+    );
+  }
 }
 
 function migrationTables(
@@ -663,31 +806,41 @@ function migrationTables(
     return malformed(fact, cause);
   }
   const tables: string[] = [];
-  for (const [index, statement] of sqlStatements(fact, source).entries()) {
-    const number = index + 1;
-    const kind = statementKind(fact, statement, number);
-    if (fact.operation === 'create' && kind === 'create-table') {
-      const position = createTablePosition(statement);
-      if (position === undefined) throw new Error('create-table classification lost its position');
-      tables.push(sqlIdentifier(fact, statement, position, number));
-    }
-    if (fact.operation === 'alter' && kind === 'alter-table') {
-      tables.push(sqlIdentifier(fact, statement, 2, number));
-    }
-    if (fact.operation === 'drop' && kind === 'drop-table') {
-      let position = 2;
-      if (sqlWord(statement[position], 'IF') && sqlWord(statement[position + 1], 'EXISTS')) {
-        position += 2;
+  const parser = new Database(':memory:', { strict: true });
+  try {
+    for (const [index, statement] of sqlStatements(fact, source).entries()) {
+      const number = index + 1;
+      const kind = statementKind(fact, statement.tokens, number);
+      validateSqlStatement(fact, parser, statement, number);
+      if (fact.operation === 'create' && kind === 'create-table') {
+        const position = createTablePosition(statement.tokens);
+        if (position === undefined)
+          throw new Error('create-table classification lost its position');
+        tables.push(sqlTableName(fact, statement.tokens, position, number));
       }
-      tables.push(sqlIdentifier(fact, statement, position, number));
-    }
-    if (fact.operation === 'references' && (kind === 'create-table' || kind === 'alter-table')) {
-      for (let position = 0; position < statement.length; position += 1) {
-        if (sqlWord(statement[position], 'REFERENCES')) {
-          tables.push(sqlIdentifier(fact, statement, position + 1, number));
+      if (fact.operation === 'alter' && kind === 'alter-table') {
+        tables.push(sqlTableName(fact, statement.tokens, 2, number));
+      }
+      if (fact.operation === 'drop' && kind === 'drop-table') {
+        let position = 2;
+        if (
+          sqlWord(statement.tokens[position], 'IF') &&
+          sqlWord(statement.tokens[position + 1], 'EXISTS')
+        ) {
+          position += 2;
+        }
+        tables.push(sqlTableName(fact, statement.tokens, position, number));
+      }
+      if (fact.operation === 'references' && (kind === 'create-table' || kind === 'alter-table')) {
+        for (let position = 0; position < statement.tokens.length; position += 1) {
+          if (sqlWord(statement.tokens[position], 'REFERENCES')) {
+            tables.push(sqlTableName(fact, statement.tokens, position + 1, number));
+          }
         }
       }
     }
+  } finally {
+    parser.close();
   }
   return tables;
 }
