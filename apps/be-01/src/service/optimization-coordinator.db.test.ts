@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import { encodeOptimizedResult } from '@wbs/contracts/solver/optimized-result';
 import type { ScheduleInput } from '@wbs/domain/canonical-schedule-input';
 import { afterEach, describe, expect, it } from 'bun:test';
-import { eq } from 'drizzle-orm';
 
 import { openDatabase, openDrizzle } from '../repository/db';
 import { DrizzleEventLogStore } from '../repository/event-log';
@@ -885,28 +884,27 @@ describe('OptimizationCoordinator read', () => {
       budgetMs: BUDGET,
     });
     if (pair.pri.kind !== 'ok') throw new Error('broken fixture: Pri did not settle ready');
-    db.update(optimizedScheduleCache)
-      .set({
-        resultJson: JSON.stringify(
-          encodeOptimizedResult({
-            ...pair.pri.result,
-            objectiveValues: {
-              ...pair.pri.result.objectiveValues,
-              movement: {
-                ...pair.pri.result.objectiveValues.movement,
-                stageValue: null,
-                bound: null,
-                status: 'unknown',
-              },
-            },
-          }),
-        ),
-      })
-      .where(eq(optimizedScheduleCache.objective, 'pri'))
-      .run();
-    db.delete(optimizedScheduleCache).where(eq(optimizedScheduleCache.objective, 'time')).run();
+    const incomplete = JSON.stringify(
+      encodeOptimizedResult({
+        ...pair.pri.result,
+        objectiveValues: {
+          ...pair.pri.result.objectiveValues,
+          movement: {
+            ...pair.pri.result.objectiveValues.movement,
+            stageValue: null,
+            bound: null,
+            status: 'unknown',
+          },
+        },
+      }),
+    );
     const raw = openDatabase(path);
     try {
+      raw.run(
+        "UPDATE optimized_schedule_cache SET result_json = ? WHERE objective = 'pri'",
+        incomplete,
+      );
+      raw.run("DELETE FROM optimized_schedule_cache WHERE objective = 'time'");
       raw.run(
         "UPDATE optimization_generation SET admission_state = 'draining' WHERE project_id = 'p-1'",
       );
