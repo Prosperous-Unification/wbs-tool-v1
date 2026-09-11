@@ -1142,3 +1142,41 @@ tests, zero failures and 2,020 assertions in 374.29 seconds (6m14s Nx duration),
 documented fallback and no skipped target. `bunx nx format:check --all` exited 0. Pinned
 `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate agent-scalable-llm-wiki --strict`
 exited 0 with `Change 'agent-scalable-llm-wiki' is valid`.
+
+## Slice 3.1 Fix Round 2
+
+Bun 1.4.2 was reproduced returning `{ exitCode: null, signalCode: "SIGTERM" }` from
+`Bun.spawnSync` after the child wrote exact stdout and stderr. The old broad catch then interpreted
+the schema rejection for null `exitCode` as a launch failure and replaced both returned streams
+with empty bytes. The process observation now discriminates numeric exits, exact returned signal
+codes, unresolved returned exit state and actual throw-before-return launch failures. Signal and
+unresolved attempts are terminal unverified observations and cannot release a later phase.
+
+The initial focused RED had 16 passes and two failures. Both cold and informed production harness
+cases retained `launch failed: Validation failed: exit.exitCode must be a number (was null)` rather
+than SIGTERM. The restored formatted focused protocol/provenance command passed 25 tests with zero
+failures and 123 assertions.
+
+| Deliberate one-at-a-time fault                             | Observed production-path failure                                                                                 |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| route a returned signal through launch-failure recovery    | cold expected `Y29sZCBzdGRvdXQgYmVmb3JlIFNJR1RFUk0K`, received empty stdout; informed observed the same loss     |
+| classify a returned SIGTERM as unresolved                  | both exact-exit assertions received `{ kind: "unresolved", exitCode: null }` instead of `signaled`               |
+| bypass explicit signal refusal                             | both terminal reasons became `null is not an object (evaluating 'output.telemetry')` instead of naming SIGTERM   |
+| treat null exit plus absent/empty signal as a numeric exit | production invocation escaped on `exit.exitCode must be a number (was null)` instead of durably retaining output |
+
+Every fault was restored before the next. Adjacent `Proof:` comments name the observed failures.
+The impossible returned state was exercised for both absent and empty signal codes through the
+production invoker, using a complete captured Bun subprocess observation with only those runtime
+fields altered; both retained exact stdout/stderr and persisted an unverified cold terminal.
+Standalone Bun probes confirmed SIGINT and SIGKILL use the same null exit plus exact signal string,
+with both streams retained. The adapter supplies no abort signal, timeout or maximum-output bound,
+so no additional termination representation was added.
+
+The exact-source uncached
+`NX_DAEMON=false bunx nx run-many -t lint typecheck test -p tool-wiki --skip-nx-cache
+--output-style=static` aggregate exited 0 with 170 tests, zero failures and 2,051 assertions in
+377.38 seconds (6m17s Nx duration). Nx used its documented in-process fallback after sandbox socket
+denial and skipped no target. Only OpenSpec task 3.1 remains marked complete; task 3.2 and all later
+checkboxes remain untouched. Repository-wide `bunx nx format:check --all` exited 0. Pinned
+`OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate agent-scalable-llm-wiki --strict`
+exited 0 with `Change 'agent-scalable-llm-wiki' is valid`.

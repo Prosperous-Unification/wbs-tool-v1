@@ -79,3 +79,34 @@ Assumptions retained from the contracts: usage quantities keep their provider un
 micro-units of the `PriceIdentity.currency`, elapsed durations are milliseconds, and tool arrays
 are observation sequences rather than sets. Trusted external receipt provisioning and trust-policy
 selection remain later work. No 3.2 implementation or checkbox was changed.
+
+## Fix Round 2
+
+The process boundary now distinguishes numeric exit, signal termination, unresolved returned exit
+state and launch failure. Bun 1.4.2 returns `exitCode: null` with `signalCode: "SIGTERM"` for a
+signaled synchronous child despite its declaration typing `exitCode` as a number. A returned signal
+is retained with its exact spelling and exact stdout/stderr bytes and hashes. Only a throw from
+`Bun.spawnSync` is a launch failure, so post-return interpretation cannot erase process output.
+
+Cold and informed production-harness SIGTERM cases become terminal unverified attempts; cold never
+releases informed context, while informed retains the prior durable cold acknowledgement. Returned
+`exitCode: null` with an absent or empty signal also becomes an explicit unresolved terminal with
+its streams intact. The adapter configures no abort signal, timeout or maximum-output termination.
+Nearby Bun probes showed the same null/code representation and exact stream retention for SIGINT
+and SIGKILL.
+
+The initial focused RED reproduced the review defect in both phases: the terminal reason was
+`launch failed: Validation failed: exit.exitCode must be a number (was null)` instead of naming
+SIGTERM. After GREEN and formatting, the focused protocol/provenance suite passed 25 tests with
+zero failures and 123 assertions. The exact-source uncached tool-wiki lint/typecheck/test aggregate
+passed 170 tests with zero failures and 2,051 assertions in 377.38 seconds (6m17s Nx duration); Nx
+used its documented in-process fallback after sandbox socket denial and skipped no target.
+Repository-wide `bunx nx format:check --all` and pinned OpenSpec 1.3.0 strict validation both
+exited 0; OpenSpec reported `Change 'agent-scalable-llm-wiki' is valid`.
+
+All signal/unresolved safety mutations ran one at a time and were restored. Routing a returned
+signal through launch-failure recovery erased the exact stdout base64; classifying it unresolved
+failed the exact signaled union; bypassing the signal refusal replaced the SIGTERM reason with a
+null-telemetry error; and treating the no-exit/no-signal state as numeric exit escaped with
+`exit.exitCode must be a number (was null)` instead of persisting the streams. No 3.2 code or task
+checkbox changed.

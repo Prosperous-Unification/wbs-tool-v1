@@ -58,6 +58,15 @@ const ExitedProcess = type({
   kind: "'exited'",
   exitCode: 'number.integer',
 }).onUndeclaredKey('reject');
+const SignaledProcess = type({
+  kind: "'signaled'",
+  signalCode: 'string>=1',
+}).onUndeclaredKey('reject');
+const UnresolvedProcessExit = type({
+  kind: "'unresolved'",
+  exitCode: 'null',
+  signalCode: 'string|null',
+}).onUndeclaredKey('reject');
 const LaunchFailedProcess = type({
   kind: "'launch-failed'",
   message: 'string>=1',
@@ -73,7 +82,7 @@ export const ProcessObservation = type({
   stdoutBase64: 'string',
   stderrArtifact: Sha256,
   stderrBase64: 'string',
-  exit: ExitedProcess.or(LaunchFailedProcess),
+  exit: ExitedProcess.or(SignaledProcess).or(UnresolvedProcessExit).or(LaunchFailedProcess),
 })
   .onUndeclaredKey('reject')
   .narrow((observation, context) => {
@@ -383,6 +392,18 @@ function assertSuccessfulAttempt<T extends ColdHarnessOutput | InformedHarnessOu
 ): asserts output is T & { telemetry: VerifiedTelemetry } {
   if (attempt.observation.exit.kind === 'launch-failed') {
     throw new Error(`launch failed: ${attempt.observation.exit.message}`);
+  }
+  // Proof: returning here let a signal attempt reach null telemetry; both production harness
+  // tests received `null is not an object (evaluating 'output.telemetry')` instead of SIGTERM.
+  if (attempt.observation.exit.kind === 'signaled') {
+    throw new Error(`review harness terminated by ${attempt.observation.exit.signalCode}`);
+  }
+  if (attempt.observation.exit.kind === 'unresolved') {
+    throw new Error(
+      attempt.observation.exit.signalCode === ''
+        ? `review harness returned no exit code and an empty signal code`
+        : `review harness returned neither an exit code nor a signal code`,
+    );
   }
   if (attempt.observation.exit.exitCode !== 0) {
     throw new Error(`review harness exited ${String(attempt.observation.exit.exitCode)}`);
@@ -831,28 +852,16 @@ function phaseObservation(
   harnessArgv: readonly string[],
 ): { observation: ProcessObservation; stdout: Uint8Array } {
   const startedAt = new Date().toISOString();
+  let processResult: Bun.SyncSubprocess<'pipe', 'pipe'>;
+  // Only a throw from Bun.spawnSync is a launch failure. Proof: routing a returned SIGTERM through
+  // this recovery erased both streams; the cold negative observed exact stdout base64 versus `""`,
+  // and the informed negative observed the same loss for its phase.
   try {
-    const processResult = Bun.spawnSync([...harnessArgv], {
+    processResult = Bun.spawnSync([...harnessArgv], {
       stdin: Buffer.from(stdinBytes, 'utf8'),
       stdout: 'pipe',
       stderr: 'pipe',
     });
-    const endedAt = new Date().toISOString();
-    return {
-      observation: parseOrThrow(ProcessObservation, {
-        phase,
-        startedAt,
-        endedAt,
-        stdinArtifact: hashBytes(stdinBytes),
-        stdinBytes,
-        stdoutArtifact: hashBytes(processResult.stdout),
-        stdoutBase64: Buffer.from(processResult.stdout).toString('base64'),
-        stderrArtifact: hashBytes(processResult.stderr),
-        stderrBase64: Buffer.from(processResult.stderr).toString('base64'),
-        exit: { kind: 'exited', exitCode: processResult.exitCode },
-      }),
-      stdout: processResult.stdout,
-    };
   } catch (cause) {
     const endedAt = new Date().toISOString();
     const empty = new Uint8Array();
@@ -872,6 +881,37 @@ function phaseObservation(
       stdout: empty,
     };
   }
+  const endedAt = new Date().toISOString();
+  const signalCode = processResult.signalCode;
+  const exit =
+    // Proof: classifying returned SIGTERM as unresolved made both production harness negatives
+    // receive `{ kind: "unresolved", exitCode: null }` instead of the signaled observation.
+    typeof signalCode === 'string' && signalCode.length > 0
+      ? { kind: 'signaled' as const, signalCode }
+      : typeof processResult.exitCode === 'number'
+        ? { kind: 'exited' as const, exitCode: processResult.exitCode }
+        : {
+            // Proof: treating null/no-signal as exited made the production path throw
+            // `exit.exitCode must be a number (was null)` instead of persisting its streams.
+            kind: 'unresolved' as const,
+            exitCode: null,
+            signalCode: signalCode ?? null,
+          };
+  return {
+    observation: parseOrThrow(ProcessObservation, {
+      phase,
+      startedAt,
+      endedAt,
+      stdinArtifact: hashBytes(stdinBytes),
+      stdinBytes,
+      stdoutArtifact: hashBytes(processResult.stdout),
+      stdoutBase64: Buffer.from(processResult.stdout).toString('base64'),
+      stderrArtifact: hashBytes(processResult.stderr),
+      stderrBase64: Buffer.from(processResult.stderr).toString('base64'),
+      exit,
+    }),
+    stdout: processResult.stdout,
+  };
 }
 
 function coldAttempt(stdinBytes: string, harnessArgv: readonly string[]): ColdAttempt {

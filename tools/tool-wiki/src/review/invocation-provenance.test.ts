@@ -60,10 +60,12 @@ type HarnessMode =
   | 'verified'
   | 'cold-unverified'
   | 'cold-nonzero'
+  | 'cold-signaled'
   | 'cold-malformed'
   | 'cold-wrong-protocol'
   | 'cold-wrong-telemetry-invocation'
   | 'informed-nonzero'
+  | 'informed-signaled'
   | 'informed-malformed';
 
 function writeHarness(directory: string, mode: HarnessMode = 'verified'): string {
@@ -128,6 +130,10 @@ const telemetry = ${
 if (('${mode}' === 'cold-malformed' && phase === 'cold') || ('${mode}' === 'informed-malformed' && phase === 'informed')) {
   process.stderr.write('malformed cold json\\n');
   process.stdout.write('{');
+} else if (('${mode}' === 'cold-signaled' && phase === 'cold') || ('${mode}' === 'informed-signaled' && phase === 'informed')) {
+  process.stdout.write(phase + ' stdout before SIGTERM\\n');
+  process.stderr.write(phase + ' stderr before SIGTERM\\n');
+  process.kill(process.pid, 'SIGTERM');
 } else {
   const output = phase === 'cold' ? {
     schemaVersion: 1, messageKind: 'cold-completion', invocationId: request.invocationId,
@@ -174,6 +180,41 @@ function invoke(mode: HarnessMode = 'verified', harnessArgv?: string[]) {
     tracePath: join(directory, 'trace.txt'),
     invocation: invoker.invoke(request()),
   };
+}
+
+function invokeWithIncompleteRuntimeExit(signalCode: '' | undefined) {
+  const returned = Bun.spawnSync(
+    [
+      process.execPath,
+      '-e',
+      `process.stdout.write('unresolved stdout\\n'); process.stderr.write('unresolved stderr\\n')`,
+    ],
+    { stdout: 'pipe', stderr: 'pipe' },
+  );
+  const impossible = {
+    stdout: returned.stdout,
+    stderr: returned.stderr,
+    exitCode: null,
+    signalCode,
+    success: false,
+    resourceUsage: returned.resourceUsage,
+    pid: returned.pid,
+    exitedDueToTimeout: returned.exitedDueToTimeout,
+    exitedDueToMaxBuffer: returned.exitedDueToMaxBuffer,
+  };
+  const spawnSync = Bun.spawnSync;
+  Object.defineProperty(Bun, 'spawnSync', { value: () => impossible });
+  try {
+    const directory = createScratch();
+    const journalPath = join(directory, 'journal.json');
+    const journal = FileInvocationJournal.create(journalPath, 'journal.integration-test');
+    return {
+      invocation: new ProcessReviewInvoker(journal, ['not-reached']).invoke(request()),
+      journalPath,
+    };
+  } finally {
+    Object.defineProperty(Bun, 'spawnSync', { value: spawnSync });
+  }
 }
 
 function requireVerified(invocation: ReviewInvocationResult): ReviewEvidence {
@@ -482,6 +523,49 @@ describe('review invocation provenance', () => {
     expect(entry.terminal.attempt.observation.stderrArtifact).toBe(hashBytes(new Uint8Array()));
   });
 
+  test('persists exact cold streams and signal identity when the harness is terminated', () => {
+    const { invocation, journalPath, tracePath } = invoke('cold-signaled');
+    expect(invocation.status).toBe('unverified');
+    const entry = readUnverifiedTerminal(journalPath);
+    const observation = entry.terminal.attempt.observation;
+    expect(entry.terminal.phase).toBe('cold');
+    expect(observation.stdoutBase64).toBe(
+      Buffer.from('cold stdout before SIGTERM\n').toString('base64'),
+    );
+    expect(observation.stdoutArtifact).toBe(hashBytes(Buffer.from('cold stdout before SIGTERM\n')));
+    expect(observation.stderrBase64).toBe(
+      Buffer.from('cold stderr before SIGTERM\n').toString('base64'),
+    );
+    expect(observation.stderrArtifact).toBe(hashBytes(Buffer.from('cold stderr before SIGTERM\n')));
+    expect(observation.exit).toEqual({ kind: 'signaled', signalCode: 'SIGTERM' });
+    expect(entry.terminal.reason).toContain('SIGTERM');
+    expect(readFileSync(tracePath, 'utf8')).toBe('cold\n');
+  });
+
+  test('fails closed with retained streams when Bun returns neither exit nor signal', () => {
+    const { invocation, journalPath } = invokeWithIncompleteRuntimeExit(undefined);
+    expect(invocation.status).toBe('unverified');
+    const entry = readUnverifiedTerminal(journalPath);
+    const observation = entry.terminal.attempt.observation;
+    expect(entry.terminal.phase).toBe('cold');
+    expect(entry.terminal.reason).toContain('neither an exit code nor a signal code');
+    expect(observation.exit).toEqual({ kind: 'unresolved', exitCode: null, signalCode: null });
+    expect(observation.stdoutBase64).toBe(Buffer.from('unresolved stdout\n').toString('base64'));
+    expect(observation.stderrBase64).toBe(Buffer.from('unresolved stderr\n').toString('base64'));
+  });
+
+  test('fails closed with retained streams when Bun returns an empty signal', () => {
+    const { invocation, journalPath } = invokeWithIncompleteRuntimeExit('');
+    expect(invocation.status).toBe('unverified');
+    const entry = readUnverifiedTerminal(journalPath);
+    const observation = entry.terminal.attempt.observation;
+    expect(entry.terminal.phase).toBe('cold');
+    expect(entry.terminal.reason).toContain('empty signal code');
+    expect(observation.exit).toEqual({ kind: 'unresolved', exitCode: null, signalCode: '' });
+    expect(observation.stdoutBase64).toBe(Buffer.from('unresolved stdout\n').toString('base64'));
+    expect(observation.stderrBase64).toBe(Buffer.from('unresolved stderr\n').toString('base64'));
+  });
+
   test('persists protocol-invalid cold output and refuses informed launch', () => {
     const { invocation, journalPath, tracePath } = invoke('cold-wrong-protocol');
     expect(invocation.status).toBe('unverified');
@@ -509,6 +593,30 @@ describe('review invocation provenance', () => {
     expect(entry.cold).toBeDefined();
     expect(entry.terminal.phase).toBe('informed');
     expect(entry.terminal.attempt.output).not.toBeNull();
+    expect(readFileSync(tracePath, 'utf8')).toBe('cold\ninformed\n');
+  });
+
+  test('persists exact informed streams and signal identity after cold acknowledgement', () => {
+    const { invocation, journalPath, tracePath } = invoke('informed-signaled');
+    expect(invocation.status).toBe('unverified');
+    const entry = readUnverifiedTerminal(journalPath);
+    const observation = entry.terminal.attempt.observation;
+    expect(entry.cold).toBeDefined();
+    expect(entry.terminal.phase).toBe('informed');
+    expect(observation.stdoutBase64).toBe(
+      Buffer.from('informed stdout before SIGTERM\n').toString('base64'),
+    );
+    expect(observation.stdoutArtifact).toBe(
+      hashBytes(Buffer.from('informed stdout before SIGTERM\n')),
+    );
+    expect(observation.stderrBase64).toBe(
+      Buffer.from('informed stderr before SIGTERM\n').toString('base64'),
+    );
+    expect(observation.stderrArtifact).toBe(
+      hashBytes(Buffer.from('informed stderr before SIGTERM\n')),
+    );
+    expect(observation.exit).toEqual({ kind: 'signaled', signalCode: 'SIGTERM' });
+    expect(entry.terminal.reason).toContain('SIGTERM');
     expect(readFileSync(tracePath, 'utf8')).toBe('cold\ninformed\n');
   });
 
