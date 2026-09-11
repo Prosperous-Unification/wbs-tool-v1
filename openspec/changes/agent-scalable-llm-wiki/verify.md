@@ -801,3 +801,48 @@ parent integration pass.
 Pinned OpenSpec 1.3.0 strict validation returned
 `Change 'agent-scalable-llm-wiki' is valid` with exit 0. Its optional PostHog telemetry flush
 reported the sandbox's DNS failure afterward without changing validation or its exit status.
+
+## Slice 2.3 Fix Round 1
+
+Reference-style Markdown navigation is now resolved from mdast `linkReference` nodes through their
+actual `definition` nodes. Used definitions pass through the same exact path, case, anchor and glob
+checks as inline links; a definition naming a missing candidate path is refused. Images and image
+references remain non-navigation, while external autolinks remain external. Metadata and explicit
+HTML anchors are accepted only from rendered mdast HTML nodes, so fenced examples cannot become an
+index envelope or satisfy an anchor.
+
+Every concrete exact or grouped member is now followed through selected symlink blobs before its
+claim is accepted, independently of README navigation. Absolute, lexical, absent-target and cyclic
+symlink states fail closed. This stronger membership boundary made the old link-only lexical guard
+redundant: deleting it permanently left the linked escape test green because it now fails earlier as
+`membership symlink escapes candidate ...`.
+
+The initial focused regression run passed the image/autolink control and failed the six observable
+gaps: the absent reference target, fenced anchor, fenced metadata, and unlinked exact/grouped member
+escapes all expected exit 1 and received 0; an undefined reference spelling was also observed as
+ordinary CommonMark text rather than a `linkReference` and was therefore not retained as a false
+navigation oracle. The completed post-format suite passed 27 tests, zero failures and 224 assertions.
+
+| Deliberate one-at-a-time fault                     | Observed production-CLI failure                                                     |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| omit resolved reference links                      | absent `docs/absent.md` definition target exited 0; expected exit 1                 |
+| admit fenced code nodes as metadata                | fenced `module.example` envelope was indexed and CLI exited 0                       |
+| admit fenced code nodes as HTML anchors            | fenced `<a id="details">` satisfied the link and CLI exited 0                       |
+| bypass effective member-symlink validation         | both unlinked exact and grouped escapes exited 0 as owned members                   |
+| omit the absolute-target distinction               | `/outside` moved to the less precise absent-target failure                          |
+| omit selected-target membership                    | dangling `missing -> not-selected` exited 0 as an owned member                      |
+| return when a selected symlink cycle repeats       | `first -> second -> first` exited 0 with both paths reported as owned               |
+| return empty bytes for an unreadable selected blob | failure moved to `selected candidate contains no wbs indexes`, hiding unreadability |
+| delete the former link-only lexical symlink guard  | no behavior changed; the stronger membership boundary refused the linked escape     |
+
+Each behavior-changing fault ran alone through `check-indexes` against a temporary real Git
+repository and was restored before the next. Adjacent `Proof:` comments record the observed
+failures. The dead link-only guard and its inaccurate proof were removed rather than retained.
+
+Direct project ESLint and the solution-style source/spec TypeScript build exited 0. The first
+uncached Nx lint/typecheck/test aggregate passed all 112 then-current tool-wiki tests with zero
+failures and 1,674 assertions in 284.04 seconds (4m44s Nx duration). The final aggregate after the
+three additional symlink-state oracles passed all 115 tests with zero failures and 1,698 assertions
+in 286.01 seconds (4m46s Nx duration). Pinned OpenSpec 1.3.0 strict validation returned
+`Change 'agent-scalable-llm-wiki' is valid` with exit 0; only its optional PostHog flush reported the
+sandbox DNS failure afterward. Task 2.4 and its pilot indexes remain untouched.

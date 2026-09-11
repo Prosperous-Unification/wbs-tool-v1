@@ -61,6 +61,8 @@ function declaredMembers(
   index: ReadIndex,
   expected: readonly string[],
   candidatePaths: ReadonlySet<string>,
+  entries: ReadonlyMap<string, CandidateEntry>,
+  bytes: CandidateBytes,
 ): string[] {
   const claims = new Map<string, number>();
   for (const membership of index.metadata.memberships) {
@@ -69,6 +71,7 @@ function declaredMembers(
       // Proof: ignoring this absent exact member moved the production CLI failure to the later
       // Markdown-path check (`Markdown path absent in README.md: docs/guide.md`).
       if (!candidatePaths.has(path)) throw new Error(`membership target absent: ${path}`);
+      assertMemberContained(index, path, entries, candidatePaths, bytes);
       if (!expected.includes(path)) {
         throw new Error(`membership target outside ${index.indexPath}: ${path}`);
       }
@@ -81,7 +84,10 @@ function declaredMembers(
       (path) => (path === prefix || path.startsWith(`${prefix}/`)) && !isExcluded(path, exclusions),
     );
     if (matched.length === 0) throw new Error(`membership target absent: ${prefix}`);
-    for (const path of matched) claims.set(path, (claims.get(path) ?? 0) + 1);
+    for (const path of matched) {
+      assertMemberContained(index, path, entries, candidatePaths, bytes);
+      claims.set(path, (claims.get(path) ?? 0) + 1);
+    }
   }
   for (const path of expected) {
     const count = claims.get(path) ?? 0;
@@ -93,6 +99,44 @@ function declaredMembers(
     if (count > 1) throw new Error(`ambiguous membership in ${index.indexPath}: ${path}`);
   }
   return [...claims.keys()].sort(compareText);
+}
+
+function assertMemberContained(
+  index: ReadIndex,
+  target: string,
+  entries: ReadonlyMap<string, CandidateEntry>,
+  candidatePaths: ReadonlySet<string>,
+  bytes: CandidateBytes,
+): void {
+  let resolved = target;
+  const visited = new Set<string>();
+  while (entries.get(resolved)?.mode === '120000') {
+    if (visited.has(resolved)) {
+      // Proof: returning on revisit made `first -> second -> first` exit 0 with both cycle members
+      // reported as owned (expected exit 1, received 0).
+      throw new Error(`membership symlink cycle in ${index.indexPath}: ${resolved}`);
+    }
+    visited.add(resolved);
+    const linkTarget = markdownText(resolved, bytes);
+    const next = posix.normalize(posix.join(posix.dirname(resolved), linkTarget));
+    // Proof: removing these member checks made both unlinked exact and grouped escaping-symlink
+    // production CLIs exit 0 and report the escaping symlink as an owned member.
+    // Proof: omitting the absolute-target branch moved `/outside` to the less precise
+    // `membership symlink target absent` failure instead of naming the escape.
+    if (posix.isAbsolute(linkTarget) || next === '..' || next.startsWith('../')) {
+      throw new Error(
+        `membership symlink escapes candidate in ${index.indexPath}: ${resolved} -> ${linkTarget}`,
+      );
+    }
+    // Proof: omitting selected-target membership made `missing -> not-selected` exit 0 and report
+    // the dangling symlink as an owned member (expected exit 1, received 0).
+    if (!candidatePaths.has(next)) {
+      throw new Error(
+        `membership symlink target absent in ${index.indexPath}: ${resolved} -> ${linkTarget}`,
+      );
+    }
+    resolved = next;
+  }
 }
 
 function decodeDestination(
@@ -176,13 +220,6 @@ function resolveSymlinks(
       );
     }
     const next = posix.normalize(posix.join(posix.dirname(resolved), linkTarget));
-    // Proof: removing this lexical confinement made the escaping-symlink production CLI exit 0
-    // with `escape` reported as a valid member (expected exit 1, received 0).
-    if (next === '..' || next.startsWith('../')) {
-      throw new Error(
-        `Markdown symlink escapes candidate in ${index.indexPath}: ${resolved} -> ${linkTarget}`,
-      );
-    }
     resolved = exactCandidatePath(index.indexPath, next, candidatePaths);
   }
   return resolved;
@@ -251,7 +288,7 @@ export function checkIndexes(repository: string, candidate: CandidateSnapshot): 
     }
     moduleIds.add(index.metadata.moduleId);
     const expected = expectedMembers(index, read.indexes, paths);
-    const members = declaredMembers(index, expected, candidatePaths);
+    const members = declaredMembers(index, expected, candidatePaths, entries, read.bytes);
     checkLinks(index, entries, candidatePaths, read.bytes);
     checkArchiveEntrypoints(index, members);
     return {

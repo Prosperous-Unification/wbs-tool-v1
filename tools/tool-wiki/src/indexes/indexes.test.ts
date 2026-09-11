@@ -425,7 +425,7 @@ describe('index production CLI', () => {
     );
   });
 
-  test('refuses Markdown navigation through a selected symlink that escapes the candidate', () => {
+  test('refuses a linked selected symlink at the membership boundary', () => {
     const repository = createRepository();
     write(
       repository,
@@ -440,7 +440,7 @@ describe('index production CLI', () => {
 
     expectRefusal(
       runCheck(repository, commit(repository, 'escaping symlink')),
-      'Markdown symlink escapes candidate in README.md: escape -> ../../outside',
+      'membership symlink escapes candidate in README.md: escape -> ../../outside',
     );
   });
 
@@ -487,6 +487,224 @@ describe('index production CLI', () => {
     expectRefusal(
       runCheck(repository, commit(repository, 'missing index metadata')),
       'selected candidate contains no wbs indexes',
+    );
+  });
+
+  test('checks used reference-style links while ignoring images and external autolinks', () => {
+    const repository = createRepository();
+    writeFixture(repository);
+    const rootPath = join(repository, 'README.md');
+    const source = Bun.file(rootPath).text();
+    return source.then((markdown) => {
+      writeFileSync(
+        rootPath,
+        markdown.replace(
+          '- [Guide](docs/guide.md#details)',
+          '- [Guide][guide]\n- ![Decorative missing image](missing.png)\n- <https://example.test>\n\n[guide]: docs/guide.md#details',
+        ),
+        'utf8',
+      );
+      const invocation = runCheck(repository, commit(repository, 'reference link'));
+      expect(invocation.exitCode, outputOf(invocation)).toBe(0);
+    });
+  });
+
+  test('refuses a reference-style Markdown link to an absent path', () => {
+    const repository = createRepository();
+    writeFixture(repository);
+    const rootPath = join(repository, 'README.md');
+    const source = Bun.file(rootPath).text();
+    return source.then((markdown) => {
+      writeFileSync(
+        rootPath,
+        markdown.replace(
+          '- [Guide](docs/guide.md#details)',
+          '- [Guide][guide]\n\n[guide]: docs/absent.md',
+        ),
+        'utf8',
+      );
+      expectRefusal(
+        runCheck(repository, commit(repository, 'absent reference target')),
+        'Markdown path absent in README.md: docs/absent.md',
+      );
+    });
+  });
+
+  test('refuses a reference-style Markdown link whose path has the wrong case', () => {
+    const repository = createRepository();
+    writeFixture(repository);
+    const rootPath = join(repository, 'README.md');
+    const source = Bun.file(rootPath).text();
+    return source.then((markdown) => {
+      writeFileSync(
+        rootPath,
+        markdown.replace(
+          '- [Guide](docs/guide.md#details)',
+          '- [Guide][guide]\n\n[guide]: docs/Guide.md#details',
+        ),
+        'utf8',
+      );
+      expectRefusal(
+        runCheck(repository, commit(repository, 'wrong-case reference target')),
+        'Markdown path case mismatch in README.md: docs/Guide.md -> docs/guide.md',
+      );
+    });
+  });
+
+  test('refuses a reference-style Markdown link to an absent anchor', () => {
+    const repository = createRepository();
+    writeFixture(repository);
+    const rootPath = join(repository, 'README.md');
+    const source = Bun.file(rootPath).text();
+    return source.then((markdown) => {
+      writeFileSync(
+        rootPath,
+        markdown.replace(
+          '- [Guide](docs/guide.md#details)',
+          '- [Guide][guide]\n\n[guide]: docs/guide.md#missing',
+        ),
+        'utf8',
+      );
+      expectRefusal(
+        runCheck(repository, commit(repository, 'absent reference anchor')),
+        'Markdown anchor absent in README.md: docs/guide.md#missing',
+      );
+    });
+  });
+
+  test('refuses glob characters in a reference-style Markdown link', () => {
+    const repository = createRepository();
+    writeFixture(repository);
+    const rootPath = join(repository, 'README.md');
+    const source = Bun.file(rootPath).text();
+    return source.then((markdown) => {
+      writeFileSync(rootPath, `${markdown}\n[Tests][tests]\n\n[tests]: tests/*.ts\n`, 'utf8');
+      expectRefusal(
+        runCheck(repository, commit(repository, 'glob reference target')),
+        'Markdown link contains a glob in README.md: tests/*.ts',
+      );
+    });
+  });
+
+  test('refuses a fenced HTML example as an anchor target', () => {
+    const repository = createRepository();
+    writeFixture(repository);
+    write(repository, 'docs/guide.md', '# Guide\n\n```html\n<a id="details"></a>\n```\n');
+
+    expectRefusal(
+      runCheck(repository, commit(repository, 'fenced anchor example')),
+      'Markdown anchor absent in README.md: docs/guide.md#details',
+    );
+  });
+
+  test('does not treat a fenced metadata example as an index envelope', () => {
+    const repository = createRepository();
+    const envelope = `<!-- wbs-index ${JSON.stringify(metadata('module.example', []))} -->`;
+    write(repository, 'README.md', `# Example\n\n\`\`\`md\n${envelope}\n\`\`\`\n`);
+
+    expectRefusal(
+      runCheck(repository, commit(repository, 'fenced metadata example')),
+      'selected candidate contains no wbs indexes',
+    );
+  });
+
+  test('refuses an unlinked exact member symlink that escapes the candidate', () => {
+    const repository = createRepository();
+    write(
+      repository,
+      'README.md',
+      indexSource(
+        'Symlink boundary',
+        metadata('module.symlink', [{ kind: 'path', path: 'escape' }]),
+        [],
+      ),
+    );
+    symlinkSync('../../outside', join(repository, 'escape'));
+
+    expectRefusal(
+      runCheck(repository, commit(repository, 'unlinked exact escape')),
+      'membership symlink escapes candidate in README.md: escape -> ../../outside',
+    );
+  });
+
+  test('refuses an unlinked grouped member symlink that escapes the candidate', () => {
+    const repository = createRepository();
+    write(
+      repository,
+      'README.md',
+      indexSource(
+        'Symlink boundary',
+        metadata('module.symlink', [{ kind: 'directory-prefix', prefix: 'group', exclusions: [] }]),
+        [],
+      ),
+    );
+    mkdirSync(join(repository, 'group'));
+    symlinkSync('../../../outside', join(repository, 'group/escape'));
+
+    expectRefusal(
+      runCheck(repository, commit(repository, 'unlinked grouped escape')),
+      'membership symlink escapes candidate in README.md: group/escape -> ../../../outside',
+    );
+  });
+
+  test('refuses an absolute member symlink target', () => {
+    const repository = createRepository();
+    write(
+      repository,
+      'README.md',
+      indexSource(
+        'Symlink boundary',
+        metadata('module.symlink', [{ kind: 'path', path: 'escape' }]),
+        [],
+      ),
+    );
+    symlinkSync('/outside', join(repository, 'escape'));
+
+    expectRefusal(
+      runCheck(repository, commit(repository, 'absolute member symlink')),
+      'membership symlink escapes candidate in README.md: escape -> /outside',
+    );
+  });
+
+  test('refuses a member symlink whose target is absent from the selected candidate', () => {
+    const repository = createRepository();
+    write(
+      repository,
+      'README.md',
+      indexSource(
+        'Symlink boundary',
+        metadata('module.symlink', [{ kind: 'path', path: 'missing' }]),
+        [],
+      ),
+    );
+    symlinkSync('not-selected', join(repository, 'missing'));
+
+    expectRefusal(
+      runCheck(repository, commit(repository, 'absent member symlink target')),
+      'membership symlink target absent in README.md: missing -> not-selected',
+    );
+  });
+
+  test('refuses a cycle in selected member symlinks', () => {
+    const repository = createRepository();
+    write(
+      repository,
+      'README.md',
+      indexSource(
+        'Symlink boundary',
+        metadata('module.symlink', [
+          { kind: 'path', path: 'first' },
+          { kind: 'path', path: 'second' },
+        ]),
+        [],
+      ),
+    );
+    symlinkSync('second', join(repository, 'first'));
+    symlinkSync('first', join(repository, 'second'));
+
+    expectRefusal(
+      runCheck(repository, commit(repository, 'cyclic member symlinks')),
+      'membership symlink cycle in README.md: first',
     );
   });
 });

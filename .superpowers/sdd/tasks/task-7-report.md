@@ -39,6 +39,34 @@ substitution, duplicate stable identity and absent metadata. The exact observati
 Final changed-file formatting and diff checks are run after this report is part of the candidate
 and recorded in the final handoff.
 
+## Fix Round 1
+
+Closed Astra's Markdown-AST and member-confinement findings without starting Task 2.4. Used
+reference definitions now feed the same exact path, case, anchor and glob checks as inline links;
+images remain non-navigation and external autolinks remain external. Index metadata and explicit
+HTML anchors now come only from rendered mdast HTML nodes, never fenced code. Every exact and grouped
+member's effective selected symlink target is confined before its ownership claim is accepted,
+whether or not a README links to it.
+
+The initial production-CLI regressions reproduced the defects as exit 0 for an absent reference
+target, a fenced anchor, a fenced metadata envelope, and unlinked exact and grouped escaping
+symlinks. The image/autolink control remained green. After implementation, 27 focused index tests
+passed with 224 assertions. One-at-a-time faults then observed exit 0 when reference resolution,
+HTML-node discrimination or member confinement was bypassed. Absolute, absent-target and cyclic
+member symlinks also have isolated production CLI oracles; removing each branch produced a wrong
+diagnostic or erroneous exit 0. The unreadable-blob fallback was rechecked and correctly recorded
+as moving the failure to `selected candidate contains no wbs indexes`. Removing the old link-only
+lexical guard changed no behavior because member confinement now refuses the same linked escape
+earlier; the dead guard and its stale proof were deleted.
+
+Direct ESLint and solution-style source/spec TypeScript builds exited 0. The first uncached full
+tool-wiki aggregate passed lint, typecheck and all 112 then-current tests with zero failures and
+1,674 assertions in 284.04 seconds; the final aggregate after three more symlink oracles is recorded
+as 115 tests, zero failures and 1,698 assertions in 286.01 seconds. Pinned OpenSpec 1.3.0 strict
+validation returned the change valid with exit 0; the optional telemetry flush alone reported the
+sandbox DNS failure. Final changed-file Prettier, diff and status checks follow this evidence
+append. No checkbox changed and Task 2.4 remains untouched.
+
 ## Concerns and remaining scope
 
 The metadata schema and checker establish the machinery but intentionally add no repository pilot
