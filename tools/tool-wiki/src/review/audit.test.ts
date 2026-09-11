@@ -412,7 +412,7 @@ describe('review audit obligations', () => {
     expect(report.unmetObligationIds).toEqual(['review.directory.src', 'review.project.tool-wiki']);
     expect(report.unreviewedObligationIds).toContain('review.directory.src');
     expect(report.unreviewedObligationIds).toContain('review.project.tool-wiki');
-    expect(report.costs).toMatchObject({ totalChargedAmountMicros: 50 });
+    expect(report.costs.currencyCharges).toEqual([{ currency: 'USD', chargedAmountMicros: 50 }]);
     expect(report.costs.reviews).toHaveLength(2);
 
     const verified = review(directory, 'review.incomplete.unverified');
@@ -812,7 +812,7 @@ describe('review audit obligations', () => {
       adjudications: [],
     });
 
-    expect(report.costs.totalChargedAmountMicros).toBe(50);
+    expect(report.costs.currencyCharges).toEqual([{ currency: 'USD', chargedAmountMicros: 50 }]);
     expect(report.costs.totalElapsedMs).toBe(4000);
     expect(report.costs.reviews).toHaveLength(2);
     expect(report.costs.reviews.every((cost) => cost.trustScope === 'local-cooperative')).toBe(
@@ -821,6 +821,84 @@ describe('review audit obligations', () => {
     expect(report.costs.rawUsage).toHaveLength(4);
     expect(report.costs.readObservations).toHaveLength(4);
     expect(report.costs.reviews[0]?.phaseReceipts).toEqual(reviews[0]?.evidence.phaseReceipts);
+  });
+
+  test('cost accounting keeps native currencies and canonicalizes currency totals', () => {
+    const selection = selectionRequest();
+    const directoryReview = review(selection.obligations[1], 'review.cost.a-usd');
+    const projectReview = review(selection.obligations[2], 'review.cost.z-eur');
+    const euroPrice = {
+      ...projectReview.evidence.receipt.priceIdentity,
+      priceId: 'price.review.eur.v1',
+      currency: 'EUR',
+    };
+    projectReview.evidence.receipt.priceIdentity = euroPrice;
+    projectReview.evidence.phaseReceipts.cold.receipt.priceIdentity = euroPrice;
+    projectReview.evidence.phaseReceipts.informed.receipt.priceIdentity = euroPrice;
+    const envelope = {
+      ...selection,
+      mode: 'enforce' as const,
+      claimedCoverage: 'sampled' as const,
+      reviews: [directoryReview, projectReview],
+      corrections: [],
+      closures: [],
+      adjudications: [],
+    };
+
+    const report = evaluateAudit(envelope);
+    expect(report.costs.currencyCharges).toEqual([
+      { currency: 'EUR', chargedAmountMicros: 25 },
+      { currency: 'USD', chargedAmountMicros: 25 },
+    ]);
+    expect(evaluateAudit({ ...envelope, reviews: [...envelope.reviews].reverse() })).toEqual(
+      report,
+    );
+    const euroCost = report.costs.reviews.find(({ reviewId }) => reviewId === 'review.cost.z-eur');
+    expect(euroCost?.reviewReceipt.priceIdentity).toEqual(euroPrice);
+    expect(euroCost?.phaseReceipts.cold.receipt.priceIdentity).toEqual(euroPrice);
+    expect(euroCost?.phaseReceipts.informed.receipt.priceIdentity).toEqual(euroPrice);
+  });
+
+  test('price, usage, charge, and elapsed receipt identities cannot be reused', () => {
+    const selection = selectionRequest();
+    const directoryReview = review(selection.obligations[1], 'review.receipt.directory');
+    const projectReview = review(selection.obligations[2], 'review.receipt.project');
+    const envelope = {
+      ...selection,
+      mode: 'enforce' as const,
+      claimedCoverage: 'sampled' as const,
+      reviews: [directoryReview, projectReview],
+      corrections: [],
+      closures: [],
+      adjudications: [],
+    };
+
+    const reusedPhase = structuredClone(envelope);
+    reusedPhase.reviews[0].evidence.phaseReceipts.cold.receipt.chargedAmountMicros = 0;
+    reusedPhase.reviews[0].evidence.phaseReceipts.informed.receipt.chargedAmountMicros = 0;
+    reusedPhase.reviews[0].evidence.phaseReceipts.informed.receipt.receiptId =
+      reusedPhase.reviews[0].evidence.phaseReceipts.cold.receipt.receiptId;
+    expect(() => evaluateAudit(reusedPhase)).toThrow('duplicate audit receipt');
+
+    const reusedPhaseAcrossReviews = structuredClone(envelope);
+    reusedPhaseAcrossReviews.reviews[1].evidence.phaseReceipts.cold.receipt.receiptId =
+      reusedPhaseAcrossReviews.reviews[0].evidence.phaseReceipts.informed.receipt.receiptId;
+    expect(() => evaluateAudit(reusedPhaseAcrossReviews)).toThrow('duplicate audit receipt');
+
+    const reusedReviewReceipt = structuredClone(envelope);
+    reusedReviewReceipt.reviews[1].evidence.receipt.receiptId =
+      reusedReviewReceipt.reviews[0].evidence.receipt.receiptId;
+    expect(() => evaluateAudit(reusedReviewReceipt)).toThrow('duplicate audit receipt');
+
+    const reusedElapsed = structuredClone(envelope);
+    reusedElapsed.reviews[1].evidence.phaseReceipts.informed.elapsedReceipts[0].receiptId =
+      reusedElapsed.reviews[0].evidence.phaseReceipts.cold.elapsedReceipts[0].receiptId;
+    expect(() => evaluateAudit(reusedElapsed)).toThrow('duplicate audit receipt');
+
+    const reusedAcrossKinds = structuredClone(envelope);
+    reusedAcrossKinds.reviews[1].evidence.phaseReceipts.informed.elapsedReceipts[0].receiptId =
+      reusedAcrossKinds.reviews[0].evidence.receipt.receiptId;
+    expect(() => evaluateAudit(reusedAcrossKinds)).toThrow('duplicate audit receipt');
   });
 
   test('receipt summaries cannot hide authoritative protocol context and reads', () => {

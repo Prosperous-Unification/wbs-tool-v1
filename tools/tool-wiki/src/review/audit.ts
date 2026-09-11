@@ -197,8 +197,14 @@ export interface AuditReadObservation {
   observedReadIds: string[];
 }
 
+/** A checked aggregate of native charges for one exact receipt currency. */
+export interface AuditCurrencyCharge {
+  currency: string;
+  chargedAmountMicros: number;
+}
+
 export interface AuditCosts {
-  totalChargedAmountMicros: number;
+  currencyCharges: AuditCurrencyCharge[];
   totalElapsedMs: number;
   reviews: AuditReviewCost[];
   rawUsage: AuditUsageObservation[];
@@ -414,6 +420,16 @@ export function evaluateAudit(input: unknown): AuditReport {
     ({ evidence }) => evidence.receipt.invocationId,
     'audit review invocation',
   );
+  const receipts = envelope.reviews.flatMap((review) => [
+    review.evidence.receipt,
+    review.evidence.phaseReceipts.cold.receipt,
+    ...review.evidence.phaseReceipts.cold.elapsedReceipts,
+    review.evidence.phaseReceipts.informed.receipt,
+    ...review.evidence.phaseReceipts.informed.elapsedReceipts,
+  ]);
+  // Proof: removing this guard let one zero-charge receipt identify both audit phases; the public
+  // receipt-identity test reported "function did not throw".
+  assertUnique(receipts, ({ receiptId }) => receiptId, 'audit receipt');
   // Proof: removing this check let correction.alpha appear twice and still close its finding;
   // the correction production test reported "function did not throw".
   assertUnique(envelope.corrections, ({ correctionId }) => correctionId, 'audit correction');
@@ -791,7 +807,7 @@ export function evaluateAudit(input: unknown): AuditReport {
       });
     }
   }
-  let totalChargedAmountMicros = 0;
+  const chargedAmountMicrosByCurrency = new Map<string, number>();
   let totalElapsedMs = 0;
   const costReviews: AuditReviewCost[] = [];
   const rawUsage: AuditUsageObservation[] = [];
@@ -808,9 +824,13 @@ export function evaluateAudit(input: unknown): AuditReport {
     // 28 charged micros instead of 50.
     for (const phase of ['cold', 'informed'] as const) {
       const phaseEvidence = review.evidence.phaseReceipts[phase];
-      totalChargedAmountMicros = addAuditCost(
-        totalChargedAmountMicros,
-        phaseEvidence.receipt.chargedAmountMicros,
+      const currency = phaseEvidence.receipt.priceIdentity.currency;
+      chargedAmountMicrosByCurrency.set(
+        currency,
+        addAuditCost(
+          chargedAmountMicrosByCurrency.get(currency) ?? 0,
+          phaseEvidence.receipt.chargedAmountMicros,
+        ),
       );
       for (const elapsed of phaseEvidence.elapsedReceipts) {
         totalElapsedMs = addAuditCost(totalElapsedMs, elapsed.elapsedMs);
@@ -827,8 +847,13 @@ export function evaluateAudit(input: unknown): AuditReport {
       });
     }
   }
+  // Proof: forcing every phase into USD returned USD 50 instead of EUR 25 / USD 25; removing
+  // the sort returned USD then EUR where the public production test required EUR then USD.
+  const currencyCharges = [...chargedAmountMicrosByCurrency]
+    .sort(([leftCurrency], [rightCurrency]) => compareText(leftCurrency, rightCurrency))
+    .map(([currency, chargedAmountMicros]) => ({ currency, chargedAmountMicros }));
   const costs: AuditCosts = {
-    totalChargedAmountMicros,
+    currencyCharges,
     totalElapsedMs,
     reviews: costReviews,
     rawUsage,
