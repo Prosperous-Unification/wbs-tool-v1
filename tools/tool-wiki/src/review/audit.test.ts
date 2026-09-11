@@ -155,7 +155,11 @@ function reviewEvidence(
       invocationId,
       executor,
       suppliedContextIds: [SHA_B, obligation.subject.contentIdentity, ...informedContextIds],
-      observedReadIds: [obligation.subject.contentIdentity, ...informedContextIds],
+      observedReadIds: [
+        ...cold.observedReadIds,
+        obligation.subject.contentIdentity,
+        ...informedContextIds,
+      ],
       rawResponseArtifact: hashBytes(informedResponse),
       rawUsage,
       priceIdentity,
@@ -213,6 +217,15 @@ function review(
     evidence: reviewEvidence(obligation, reviewId, options),
     findings: [],
   };
+}
+
+function requireReview<Review extends { reviewId: string }>(
+  reviews: Review[],
+  reviewId: string,
+): Review {
+  const found = reviews.find((candidate) => candidate.reviewId === reviewId);
+  if (found === undefined) throw new Error(`missing fixture review ${reviewId}`);
+  return found;
 }
 
 describe('review audit selection', () => {
@@ -377,6 +390,66 @@ describe('review audit obligations', () => {
     ]);
   });
 
+  test('failed, censored, or unverified phase evidence cannot discharge review coverage', () => {
+    const selection = selectionRequest();
+    const directory = selection.obligations[1];
+    const project = selection.obligations[2];
+    const failedCold = review(directory, 'review.incomplete.failed-cold');
+    failedCold.evidence.phaseReceipts.cold.receipt.status = 'failed';
+    const censoredInformed = review(project, 'review.incomplete.censored-informed');
+    censoredInformed.evidence.phaseReceipts.informed.receipt.status = 'censored';
+    const envelope = {
+      ...selection,
+      mode: 'enforce' as const,
+      claimedCoverage: 'sampled' as const,
+      reviews: [failedCold, censoredInformed],
+      corrections: [],
+      closures: [],
+      adjudications: [],
+    };
+    const report = evaluateAudit(envelope);
+
+    expect(report.unmetObligationIds).toEqual(['review.directory.src', 'review.project.tool-wiki']);
+    expect(report.unreviewedObligationIds).toContain('review.directory.src');
+    expect(report.unreviewedObligationIds).toContain('review.project.tool-wiki');
+    expect(report.costs).toMatchObject({ totalChargedAmountMicros: 50 });
+    expect(report.costs.reviews).toHaveLength(2);
+
+    const verified = review(directory, 'review.incomplete.unverified');
+    const unverified = {
+      ...verified,
+      evidence: {
+        ...verified.evidence,
+        phaseReceipts: {
+          ...verified.evidence.phaseReceipts,
+          cold: {
+            status: 'unverified' as const,
+            reason: 'provider usage unavailable',
+            missingRequirements: ['usage'],
+            observed: {},
+          },
+        },
+      },
+    };
+    expect(() => evaluateAudit({ ...envelope, reviews: [unverified] })).toThrow();
+
+    const completed = review(directory, 'review.incomplete.completed', { impact: 'yes' });
+    const failedConflict = review(directory, 'review.incomplete.failed-conflict', {
+      impact: 'no',
+    });
+    failedConflict.evidence.phaseReceipts.cold.receipt.status = 'failed';
+    const mixedReport = evaluateAudit({
+      ...envelope,
+      reviews: [completed, failedConflict, review(project, 'review.incomplete.project')],
+    });
+    expect(mixedReport).toMatchObject({
+      accepted: true,
+      adjudicationObligationIds: [],
+      unmetObligationIds: [],
+    });
+    expect(mixedReport.costs.reviews).toHaveLength(3);
+  });
+
   test('sampled evidence is rejected explicitly when it claims exhaustive coverage', () => {
     const selection = selectionRequest();
     const selected = selectAudit(selection).obligationIds.map((obligationId, index) => {
@@ -478,6 +551,122 @@ describe('review audit obligations', () => {
     ]);
   });
 
+  test('a later-round disagreement cannot hide behind an agreeing first round', () => {
+    const selection = selectionRequest();
+    selection.strata[0].sampleRateBps = 10000;
+    selection.strata[0].disagreementTriggerBps = 10000;
+    const directory = selection.obligations[1];
+    const roundOne = review(directory, 'review.later.round-one', { impact: 'yes' });
+    const roundTwoYes = {
+      ...review(directory, 'review.later.round-two-yes', { impact: 'yes' }),
+      reviewRound: 2,
+    };
+    const roundTwoNo = {
+      ...review(directory, 'review.later.round-two-no', { impact: 'no' }),
+      reviewRound: 2,
+    };
+    const report = evaluateAudit({
+      ...selection,
+      mode: 'enforce',
+      claimedCoverage: 'sampled',
+      reviews: [
+        review(selection.obligations[0], 'review.later.file'),
+        roundOne,
+        roundTwoYes,
+        roundTwoNo,
+        review(selection.obligations[2], 'review.later.project'),
+      ],
+      corrections: [],
+      closures: [],
+      adjudications: [],
+    });
+
+    expect(report.adjudicationObligationIds).toEqual(['review.directory.src']);
+    expect(report.unmetObligationIds).toEqual([
+      'adjudicate:review.directory.src',
+      'fresh-review:review.directory.src',
+    ]);
+    expect(report.accepted).toBe(false);
+
+    const fresh = {
+      ...review(directory, 'review.later.fresh', { impact: 'yes' }),
+      reviewRound: 3,
+    };
+    const adjudication = {
+      adjudicationId: 'adjudication.later',
+      obligationId: directory.obligationId,
+      candidateIdentity: SHA_A,
+      generation: 3,
+      reviewRound: 2,
+      reviewIds: [roundTwoYes.reviewId, roundTwoNo.reviewId],
+      freshReviewIds: [fresh.reviewId],
+      sourceEvidence: [
+        {
+          evidenceId: 'adjudication-source.later',
+          subjectId: directory.subject.subjectId,
+          contentIdentity: SHA_A,
+          candidateIdentity: SHA_A,
+          generation: 3,
+        },
+      ],
+      checkEvidence: [
+        {
+          evidenceId: 'adjudication-check.later',
+          checkId: 'check.adjudication.later',
+          candidateIdentity: SHA_A,
+          generation: 3,
+          status: 'passed' as const,
+        },
+      ],
+    };
+    const resolvedEnvelope = {
+      ...selection,
+      mode: 'enforce' as const,
+      claimedCoverage: 'sampled' as const,
+      reviews: [
+        review(selection.obligations[0], 'review.later.resolved-file'),
+        roundOne,
+        roundTwoYes,
+        roundTwoNo,
+        fresh,
+        review(selection.obligations[2], 'review.later.resolved-project'),
+      ],
+      corrections: [],
+      closures: [],
+      adjudications: [adjudication],
+    };
+
+    expect(evaluateAudit(resolvedEnvelope)).toMatchObject({ accepted: true, refusals: [] });
+    const wrongRound = structuredClone(resolvedEnvelope);
+    wrongRound.adjudications[0].reviewRound = 1;
+    expect(evaluateAudit(wrongRound).unmetObligationIds).toEqual([
+      'adjudicate:review.directory.src',
+      'fresh-review:review.directory.src',
+    ]);
+    const wrongReviews = structuredClone(resolvedEnvelope);
+    wrongReviews.adjudications[0].reviewIds = [roundOne.reviewId];
+    expect(evaluateAudit(wrongReviews).unmetObligationIds).toEqual([
+      'adjudicate:review.directory.src',
+      'fresh-review:review.directory.src',
+    ]);
+
+    const repeatedDisagreement = structuredClone(resolvedEnvelope);
+    repeatedDisagreement.reviews.push(
+      {
+        ...review(directory, 'review.later.round-four-yes', { impact: 'yes' }),
+        reviewRound: 4,
+      },
+      {
+        ...review(directory, 'review.later.round-four-no', { impact: 'no' }),
+        reviewRound: 4,
+      },
+    );
+    expect(evaluateAudit(repeatedDisagreement).unmetObligationIds).toEqual([
+      'adjudicate:review.directory.src',
+      'fresh-review:review.directory.src',
+    ]);
+  });
+
   test('source-based adjudication and distinct later reviews discharge disagreement duties', () => {
     const selection = selectionRequest();
     const directory = selection.obligations[1];
@@ -503,6 +692,7 @@ describe('review audit obligations', () => {
           obligationId: directory.obligationId,
           candidateIdentity: SHA_A,
           generation: 3,
+          reviewRound: 1,
           reviewIds: [yes.reviewId, no.reviewId],
           freshReviewIds: [freshDirectory.reviewId, freshFile.reviewId],
           sourceEvidence: [
@@ -547,9 +737,33 @@ describe('review audit obligations', () => {
     expect(evaluateAudit(reusedInitial).unmetObligationIds).toContain(
       'fresh-review:review.directory.src',
     );
+    const failedFreshDirectory = structuredClone(adjudicationEnvelope);
+    requireReview(
+      failedFreshDirectory.reviews,
+      freshDirectory.reviewId,
+    ).evidence.phaseReceipts.cold.receipt.status = 'failed';
+    expect(evaluateAudit(failedFreshDirectory).unmetObligationIds).toContain(
+      'fresh-review:review.directory.src',
+    );
+    const censoredFreshFile = structuredClone(adjudicationEnvelope);
+    requireReview(
+      censoredFreshFile.reviews,
+      freshFile.reviewId,
+    ).evidence.phaseReceipts.informed.receipt.status = 'censored';
+    expect(evaluateAudit(censoredFreshFile).unmetObligationIds).toContain(
+      'fresh-review:review.file.alpha',
+    );
     const duplicateAdjudication = structuredClone(adjudicationEnvelope);
     duplicateAdjudication.adjudications.push(duplicateAdjudication.adjudications[0]);
     expect(() => evaluateAudit(duplicateAdjudication)).toThrow('duplicate audit adjudication');
+    const duplicateAdjudicationRound = structuredClone(adjudicationEnvelope);
+    duplicateAdjudicationRound.adjudications.push({
+      ...duplicateAdjudicationRound.adjudications[0],
+      adjudicationId: 'adjudication.directory.duplicate-round',
+    });
+    expect(() => evaluateAudit(duplicateAdjudicationRound)).toThrow(
+      'duplicate audit adjudication round',
+    );
     const duplicateAdjudicationReview = structuredClone(adjudicationEnvelope);
     duplicateAdjudicationReview.adjudications[0].reviewIds.push(yes.reviewId);
     expect(() => evaluateAudit(duplicateAdjudicationReview)).toThrow(
@@ -574,6 +788,9 @@ describe('review audit obligations', () => {
     expect(() => evaluateAudit(duplicateAdjudicationCheck)).toThrow(
       'duplicate adjudication check evidence',
     );
+    const missingRound = structuredClone(adjudicationEnvelope);
+    delete (missingRound.adjudications[0] as { reviewRound?: number }).reviewRound;
+    expect(() => evaluateAudit(missingRound)).toThrow('reviewRound');
   });
 
   test('cost accounting preserves both phase receipts, raw usage, reads, and local trust', () => {
@@ -604,6 +821,62 @@ describe('review audit obligations', () => {
     expect(report.costs.rawUsage).toHaveLength(4);
     expect(report.costs.readObservations).toHaveLength(4);
     expect(report.costs.reviews[0]?.phaseReceipts).toEqual(reviews[0]?.evidence.phaseReceipts);
+  });
+
+  test('receipt summaries cannot hide authoritative protocol context and reads', () => {
+    const selection = selectionRequest();
+    const directory = selection.obligations[1];
+    const project = selection.obligations[2];
+    const directoryReview = review(directory, 'review.summary.directory', {
+      contextIds: [SHA_B],
+    });
+    const projectReview = review(project, 'review.summary.project', { contextIds: [SHA_B] });
+    const envelope = {
+      ...selection,
+      mode: 'enforce' as const,
+      claimedCoverage: 'sampled' as const,
+      reviews: [directoryReview, projectReview],
+      corrections: [],
+      closures: [],
+      adjudications: [],
+    };
+    expect(evaluateAudit(envelope).overlaps).toContainEqual({
+      leftReviewId: 'review.summary.directory',
+      rightReviewId: 'review.summary.project',
+      sameModel: true,
+      sameExecutor: true,
+      sharedContextIds: [SHA_A, SHA_B],
+      sharedReadIds: [SHA_A, SHA_B],
+    });
+
+    const hiddenContext = structuredClone(envelope);
+    hiddenContext.reviews[0].evidence.receipt.suppliedContextIds = [];
+    expect(() => evaluateAudit(hiddenContext)).toThrow('does not summarize supplied context');
+    const hiddenReads = structuredClone(envelope);
+    hiddenReads.reviews[0].evidence.receipt.observedReadIds = [];
+    expect(() => evaluateAudit(hiddenReads)).toThrow('does not summarize observed reads');
+  });
+
+  test('duplicated receipt summaries cannot inflate authoritative overlap', () => {
+    const selection = selectionRequest();
+    const directoryReview = review(selection.obligations[1], 'review.summary.duplicate-directory');
+    const projectReview = review(selection.obligations[2], 'review.summary.duplicate-project');
+    const envelope = {
+      ...selection,
+      mode: 'enforce' as const,
+      claimedCoverage: 'sampled' as const,
+      reviews: [directoryReview, projectReview],
+      corrections: [],
+      closures: [],
+      adjudications: [],
+    };
+
+    const duplicatedContext = structuredClone(envelope);
+    duplicatedContext.reviews[0].evidence.receipt.suppliedContextIds.push(SHA_A);
+    expect(() => evaluateAudit(duplicatedContext)).toThrow('does not summarize supplied context');
+    const duplicatedReads = structuredClone(envelope);
+    duplicatedReads.reviews[0].evidence.receipt.observedReadIds.push(SHA_A);
+    expect(() => evaluateAudit(duplicatedReads)).toThrow('does not summarize observed reads');
   });
 
   test('cost aggregation rejects arithmetic beyond the safe integer boundary', () => {
@@ -705,6 +978,18 @@ describe('review audit obligations', () => {
     const reusedOpening = structuredClone(closureEnvelope);
     reusedOpening.closures[0].postCorrectionReviewId = opening.reviewId;
     expect(evaluateAudit(reusedOpening).unresolvedFindingIds).toEqual(['finding.alpha']);
+    const failedPostCorrection = structuredClone(closureEnvelope);
+    requireReview(
+      failedPostCorrection.reviews,
+      corrected.reviewId,
+    ).evidence.phaseReceipts.cold.receipt.status = 'failed';
+    expect(evaluateAudit(failedPostCorrection).unresolvedFindingIds).toEqual(['finding.alpha']);
+    const censoredPostCorrection = structuredClone(closureEnvelope);
+    requireReview(
+      censoredPostCorrection.reviews,
+      corrected.reviewId,
+    ).evidence.phaseReceipts.informed.receipt.status = 'censored';
+    expect(evaluateAudit(censoredPostCorrection).unresolvedFindingIds).toEqual(['finding.alpha']);
     const duplicateCorrection = structuredClone(closureEnvelope);
     duplicateCorrection.corrections.push(duplicateCorrection.corrections[0]);
     expect(() => evaluateAudit(duplicateCorrection)).toThrow('duplicate audit correction');

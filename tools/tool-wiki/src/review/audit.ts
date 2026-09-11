@@ -132,6 +132,9 @@ export const AuditAdjudication = type({
   obligationId: OpaqueId,
   candidateIdentity: Sha256,
   generation: SafePositiveInteger,
+  // Proof: making reviewRound optional let a roundless adjudication reach an ordinary refused
+  // report; the production boundary test reported "function did not throw".
+  reviewRound: SafePositiveInteger,
   reviewIds: OpaqueId.array(),
   freshReviewIds: OpaqueId.array(),
   sourceEvidence: AuditSourceEvidence.array(),
@@ -220,6 +223,12 @@ export interface AuditReport {
   accepted: boolean;
 }
 
+interface AuditDisagreement {
+  obligationId: string;
+  reviewRound: number;
+  reviews: AuditReview[];
+}
+
 const compareText = (left: string, right: string): number =>
   Buffer.compare(Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8'));
 
@@ -263,6 +272,29 @@ function addAuditCost(total: number, amount: number): number {
     throw new Error('audit cost total is not a safe integer');
   }
   return next;
+}
+
+function reviewCanDischarge(review: AuditReview): boolean {
+  // Proof: checking only cold let censored informed work discharge review.project.tool-wiki;
+  // checking only informed let failed cold work discharge review.directory.src.
+  return (['cold', 'informed'] as const).every(
+    (phase) => review.evidence.phaseReceipts[phase].receipt.status === 'completed',
+  );
+}
+
+function suppliedContextIds(review: AuditReview): string[] {
+  return [
+    review.evidence.protocolEvidence.protocol.protocolBlob,
+    review.evidence.protocolEvidence.subject.contentIdentity,
+    ...review.evidence.protocolEvidence.expansion.suppliedContextIds,
+  ];
+}
+
+function observedReadIds(review: AuditReview): string[] {
+  return [
+    ...review.evidence.protocolEvidence.cold.observedReadIds,
+    ...review.evidence.protocolEvidence.informed.observedReadIds,
+  ];
 }
 
 /** Decodes and reconciles a pinned audit population before selection. */
@@ -414,6 +446,13 @@ export function evaluateAudit(input: unknown): AuditReport {
     ({ adjudicationId }) => adjudicationId,
     'audit adjudication',
   );
+  // Proof: removing this guard let two adjudication IDs resolve the same obligation/round;
+  // the adjudication production test reported "function did not throw".
+  assertUnique(
+    envelope.adjudications,
+    ({ obligationId, reviewRound }) => `${obligationId}\0${String(reviewRound)}`,
+    'audit adjudication round',
+  );
   for (const adjudication of envelope.adjudications) {
     // Proof: removing this check admitted a repeated yes review and returned ordinary unmet
     // duties; the adjudication boundary test reported "function did not throw".
@@ -522,6 +561,22 @@ export function evaluateAudit(input: unknown): AuditReport {
     ) {
       throw new Error(`audit review ${review.reviewId} does not bind its informed response`);
     }
+    // Proof: removing this reconciliation let both an empty summary erase known context and an
+    // extra SHA_A inflate it; each production test reported "function did not throw".
+    if (
+      hashCanonical(review.evidence.receipt.suppliedContextIds) !==
+      hashCanonical(suppliedContextIds(review))
+    ) {
+      throw new Error(`audit review ${review.reviewId} does not summarize supplied context`);
+    }
+    // Proof: removing this reconciliation let both an empty summary erase known reads and an
+    // extra SHA_A inflate it; each production test reported "function did not throw".
+    if (
+      hashCanonical(review.evidence.receipt.observedReadIds) !==
+      hashCanonical(observedReadIds(review))
+    ) {
+      throw new Error(`audit review ${review.reviewId} does not summarize observed reads`);
+    }
   }
   const requiredObligationIds = (
     envelope.claimedCoverage === 'exhaustive'
@@ -535,7 +590,8 @@ export function evaluateAudit(input: unknown): AuditReport {
       .filter(
         (review) =>
           review.candidateIdentity === envelope.candidateIdentity &&
-          review.generation === envelope.generation,
+          review.generation === envelope.generation &&
+          reviewCanDischarge(review),
       )
       .map(({ obligationId }) => obligationId),
   );
@@ -546,7 +602,8 @@ export function evaluateAudit(input: unknown): AuditReport {
   const currentReviews = envelope.reviews.filter(
     (review) =>
       review.candidateIdentity === envelope.candidateIdentity &&
-      review.generation === envelope.generation,
+      review.generation === envelope.generation &&
+      reviewCanDischarge(review),
   );
   const reviewsByObligation = new Map<string, AuditReview[]>();
   for (const review of currentReviews) {
@@ -554,37 +611,58 @@ export function evaluateAudit(input: unknown): AuditReport {
     reviews.push(review);
     reviewsByObligation.set(review.obligationId, reviews);
   }
-  const initialReviewsByObligation = new Map(
-    [...reviewsByObligation].map(([obligationId, reviews]) => {
-      const firstRound = Math.min(...reviews.map(({ reviewRound }) => reviewRound));
-      return [
-        obligationId,
-        reviews.filter(({ reviewRound }) => reviewRound === firstRound),
-      ] as const;
-    }),
-  );
-  const adjudicationObligationIds = [...initialReviewsByObligation]
-    .filter(([, initialReviews]) => {
-      const judgments = new Set(
-        initialReviews.map(({ evidence }) =>
-          hashCanonical(evidence.protocolEvidence.informed.judgments),
-        ),
+  const disagreementRounds: AuditDisagreement[] = [...reviewsByObligation].flatMap(
+    ([obligationId, reviews]) => {
+      const rounds = new Map<number, AuditReview[]>();
+      for (const review of reviews) {
+        const roundReviews = rounds.get(review.reviewRound) ?? [];
+        roundReviews.push(review);
+        rounds.set(review.reviewRound, roundReviews);
+      }
+      return (
+        [...rounds]
+          // Proof: retaining only the earliest round made the later-round production test receive
+          // no adjudication obligations instead of review.directory.src.
+          .filter(([, roundReviews]) => {
+            const judgments = new Set(
+              roundReviews.map(({ evidence }) =>
+                hashCanonical(evidence.protocolEvidence.informed.judgments),
+              ),
+            );
+            // Proof: forcing this false made the disagreement production report return [] where
+            // review.directory.src was the required adjudication obligation.
+            return judgments.size > 1;
+          })
+          .map(([reviewRound, roundReviews]) => ({
+            obligationId,
+            reviewRound,
+            reviews: roundReviews,
+          }))
       );
-      // Proof: forcing this false made the disagreement production report return [] where
-      // review.directory.src was the required adjudication obligation.
-      return judgments.size > 1;
-    })
-    .map(([obligationId]) => obligationId)
-    .sort(compareText);
+    },
+  );
+  const adjudicationObligationIds = [
+    ...new Set(disagreementRounds.map(({ obligationId }) => obligationId)),
+  ].sort(compareText);
   // Proof: starting this set empty let a below-threshold disagreement produce no fresh-review
   // duty; the production test expected review.directory.src and received [].
   const freshReviewIds = new Set(adjudicationObligationIds);
+  const freshDisagreementsByObligation = new Map<string, AuditDisagreement[]>();
+  for (const disagreement of disagreementRounds) {
+    freshDisagreementsByObligation.set(disagreement.obligationId, [
+      ...(freshDisagreementsByObligation.get(disagreement.obligationId) ?? []),
+      disagreement,
+    ]);
+  }
   for (const stratum of envelope.strata) {
     const selectedInStratum = selection.obligationIds.filter(
       (obligationId) => obligationById.get(obligationId)?.riskStratum === stratum.stratumId,
     );
     const disputedInStratum = adjudicationObligationIds.filter(
       (obligationId) => obligationById.get(obligationId)?.riskStratum === stratum.stratumId,
+    );
+    const disagreementRoundsInStratum = disagreementRounds.filter(
+      ({ obligationId }) => obligationById.get(obligationId)?.riskStratum === stratum.stratumId,
     );
     const disagreementBps = Math.floor(
       (disputedInStratum.length * 10000) / selectedInStratum.length,
@@ -593,23 +671,34 @@ export function evaluateAudit(input: unknown): AuditReport {
       for (const obligation of envelope.obligations) {
         if (obligation.riskStratum === stratum.stratumId) {
           freshReviewIds.add(obligation.obligationId);
+          freshDisagreementsByObligation.set(obligation.obligationId, [
+            ...(freshDisagreementsByObligation.get(obligation.obligationId) ?? []),
+            ...disagreementRoundsInStratum,
+          ]);
         }
       }
     }
   }
   const freshReviewObligationIds = [...freshReviewIds].sort(compareText);
   const reviewById = new Map(envelope.reviews.map((review) => [review.reviewId, review]));
-  const validAdjudications = envelope.adjudications.filter((adjudication) => {
-    const disputedReviews = initialReviewsByObligation.get(adjudication.obligationId);
+  const validAdjudications = envelope.adjudications.flatMap((adjudication) => {
+    const disagreement = disagreementRounds.find(
+      // Proof: ignoring reviewRound let a round-1 adjudication discharge the exact round-2
+      // conflict; the later-round test expected both named duties and received none.
+      ({ obligationId, reviewRound }) =>
+        obligationId === adjudication.obligationId && reviewRound === adjudication.reviewRound,
+    );
     const obligation = obligationById.get(adjudication.obligationId);
-    if (disputedReviews === undefined || obligation === undefined) return false;
-    return (
+    if (disagreement === undefined || obligation === undefined) return [];
+    const isValid =
       adjudicationObligationIds.includes(adjudication.obligationId) &&
       adjudication.candidateIdentity === envelope.candidateIdentity &&
       adjudication.generation === envelope.generation &&
+      // Proof: bypassing this exact-ID comparison let review.later.round-one adjudicate a
+      // round-2 conflict; the later-round test expected both named duties and received none.
       hasExactIds(
         adjudication.reviewIds,
-        disputedReviews.map(({ reviewId }) => reviewId),
+        disagreement.reviews.map(({ reviewId }) => reviewId),
       ) &&
       // Proof: replacing this source binding with true let an empty adjudication source
       // discharge its duty; the production test expected the named obligation and received [].
@@ -627,32 +716,51 @@ export function evaluateAudit(input: unknown): AuditReport {
           evidence.status === 'passed' &&
           evidence.candidateIdentity === envelope.candidateIdentity &&
           evidence.generation === envelope.generation,
-      )
+      );
+    return isValid ? [{ adjudication, disagreement }] : [];
+  });
+  const unmetAdjudicationIds = [
+    ...new Set(
+      disagreementRounds
+        .filter(
+          (disagreement) =>
+            !validAdjudications.some(
+              ({ disagreement: resolved }) =>
+                resolved.obligationId === disagreement.obligationId &&
+                resolved.reviewRound === disagreement.reviewRound,
+            ),
+        )
+        .map(({ obligationId }) => obligationId),
+    ),
+  ].sort(compareText);
+  const unmetFreshReviewIds = freshReviewObligationIds.filter((obligationId) => {
+    // Proof: checking only the first conflict let a resolved round 2 hide a new round-4
+    // conflict; the later-round test lost fresh-review:review.directory.src.
+    const disagreements = freshDisagreementsByObligation.get(obligationId) ?? [];
+    return disagreements.some(
+      (disagreement) =>
+        !validAdjudications.some(
+          ({ adjudication, disagreement: resolved }) =>
+            resolved.obligationId === disagreement.obligationId &&
+            resolved.reviewRound === disagreement.reviewRound &&
+            adjudication.freshReviewIds.some((reviewId) => {
+              const freshReview = reviewById.get(reviewId);
+              return (
+                freshReview?.obligationId === obligationId &&
+                freshReview.candidateIdentity === envelope.candidateIdentity &&
+                freshReview.generation === envelope.generation &&
+                // Proof: removing completion here let a failed cold attempt discharge the
+                // directory fresh-review duty; the production test expected it and received [].
+                reviewCanDischarge(freshReview) &&
+                // Proof: removing the round comparison reused an initial yes review; the
+                // production report lost fresh-review:review.directory.src and retained only
+                // the file duty.
+                freshReview.reviewRound > disagreement.reviewRound
+              );
+            }),
+        ),
     );
   });
-  const unmetAdjudicationIds = adjudicationObligationIds.filter(
-    (obligationId) =>
-      !validAdjudications.some((adjudication) => adjudication.obligationId === obligationId),
-  );
-  const unmetFreshReviewIds = freshReviewObligationIds.filter(
-    (obligationId) =>
-      !validAdjudications.some((adjudication) => {
-        const disputedReviews = initialReviewsByObligation.get(adjudication.obligationId);
-        if (disputedReviews === undefined) return false;
-        const disputedRound = Math.max(...disputedReviews.map(({ reviewRound }) => reviewRound));
-        return adjudication.freshReviewIds.some((reviewId) => {
-          const freshReview = reviewById.get(reviewId);
-          return (
-            freshReview?.obligationId === obligationId &&
-            freshReview.candidateIdentity === envelope.candidateIdentity &&
-            freshReview.generation === envelope.generation &&
-            // Proof: removing the round comparison reused an initial yes review; the production
-            // report lost fresh-review:review.directory.src and retained only the file duty.
-            freshReview.reviewRound > disputedRound
-          );
-        });
-      }),
-  );
   // Proof: retaining caller order made reversed input reverse all cost rows and the overlap
   // pair; the order-independence production test reported a 40-line structural mismatch.
   const orderedReviews = [...envelope.reviews].sort((left, right) =>
@@ -781,6 +889,9 @@ export function evaluateAudit(input: unknown): AuditReport {
         // production test expected ["finding.alpha"] and received [] for unresolved findings.
         postCorrectionReview.candidateIdentity === correction.candidateIdentity &&
         postCorrectionReview.generation === correction.generation &&
+        // Proof: removing completion here let a failed cold attempt close finding.alpha;
+        // the correction production test expected it unresolved and received [].
+        reviewCanDischarge(postCorrectionReview) &&
         postCorrectionReview.reviewRound > opening.reviewRound
       );
     })
