@@ -12,8 +12,19 @@
 
 ## Commands
 
-Pending. All automated commands run on h2puni or CI, never this box.
+| Exact head | Command | Result |
+| --- | --- | --- |
+| `f11a5a04` | focused `vite-config.test.ts` on h2puni | red as intended: 1 failed, 15 passed; public HMR was `undefined` |
+| `e84f315d` | focused `vite-config.test.ts` on h2puni | 16 passed |
+| `e84f315d` | `docker compose -f deploy/dev-src/compose.yml config -q` on h2puni | green |
+| `e84f315d` | `bunx @fission-ai/openspec validate stable-public-dev --json` on h2puni | 1 passed, 0 failed |
+
+Both exact-head runs used a fresh h2puni dependency tree whose 78 root declarations resolved with
+`BAD_COUNT=0`. No build or autotest ran on h1claw.
 
 ## Failure-proof table
 
-Pending the red focused config test and missing-guard injection.
+| Check | Injected fault | Observed failure |
+| --- | --- | --- |
+| Public mode disables HMR | production `hmr` assignment absent at `f11a5a04` | expected `false`, received `undefined` |
+| Deploy process selects public mode | pending exact-head omission injection | pending |

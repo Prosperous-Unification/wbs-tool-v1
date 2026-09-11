@@ -1,10 +1,10 @@
 ## 1. Public dev has a stable document
 
-- [ ] 1.1 Drive the public-mode config test red before implementation: public dev disables HMR,
+- [x] 1.1 Drive the public-mode config test red before implementation: public dev disables HMR,
       while ordinary local serve leaves Vite's HMR default intact.
-- [ ] 1.2 Set an explicit public-dev process flag in the source-run compose service and consume it
+- [x] 1.2 Set an explicit public-dev process flag in the source-run compose service and consume it
       in the Vite config. Add a `Proof:` comment naming the red test and the missing guard.
-- [ ] 1.3 Run the focused config test and OpenSpec validation on h2puni; inject the missing HMR
+- [x] 1.3 Run the focused config test and OpenSpec validation on h2puni; inject the missing HMR
       guard again and record the failing assertion.
 
 ## 2. Live evidence

@@ -8,6 +8,7 @@
 // (`groupFilesByEnv`), so a line comment carries it as well as a docblock —
 // and a docblock would need a `@vitest-environment` the jsdoc lint rejects.
 import type * as Vite from 'vite';
+import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // `edgeRoutes` reads `.env` off the disk through Vite's `loadEnv`. A test that
@@ -65,6 +66,11 @@ beforeEach(() => {
 // container behind Caddy, so a localhost bind or a rejected Host header makes
 // the dev site fail in a way that looks like a proxy misconfiguration.
 describe('vite dev server config', () => {
+  it('declares public mode in the source-run container', () => {
+    const compose = readFileSync(new URL('../../deploy/dev-src/compose.yml', import.meta.url), 'utf8');
+    expect(compose).toContain("      WBS_PUBLIC_DEV: 'true'");
+  });
+
   it('does not expose HMR on the public dev site', () => {
     process.env['WBS_PUBLIC_DEV'] = 'true';
     try {
