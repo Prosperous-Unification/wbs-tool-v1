@@ -1547,6 +1547,75 @@ describe('trusted policy production CLI', () => {
     );
   });
 
+  test('compatible activation cannot narrow a retained audit obligation before its authority certifies CI', () => {
+    const fixture = createFixture('enforce');
+    satisfyApplication(fixture);
+    const nextBindingPath = writeActivation(fixture, () => undefined, {
+      addedBoundaryIds: [],
+      changedBoundaryIds: [],
+      addedObligationIds: [],
+      removedExemptionIds: [],
+      validatorChanged: false,
+      authorityChanged: true,
+    });
+    const nextAuthorityPath = join(fixture.trustDirectory, 'authority-next.json');
+    interface AuditSubject {
+      subjectId: string;
+      kind: 'file' | 'directory' | 'project' | 'documentation';
+      path: string;
+      contentIdentity: string;
+    }
+    const authority = JSON.parse(readFileSync(fixture.authorityPath, 'utf8')) as {
+      audit: {
+        obligations: { obligationId: string; subject: AuditSubject }[];
+        reviews: {
+          obligationId: string;
+          evidence: { protocolEvidence: { subject: AuditSubject } };
+        }[];
+      };
+    };
+    const applicationObligation = authority.audit.obligations.find(
+      ({ obligationId }) => obligationId === 'review.application',
+    );
+    const applicationReview = authority.audit.reviews.find(
+      ({ obligationId }) => obligationId === 'review.application',
+    );
+    if (applicationObligation === undefined || applicationReview === undefined) {
+      throw new Error('application audit fixture disappeared');
+    }
+    const narrowedSubject = {
+      ...applicationObligation.subject,
+      kind: 'file' as const,
+      path: 'src/app.ts',
+    };
+    applicationObligation.subject = narrowedSubject;
+    applicationReview.evidence.protocolEvidence.subject = narrowedSubject;
+    write(nextAuthorityPath, `${JSON.stringify(authority)}\n`);
+    const binding = JSON.parse(readFileSync(nextBindingPath, 'utf8')) as {
+      authority: { artifact: { path: string; sha256: string } };
+    };
+    binding.authority.artifact = {
+      path: nextAuthorityPath,
+      sha256: sha256(readFileSync(nextAuthorityPath)),
+    };
+    write(nextBindingPath, `${JSON.stringify(binding)}\n`);
+
+    const downstream = runCi(fixture, nextBindingPath);
+    const downstreamOutput = outputOf(downstream);
+    expect(downstream.exitCode, downstreamOutput).toBe(0);
+    expect(JSON.parse(pipeText(downstream.stdout, 'lint stdout'))).toMatchObject({
+      accepted: true,
+      certified: true,
+    });
+
+    const activation = runActivation(fixture, nextBindingPath);
+    const activationOutput = outputOf(activation);
+    expect(activation.exitCode, activationOutput).toBe(1);
+    expect(activationOutput).toContain(
+      'compatible activation cannot change authority audit obligation: review.application',
+    );
+  });
+
   test('compatible authority activation deterministically reselects its checks and reviews', () => {
     const fixture = createFixture('enforce');
     const nextBindingPath = writeActivation(fixture, () => undefined, {
@@ -1615,6 +1684,121 @@ describe('trusted policy production CLI', () => {
       'review.validator',
     ]);
   });
+
+  for (const changed of ['policy', 'validator'] as const) {
+    test(`${changed} activation reselects every current authority check and review`, () => {
+      const fixture = createFixture('enforce');
+      const authority = JSON.parse(readFileSync(fixture.authorityPath, 'utf8')) as {
+        obligationRequest: {
+          policy: { behaviorRules: object[] };
+          judgments: object[];
+        };
+      };
+      authority.obligationRequest.policy.behaviorRules.push({
+        contentInputId: 'content.3',
+        consumerChecks: ['check.authority.extra'],
+        conformanceChecks: [],
+        expandedReviewJudgments: ['review.authority.extra'],
+      });
+      authority.obligationRequest.judgments.push({
+        judgmentId: 'review.authority.extra',
+        kind: 'content',
+        subjectId: 'subject.authority.extra',
+        bindings: {
+          content: [{ kind: 'content', inputId: 'content.3' }],
+          structural: [],
+          semantic: [],
+          topology: [],
+        },
+      });
+      write(fixture.authorityPath, `${JSON.stringify(authority)}\n`);
+      rebindAuthority(fixture);
+
+      let nextBindingPath: string;
+      if (changed === 'policy') {
+        nextBindingPath = writeActivation(
+          fixture,
+          (policy) => {
+            const obligations = policy['obligations'] as {
+              obligationId: string;
+              checkIds: string[];
+            }[];
+            const application = obligations.find(
+              ({ obligationId }) => obligationId === 'obligation.application',
+            );
+            if (application === undefined) throw new Error('application obligation disappeared');
+            application.checkIds.push('check.application.next');
+          },
+          {
+            addedBoundaryIds: [],
+            changedBoundaryIds: ['boundary.application'],
+            addedObligationIds: [],
+            removedExemptionIds: [],
+            validatorChanged: false,
+          },
+        );
+      } else {
+        const historicalValidatorPath = join(fixture.trustDirectory, 'validator-historical.ts');
+        write(historicalValidatorPath, 'export const accepts = false;\n');
+        const previousBinding = JSON.parse(readFileSync(fixture.bindingPath, 'utf8')) as {
+          validator: { artifacts: { path: string; sha256: string }[] };
+        };
+        previousBinding.validator.artifacts = [
+          { path: historicalValidatorPath, sha256: sha256(readFileSync(historicalValidatorPath)) },
+        ];
+        write(fixture.bindingPath, `${JSON.stringify(previousBinding)}\n`);
+        const nextArtifacts = resolveValidatorArtifactPaths([cliPath, trustPath]).map((path) => ({
+          path,
+          sha256: sha256(readFileSync(path)),
+        }));
+        nextBindingPath = writeActivation(
+          fixture,
+          () => undefined,
+          {
+            addedBoundaryIds: [],
+            changedBoundaryIds: [],
+            addedObligationIds: [],
+            removedExemptionIds: [],
+            validatorChanged: true,
+          },
+          nextArtifacts,
+        );
+      }
+
+      const invocation = runActivation(fixture, nextBindingPath);
+      const output = outputOf(invocation);
+      expect(invocation.exitCode, `${changed}: ${output}`).toBe(0);
+      const report = JSON.parse(pipeText(invocation.stdout, 'activation stdout')) as {
+        reselectedCheckIds: string[];
+        reselectedReviewIds: string[];
+      };
+      expect(report.reselectedCheckIds).toEqual(
+        changed === 'policy'
+          ? [
+              'check.application',
+              'check.application.next',
+              'check.authority.extra',
+              'check.exemptions',
+              'check.policy',
+              'check.validator',
+            ]
+          : [
+              'check.application',
+              'check.authority.extra',
+              'check.exemptions',
+              'check.policy',
+              'check.validator',
+            ],
+      );
+      expect(report.reselectedReviewIds).toEqual([
+        'review.application',
+        'review.authority.extra',
+        'review.exemptions',
+        'review.policy',
+        'review.validator',
+      ]);
+    });
+  }
 
   test('compatible activation rejects a boundary addition omitted from its declaration', () => {
     const fixture = createFixture('enforce');

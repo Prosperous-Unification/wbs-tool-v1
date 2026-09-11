@@ -208,3 +208,44 @@ adjacent comment containing the observed failure.
 - Whole-workspace `nx format:check --all` and `git diff --check`: exit 0.
 - Exact-code-commit host gate: unavailable, not green. `bin/h2puni-gate.sh 8df0c8b7` exited 70
   with `heavy lock: /home/puni1/.cache does not exist`.
+
+## Fix round 4
+
+Compatible activation now retains every authority audit obligation as one exact, schema-decoded
+record rather than retaining its ID alone. The comparison covers the risk stratum and the complete
+review subject tuple: subject ID, kind, path, and content identity. A successor therefore cannot
+narrow `review.application` from project `src` to file `src/app.ts`, even when it changes its review
+evidence consistently enough for its own authority to certify downstream CI.
+
+One shared policy/validator/authority-change predicate now drives all trust-requirement reselection.
+When any of those three artifacts changes, the activation report includes every current policy
+obligation plus the complete authority-derived check and review sets, with the existing canonical
+deduplication and ordering.
+
+### Fix-round-4 failure proof
+
+Each guard was faulted alone on the production activation path, then restored with an adjacent
+comment containing the observed failure.
+
+| Deliberate fault | Observed production-path failure |
+| --- | --- |
+| remove retained audit-obligation exact-record comparison | the successor changed `review.application` from project `src` to file `src/app.ts`; its production `lint-ci` still exited 0 with `accepted: true` and `certified: true`, while activation returned compatible and the test reported `Expected: 1, Received: 0` |
+| gate authority check reselection on authority-byte changes alone | both the policy-only and validator-only activation reports omitted `check.authority.extra` from their exact check arrays |
+| gate authority review reselection on authority-byte changes alone | both the policy-only and validator-only activation reports omitted `review.authority.extra` from their exact review arrays |
+
+### Fix-round-4 verification
+
+- Focused trusted-policy production CLI: 43 pass, 0 fail, 1,064 assertions in 73.44 seconds.
+- Forced uncached `tool-wiki:typecheck`: exit 0; cache skipped and no target skipped.
+- Uncached `tool-wiki:lint`: exit 0; cache skipped and no target skipped.
+- Exact configured full tool-wiki suite: 275 pass, 0 fail, 3,423 assertions across 14 files in
+  458.77 seconds. The first attempt had one fixed-25-second contract matrix time out at 25.005
+  seconds; the exact case then passed alone at 24.754 seconds, and the complete exact command passed
+  on its immediate rerun.
+- Strict pinned OpenSpec 1.3.0 validation: `Change 'agent-scalable-llm-wiki' is valid`.
+- Whole-workspace `bunx nx format:check --all` and `git diff --check`: exit 0.
+- Exact-code-commit host gate: unavailable, not green. `bin/h2puni-gate.sh <round-4 commit>`
+  exited 70 immediately because required heavy-lock path `/home/puni1/.cache` does not exist; no
+  host-gate step ran.
+
+Task 3.4 remains complete. Task 3.5 and all later task checkboxes remain untouched.

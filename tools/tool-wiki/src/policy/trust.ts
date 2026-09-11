@@ -25,7 +25,7 @@ import {
   readCandidate,
 } from '../inventory/read-candidate';
 import { extractRelationships } from '../relationships';
-import { type AuditReport, evaluateAudit } from '../review/audit';
+import { AuditEvaluation, type AuditReport, evaluateAudit } from '../review/audit';
 import {
   decodeObligationRequest,
   evaluateObligations,
@@ -143,14 +143,14 @@ const TrustedAuthorityRecord = type({
   checkReceipts: type({ observationId: OpaqueId, receipt: 'unknown' })
     .onUndeclaredKey('reject')
     .array(),
-  audit: 'unknown',
+  audit: AuditEvaluation,
 }).onUndeclaredKey('reject');
 
 interface TrustedAuthority {
   authorityId: string;
   obligationRequest: ObligationRequest;
   checkReceipts: { observationId: string; receipt: CheckReceiptValue }[];
-  audit: unknown;
+  audit: typeof AuditEvaluation.infer;
 }
 
 interface StableArtifact {
@@ -645,6 +645,20 @@ function validateCompatibleAuthority(previous: LoadedTrust, next: LoadedTrust): 
     'review',
     'audit',
   );
+  const nextAuditObligations = new Map(
+    next.authority.audit.obligations.map((obligation) => [obligation.obligationId, obligation]),
+  );
+  // Proof: removing this exact-record comparison let review.application narrow from project/src
+  // to file/src/app.ts and return compatible true; the same next binding exited 0 with accepted
+  // and certified true on production lint-ci (`Expected: 1, Received: 0`).
+  for (const obligation of previous.authority.audit.obligations) {
+    const retained = nextAuditObligations.get(obligation.obligationId);
+    if (retained === undefined || hashCanonical(retained) !== hashCanonical(obligation)) {
+      throw new Error(
+        `compatible activation cannot change authority audit obligation: ${obligation.obligationId}`,
+      );
+    }
+  }
 }
 
 function authorityCheckIds(trust: LoadedTrust): string[] {
@@ -831,13 +845,13 @@ export function validateCompatibleActivation(
     throw new Error('authority change declaration does not match trusted authority identities');
   }
   const policyChanged = previous.policyIdentity !== next.policyIdentity;
-  const affectedObligations =
-    policyChanged || validatorChanged || authorityChanged
-      ? [...next.policy.obligations]
-      : next.policy.obligations.filter(
-          ({ boundaryId, obligationId }) =>
-            changedBoundaryIds.includes(boundaryId) || addedObligationIds.includes(obligationId),
-        );
+  const trustRequirementsChanged = policyChanged || validatorChanged || authorityChanged;
+  const affectedObligations = trustRequirementsChanged
+    ? [...next.policy.obligations]
+    : next.policy.obligations.filter(
+        ({ boundaryId, obligationId }) =>
+          changedBoundaryIds.includes(boundaryId) || addedObligationIds.includes(obligationId),
+      );
   return {
     schemaVersion: 1,
     compatible: true,
@@ -851,13 +865,17 @@ export function validateCompatibleActivation(
       ...affectedObligations.flatMap(({ checkIds }) => checkIds),
       // Proof: omitting authority checks left check.authority.new out of the production
       // activation report; the test's exact array comparison failed at that missing ID.
-      ...(authorityChanged ? authorityCheckIds(next) : []),
+      // Gating them on authorityChanged alone also omitted check.authority.extra from both
+      // policy-only and validator-only reports; each exact comparison showed the missing ID.
+      ...(trustRequirementsChanged ? authorityCheckIds(next) : []),
     ]),
     reselectedReviewIds: orderedIds([
       ...affectedObligations.flatMap(({ reviewIds }) => reviewIds),
       // Proof: omitting authority reviews left review.authority.new out of the production
       // activation report; the test's exact array comparison failed at that missing ID.
-      ...(authorityChanged ? authorityReviewIds(next) : []),
+      // Gating them on authorityChanged alone also omitted review.authority.extra from both
+      // policy-only and validator-only reports; each exact comparison showed the missing ID.
+      ...(trustRequirementsChanged ? authorityReviewIds(next) : []),
     ]),
   };
 }

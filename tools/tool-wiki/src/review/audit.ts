@@ -142,7 +142,8 @@ export const AuditAdjudication = type({
 }).onUndeclaredKey('reject');
 export type AuditAdjudication = typeof AuditAdjudication.infer;
 
-const AuditEvaluationEnvelope = type({
+/** Strict input retained by trusted policy activation for review-obligation identity checks. */
+export const AuditEvaluation = type({
   schemaVersion: SchemaVersion,
   auditId: OpaqueId,
   sourceBase: GitIdentity,
@@ -159,6 +160,7 @@ const AuditEvaluationEnvelope = type({
   closures: AuditClosure.array(),
   adjudications: AuditAdjudication.array(),
 }).onUndeclaredKey('reject');
+export type AuditEvaluation = typeof AuditEvaluation.infer;
 
 export interface AuditRefusal {
   obligationId: string;
@@ -398,7 +400,7 @@ export function evaluateAudit(input: unknown): AuditReport {
   // Proof: removing this assertion let a non-plain envelope with an inherited property produce
   // an accepted report; the production boundary test reported "function did not throw".
   assertCanonicalJsonValue(input);
-  const envelope = parseOrThrow(AuditEvaluationEnvelope, input);
+  const envelope = parseOrThrow(AuditEvaluation, input);
   const selectionInput: AuditSelectionRequest = {
     schemaVersion: envelope.schemaVersion,
     auditId: envelope.auditId,

@@ -1565,3 +1565,41 @@ agent-scalable-llm-wiki --strict` — exit 0; change valid.
 - `git diff --check` — exit 0.
 
 Task 3.2 remains complete. Task 3.3 and all later task checkboxes remain untouched.
+
+## Slice 3.4 Review Fix Round 4
+
+Compatible activation now compares every retained authority audit obligation as the complete
+strictly decoded record, including its risk stratum and exact review subject ID, kind, path, and
+content identity. Retaining an obligation ID can no longer conceal narrower review coverage.
+
+Policy, validator, and authority identity changes now share one trust-requirement change predicate.
+Any of them deterministically reselects all current policy obligations and the complete current
+authority check and review requirements.
+
+| Deliberate one-at-a-time fault                             | Observed production-path failure                                                                                                                                                        |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| remove the retained audit-obligation record comparison     | `review.application` narrowed from project `src` to file `src/app.ts`; the successor authority certified production CI, and activation returned compatible (`Expected: 1, Received: 0`) |
+| select authority checks only for an authority-byte change  | policy-only and validator-only reports each omitted `check.authority.extra` from the exact array                                                                                        |
+| select authority reviews only for an authority-byte change | policy-only and validator-only reports each omitted `review.authority.extra` from the exact array                                                                                       |
+
+Every fault ran alone through the production activation command and was restored before final
+verification. The downstream lint assertion in the audit-obligation negative establishes that the
+successor remained self-consistent and certifiable without the activation guard.
+
+- `bun test --preload ../test/scratch/preload.ts src/policy/trusted-policy.test.ts` from
+  `tools/tool-wiki` — exit 0; 43 pass, 0 fail, 1,064 assertions in 73.44 seconds.
+- `NX_DAEMON=false bunx nx run tool-wiki:typecheck --skip-nx-cache --output-style=static` — exit 0;
+  cache skipped and no target skipped.
+- `NX_DAEMON=false bunx nx run tool-wiki:lint --skip-nx-cache --output-style=static` — exit 0;
+  cache skipped and no target skipped.
+- `bun test --preload ../test/scratch/preload.ts` from `tools/tool-wiki` — exit 0; 275 pass, 0
+  fail, 3,423 assertions across 14 files in 458.77 seconds. An initial run had one fixed-25-second
+  contract matrix time out at 25.005 seconds; the exact case passed alone at 24.754 seconds, and the
+  complete configured command passed on its immediate rerun.
+- `OPENSPEC_TELEMETRY=0 /tmp/bunx-1000-@fission-ai/openspec@1.3.0/node_modules/.bin/openspec
+validate agent-scalable-llm-wiki --strict` — exit 0; change valid.
+- `bunx nx format:check --all` and `git diff --check` — exit 0.
+- `bin/h2puni-gate.sh <round-4 commit>` — unavailable, exit 70 immediately because required
+  heavy-lock path `/home/puni1/.cache` does not exist; no host-gate step ran.
+
+Task 3.4 remains complete. Task 3.5 and every later task remain untouched.
