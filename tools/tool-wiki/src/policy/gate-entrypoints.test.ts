@@ -496,6 +496,22 @@ describe('tool-wiki production entrypoint adapter', () => {
     );
   });
 
+  test('an external validator-path symlink into the candidate is refused before execution', () => {
+    const paths = fixture();
+    const marker = join(paths.directory, 'candidate-validator-ran');
+    const candidateCli = join(paths.repository, 'candidate-cli.ts');
+    const validatorLink = join(paths.directory, 'validator-link.ts');
+    write(candidateCli, `await Bun.write(${JSON.stringify(marker)}, 'ran\\n');\n`);
+    symlinkSync(candidateCli, validatorLink);
+    write(join(paths.activationRoot, 'validator-path'), `${validatorLink}\n`);
+
+    const invocation = runAdapter('committed', paths);
+
+    expect(invocation.exitCode).not.toBe(0);
+    expect(streamText(invocation.stderr, 'adapter stderr')).toContain('validator must be outside');
+    expect(existsSync(marker)).toBe(false);
+  });
+
   test('trusted Bun ignores a candidate-cwd bunfig preload and inherited execution variables', () => {
     const paths = realFixture();
     const marker = join(paths.repository, '..candidate-preload-ran');
@@ -544,15 +560,19 @@ describe('tool-wiki production entrypoint adapter', () => {
     expect(project.targets['lint:source']?.options?.command).toBe(
       'bunx eslint tools/tool-wiki/src',
     );
-    expect(hostGate).toContain('cp "$repo_root/bin/tool-wiki-lint.sh" "$trusted_launcher"');
-    expect(hostGate).toContain('set -euo pipefail; bash "$1" committed "$2" "$3"; exec bash "$4"');
+    expect(hostGate).not.toContain('cp "$repo_root/bin/tool-wiki-lint.sh"');
+    expect(hostGate).toContain('launcher_descriptor="$activation_root/launcher-path"');
+    expect(hostGate).toContain('if [[ -n "$1" ]]; then bash "$1" committed');
     expect(ci).toContain('bash bin/tool-wiki-lint.sh committed . "$GITHUB_SHA"');
-    expect(ci).toContain("if: github.event_name != 'pull_request'");
+    expect(ci).toContain("github.event_name == 'push'");
+    expect(ci).toContain('diagnostic/non-certifying');
+    expect(ci).toContain('bash "$launcher" committed . "$GITHUB_SHA"');
     expect(trustedCi).toContain('pull_request_target:');
     expect(trustedCi).toContain('permissions:\n  contents: read');
     expect(trustedCi.match(/persist-credentials: false/g)).toHaveLength(2);
     expect(trustedCi).toContain('ref: ${{ github.event.pull_request.head.sha }}');
     expect(trustedCi).toContain('$RUNNER_TEMP/tool-wiki-lint.sh');
+    expect(trustedCi).not.toContain('candidate/bin/');
     expect(trustedCi).not.toContain('h2puni-gate-steps.sh');
     expect(lefthook).toContain('run: bash bin/tool-wiki-lint.sh staged . HEAD');
     expect(hostSteps).toContain('--exclude=tool-wiki');
@@ -629,6 +649,7 @@ describe('tool-wiki production entrypoint adapter', () => {
 
   test('the host gate fails specifically at wiki lint for a stale enforced blob', () => {
     const paths = realFixture();
+    const trustedCheckout = paths.revision;
     write(join(paths.repository, 'src', 'app.ts'), 'export const value = 2;\n');
     const candidateAdapter = join(paths.repository, 'bin', 'tool-wiki-lint.sh');
     const candidateSteps = join(paths.repository, 'bin', 'h2puni-gate-steps.sh');
@@ -643,6 +664,7 @@ describe('tool-wiki production entrypoint adapter', () => {
     git(paths.repository, 'add', '--all');
     git(paths.repository, 'commit', '--message', 'stale host candidate');
     paths.revision = git(paths.repository, 'rev-parse', 'HEAD');
+    git(paths.repository, 'checkout', '--detach', '--quiet', trustedCheckout);
     const lock = join(dirname(paths.bindingPath), 'host-lock');
     const command =
       'source "$1"; gate_with_pinned_head "$2" "$3" "$4" -- bash -c \'set -euo pipefail; bash "$1" committed "$2" "$3"; exec bash "$4" "$2" "$3"\' pinned "$5" "$2" HEAD "$2/bin/h2puni-gate-steps.sh"';
@@ -676,6 +698,33 @@ describe('tool-wiki production entrypoint adapter', () => {
     expect(invocation.exitCode, output).toBe(1);
     expect(output).toContain('"unmetObligationIds":["obligation.application"]');
     expect(output).not.toContain('Successfully ran');
+    expect(existsSync(suppressedMarker)).toBe(false);
+    expect(git(paths.repository, 'rev-parse', 'HEAD')).toBe(trustedCheckout);
+
+    const secondInvocation = Bun.spawnSync(
+      [
+        'bash',
+        '-c',
+        command,
+        'tool-wiki-host-gate-test',
+        gateLibraryPath,
+        paths.repository,
+        lock,
+        paths.revision,
+        adapterPath,
+      ],
+      {
+        env: {
+          ...process.env,
+          HEAVY_LOCK_WAIT_SECONDS: '0',
+          TOOL_WIKI_ACTIVATION_ROOT: paths.activationRoot,
+        },
+        stderr: 'pipe',
+        stdout: 'pipe',
+      },
+    );
+    expect(secondInvocation.exitCode).toBe(1);
+    expect(git(paths.repository, 'rev-parse', 'HEAD')).toBe(trustedCheckout);
     expect(existsSync(suppressedMarker)).toBe(false);
   });
 

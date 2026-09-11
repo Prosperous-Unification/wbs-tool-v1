@@ -84,6 +84,30 @@ gate_with_pinned_head() {
     repo=$1
     pinned=$2
     shift 2
+    original_commit=$(git -C "$repo" rev-parse HEAD)
+    original_branch=
+    if branch=$(git -C "$repo" symbolic-ref --quiet --short HEAD); then
+      original_branch=$branch
+    fi
+    restore_rejected_checkout() {
+      status=$?
+      trap - EXIT
+      if [[ $status -ne 0 ]]; then
+        if [[ -n $original_branch ]]; then
+          if ! git -C "$repo" checkout --quiet "$original_branch"; then
+            printf "h2puni gate: failed to restore pre-gate checkout %s at %s\n" "$original_branch" "$original_commit" >&2
+            exit 74
+          fi
+        elif ! git -C "$repo" checkout --detach --quiet "$original_commit"; then
+          printf "h2puni gate: failed to restore pre-gate checkout detached at %s\n" "$original_commit" >&2
+          exit 74
+        fi
+      fi
+      exit "$status"
+    }
+    # Proof: h2puni-gate.test.sh rejects branch and detached candidates and observes both
+    # exact checkout shapes restored; deleting the saved branch makes recovery exit 74 loudly.
+    trap restore_rejected_checkout EXIT
     git -C "$repo" checkout --detach --quiet "$pinned"
     dirty=$(git -C "$repo" status --porcelain --untracked-files=normal)
     if [[ -n $dirty ]]; then

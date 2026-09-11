@@ -45,17 +45,38 @@ target=${1:-HEAD}
 
 trusted_launcher_dir=$(mktemp -d)
 trusted_launcher="$trusted_launcher_dir/tool-wiki-lint.sh"
-cp "$repo_root/bin/tool-wiki-lint.sh" "$trusted_launcher"
-chmod 0555 "$trusted_launcher"
 trap 'rm -rf -- "$trusted_launcher_dir"' EXIT
+activation_root=${TOOL_WIKI_ACTIVATION_ROOT:-}
+if [[ -n "$activation_root" && -e "$activation_root/active-v1" ]]; then
+  launcher_descriptor="$activation_root/launcher-path"
+  if [[ ! -r "$launcher_descriptor" ]]; then
+    printf 'h2puni gate: active tool-wiki rollout has no readable launcher descriptor\n' >&2
+    exit 78
+  fi
+  launcher_source=$(<"$launcher_descriptor")
+  if ! launcher_source=$(realpath -- "$launcher_source") || [[ ! -f "$launcher_source" ]] || [[ ! -r "$launcher_source" ]]; then
+    printf 'h2puni gate: active tool-wiki launcher is not a readable regular file\n' >&2
+    exit 78
+  fi
+  case "$launcher_source" in
+    "$repo_root"/*)
+      printf 'h2puni gate: active tool-wiki launcher must be outside the candidate checkout\n' >&2
+      exit 78
+      ;;
+  esac
+  cp "$launcher_source" "$trusted_launcher"
+  chmod 0555 "$trusted_launcher"
+else
+  trusted_launcher=
+fi
 
 # The launcher bytes are captured before checkout. Candidate gate steps remain the ordinary
 # repository gate, but cannot run until the preserved external-trust verifier has accepted HEAD.
 # Proof: gate-entrypoints.test.ts commits exit-0 replacements for both candidate scripts and
-# observes the preserved launcher reject obligation.application before either replacement runs.
+# observes the externally selected launcher reject obligation.application before either runs.
 # Positional parameters belong to the preserved inner shell.
 # shellcheck disable=SC2016
 gate_with_pinned_head "$repo_root" "$(resolve_heavy_lock_path)" "$target" -- \
-  bash -c 'set -euo pipefail; bash "$1" committed "$2" "$3"; exec bash "$4" "$2" "$3"' \
+  bash -c 'set -euo pipefail; if [[ -n "$1" ]]; then bash "$1" committed "$2" "$3"; else printf "%s\n" "{\"schemaVersion\":1,\"status\":\"inactive\",\"certified\":false,\"reason\":\"external activation marker is not provisioned\"}"; fi; exec bash "$4" "$2" "$3"' \
   h2puni-preserved-wiki "$trusted_launcher" "$repo_root" HEAD \
   "$repo_root/bin/h2puni-gate-steps.sh"

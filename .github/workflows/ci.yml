@@ -245,13 +245,32 @@ jobs:
       - name: Install solver dependencies
         run: python3 -m pip install --require-hashes -r libs/solver-py/requirements.lock
 
-      # Proof: deleting this step made gate-entrypoints.test.ts fail at the exact committed
-      # `$GITHUB_SHA` command, before any fixture could mistake the generic Nx gate for wiki lint.
-      - name: Tool wiki — committed candidate
-        if: github.event_name != 'pull_request'
+      # This candidate-owned workflow is diagnostic on PR and merge-queue events. It is not an
+      # admission authority; repository rules must require the base-owned trusted-wiki workflow.
+      - name: Tool wiki — diagnostic/non-certifying
+        if: github.event_name != 'push'
         env:
           TOOL_WIKI_ACTIVATION_ROOT: ${{ vars.TOOL_WIKI_ACTIVATION_ROOT }}
         run: bash bin/tool-wiki-lint.sh committed . "$GITHUB_SHA"
+
+      # A protected-default push is already admitted. Its audit still refuses to execute the
+      # repository adapter: active rollout selects the launcher from external host state.
+      - name: Tool wiki — externally activated push audit
+        if: github.event_name == 'push'
+        env:
+          TOOL_WIKI_ACTIVATION_ROOT: ${{ vars.TOOL_WIKI_ACTIVATION_ROOT }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$TOOL_WIKI_ACTIVATION_ROOT" || ! -e "$TOOL_WIKI_ACTIVATION_ROOT/active-v1" ]]; then
+            echo '{"schemaVersion":1,"status":"inactive","certified":false,"reason":"external activation marker is not provisioned"}'
+            exit 0
+          fi
+          launcher="$(realpath "$(<"$TOOL_WIKI_ACTIVATION_ROOT/launcher-path")")"
+          [[ -f "$launcher" && -r "$launcher" ]]
+          case "$launcher" in
+            "$GITHUB_WORKSPACE"/*) echo 'external launcher resolved inside candidate checkout' >&2; exit 78 ;;
+          esac
+          bash "$launcher" committed . "$GITHUB_SHA"
 
       # --all, not the default base..HEAD comparison. Without it the scope is
       # whatever `git diff main HEAD` returns, which is EMPTY on a push to main

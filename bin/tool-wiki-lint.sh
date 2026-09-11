@@ -53,17 +53,27 @@ read_trusted_path() {
 }
 
 trusted_cli=$(read_trusted_path "$trusted_root/validator-path" 'validator path')
-trusted_cli=$(cd -- "$(dirname -- "$trusted_cli")" && printf '%s/%s\n' "$(pwd -P)" "$(basename -- "$trusted_cli")")
+if ! trusted_cli=$(realpath -- "$trusted_cli") || [[ ! -f "$trusted_cli" ]] || [[ ! -r "$trusted_cli" ]]; then
+  printf 'tool-wiki lint: validator must resolve to a readable regular file\n' >&2
+  exit 78
+fi
 case "$trusted_cli" in
   "$candidate_root"/*)
+    # Proof: gate-entrypoints.test.ts points an external validator descriptor through a symlink
+    # into the candidate and observes refusal before the candidate marker can be written.
     printf 'tool-wiki lint: validator must be outside the candidate repository\n' >&2
     exit 78
     ;;
 esac
+validator_identity=$(git hash-object --no-filters "$trusted_cli")
 evidence=$(read_trusted_path "$trusted_root/evidence-path" 'evidence path')
 bun_path=$(command -v bun)
 trusted_path=$(dirname -- "$bun_path"):/usr/bin:/bin
 validator_dir=$(dirname -- "$trusted_cli")
+if [[ $(git hash-object --no-filters "$trusted_cli") != "$validator_identity" ]]; then
+  printf 'tool-wiki lint: validator changed between trust selection and launch\n' >&2
+  exit 78
+fi
 
 case "$selection" in
   working)

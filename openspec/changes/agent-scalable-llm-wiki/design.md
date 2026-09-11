@@ -180,6 +180,14 @@ own admission. Policy/validator updates are separate reviewed activations that r
 checks. Local command flags cannot impersonate CI trust. The same deterministic engine is
 called by Nx, `bin/h2puni-gate.sh`, CI and whole-tree pre-commit with explicit input mode.
 
+GitHub admission additionally requires an externally administered ruleset or required-workflow
+rule that requires the base-owned `trusted-wiki` check. A workflow read from push or merge-group
+candidate bytes cannot establish its own immutability: merge-group execution in `ci.yml` is
+therefore explicitly diagnostic/non-certifying, and default-branch push is a post-admission audit
+using the externally selected launcher. The trusted PR workflow uses `pull_request_target` only to
+load the default-branch launcher and exact candidate bytes; it has read-only permissions, persists
+no checkout credentials, and executes no candidate-controlled program.
+
 ### Claim authority and state machine
 
 Resolve the common Git directory through `git rev-parse --git-common-dir`, canonicalize it,
