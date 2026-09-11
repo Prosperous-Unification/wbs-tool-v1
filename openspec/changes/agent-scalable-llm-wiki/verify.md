@@ -1007,3 +1007,66 @@ sandbox denied its socket; no target was skipped. `OPENSPEC_TELEMETRY=0 bunx
 @fission-ai/openspec@1.3.0 validate agent-scalable-llm-wiki --strict` returned
 `Change 'agent-scalable-llm-wiki' is valid` with exit 0. Task 2.4 and all task checkboxes remain
 untouched.
+
+## Slice 3.1 Review Invocation and Provenance
+
+The structured review boundary now registers canonical request bytes in an fsynced, read-back
+invocation journal before process launch. The terminal journal preserves raw stdout bytes,
+operator-reported model/provider/effort, tool identities in exact order with duplicates, raw usage,
+price identity, charged micros, elapsed milliseconds, protocol evidence and retained raw response.
+Completion is idempotent only for the exact same terminal observation. A completed invocation with
+missing telemetry or a failed invocation status produces an explicit `unverified` result and no
+review evidence; it never manufactures zero usage, price, charge or elapsed values.
+
+Cold judgments are sequence-one evidence and the sequence-two expansion binds their canonical
+identity before sequence-three informed judgment. The production provenance CLI compares submitted
+evidence with the separately retained journal observation, rejects incomplete or unverified
+entries, and classifies configured provenance scope. It may enforce an explicit external
+requirement, but does not select the later trust policy: `local-cooperative` is recorded and cannot
+satisfy `require-external`.
+
+The initial RED run had zero passes and two module-resolution failures for the absent `protocol`
+and `invoker` modules. The restored post-format focused command passed 16 tests, zero failures and
+71 assertions in 12.62 seconds.
+
+| Deliberate one-at-a-time fault                                                                | Observed focused or production-CLI failure                                                          |
+| --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| accept a different cold artifact                                                              | cold-binding negative failed with `Received function did not throw`                                 |
+| accept a forged raw-response artifact                                                         | response-identity negative failed with `Received function did not throw`                            |
+| permit verified telemetry without elapsed receipts                                            | elapsed negative failed with `Received function did not throw`                                      |
+| widen external retention time to any non-empty string                                         | invalid February date was accepted; negative failed with `Received function did not throw`          |
+| permit fabricated fields in unverified telemetry                                              | `chargedAmountMicros: 0` was accepted; negative failed with `Received function did not throw`       |
+| accept rewritten stdin or stdout identities                                                   | each exact-byte negative failed separately with `Received function did not throw`                   |
+| move journal registration after process spawn                                                 | harness exited 19: `invocation was not durably registered before launch`                            |
+| accept a different durable-registration identity                                              | invocation reached `Executable not found` instead of refusing the acceptance                        |
+| permit duplicate registration                                                                 | test received the later unique-entry schema failure instead of `already registered`                 |
+| permit completion of an unknown invocation                                                    | test received `undefined is not an object` instead of `unknown invocation`                          |
+| return from a different terminal completion                                                   | terminal negative failed with `Received function did not throw`                                     |
+| permit completed telemetry without evidence                                                   | terminal test reached `different terminal completion` instead of the evidence invariant             |
+| accept duplicate journal invocation identities                                                | duplicate persisted entry was accepted; negative failed with `Received function did not throw`      |
+| accept a changed journal identity                                                             | `journal.replaced` was returned; negative failed with `Received function did not throw`             |
+| remove contextual read and JSON failures                                                      | tests received raw ENOENT and `JSON Parse error` rather than the modeled journal errors             |
+| alter output invocation, protocol/subject, telemetry invocation, stdin identity or start time | each harness-boundary case failed separately with `Received function did not throw`                 |
+| make evidence for a failed invocation                                                         | completion failed the verified-completed evidence invariant                                         |
+| fall back to the first journal entry                                                          | forged invocation reported generic evidence difference instead of `unknown invocation`              |
+| bypass raw-response provenance comparison                                                     | altered response reported generic evidence difference                                               |
+| bypass observed-read comparison                                                               | erased reads reported cold-judgment difference                                                      |
+| bypass frozen-cold comparison                                                                 | rewritten cold reported generic evidence difference                                                 |
+| bypass final evidence comparison                                                              | forged tools exited 0 with status `verified`                                                        |
+| accept incomplete or unverified journal entries                                               | CLI received `undefined is not an object` or `null is not an object` instead of the modeled refusal |
+| permit local scope for an external requirement                                                | CLI exited 0 with `local-cooperative` and `satisfiesExternal: false`                                |
+| reverse tools, truncate raw usage or alter price model                                        | exact retention assertions showed the changed order, missing input usage or `altered-model`         |
+
+Each fault ran alone and was restored before the next. One initially written output-invocation
+negative was itself vacuous because it altered only the telemetry invocation. A distinct
+wrong-output mode was added, the boundary was bypassed again, and the test then failed at the
+intended `differs from registered` assertion. Adjacent `Proof:` comments record the observed
+failures.
+
+Fresh uncached standalone lint and typecheck targets exited 0. The exact-tree uncached
+`NX_DAEMON=false bunx nx run-many -t lint typecheck test -p tool-wiki --skip-nx-cache
+--output-style=static` aggregate passed all 161 tool-wiki tests with zero failures and 1,999
+assertions in 342.56 seconds (5m43s Nx duration). Nx used its in-process plugin fallback after the
+sandbox denied its socket; no target was skipped. Pinned OpenSpec 1.3.0 strict validation returned
+`Change 'agent-scalable-llm-wiki' is valid` with exit 0 and telemetry disabled. Only task 3.1 is
+marked complete; task 3.2 and all later task checkboxes remain untouched.

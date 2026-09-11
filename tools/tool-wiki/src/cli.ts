@@ -19,6 +19,11 @@ import { checkIndexes } from './indexes';
 import { type ClassifiedCandidate, classifyEntries } from './inventory/classify-entries';
 import { type CandidateRequest, readCandidate } from './inventory/read-candidate';
 import { extractRelationships } from './relationships';
+import {
+  type ProvenanceRequirement,
+  readInvocationJournal,
+  validateReviewProvenance,
+} from './review';
 
 interface JsonDocument {
   bytes: Uint8Array;
@@ -196,6 +201,20 @@ function writeIndexChecks(argv: string[]): void {
   );
 }
 
+function writeReviewProvenance(argv: string[]): void {
+  const [, journalPath, evidencePath, requirementInput] = argv;
+  if (requirementInput !== 'allow-local' && requirementInput !== 'require-external') {
+    throw new Error('review provenance requirement must be allow-local or require-external');
+  }
+  const requirement: ProvenanceRequirement = requirementInput;
+  const validation = validateReviewProvenance(
+    readInvocationJournal(journalPath),
+    readJson(evidencePath),
+    requirement,
+  );
+  process.stdout.write(`${JSON.stringify(validation)}\n`);
+}
+
 function run(argv: string[]): void {
   if (argv.length === 3 && argv[0] === 'validate') {
     validateRecord(argv);
@@ -225,8 +244,12 @@ function run(argv: string[]): void {
     writeIndexChecks(argv);
     return;
   }
+  if (argv.length === 4 && argv[0] === 'validate-review-provenance') {
+    writeReviewProvenance(argv);
+    return;
+  }
   throw new Error(
-    'usage: tool-wiki <validate|read-candidate|classify-candidate|content-manifest|validate-artifacts|extract-relationships|check-indexes> ...',
+    'usage: tool-wiki <validate|read-candidate|classify-candidate|content-manifest|validate-artifacts|extract-relationships|check-indexes|validate-review-provenance> ...',
   );
 }
 

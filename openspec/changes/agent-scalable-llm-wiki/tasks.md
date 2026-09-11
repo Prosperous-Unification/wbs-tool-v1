@@ -78,7 +78,7 @@ No `verify.md` exists until implementation produces observations.
 
 ## 3. Review provenance, currency and trusted lint
 
-- [ ] 3.1 Implement `review/invoker.ts`, `review/protocol.ts` and invocation journal ports
+- [x] 3.1 Implement `review/invoker.ts`, `review/protocol.ts` and invocation journal ports
       with the structured process-harness adapter. Test `protocol.test.ts` and
       `invocation-provenance.test.ts`: invocation registered before launch, actual model/
       provider/effort/tools/usage receipt retained, raw response identity/retention checked,

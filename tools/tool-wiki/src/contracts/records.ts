@@ -8,7 +8,7 @@ const IsoInstantPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
 const OpaqueIdPattern = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
 const GitObjectId = type(/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/);
 const Sha256 = type(/^[0-9a-f]{64}$/);
-const RelativePath = type(RelativePathPattern).narrow((path, context) => {
+export const RelativePath = type(RelativePathPattern).narrow((path, context) => {
   // Proof: removing this entire canonical-path narrow produced [0, 0, 0, 0];
   // removing only the NUL refusal accepted its third CLI case: [1, 1, 0, 1].
   if (path.includes('\u0000')) return context.mustBe('a repository path without NUL bytes');
@@ -18,8 +18,8 @@ const RelativePath = type(RelativePathPattern).narrow((path, context) => {
     ? true
     : context.mustBe('a canonical repository-relative path without dot segments');
 });
-const OpaqueId = type(OpaqueIdPattern);
-const IsoInstant = type(IsoInstantPattern).narrow((instant, context) => {
+export const OpaqueId = type(OpaqueIdPattern);
+export const IsoInstant = type(IsoInstantPattern).narrow((instant, context) => {
   const epochMs = Date.parse(instant);
   const normalized = instant.length === 20 ? `${instant.slice(0, -1)}.000Z` : instant;
   // Proof: removing this semantic check made the production CLI print
@@ -31,7 +31,7 @@ const IsoInstant = type(IsoInstantPattern).narrow((instant, context) => {
 // Proof: widening this to any positive integer made the production CLI print
 // `valid candidate-entry` for schemaVersion 99 (expected exit 1), and made artifact graph
 // version 99 exit 0 with artifactCount 2 instead of refusing before traversal.
-const SchemaVersion = type('1');
+export const SchemaVersion = type('1');
 const NonNegativeInteger = type('number.integer>=0');
 const PositiveInteger = type('number.integer>=1');
 const PortNumber = type('number.integer>=1').and(type('number<=65535'));
@@ -636,7 +636,7 @@ export const ModuleMapping = type({
   );
 export type ModuleMapping = typeof ModuleMapping.infer;
 
-const ExecutorIdentity = type({
+export const ExecutorIdentity = type({
   provider: 'string>=1',
   model: 'string>=1',
   version: 'string>=1',
@@ -644,7 +644,7 @@ const ExecutorIdentity = type({
   toolchain: 'string>=1',
 }).onUndeclaredKey('reject');
 
-const RawUsage = type({
+export const RawUsage = type({
   category: 'string>=1',
   quantity: 'number>=0',
   unit: 'string>=1',
