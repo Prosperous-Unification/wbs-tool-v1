@@ -1635,6 +1635,34 @@ separate exact-head candidate checkout; it runs no candidate gate step.
 Only Task 3.5 is changed. Task 5.3 still owns production activation and no production binding is
 committed.
 
+## Slice 3.5 Review Fix Round 2
+
+Pinned host gates now capture the pre-gate symbolic or detached checkout inside the heavy lock and
+restore it on every nonzero path after checkout. Restore loss is louder than candidate rejection.
+An active host snapshots its launcher only from the external activation descriptor; inactive
+rollout emits its own visible non-certifying record without reading the candidate adapter. GitHub
+PR certification stays in the base-owned `trusted-wiki` workflow. Candidate-owned PR/merge-group
+execution is explicitly diagnostic/non-certifying, protected-default push audit uses the external
+launcher, and the design records the external required-workflow/ruleset prerequisite.
+
+| Deliberate production-path fault                                                          | Observed failure                                                                                            |
+| ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| reject a candidate from a branch or detached checkout                                     | original branch/commit or detached commit is restored before status 1 returns                               |
+| delete the saved branch while the rejected candidate runs                                 | restore fails loudly with exit 74 and `failed to restore pre-gate checkout`                                 |
+| run two successive gates against a stale candidate containing exit-zero adapter and steps | both external-verifier runs reject; trusted checkout is restored after each and candidate step never runs   |
+| external validator descriptor points through a symlink into candidate CLI                 | before the fix candidate execution returned 0; resolved-file guard now refuses before its marker is written |
+
+- Focused entrypoints — 20 pass, 0 fail, 70 assertions.
+- `bin/h2puni-gate.test.sh` — all cases pass, including branch/detached restoration and loud
+  restore failure.
+- Relevant devsync/workflow tests — 28 pass, 0 fail, 89 assertions.
+- Shell syntax, shellcheck (with existing intentional SC2016 exclusions), source lint, typecheck,
+  and strict OpenSpec 1.3.0 — exit 0.
+- Full uncached `tool-wiki:test` — 336 pass, 0 fail, 4,241 assertions across 17 files in
+  639.09 seconds; cache skipped and no target skipped.
+- Exact `bin/h2puni-gate.sh HEAD` — unavailable, exit 70 at required
+  `/home/puni1/.cache`; no gate step ran.
+
 ## Slice 3.5 — gate, CI and hook wiring
 
 The literal Nx `tool-wiki:lint` target now runs whole-tree working diagnostics with cache disabled
