@@ -1668,9 +1668,10 @@ Every fault below was applied alone through the production API and restored befo
 - Source ESLint: exit 0.
 - Exact uncached configured Tool Wiki suite at `be0bdffb`: exit 0; 369 pass, 0 fail, 4,338
   assertions across 19 files in 735.93 seconds (12m16s Nx duration); cache skipped and no target
-  skipped. The subsequent `3b492c5c` narrows construction to the canonical factory only and has
-  the focused/lint/typecheck evidence above; a final exact-tree rerun follows with this artifact.
-- `bin/h2puni-gate.sh be0bdffb`: unavailable, exit 70 immediately because required heavy-lock
+  skipped. The frozen evidence commit `0965be29`, including the subsequent canonical-factory
+  hardening, passed a second exact uncached run: 369 pass, 0 fail, 4,338 assertions across 19 files
+  in 740.36 seconds (12m20s Nx duration); cache skipped and no target skipped.
+- `bin/h2puni-gate.sh 0965be29`: unavailable, exit 70 immediately because required heavy-lock
   path `/home/puni1/.cache` does not exist. No host-gate step ran and the host gate is not green.
 
 Only Task 4.1 is completed by this slice; generation lifecycle transitions remain Task 4.2.
