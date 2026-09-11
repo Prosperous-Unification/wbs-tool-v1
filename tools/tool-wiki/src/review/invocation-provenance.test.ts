@@ -58,6 +58,7 @@ function request(invocationId = 'invocation.integration-test'): ReviewInvocation
 
 type HarnessMode =
   | 'verified'
+  | 'canonical-zero'
   | 'cold-unverified'
   | 'cold-nonzero'
   | 'cold-signaled'
@@ -66,14 +67,21 @@ type HarnessMode =
   | 'cold-wrong-telemetry-invocation'
   | 'informed-nonzero'
   | 'informed-signaled'
-  | 'informed-malformed';
+  | 'informed-malformed'
+  | `${'cold' | 'informed'}-${
+      | 'positive-infinity-quantity'
+      | 'negative-infinity-quantity'
+      | 'negative-zero-quantity'
+      | 'negative-zero-charge'
+      | 'negative-zero-elapsed'}`;
 
 function writeHarness(directory: string, mode: HarnessMode = 'verified'): string {
   const path = join(directory, `harness-${mode}.ts`);
   const tracePath = join(directory, 'trace.txt');
+  const outputPath = join(directory, 'harness-output.txt');
   writeFileSync(
     path,
-    `import { appendFileSync, readFileSync } from 'node:fs';
+    `import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 const journal = JSON.parse(readFileSync(process.argv[2], 'utf8'));
 const stdin = await Bun.stdin.text();
 const request = JSON.parse(stdin);
@@ -127,6 +135,11 @@ const telemetry = ${
     phase: 'review', startedAt, endedAt, elapsedMs: 0, status: 'completed',
   }],
 };
+if ('${mode}' === 'canonical-zero') {
+  telemetry.receipt.rawUsage[0].quantity = 0;
+  telemetry.receipt.chargedAmountMicros = 0;
+  telemetry.elapsedReceipts[0].elapsedMs = 0;
+}
 if (('${mode}' === 'cold-malformed' && phase === 'cold') || ('${mode}' === 'informed-malformed' && phase === 'informed')) {
   process.stderr.write('malformed cold json\\n');
   process.stdout.write('{');
@@ -151,7 +164,28 @@ if (('${mode}' === 'cold-malformed' && phase === 'cold') || ('${mode}' === 'info
   if ('${mode}' === 'cold-wrong-protocol' && phase === 'cold') {
     output.protocol.protocolId = 'review.another-protocol.v1';
   }
-  process.stdout.write(JSON.stringify(output) + '\\n');
+  const numericFaults = {
+    'cold-positive-infinity-quantity': ['cold', 'quantity', '1e999'],
+    'informed-positive-infinity-quantity': ['informed', 'quantity', '1e999'],
+    'cold-negative-infinity-quantity': ['cold', 'quantity', '-1e999'],
+    'informed-negative-infinity-quantity': ['informed', 'quantity', '-1e999'],
+    'cold-negative-zero-quantity': ['cold', 'quantity', '-0'],
+    'informed-negative-zero-quantity': ['informed', 'quantity', '-0'],
+    'cold-negative-zero-charge': ['cold', 'chargedAmountMicros', '-0'],
+    'informed-negative-zero-charge': ['informed', 'chargedAmountMicros', '-0'],
+    'cold-negative-zero-elapsed': ['cold', 'elapsedMs', '-0'],
+    'informed-negative-zero-elapsed': ['informed', 'elapsedMs', '-0'],
+  };
+  const numericFault = numericFaults['${mode}'];
+  let stdout = JSON.stringify(output) + '\\n';
+  if (numericFault?.[0] === phase) {
+    const field = numericFault[1];
+    const current = field === 'quantity' ? (phase === 'cold' ? '700' : '500') : field === 'chargedAmountMicros' ? (phase === 'cold' ? '11000' : '14000') : '0';
+    stdout = stdout.replace('"' + field + '":' + current, '"' + field + '":' + numericFault[2]);
+    writeFileSync('${outputPath}', stdout, 'utf8');
+    process.stderr.write(phase + ' numeric output\\n');
+  }
+  process.stdout.write(stdout);
 }
 if (('${mode}' === 'cold-nonzero' && phase === 'cold') || ('${mode}' === 'informed-nonzero' && phase === 'informed')) {
   process.stderr.write(phase + ' provider failed\\n');
@@ -177,6 +211,7 @@ function invoke(mode: HarnessMode = 'verified', harnessArgv?: string[]) {
     directory,
     journalPath,
     journal,
+    outputPath: join(directory, 'harness-output.txt'),
     tracePath: join(directory, 'trace.txt'),
     invocation: invoker.invoke(request()),
   };
@@ -354,6 +389,24 @@ async function waitForFiles(paths: string[]): Promise<void> {
   }
 }
 
+const numericHarnessFailures = [
+  { phase: 'cold', field: 'quantity', token: '1e999', kind: 'canonical' },
+  { phase: 'informed', field: 'quantity', token: '1e999', kind: 'canonical' },
+  { phase: 'cold', field: 'quantity', token: '-1e999', kind: 'schema' },
+  { phase: 'informed', field: 'quantity', token: '-1e999', kind: 'schema' },
+  { phase: 'cold', field: 'quantity', token: '-0', kind: 'canonical' },
+  { phase: 'informed', field: 'quantity', token: '-0', kind: 'canonical' },
+  { phase: 'cold', field: 'chargedAmountMicros', token: '-0', kind: 'canonical' },
+  { phase: 'informed', field: 'chargedAmountMicros', token: '-0', kind: 'canonical' },
+  { phase: 'cold', field: 'elapsedMs', token: '-0', kind: 'canonical' },
+  { phase: 'informed', field: 'elapsedMs', token: '-0', kind: 'canonical' },
+] as const satisfies readonly {
+  phase: 'cold' | 'informed';
+  field: 'quantity' | 'chargedAmountMicros' | 'elapsedMs';
+  token: '1e999' | '-1e999' | '-0';
+  kind: 'canonical' | 'schema';
+}[];
+
 describe('review invocation provenance', () => {
   test('durably acknowledges cold before informed launch and retains separate phase receipts', () => {
     const { invocation, journalPath, tracePath } = invoke();
@@ -379,6 +432,57 @@ describe('review invocation provenance', () => {
       { toolId: 'read-file', version: '1' },
       { toolId: 'run-check', version: '2' },
     ]);
+  });
+
+  for (const numeric of numericHarnessFailures) {
+    test(`persists ${numeric.phase} ${numeric.field} ${numeric.token} as unverified exact bytes`, () => {
+      const mode = `${numeric.phase}-${
+        numeric.token === '1e999'
+          ? 'positive-infinity'
+          : numeric.token === '-1e999'
+            ? 'negative-infinity'
+            : 'negative-zero'
+      }-${numeric.field === 'chargedAmountMicros' ? 'charge' : numeric.field === 'elapsedMs' ? 'elapsed' : 'quantity'}` as HarnessMode;
+      const { invocation, journalPath, outputPath, tracePath } = invoke(mode);
+      expect(invocation.status).toBe('unverified');
+
+      const entry = readUnverifiedTerminal(journalPath);
+      const observation = entry.terminal.attempt.observation;
+      const exactStdout = readFileSync(outputPath);
+      const exactStderr = Buffer.from(`${numeric.phase} numeric output\n`);
+      expect(entry.terminal.phase).toBe(numeric.phase);
+      expect(entry.terminal.attempt.output).toBeNull();
+      expect(Buffer.from(observation.stdoutBase64, 'base64')).toEqual(exactStdout);
+      expect(observation.stdoutArtifact).toBe(hashBytes(exactStdout));
+      expect(Buffer.from(observation.stderrBase64, 'base64')).toEqual(exactStderr);
+      expect(observation.stderrArtifact).toBe(hashBytes(exactStderr));
+      expect(exactStdout.toString('utf8')).toContain(`"${numeric.field}":${numeric.token}`);
+      if (numeric.kind === 'canonical') {
+        expect(entry.terminal.reason).toContain(
+          'canonical JSON requires a finite number other than negative zero',
+        );
+      } else {
+        expect(entry.terminal.reason).toContain('quantity');
+        expect(entry.terminal.reason).not.toContain('canonical JSON');
+      }
+      expect(readFileSync(tracePath, 'utf8')).toBe(
+        numeric.phase === 'cold' ? 'cold\n' : 'cold\ninformed\n',
+      );
+    });
+  }
+
+  test('accepts positive zero in every hashed telemetry numeric field', () => {
+    const evidence = requireVerified(invoke('canonical-zero').invocation);
+    for (const telemetry of [evidence.phaseReceipts.cold, evidence.phaseReceipts.informed]) {
+      const numericFields = [
+        telemetry.receipt.rawUsage[0]?.quantity,
+        telemetry.receipt.chargedAmountMicros,
+        telemetry.elapsedReceipts[0]?.elapsedMs,
+      ];
+      expect(numericFields).toEqual([0, 0, 0]);
+      expect(numericFields.every((value) => Object.is(value, 0))).toBe(true);
+      expect(numericFields.some((value) => Object.is(value, -0))).toBe(false);
+    }
   });
 
   test('never elevates a local journal label to external provenance', () => {

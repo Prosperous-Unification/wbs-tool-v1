@@ -137,3 +137,35 @@ documented in-process fallback after sandbox socket denial and skipped no target
 task checkbox changed. Repository-wide `bunx nx format:check --all`, pinned OpenSpec 1.3.0 strict
 validation and `git diff --check` exited 0; OpenSpec reported
 `Change 'agent-scalable-llm-wiki' is valid`.
+
+## Containment Fix: Canonical Harness Numbers
+
+The structured harness decoders now validate the complete decoded cold or informed output against
+the same finite canonical JSON value model used for evidence hashing. JSON numeric overflow such as
+`1e999` and negative zero can therefore never survive output decoding and fail later while a
+journal transition hashes retained state. A rejected output remains a terminal unverified process
+observation with exact stdout/stderr bytes and identities. Null decoded output is not re-decoded
+during terminal reconciliation; its raw bytes remain available as an opaque failed observation.
+
+Real Bun process tests cover cold and informed overflowed usage, negative-infinity usage, and
+negative zero in usage quantity, charged micro-units and elapsed milliseconds. Overflow and
+negative zero retain the canonical-value reason, while `-1e999` remains a distinct nonnegative
+schema rejection. Positive zero in all three positions remains verified and is retained as `+0`.
+
+The initial RED run passed 24 tests and failed the eight overflow/negative-zero cases. Each failed
+from `hashCanonical` during `journal.complete` with
+`canonical JSON requires a finite number other than negative zero`. Removing only the shared
+decoder assertion after GREEN reproduced the same eight failures while both negative-infinity
+schema controls passed. The assertion was restored and the adjacent `Proof:` records that output.
+
+The numeric-field audit found only schema/sequence literals plus `rawUsage.quantity`,
+`chargedAmountMicros` and `elapsedMs` in harness output. The recursive assertion covers the latter
+three in verified and partially observed telemetry; schema/sequence literals already refuse
+nonmatching values. Other canonical hashing entrypoints consume locally constructed records or
+fail closed at read/CLI validation and do not share this journal-persistence window.
+
+The restored focused protocol/provenance command passed 37 tests with zero failures and 252
+assertions. Direct changed-file ESLint and `tsc --build --force` exited 0. The exact-source uncached
+tool-wiki lint/typecheck/test aggregate passed 182 tests with zero failures and 2,180 assertions in
+388.75 seconds (6m29s Nx duration); Nx used its documented in-process fallback after sandbox socket
+denial, skipped no target and reported the cache skipped. No 3.2 code or checkbox changed.

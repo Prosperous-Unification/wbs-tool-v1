@@ -1216,3 +1216,46 @@ denial and skipped no target. Only OpenSpec task 3.1 remains marked complete; ta
 checkboxes remain untouched. Repository-wide `bunx nx format:check --all`, pinned
 `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate agent-scalable-llm-wiki --strict`
 and `git diff --check` exited 0; OpenSpec reported `Change 'agent-scalable-llm-wiki' is valid`.
+
+## Slice 3.1 Canonical Harness Number Containment
+
+`JSON.parse` accepts exponent overflow as positive or negative infinity and preserves negative
+zero. The harness ArkType schemas rejected negative infinity in nonnegative usage but admitted
+positive infinity for `number>=0` and negative zero for every nonnegative numeric field. Those
+values previously reached canonical hashing during completion reconciliation, which threw before
+the unverified terminal could replace the registered entry.
+
+Cold and informed harness outputs now pass through one non-mutating canonical JSON value assertion
+immediately after strict schema decoding. The assertion reuses the canonical serializer's value
+model and recursively covers verified and partial telemetry. Reconciliation short-circuits a null
+decoded output, retaining its exact process bytes/hashes without trying to interpret the known
+invalid stdout again.
+
+| Deliberate one-at-a-time fault                 | Observed production-path failure                                                                                                                       |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| omit the shared harness canonical-value check  | eight cold/informed Infinity or negative-zero tests threw `canonical JSON requires a finite number other than negative zero` during journal completion |
+| supply `-1e999` rather than canonical overflow | both phase controls persisted unverified with a `quantity` schema reason and no `canonical JSON` text, distinguishing the nonnegative-schema rejection |
+
+The pre-fix focused RED passed 24 tests and failed the eight Infinity/negative-zero cases at
+`journal.complete`. The explicit post-GREEN one-line bypass passed both negative-infinity controls
+and failed the same eight cases. With the assertion restored, the focused protocol/provenance
+command passed 37 tests, zero failures and 252 assertions. Each failed-process test compares the
+journal's stdout bytes against the independent harness sidecar, checks exact deterministic stderr,
+recomputes both SHA-256 identities, requires a readable terminal and verifies that a cold failure
+never launches informed. Positive zero in usage, charge and elapsed fields remained verified and
+was distinguished from negative zero with `Object.is`.
+
+The adjacent audit found the structured outputs contain only schema/sequence literals and the
+three telemetry numeric families exercised above: usage quantity, charged micro-units and elapsed
+milliseconds. Schema/sequence literals already require their exact values. Other
+`hashCanonical` entrypoints consume locally constructed validated records or fail closed during
+journal/CLI validation; none has the same external-output-to-durable-transition gap.
+
+Verification on the restored source:
+
+- `bun test --preload ../test/scratch/preload.ts src/review/invocation-provenance.test.ts src/review/protocol.test.ts` — exit 0; 37 pass, 0 fail, 252 assertions.
+- `bunx eslint src/evidence/content-manifest.ts src/review/protocol.ts src/review/invoker.ts src/review/invocation-provenance.test.ts` — exit 0.
+- `bunx tsc --build --force tsconfig.json` from `tools/tool-wiki` — exit 0.
+- `NX_DAEMON=false bunx nx run-many -t lint typecheck test -p tool-wiki --skip-nx-cache --output-style=static` — exit 0; 182 pass, 0 fail, 2,180 assertions in 388.75 seconds (6m29s Nx duration), cache skipped, no target skipped.
+
+Only task 3.1 remains marked complete. Task 3.2 and all later task checkboxes were not changed.

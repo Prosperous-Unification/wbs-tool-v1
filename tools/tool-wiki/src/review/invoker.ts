@@ -301,6 +301,7 @@ function decodeAttemptOutput<T>(
   retained: T | null,
   decode: (input: unknown) => T,
 ): T | null {
+  if (retained === null) return null;
   const bytes = decodeBase64(observation.stdoutBase64, 'stdoutBase64');
   let decoded: T;
   try {
@@ -308,19 +309,13 @@ function decodeAttemptOutput<T>(
       decodeJson(decodeUtf8(bytes, 'retained phase stdout'), 'retained phase stdout'),
     );
   } catch (cause) {
-    if (retained !== null) {
-      throw new Error(
-        `retained output is not decodable from exact stdout: ${errorMessage(cause)}`,
-        {
-          cause,
-        },
-      );
-    }
-    return null;
+    throw new Error(`retained output is not decodable from exact stdout: ${errorMessage(cause)}`, {
+      cause,
+    });
   }
   // Proof: removing the retained-vs-decoded comparison let a rewritten payload and telemetry
   // charge pass readInvocationJournal; the exact-stdout test reported "function did not throw".
-  if (retained === null || hashCanonical(decoded) !== hashCanonical(retained)) {
+  if (hashCanonical(decoded) !== hashCanonical(retained)) {
     throw new Error(`retained output differs from exact stdout`);
   }
   return decoded;

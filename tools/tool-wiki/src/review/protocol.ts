@@ -12,7 +12,7 @@ import {
   ReviewReceipt,
   SchemaVersion,
 } from '../contracts/records';
-import { hashBytes, hashCanonical } from '../evidence/content-manifest';
+import { assertCanonicalJsonValue, hashBytes, hashCanonical } from '../evidence/content-manifest';
 
 const Sha256 = type(/^[0-9a-f]{64}$/);
 const Judgment = type("'yes'|'partial'|'no'");
@@ -246,12 +246,19 @@ export const ReviewEvidence = type({
 }).onUndeclaredKey('reject');
 export type ReviewEvidence = typeof ReviewEvidence.infer;
 
+function decodedHarnessOutput<Output>(output: Output): Output {
+  // Proof: bypassing this assertion made eight real cold/informed Infinity/-0 cases throw
+  // `canonical JSON requires a finite number other than negative zero` during journal completion.
+  assertCanonicalJsonValue(output);
+  return output;
+}
+
 export function decodeColdHarnessOutput(input: unknown): ColdHarnessOutput {
-  return parseOrThrow(ColdHarnessOutput, input);
+  return decodedHarnessOutput(parseOrThrow(ColdHarnessOutput, input));
 }
 
 export function decodeInformedHarnessOutput(input: unknown): InformedHarnessOutput {
-  return parseOrThrow(InformedHarnessOutput, input);
+  return decodedHarnessOutput(parseOrThrow(InformedHarnessOutput, input));
 }
 
 export function decodeReviewEvidence(input: unknown): ReviewEvidence {

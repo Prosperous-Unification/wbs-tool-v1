@@ -75,6 +75,11 @@ export function serializeCanonical(input: unknown): string {
   return `${serializeJson(input, new Set())}\n`;
 }
 
+/** Validates that a value belongs to the finite, non-mutating canonical JSON value model. */
+export function assertCanonicalJsonValue(input: unknown): void {
+  serializeJson(input, new Set());
+}
+
 /** Returns the SHA-256 identity of exact bytes without interpreting their format. */
 export function hashBytes(bytes: Uint8Array | string): string {
   return new Bun.CryptoHasher('sha256').update(bytes).digest('hex');
