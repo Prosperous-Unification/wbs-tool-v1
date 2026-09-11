@@ -1148,10 +1148,18 @@ function validatePilotModuleMapping(
       );
     }
   }
-  for (const { indexPath } of indexReport.indexes) {
-    // Proof: omitting completeness made production observe lint accept a mapping with the
-    // selected saved-plan module deleted; the oracle expected exit 1 and received accepted.
-    if (!claimedIndexPaths.has(indexPath)) {
+  for (const index of indexReport.indexes) {
+    const { indexPath } = index;
+    const indexedPaths = [index.indexPath, ...index.members].sort(compareText);
+    const belongsToPilot = trust.policy.boundaries.some(
+      (boundary) =>
+        hashCanonical(selectedMembers(candidate, boundary.selector).map(({ path }) => path)) ===
+        hashCanonical(indexedPaths),
+    );
+    // Proof: deleting the selected saved-plan module from the externally pinned mapping made
+    // production observe lint exit 1 with `pilot index has no module mapping`; the unrelated
+    // docs/findings index remains outside the policy's selected-boundaries-only pilot coverage.
+    if (belongsToPilot && !claimedIndexPaths.has(indexPath)) {
       throw new Error(`pilot index has no module mapping: ${indexPath}`);
     }
   }

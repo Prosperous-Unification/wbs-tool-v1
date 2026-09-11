@@ -297,7 +297,7 @@ describe('reviewed radical-modularity pilot through production CLI', () => {
       indexes: { moduleId: string; applicableChecks: string[]; externalConsumers: string[] }[];
     };
     expect(indexReport.indexes.map(({ moduleId }) => moduleId).sort()).toEqual(
-      modules.map(({ moduleId }) => moduleId).sort(),
+      [...modules.map(({ moduleId }) => moduleId), 'module.docs.findings'].sort(),
     );
     expect(indexReport.indexes.every(({ applicableChecks }) => applicableChecks.length > 0)).toBe(
       true,
