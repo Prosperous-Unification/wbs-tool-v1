@@ -455,10 +455,10 @@ describe('reviewed radical-modularity pilot through production CLI', () => {
     const invocation = lint(candidate, trust);
     const observed = output(invocation);
     expect(invocation.exitCode, observed).toBe(1);
-    // Proof: replacing every executable pilot check with external-consumer prose was refused at
-    // `docs/refactoring/w4-4/README.md: check.tool-wiki.test (external-consumer)`.
+    // Proof: replacing every executable check with external-consumer prose was refused at
+    // `docs/findings/README.md: check.tool-wiki.test (external-consumer)`.
     expect(observed).toContain(
-      'applicable check has no executable authority in docs/refactoring/w4-4/README.md: check.tool-wiki.test (external-consumer)',
+      'applicable check has no executable authority in docs/findings/README.md: check.tool-wiki.test (external-consumer)',
     );
   }, 120_000);
 
