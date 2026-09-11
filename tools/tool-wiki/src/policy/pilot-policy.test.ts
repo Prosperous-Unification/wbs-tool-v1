@@ -93,7 +93,9 @@ function createCandidate(): { repository: string; revision: string } {
     cpSync(join(repositoryRoot, path), destination);
   }
   git(repository, ['add', '--all']);
-  git(repository, ['commit', '--quiet', '--message', 'pilot candidate']);
+  // The source checkout contains the pilot after its implementation commit; keep constructing a
+  // fresh immutable candidate even when the reviewed overlay is byte-identical.
+  git(repository, ['commit', '--quiet', '--allow-empty', '--message', 'pilot candidate']);
   return { repository, revision: git(repository, ['rev-parse', 'HEAD']) };
 }
 
