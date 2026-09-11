@@ -613,6 +613,34 @@ describe('declared relationship selectors through the production CLI', () => {
         expected:
           'fact http.list-work selector unsupported: HTTP object binding override is written or escapes',
       },
+      {
+        name: 'nested shorthand escape',
+        route:
+          "const defineEndpointShape = <T>(shape: T): T => shape;\nconst override = { path: '/api/work-items' };\nconst holder = { override };\nholder.override.path = '/changed';\nexport const listWork = defineEndpointShape({ method: 'GET', ...override });\n",
+        expected:
+          'fact http.list-work selector unsupported: HTTP object binding override is written or escapes',
+      },
+      {
+        name: 'property container escape',
+        route:
+          "const defineEndpointShape = <T>(shape: T): T => shape;\nconst override = { path: '/api/work-items' };\nconst holder = { saved: override };\nholder.saved.path = '/changed';\nexport const listWork = defineEndpointShape({ method: 'GET', ...override });\n",
+        expected:
+          'fact http.list-work selector unsupported: HTTP object binding override is written or escapes',
+      },
+      {
+        name: 'array container escape',
+        route:
+          "const defineEndpointShape = <T>(shape: T): T => shape;\nconst override = { path: '/api/work-items' };\nconst holder = [override];\nholder[0].path = '/changed';\nexport const listWork = defineEndpointShape({ method: 'GET', ...override });\n",
+        expected:
+          'fact http.list-work selector unsupported: HTTP object binding override is written or escapes',
+      },
+      {
+        name: 'return escape',
+        route:
+          "const defineEndpointShape = <T>(shape: T): T => shape;\nconst override = { path: '/api/work-items' };\nconst escape = () => override;\nescape().path = '/changed';\nexport const listWork = defineEndpointShape({ method: 'GET', ...override });\n",
+        expected:
+          'fact http.list-work selector unsupported: HTTP object binding override is written or escapes',
+      },
     ];
     for (const boundary of cases) {
       const repository = createRepository();
@@ -626,7 +654,7 @@ describe('declared relationship selectors through the production CLI', () => {
       expect(failed.exitCode).toBe(1);
       expect(output(failed)).toContain(boundary.expected);
     }
-  }, 15_000);
+  }, 25_000);
 
   test('reads current authorities only through exact selected candidate entries', () => {
     const repository = createRepository();
@@ -726,6 +754,13 @@ describe('declared relationship selectors through the production CLI', () => {
         migration: 'CREATE TABLE real (`id` text)\0invalid SQL;\n',
         expected: 'fact migration.work-item selector unsupported: migration contains NUL byte',
       },
+      {
+        name: 'invalid ALTER after absent table resolution',
+        migration:
+          'CREATE TABLE real(id text); ALTER TABLE missing ADD COLUMN c TEXT NOT NULL GARBAGE;\n',
+        expected:
+          'fact migration.work-item selector unsupported: migration statement 2 rejected by SQLite',
+      },
     ];
     for (const boundary of cases) {
       const repository = createRepository();
@@ -739,6 +774,36 @@ describe('declared relationship selectors through the production CLI', () => {
       const failed = invoke(repository, commitAll(repository, boundary.name), requestPath);
       expect(failed.exitCode).toBe(1);
       expect(output(failed)).toContain(boundary.expected);
+    }
+  }, 15_000);
+
+  test('retains a syntactically valid modeled ALTER statement', () => {
+    const cases = [
+      {
+        name: 'table created in authority',
+        migration: 'CREATE TABLE real(id text); ALTER TABLE real ADD COLUMN c TEXT NOT NULL;\n',
+        expected: 'real',
+      },
+      {
+        name: 'table created by a prior migration',
+        migration: 'ALTER TABLE missing ADD COLUMN c TEXT NOT NULL;\n',
+        expected: 'missing',
+      },
+    ];
+    for (const boundary of cases) {
+      const repository = createRepository();
+      write(repository, 'migrations/001_create_work_item/migration.sql', boundary.migration);
+      const fact = currentFacts(repository).find(
+        (candidate) => candidate['factId'] === 'migration.work-item',
+      );
+      if (fact === undefined) throw new Error('migration fixture absent');
+      fact['operation'] = 'alter';
+      fact['expected'] = boundary.expected;
+      const requestPath = writeInputs(repository, declaration([fact], []));
+      const extracted = report(
+        invoke(repository, commitAll(repository, boundary.name), requestPath),
+      );
+      expect(extracted.declarations.facts.map(({ actual }) => actual)).toEqual([boundary.expected]);
     }
   }, 15_000);
 

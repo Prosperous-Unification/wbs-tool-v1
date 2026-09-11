@@ -702,3 +702,46 @@ gate evidence. Pinned OpenSpec 1.3.0 strict validation returned
 `Change 'agent-scalable-llm-wiki' is valid`; its optional PostHog flush alone failed DNS afterward.
 Exact changed-file Prettier and `git diff --check` passed before this evidence append and are rerun
 after it. No checkbox changed and Task 2.3 remains untouched.
+
+## Slice 2.2 Fix Round 3
+
+SQLite validation no longer treats a missing-table semantic error as proof that an ALTER statement's
+remaining grammar is valid. Each statement now executes in an isolated in-memory migration sequence,
+so tables created earlier in the selected authority provide real schema context. When an ALTER target
+belongs to an earlier migration and is consequently absent, the validator creates only that bounded,
+safely quoted table and any old column required by a rename/drop form, then executes the exact ALTER.
+Any error from that retry is named unsupported before facts are returned. Missing-schema errors from
+other statement families are no longer silently admitted. Both an ALTER against a table created in
+the authority and one against a table modeled as created by an earlier migration remain supported.
+
+HTTP reference analysis now maps a shorthand property name through TypeScript's
+`getShorthandAssignmentValueSymbol` before comparing symbol identity. `{ override }` therefore
+exposes the value binding's escape just like `{ saved: override }`, `[override]`, a call argument or a
+returned value. These containers, direct writes and aliases are conservatively refused; an object
+binding used only by its direct spread remains statically extractable.
+
+The initial focused production-CLI run passed the valid ALTER control but failed both regressions:
+the nested shorthand escape expected exit 1 and received 0, and
+`CREATE TABLE real(id text); ALTER TABLE missing ADD COLUMN c TEXT NOT NULL GARBAGE;` expected exit 1
+and received 0. After GREEN, each prior fault was restored alone:
+
+| Deliberate one-at-a-time fault                     | Observed production-CLI failure                                        |
+| -------------------------------------------------- | ---------------------------------------------------------------------- |
+| use the shorthand property symbol instead of value | nested mutation expected exit 1 and received 0 after 49 assertions     |
+| return immediately on ALTER `no such table`        | invalid trailing grammar exited 0; expected exit 1 after 59 assertions |
+
+Each fault was restored and its actual output recorded in an adjacent `Proof:` comment. The focused
+restored HTTP/SQL/valid-ALTER/multi-table set passed four tests and 163 assertions in 32.54 seconds.
+The post-format selector suite passed 14 tests, zero failures and 487 assertions in 94.06 seconds;
+after adding the explicit valid prior-schema ALTER control, its focused run passed with 20 assertions
+and the final complete selector suite passed 14 tests, zero failures and 497 assertions in 96.22
+seconds. The unchanged Task 2.1 relationship suite passed 14 tests, zero failures and 299 assertions
+in 91.22 seconds. The uncached full tool-wiki suite passed 88 tests, zero failures and 1464 assertions
+in 260.26 seconds before that final positive-control case was added; no production source changed
+afterward.
+
+Direct project ESLint and the solution-style source/spec TypeScript build passed. Pinned OpenSpec
+1.3.0 strict validation returned `Change 'agent-scalable-llm-wiki' is valid`; only its optional
+PostHog flush failed DNS afterward. Exact changed-file formatting and `git diff --check` passed. No
+checkbox changed, Task 2.3 remains untouched, and full repository/browser gates remain with the
+parent integration pass.

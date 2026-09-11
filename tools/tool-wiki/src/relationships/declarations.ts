@@ -348,6 +348,18 @@ interface ConstBinding {
   symbol: ts.Symbol;
 }
 
+function valueSymbol(analysis: HttpAnalysis, identifier: ts.Identifier): ts.Symbol | undefined {
+  if (
+    ts.isShorthandPropertyAssignment(identifier.parent) &&
+    identifier.parent.name === identifier
+  ) {
+    // Proof: using the shorthand property symbol let `{ override }` hide the value's escape;
+    // its nested-mutation production CLI test expected exit 1 and received 0 after 49 assertions.
+    return analysis.checker.getShorthandAssignmentValueSymbol(identifier.parent);
+  }
+  return analysis.checker.getSymbolAtLocation(identifier);
+}
+
 function analyzeHttpSource(source: ts.SourceFile): HttpAnalysis {
   const options: ts.CompilerOptions = {
     noLib: true,
@@ -372,7 +384,7 @@ function constBinding(
   analysis: HttpAnalysis,
   reference: ts.Identifier,
 ): ConstBinding | undefined {
-  const symbol = analysis.checker.getSymbolAtLocation(reference);
+  const symbol = valueSymbol(analysis, reference);
   if (symbol === undefined) return undefined;
   const declarations = (symbol.declarations ?? []).filter(ts.isVariableDeclaration);
   if (declarations.length !== 1) {
@@ -421,7 +433,7 @@ function assertStableObjectBinding(
     if (
       ts.isIdentifier(node) &&
       node !== binding.declaration.name &&
-      analysis.checker.getSymbolAtLocation(node) === binding.symbol &&
+      valueSymbol(analysis, node) === binding.symbol &&
       !isObjectSpreadReference(node)
     ) {
       // Proof: permitting non-spread references made `override.path = '/changed'` leave the
@@ -686,19 +698,73 @@ function sqlTableName(
   position: number,
   statementNumber: number,
 ): string {
+  // Proof: returning the first identifier made both `main.real` and `"main"."real"` publish
+  // `main`; their production CLI test expected a successful `real` fact and exited 1.
+  return sqlTableReference(fact, statement, position, statementNumber).table;
+}
+
+interface SqlTableReference {
+  after: number;
+  schema: 'main' | 'temp' | undefined;
+  table: string;
+}
+
+function sqlTableReference(
+  fact: RelationshipFact,
+  statement: SqlToken[],
+  position: number,
+  statementNumber: number,
+): SqlTableReference {
   const first = sqlIdentifier(fact, statement, position, statementNumber);
-  if (!(position + 1 in statement)) return first;
   const separator = statement[position + 1];
-  if (separator.kind !== 'symbol' || separator.text !== '.') return first;
-  if (first.toLowerCase() !== 'main' && first.toLowerCase() !== 'temp') {
+  if (!(position + 1 in statement) || separator.kind !== 'symbol' || separator.text !== '.') {
+    return { after: position + 1, schema: undefined, table: first };
+  }
+  const normalized = first.toLowerCase();
+  if (normalized !== 'main' && normalized !== 'temp') {
     unsupported(
       fact,
       `migration statement ${String(statementNumber)} uses unsupported schema ${first}`,
     );
   }
-  // Proof: returning the first identifier made both `main.real` and `"main"."real"` publish
-  // `main`; their production CLI test expected a successful `real` fact and exited 1.
-  return sqlIdentifier(fact, statement, position + 2, statementNumber);
+  return {
+    after: position + 3,
+    schema: normalized,
+    table: sqlIdentifier(fact, statement, position + 2, statementNumber),
+  };
+}
+
+function quoteSqlIdentifier(identifier: string): string {
+  return `"${identifier.replaceAll('"', '""')}"`;
+}
+
+function materializeAlterTarget(
+  fact: RelationshipFact,
+  parser: Database,
+  statement: SqlToken[],
+  statementNumber: number,
+): void {
+  const target = sqlTableReference(fact, statement, 2, statementNumber);
+  const columns = new Set(['__tool_wiki_dummy']);
+  let position = target.after;
+  if (sqlWord(statement[position], 'RENAME')) {
+    position += 1;
+    if (sqlWord(statement[position], 'COLUMN')) position += 1;
+    if (!sqlWord(statement[position], 'TO')) {
+      columns.add(sqlIdentifier(fact, statement, position, statementNumber));
+    }
+  }
+  if (sqlWord(statement[position], 'DROP')) {
+    position += 1;
+    if (sqlWord(statement[position], 'COLUMN')) position += 1;
+    columns.add(sqlIdentifier(fact, statement, position, statementNumber));
+  }
+  const table = `${target.schema === undefined ? '' : `${target.schema}.`}${quoteSqlIdentifier(target.table)}`;
+  parser.run(
+    `CREATE TABLE ${table} (${[...columns]
+      .map((column) => `${quoteSqlIdentifier(column)} TEXT`)
+      .join(', ')})`,
+  );
 }
 
 function createTablePosition(statement: SqlToken[]): number | undefined {
@@ -772,19 +838,31 @@ function validateSqlStatement(
   parser: Database,
   statement: SqlStatement,
   statementNumber: number,
+  kind: 'alter-table' | 'create-table' | 'drop-table' | 'other',
 ): void {
   try {
-    parser.prepare(statement.source).finalize();
+    parser.run(statement.source);
   } catch (cause) {
+    let failure: unknown = cause;
     if (
+      kind === 'alter-table' &&
       cause instanceof SQLiteError &&
-      [/^no such table:/, /^no such column:/, /^ambiguous column name:/, /^no such function:/].some(
-        (pattern) => pattern.test(cause.message),
-      )
+      cause.message.startsWith('no such table:')
     ) {
-      return;
+      try {
+        // A real migration may ALTER a table created by an earlier migration. Materializing only
+        // that bounded target lets SQLite parse and execute the exact statement instead of treating
+        // the missing-table semantic error as evidence that trailing grammar was valid.
+        // Proof: returning on `no such table` let invalid trailing ALTER grammar exit 0; its
+        // production CLI test expected exit 1 and received 0 after 59 assertions.
+        materializeAlterTarget(fact, parser, statement.tokens, statementNumber);
+        parser.run(statement.source);
+        return;
+      } catch (retryCause) {
+        failure = retryCause;
+      }
     }
-    const detail = cause instanceof Error ? cause.message : String(cause);
+    const detail = failure instanceof Error ? failure.message : String(failure);
     // Proof: skipping all SQLite parses made `SELECT invalid SQL after` follow a valid CREATE and
     // exit 0 after 29 assertions; skipping only CREATE parses made `CREATE TABLE real unsupported
     // SQL` exit 0 after 39 assertions. Both production CLI cases expected exit 1.
@@ -811,7 +889,7 @@ function migrationTables(
     for (const [index, statement] of sqlStatements(fact, source).entries()) {
       const number = index + 1;
       const kind = statementKind(fact, statement.tokens, number);
-      validateSqlStatement(fact, parser, statement, number);
+      validateSqlStatement(fact, parser, statement, number, kind);
       if (fact.operation === 'create' && kind === 'create-table') {
         const position = createTablePosition(statement.tokens);
         if (position === undefined)
