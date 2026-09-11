@@ -119,7 +119,7 @@ No `verify.md` exists until implementation produces observations.
 
 ## 4. Claim authority and fenced submission
 
-- [ ] 4.1 Implement `admission/authority-store.ts` and `admission/claims.ts` using the
+- [x] 4.1 Implement `admission/authority-store.ts` and `admission/claims.ts` using the
       canonical common-Git SQLite authority, strict state schema, transactions and bounded
       contention. Test `claims.test.ts` in memory and `claims.db.test.ts` across two spawned
       Bun processes/worktrees: all claims acquired or none, parent/child overlap, conflict

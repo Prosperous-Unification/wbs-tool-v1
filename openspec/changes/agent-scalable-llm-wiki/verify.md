@@ -1604,6 +1604,77 @@ validate agent-scalable-llm-wiki --strict` — exit 0; change valid.
 
 Task 3.4 remains complete. Task 3.5 and every later task remain untouched.
 
+## Slice 4.1 SQLite Claim Authority
+
+The admission authority now resolves `git rev-parse --git-common-dir`, canonicalizes the common
+directory and stores its private state at `<common-dir>/wbs-wiki/authority.sqlite`. The SQLite
+adapter owns a strict, exact, non-migrating `wbs-wiki-authority.v1` schema, validates integrity,
+foreign keys and the stored version, and uses `BEGIN IMMEDIATE` with finite `SQLITE_BUSY` /
+`SQLITE_LOCKED` retries. A missing database is the one modeled creation case; an existing empty,
+corrupt, unreadable, structurally changed or unknown-version database is refused. This is not a
+product database and has no product migration.
+
+The synchronous `AuthorityStore.transact` callback encloses the conflict read, generation
+allocation, owner insert and complete claim write. Its memory and SQLite adapters expose the same
+detached state semantics and reject asynchronous callbacks before commit. `acquireClaims` accepts
+one globally unused session, allocates one persisted monotonically increasing generation and
+acquires every already-canonical path and conflict group or none. Parent, child and exact paths
+overlap; reads share with reads, while a write conflicts with either access. `expandClaims` keeps
+the exact session/generation, ignores that owner's existing claims, treats exact repeats as no-ops
+and checks read-to-write upgrades against every other owner before replacing anything.
+
+Path identities reject empty/dot/traversal segments, absolute paths, backslashes, NUL and control
+characters rather than changing their spelling. Session and conflict-group identities use a
+finite strict alphabet. Worktree identity in a claim is pre-resolved caller metadata and is
+required to be an absolute lexically canonical path; repository containment and filesystem
+resolution of packet paths remain Task 4.3. A symlinked worktree still selects the canonical common
+Git directory, while symlinks at the authority directory or database itself are refused.
+
+Every fault below was applied alone through the production API and restored before the green run.
+
+| Deliberate one-at-a-time fault                        | Observed production-path failure                                                         |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| split a two-path acquire across two transactions      | the losing spawned process retained its first claim; stored owners were 2 instead of 1   |
+| remove whole-set acquire conflict validation          | both spawned overlapping writers reported success; winners were 2 instead of 1           |
+| reduce overlap to exact equality                      | `libs/contracts` and `libs/contracts/src` both won; winners were 2 instead of 1          |
+| ignore conflict-group ownership                       | both spawned worktrees acquired `root-schema`; winners were 2 instead of 1               |
+| require both sides of a collision to be writes        | a read-to-write upgrade over another owner's read did not throw                          |
+| remove expansion conflict validation                  | the conflicting spawned expansion returned `ok: true` instead of being wholly refused    |
+| substitute an empty owner for an absent token session | `absent/1` returned successfully instead of throwing                                     |
+| remove the exact-generation fence                     | generation 99 expanded session-a instead of throwing                                     |
+| remove the globally-unused session guard              | the adapter's duplicate-state error replaced the public `session already exists` refusal |
+| remove the safe-integer allocation bound              | persistence reached `MAX_SAFE_INTEGER + 1` and raised the adapter's invalid-state error  |
+| accept a next generation already held by an owner     | the invalid memory state constructed without throwing                                    |
+| bypass canonical claim-path validation                | the empty path acquired generation 2 instead of throwing                                 |
+| bypass canonical worktree validation                  | relative `relative` acquired generation 1 instead of throwing                            |
+| bypass strict session or conflict-group validation    | `bad/session` and `bad/group` each acquired generation 1 instead of throwing             |
+| permit a Promise-returning transaction callback       | the pending state committed and `transact` returned a resolved Promise                   |
+| omit the exact SQLite schema comparison               | a database containing `foreign_state` opened without throwing                            |
+| accept any stored schema version                      | `unknown.v99` opened without throwing                                                    |
+| omit relational integrity validation                  | an orphan `libs/contracts` claim opened as healthy                                       |
+| stop classifying SQLite busy codes                    | raw `database is locked` escaped instead of the bounded `AuthorityContentionError`       |
+| omit authority-directory canonicalization             | `.git/wbs-wiki` redirected outside the common Git directory without refusal              |
+| follow an `authority.sqlite` symlink                  | the external file reached a later schema error instead of the canonical-location refusal |
+| remove the configured contention ceilings             | 1,001 attempts and a 1,001 ms delay each constructed a live store                        |
+
+- Initial memory RED: missing `authority-store` module; initial SQLite RED: missing
+  `AuthorityContentionError` export. Dedicated symlink, async-callback and finite-budget cases were
+  also watched failing before their implementations.
+- Focused memory plus SQLite/two-process suite: exit 0; 22 pass, 0 fail, 69 assertions in 1.02
+  seconds on the final behavior.
+- Uncached `tool-wiki:lint` plus forced typecheck: exit 0; the lint truthfully reported
+  `status:"inactive"`, `certified:false` because Task 5.3 activation is not provisioned; cache was
+  skipped and no target was skipped.
+- Source ESLint: exit 0.
+- Exact uncached configured Tool Wiki suite at `be0bdffb`: exit 0; 369 pass, 0 fail, 4,338
+  assertions across 19 files in 735.93 seconds (12m16s Nx duration); cache skipped and no target
+  skipped. The subsequent `3b492c5c` narrows construction to the canonical factory only and has
+  the focused/lint/typecheck evidence above; a final exact-tree rerun follows with this artifact.
+- `bin/h2puni-gate.sh be0bdffb`: unavailable, exit 70 immediately because required heavy-lock
+  path `/home/puni1/.cache` does not exist. No host-gate step ran and the host gate is not green.
+
+Only Task 4.1 is completed by this slice; generation lifecycle transitions remain Task 4.2.
+
 ## Slice 3.5 Review Fix Round 4
 
 Candidate containment now treats only the exact `..` component or a path beginning with
