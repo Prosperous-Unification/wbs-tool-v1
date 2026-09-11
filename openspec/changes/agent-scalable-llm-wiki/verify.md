@@ -1663,6 +1663,37 @@ launcher, and the design records the external required-workflow/ruleset prerequi
 - Exact `bin/h2puni-gate.sh HEAD` — unavailable, exit 70 at required
   `/home/puni1/.cache`; no gate step ran.
 
+## Slice 3.5 Review Fix Round 3
+
+The trusted adapter now snapshots the complete reviewed validator closure into one standalone Bun
+bundle before validator execution. The external snapshotter rejects symlinks and special files,
+requires every resolved source to be outside the candidate and digest-bound, proves the binding
+names the exact transitive import closure, and revalidates every source after bundling. The bundle
+embeds that reviewed manifest, so policy loading does not reopen the original validator paths.
+
+Rejected host gates now retain the full original symbolic ref and exact commit. Recovery verifies
+that the ref still identifies the saved commit before reattaching. A concurrently moved or deleted
+ref is never overwritten: the exact saved commit is restored detached and the gate exits 74.
+
+| Deliberate production-path fault                                                  | Observed failure                                                                                                                     |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| replace the reviewed validator with a candidate symlink after snapshot validation | before snapshot execution the candidate marker was written; the bundle now retains reviewed output and writes no marker              |
+| omit an imported validator dependency from the reviewed binding                   | snapshot refuses with `binding artifacts do not match the complete validator closure`; guard removal returned exit 0                 |
+| move the original branch ref while a rejected gate runs                           | before ref verification the gate returned 1 attached to wrong bytes; now it preserves the moved ref, restores detached, and exits 74 |
+
+- Production entrypoint suite — 22 pass, 0 fail, 77 assertions.
+- Trusted-policy plus CLI regression — 61 pass, 0 fail, 1,451 assertions.
+- `bin/h2puni-gate.test.sh` — all cases pass, including the independently moved ref and
+  missing-ref recovery paths.
+- Relevant devsync/workflow tests — 28 pass, 0 fail, 89 assertions.
+- Shell syntax, source lint and typecheck — exit 0. Nx used its explicit sandbox fallback and ran
+  plugins in-process; no target was skipped.
+- Full uncached `tool-wiki:test` — 338 pass, 0 fail, 4,248 assertions across 17 files in
+  750.74 seconds (12m31s Nx duration); cache skipped and no target skipped.
+- Strict pinned OpenSpec 1.3.0, repository-wide Nx format and `git diff --check` — exit 0.
+- Exact `bin/h2puni-gate.sh HEAD` — unavailable, exit 70 at required
+  `/home/puni1/.cache`; no host-gate step ran.
+
 ## Slice 3.5 — gate, CI and hook wiring
 
 The literal Nx `tool-wiki:lint` target now runs whole-tree working diagnostics with cache disabled
