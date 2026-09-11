@@ -4,13 +4,14 @@ Implemented 2026-09-12 on `fix/detail-keeps-unestimated`. Measured on this Mac; 
 
 ## Commands
 
-| Command                                                  | Result                                                |
-| -------------------------------------------------------- | ----------------------------------------------------- |
-| `bunx vitest run --root apps/fe-01 gantt-panel.test.tsx` | 236 pass / 0 fail                                     |
-| `bunx vitest run --root apps/fe-01`                      | 2608 pass / 11 fail — **equal to the local baseline** |
-| `bunx nx run-many -t lint typecheck -p fe-01`            | pass                                                  |
-| `E2E_PORT_SHIFT=1900 … --grep "detail switch hides"`     | 2 passed                                              |
-| `openspec validate detail-keeps-unestimated --json`      | `"valid": true`                                       |
+| Command                                                    | Result                                                |
+| ---------------------------------------------------------- | ----------------------------------------------------- |
+| `bunx vitest run --root apps/fe-01 gantt-panel.test.tsx`   | 236 pass / 0 fail                                     |
+| `bunx vitest run --root apps/fe-01`                        | 2608 pass / 11 fail — **equal to the local baseline** |
+| `bunx nx run-many -t lint typecheck -p fe-01`              | pass                                                  |
+| `E2E_PORT_SHIFT=1900 … --grep "detail switch hides"`       | 2 passed                                              |
+| `E2E_PORT_SHIFT=1900 …` gantt-detail + gantt + hover-cards | **90 passed / 0 failed**                              |
+| `openspec validate detail-keeps-unestimated --json`        | `"valid": true`                                       |
 
 The 11 fe-01 failures are `plan-mermaid`, `short-date`, `deadline-copy` and `test-tiers`, the
 same four files and same count that fail on `main` on this machine — timezone and tier
@@ -54,6 +55,26 @@ again: its case is re-pointed at a **narrowing** — the same `plan` arriving wi
 and without a new `generation` — and it fails when the surface outlives its bar. That is the
 shape a test for the two link filters would take, and it is the follow-up.
 
+## Three browser cases that encoded the old rule
+
+The whole browser gate was started locally and **killed by the OS for memory** partway
+through; it had reached 197 of ~375 and had found three failures, all in specs this change
+touches. All three assumed the switch removes a bar:
+
+| Case                                                                                | What it assumed                                                       | What it says now                                                                                                       |
+| ----------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `gantt.spec.ts` › `opens with the detail on, and keeps the answer through a reload` | assumed bars fall to 0 across the reload with the arrows and brackets | their count is the same on both sides                                                                                  |
+| `gantt.spec.ts` › `draws every mark at rest…`                                       | two bars once the detail is off                                       | four bars; the bracket alone is what the press takes                                                                   |
+| `hover-cards.spec.ts` › `points a row that draws no bar at all`                     | an unestimated row is empty end to end                                | the emptiness is a **stretch of line**, and the pointer's x is asserted past the right edge of every bar the row draws |
+
+The third needed more than a number: its subject is that a row's band lights from the row's
+line rather than from any mark on it, and that claim survives — only its precondition had to
+move from "this row has no bar" to "this point has no bar on it", measured rather than
+assumed.
+
+Re-run after the fixes, over the three specs this change touches: **90 passed / 0 failed**.
+
 ## Gate
 
-Pending: `bun run e2e` in full, and CI's workspace gate.
+The whole browser gate is CI's (`pixels`, four shards) together with the workspace gate, and
+both run on every push. The local full run is not available — see above.
