@@ -1707,6 +1707,42 @@ the observed production diagnostic.
 
 Task 2.5 remains complete. No other task checkbox changed.
 
+## Slice 2.5 Astra Fix Round 2
+
+Reverse destination membership now uses the exact `(destinationPath, sourceId)` assignment rather
+than accepting a known source ID in any parsed findings document. Mapped explicit anchors are also
+counted across the complete assigned document before structural block comparison, independently of
+whether the duplicate carries a marker/payload or has an inbound Markdown link.
+
+Both review faults were first run separately through the production `check-root-migration` CLI.
+Each incorrectly exited 0 with the ordinary 3-source, 58-block success report before its guard was
+implemented. The restored checks then produced these exact refusals:
+
+| Deliberate one-at-a-time fault                                         | Observed production-path refusal                                                              |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| copy the complete valid `r5.catalogue.001` block into `current.md`     | `unexpected root source marker: docs/findings/current.md#r5.catalogue.001`                    |
+| prepend a second bare `router-findings-heading` anchor to `current.md` | `mapped destination anchor must occur once: docs/findings/current.md#router-findings-heading` |
+
+The second mutation adds no marker or payload bytes, isolating document-wide anchor cardinality
+from structural attachment and payload comparison. Adjacent `Proof:` comments name both injected
+faults and the observed production diagnostics.
+
+- Focused root migration: exit 0; 22 pass, 0 fail, 324 assertions.
+- Focused pilot mapping selection: exit 0; 7 pass, 0 fail, 82 assertions.
+- Uncached Tool Wiki lint/typecheck: exit 0; both targets succeeded and cache was skipped.
+- Exact uncached configured Tool Wiki suite: exit 0; 316 pass, 0 fail, 4,174 assertions across 16
+  files in 630.82 seconds (10m31s Nx duration); cache skipped and no target skipped.
+- Actual committed root-migration CLI at `21ea396e`: exit 0; exact ownership reconciled 3 sources
+  and 58 blocks with AGENTS cap 120 and LLM_README cap 150.
+- Actual committed index CLI at `21ea396e`: exit 0; all selected indexes passed with no review
+  debt.
+- Strict pinned OpenSpec 1.3.0 JSON validation: exit 0; one change passed and zero failed.
+- Repository-wide Nx format check and `git diff --check`: exit 0.
+- `bin/h2puni-gate.sh HEAD`: unavailable, exit 70 immediately because required heavy-lock path
+  `/home/puni1/.cache` does not exist; no host-gate step ran and the host gate is not green.
+
+Task 2.5 remains complete. No other task checkbox changed.
+
 ## Slice 2.4 Astra Fix Round 2
 
 Five production `lint-local observe` negatives now cover the external pilot module-mapping loader
