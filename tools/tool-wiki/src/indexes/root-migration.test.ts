@@ -309,7 +309,7 @@ describe('root migration production CLI', () => {
     );
     expectRefusal(
       runCheck(duplicateRepository, commit(duplicateRepository, 'duplicate anchor')),
-      'mapped destination block mismatch: docs/findings/current.md#router-findings-003',
+      'mapped destination anchor must occur once: docs/findings/current.md#router-findings-heading',
     );
 
     const missingRepository = createRepository();
@@ -572,6 +572,40 @@ describe('root migration production CLI', () => {
     expectRefusal(
       runCheck(orphanRepository, commit(orphanRepository, 'append orphan source marker')),
       'unexpected root source marker: docs/findings/checks-that-cannot-fail.md#r5.catalogue.orphan',
+    );
+  });
+
+  test('refuses a mapped source block copied into a different destination document', () => {
+    const repository = createRepository();
+    buildFixture(repository);
+    const catalogue = readFileSync(
+      join(repository, 'docs/findings/checks-that-cannot-fail.md'),
+      'utf8',
+    );
+    const copied =
+      /<a id="r5-catalogue-001"><\/a>\n<!-- root-source:r5\.catalogue\.001 -->\n\n[\s\S]*?(?=\n\n<a id="r5-catalogue-002">)/.exec(
+        catalogue,
+      );
+    expect(copied).not.toBeNull();
+    if (copied === null) throw new Error('fixture lacks r5.catalogue.001');
+    const path = 'docs/findings/current.md';
+    const current = readFileSync(join(repository, path), 'utf8');
+    write(repository, path, `${copied[0]}\n\n${current}`);
+    expectRefusal(
+      runCheck(repository, commit(repository, 'copy mapped block across owners')),
+      'unexpected root source marker: docs/findings/current.md#r5.catalogue.001',
+    );
+  });
+
+  test('refuses a duplicate bare mapped anchor', () => {
+    const repository = createRepository();
+    buildFixture(repository);
+    const path = 'docs/findings/current.md';
+    const current = readFileSync(join(repository, path), 'utf8');
+    write(repository, path, `<a id="router-findings-heading"></a>\n\n${current}`);
+    expectRefusal(
+      runCheck(repository, commit(repository, 'duplicate bare mapped anchor')),
+      'mapped destination anchor must occur once: docs/findings/current.md#router-findings-heading',
     );
   });
 

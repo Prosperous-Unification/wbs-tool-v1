@@ -219,6 +219,7 @@ function validateSource(
   source: RootSource,
   sourceIds: Set<string>,
   destinationKeys: Set<string>,
+  ownershipKeys: Set<string>,
   parsedDestinations: Map<string, ReadonlyMap<string, DestinationBlock>>,
 ): number {
   assertCandidatePath(source.destinationPath);
@@ -246,6 +247,7 @@ function validateSource(
     if (destinationKeys.has(destinationKey))
       throw new Error(`duplicate root destination: ${destinationKey}`);
     destinationKeys.add(destinationKey);
+    ownershipKeys.add(`${source.destinationPath}#${block.sourceId}`);
     const locatorKey =
       block.locator.kind === 'heading' ? 'heading' : `block:${String(block.locator.ordinal)}`;
     // Proof: assigning two blocks the heading locator made the production CLI exit 1 with
@@ -267,6 +269,11 @@ function validateSource(
     // `historical source content digest mismatch: agents-r5.001`.
     if (hash(payload) !== block.sha256)
       throw new Error(`historical source content digest mismatch: ${block.sourceId}`);
+    const anchorCount = count(destination, `<a id="${block.destinationAnchor}"></a>`);
+    // Proof: prepending a second bare `router-findings-heading` anchor made `refuses a duplicate
+    // bare mapped anchor` exit 1 with `mapped destination anchor must occur once`.
+    if (anchorCount !== 1)
+      throw new Error(`mapped destination anchor must occur once: ${destinationKey}`);
     const destinationBlock = blocks.get(block.sourceId);
     if (destinationBlock === undefined)
       throw new Error(
@@ -402,6 +409,7 @@ export function checkRootMigration(
   }
   const sourceIds = new Set<string>();
   const destinationKeys = new Set<string>();
+  const ownershipKeys = new Set<string>();
   const sourceKeys = new Set<string>();
   const parsedDestinations = new Map<string, ReadonlyMap<string, DestinationBlock>>();
   let blockCount = 0;
@@ -417,14 +425,16 @@ export function checkRootMigration(
       source,
       sourceIds,
       destinationKeys,
+      ownershipKeys,
       parsedDestinations,
     );
   }
   for (const [path, blocks] of parsedDestinations) {
     for (const sourceId of blocks.keys()) {
-      // Proof: appending a structurally valid `r5.catalogue.orphan` block made `refuses orphan
-      // source markers` exit 1 with `unexpected root source marker`.
-      if (!sourceIds.has(sourceId))
+      // Proof: appending a structurally valid `r5.catalogue.orphan` block and copying the complete
+      // `r5.catalogue.001` block into `current.md` separately made their named production CLI tests
+      // exit 1 with `unexpected root source marker` at the exact containing path.
+      if (!ownershipKeys.has(`${path}#${sourceId}`))
         throw new Error(`unexpected root source marker: ${path}#${sourceId}`);
     }
   }
