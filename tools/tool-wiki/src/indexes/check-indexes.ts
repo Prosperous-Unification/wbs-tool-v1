@@ -96,8 +96,11 @@ function externalConsumers(
     }
     for (const path of matches) consumers.add(path);
   }
+  const ownedPaths = new Set([index.indexPath, ...ownedMembers]);
   for (const consumer of consumers) {
-    if (ownedMembers.includes(consumer)) {
+    // Proof: omitting the index path made production observe lint accept the saved-plan README
+    // as its own external consumer; the oracle expected exit 1 and received accepted true.
+    if (ownedPaths.has(consumer)) {
       throw new Error(`external consumer is owned by ${index.indexPath}: ${consumer}`);
     }
   }
@@ -403,7 +406,7 @@ function checkArchiveEntrypoints(index: ReadIndex, members: readonly string[]): 
 }
 
 /** Checks exact nearest-index ownership and every candidate-relative Markdown reference. */
-export function checkIndexes(repository: string, candidate: CandidateSnapshot): object {
+export function checkIndexes(repository: string, candidate: CandidateSnapshot) {
   const read = readIndexes(repository, candidate);
   // Proof: without this guard a candidate containing only an ordinary README exited 0 with
   // `indexes: []` and `reviewDebt: []` (expected exit 1, received 0).

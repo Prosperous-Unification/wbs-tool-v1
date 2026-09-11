@@ -99,9 +99,13 @@ function createCandidate(): { repository: string; revision: string } {
   return { repository, revision: git(repository, ['rev-parse', 'HEAD']) };
 }
 
-function createExternalTrust(candidate: { repository: string; revision: string }): {
+function createExternalTrust(
+  candidate: { repository: string; revision: string },
+  trustedMappingBytes = readFileSync(join(candidate.repository, 'docs/wiki-policy/modules.json')),
+): {
   bindingPath: string;
   evidencePath: string;
+  mappingPath: string;
   policyPath: string;
 } {
   const trust = mkdtempSync(join(tmpdir(), 'tool-wiki-pilot-trust-'));
@@ -110,6 +114,8 @@ function createExternalTrust(candidate: { repository: string; revision: string }
   const identity = candidateIdentity(candidate.repository, candidate.revision, entries);
   const policyPath = join(trust, 'policy.json');
   cpSync(join(candidate.repository, 'docs/wiki-policy/policy.json'), policyPath);
+  const mappingPath = join(trust, 'modules.json');
+  write(mappingPath, new TextDecoder().decode(trustedMappingBytes));
   const authorityPath = join(trust, 'authority.json');
   const content = entries.map((entry, index) => ({
     kind: 'content',
@@ -171,6 +177,10 @@ function createExternalTrust(candidate: { repository: string; revision: string }
       bindingId: 'binding.pilot-observe.v1',
       trustScope: 'local-operator',
       policy: { path: policyPath, sha256: sha256(readFileSync(policyPath)) },
+      pilotModuleMapping: {
+        candidatePath: 'docs/wiki-policy/modules.json',
+        artifact: { path: mappingPath, sha256: sha256(readFileSync(mappingPath)) },
+      },
       authority: {
         authorityId: 'authority.pilot-observe.v1',
         journalId: 'journal.pilot-observe.v1',
@@ -182,7 +192,7 @@ function createExternalTrust(candidate: { repository: string; revision: string }
   );
   const evidencePath = join(trust, 'evidence.json');
   write(evidencePath, '{"schemaVersion":1,"reportMode":"observe","obligations":[]}\n');
-  return { bindingPath, evidencePath, policyPath };
+  return { bindingPath, evidencePath, mappingPath, policyPath };
 }
 
 function lint(
@@ -302,6 +312,212 @@ describe('reviewed radical-modularity pilot through production CLI', () => {
     // `unindexed candidate path in libs/domain/src/saved-plan/README.md: ...`.
     expect(observed).toContain(
       'unindexed candidate path in libs/domain/src/saved-plan/README.md: libs/domain/src/saved-plan/canonical-plan-input.ts',
+    );
+  }, 120_000);
+
+  test('refuses prose facts presented as applicable checks', () => {
+    const candidate = createCandidate();
+    const declarationPath = join(candidate.repository, 'docs/wiki-policy/relationships.json');
+    const declaration = JSON.parse(readFileSync(declarationPath, 'utf8')) as {
+      facts: { factId: string }[];
+    };
+    declaration.facts = declaration.facts.map(({ factId }) => ({
+      factId,
+      family: 'external-consumers',
+      at: { kind: 'current' },
+      kind: 'external-consumer',
+      system: 'review-prose',
+      contract: 'claims to be a check without executable authority',
+      knowledgeLimit: 'The declaration carries no executable check.',
+    }));
+    write(declarationPath, `${JSON.stringify(declaration)}\n`);
+    git(candidate.repository, ['add', declarationPath]);
+    git(candidate.repository, ['commit', '--quiet', '--message', 'replace checks with prose']);
+    candidate.revision = git(candidate.repository, ['rev-parse', 'HEAD']);
+    const trust = createExternalTrust(candidate);
+
+    const invocation = lint(candidate, trust);
+    const observed = output(invocation);
+    expect(invocation.exitCode, observed).toBe(1);
+    // Proof: replacing every executable pilot check with external-consumer prose was refused at
+    // `docs/refactoring/w4-4/README.md: check.tool-wiki.test (external-consumer)`.
+    expect(observed).toContain(
+      'applicable check has no executable authority in docs/refactoring/w4-4/README.md: check.tool-wiki.test (external-consumer)',
+    );
+  }, 120_000);
+
+  test('refuses an owned README declared as its own external consumer', () => {
+    const candidate = createCandidate();
+    const readme = join(candidate.repository, 'libs/domain/src/saved-plan/README.md');
+    const source = readFileSync(readme, 'utf8');
+    const block = /<!-- wbs-index ([\s\S]+) -->/.exec(source);
+    if (block === null) throw new Error('saved-plan index metadata absent');
+    const metadata = JSON.parse(block[1]) as Record<string, unknown>;
+    metadata['externalConsumers'] = {
+      kind: 'declared',
+      memberships: [{ kind: 'path', path: 'libs/domain/src/saved-plan/README.md' }],
+      knowledgeLimit: 'The boundary index is not an external consumer.',
+    };
+    write(readme, source.replace(block[0], `<!-- wbs-index ${JSON.stringify(metadata)} -->`));
+    git(candidate.repository, ['add', readme]);
+    git(candidate.repository, ['commit', '--quiet', '--message', 'claim owned README as consumer']);
+    candidate.revision = git(candidate.repository, ['rev-parse', 'HEAD']);
+    const trust = createExternalTrust(candidate);
+
+    const invocation = lint(candidate, trust);
+    const observed = output(invocation);
+    expect(invocation.exitCode, observed).toBe(1);
+    // Proof: naming the saved-plan README as its own consumer failed at this ownership assertion.
+    expect(observed).toContain(
+      'external consumer is owned by libs/domain/src/saved-plan/README.md: libs/domain/src/saved-plan/README.md',
+    );
+  }, 120_000);
+
+  test('refuses a pilot mapping whose pinned predecessor identity differs from the candidate', () => {
+    const candidate = createCandidate();
+    const mappingPath = join(candidate.repository, 'docs/wiki-policy/modules.json');
+    const trustedMapping = readFileSync(mappingPath);
+    const mapping = JSON.parse(new TextDecoder().decode(trustedMapping)) as {
+      modules: { moduleId: string; predecessorModuleIds: string[] }[];
+    };
+    const savedPlan = mapping.modules.find(
+      ({ moduleId }) => moduleId === 'module.domain.saved-plan',
+    );
+    if (savedPlan === undefined) throw new Error('saved-plan module mapping absent');
+    savedPlan.predecessorModuleIds = ['module.domain.saved-plan.legacy'];
+    write(mappingPath, `${JSON.stringify(mapping)}\n`);
+    git(candidate.repository, ['add', mappingPath]);
+    git(candidate.repository, ['commit', '--quiet', '--message', 'change mapped predecessor']);
+    candidate.revision = git(candidate.repository, ['rev-parse', 'HEAD']);
+    const trust = createExternalTrust(candidate, trustedMapping);
+
+    const invocation = lint(candidate, trust);
+    const observed = output(invocation);
+    expect(invocation.exitCode, observed).toBe(1);
+    // Proof: without candidate-to-binding identity reconciliation this predecessor change
+    // returned accepted true with regenerated candidate authority and evidence.
+    expect(observed).toContain(
+      'candidate pilot module mapping does not match externally bound identity: docs/wiki-policy/modules.json',
+    );
+  }, 120_000);
+
+  test('refuses a missing mapped pilot index with current candidate evidence', () => {
+    const candidate = createCandidate();
+    const readme = join(candidate.repository, 'libs/domain/src/saved-plan/README.md');
+    rmSync(readme);
+    git(candidate.repository, ['add', '--all']);
+    git(candidate.repository, ['commit', '--quiet', '--message', 'delete mapped index']);
+    candidate.revision = git(candidate.repository, ['rev-parse', 'HEAD']);
+    const trust = createExternalTrust(candidate);
+
+    const invocation = lint(candidate, trust);
+    const observed = output(invocation);
+    expect(invocation.exitCode, observed).toBe(1);
+    // Proof: before mapping reconciliation, deleting this required index returned accepted true
+    // with regenerated candidate authority and evidence.
+    expect(observed).toContain(
+      'pilot module index absent for module.domain.saved-plan: libs/domain/src/saved-plan/README.md',
+    );
+  }, 120_000);
+
+  test('refuses externally pinned module and ownership claims that disagree with indexes', () => {
+    const mutations = [
+      {
+        name: 'change mapped module identity',
+        mutate(module: { moduleId: string; memberships: unknown[] }): void {
+          module.moduleId = 'module.domain.saved-plan.renamed';
+        },
+        expected:
+          'pilot module identity disagrees with index libs/domain/src/saved-plan/README.md: module.domain.saved-plan.renamed != module.domain.saved-plan',
+      },
+      {
+        name: 'change mapped ownership',
+        mutate(module: { moduleId: string; memberships: unknown[] }): void {
+          module.memberships = [
+            {
+              kind: 'directory-prefix',
+              prefix: 'libs/core/src/use-cases',
+              exclusions: [],
+            },
+          ];
+        },
+        expected:
+          'pilot module ownership disagrees with index libs/domain/src/saved-plan/README.md: module.domain.saved-plan',
+      },
+    ];
+    for (const mutation of mutations) {
+      const candidate = createCandidate();
+      const mappingPath = join(candidate.repository, 'docs/wiki-policy/modules.json');
+      const mapping = JSON.parse(readFileSync(mappingPath, 'utf8')) as {
+        modules: { moduleId: string; memberships: unknown[] }[];
+      };
+      const savedPlan = mapping.modules.find(
+        ({ moduleId }) => moduleId === 'module.domain.saved-plan',
+      );
+      if (savedPlan === undefined) throw new Error('saved-plan module mapping absent');
+      mutation.mutate(savedPlan);
+      write(mappingPath, `${JSON.stringify(mapping)}\n`);
+      git(candidate.repository, ['add', mappingPath]);
+      git(candidate.repository, ['commit', '--quiet', '--message', mutation.name]);
+      candidate.revision = git(candidate.repository, ['rev-parse', 'HEAD']);
+      // Authority and evidence are rebuilt for this candidate, while the external binding pins
+      // the exact mapping bytes the operator selected.
+      const trust = createExternalTrust(candidate);
+
+      const invocation = lint(candidate, trust);
+      const observed = output(invocation);
+      expect(invocation.exitCode, observed).toBe(1);
+      expect(observed).toContain(mutation.expected);
+    }
+  }, 180_000);
+
+  test('refuses mapped external consumers that disagree with the owned index', () => {
+    const candidate = createCandidate();
+    const mappingPath = join(candidate.repository, 'docs/wiki-policy/modules.json');
+    const mapping = JSON.parse(readFileSync(mappingPath, 'utf8')) as {
+      modules: { moduleId: string; externalConsumers: unknown }[];
+    };
+    const savedPlan = mapping.modules.find(
+      ({ moduleId }) => moduleId === 'module.domain.saved-plan',
+    );
+    if (savedPlan === undefined) throw new Error('saved-plan module mapping absent');
+    savedPlan.externalConsumers = { kind: 'none' };
+    write(mappingPath, `${JSON.stringify(mapping)}\n`);
+    git(candidate.repository, ['add', mappingPath]);
+    git(candidate.repository, ['commit', '--quiet', '--message', 'drop mapped consumers']);
+    candidate.revision = git(candidate.repository, ['rev-parse', 'HEAD']);
+    const trust = createExternalTrust(candidate);
+
+    const invocation = lint(candidate, trust);
+    const observed = output(invocation);
+    expect(invocation.exitCode, observed).toBe(1);
+    // Proof: without mapping-consumer reconciliation this candidate returned accepted true.
+    expect(observed).toContain(
+      'pilot module external consumers disagree with index libs/domain/src/saved-plan/README.md: module.domain.saved-plan',
+    );
+  }, 120_000);
+
+  test('refuses a selected pilot index omitted from the externally pinned mapping', () => {
+    const candidate = createCandidate();
+    const mappingPath = join(candidate.repository, 'docs/wiki-policy/modules.json');
+    const mapping = JSON.parse(readFileSync(mappingPath, 'utf8')) as {
+      modules: { moduleId: string }[];
+    };
+    mapping.modules = mapping.modules.filter(
+      ({ moduleId }) => moduleId !== 'module.domain.saved-plan',
+    );
+    write(mappingPath, `${JSON.stringify(mapping)}\n`);
+    git(candidate.repository, ['add', mappingPath]);
+    git(candidate.repository, ['commit', '--quiet', '--message', 'omit mapped module']);
+    candidate.revision = git(candidate.repository, ['rev-parse', 'HEAD']);
+    const trust = createExternalTrust(candidate);
+
+    const invocation = lint(candidate, trust);
+    const observed = output(invocation);
+    expect(invocation.exitCode, observed).toBe(1);
+    // Proof: without mapping completeness this omitted module returned accepted true.
+    expect(observed).toContain(
+      'pilot index has no module mapping: libs/domain/src/saved-plan/README.md',
     );
   }, 120_000);
 

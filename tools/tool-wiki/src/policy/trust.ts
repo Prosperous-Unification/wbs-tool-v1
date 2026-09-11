@@ -8,6 +8,8 @@ import {
   CheckReceipt,
   type CheckReceipt as CheckReceiptValue,
   ClassificationPolicy,
+  ModuleMapping,
+  type ModuleMapping as ModuleMappingValue,
   OpaqueId,
   RelationshipRequest,
   type RelationshipRequest as RelationshipRequestValue,
@@ -118,6 +120,10 @@ const TrustedBindingRecord = type({
   bindingId: OpaqueId,
   trustScope: "'local-operator'|'ci'",
   policy: ArtifactReference,
+  'pilotModuleMapping?': type({
+    candidatePath: RelativePath,
+    artifact: ArtifactReference,
+  }).onUndeclaredKey('reject'),
   authority: type({
     authorityId: OpaqueId,
     journalId: OpaqueId,
@@ -185,6 +191,11 @@ export interface LoadedTrust {
   authority: TrustedAuthority;
   authorityObligations: ObligationReport;
   authorityAudit: AuditReport;
+  pilotModuleMapping?: {
+    candidatePath: string;
+    identity: string;
+    mapping: ModuleMappingValue;
+  };
   relationshipRequest?: RelationshipRequestValue;
 }
 
@@ -534,6 +545,34 @@ export function loadTrustedPolicy(
     parseJson(policyArtifact.bytes, 'trusted policy JSON'),
   );
   validatePolicy(policy);
+  let pilotModuleMapping: LoadedTrust['pilotModuleMapping'];
+  if (policy.pilot !== undefined) {
+    if (binding.pilotModuleMapping === undefined) {
+      throw new Error('trusted pilot policy has no externally bound module mapping');
+    }
+    const mappingArtifact = readStableArtifact(
+      resolveReference(bindingArtifact.path, binding.pilotModuleMapping.artifact.path),
+      'trusted pilot module mapping',
+    );
+    assertExternal(candidateRoot, mappingArtifact, 'trusted pilot module mapping');
+    if (hashBytes(mappingArtifact.bytes) !== binding.pilotModuleMapping.artifact.sha256) {
+      throw new Error('trusted pilot module mapping digest does not match binding');
+    }
+    const mapping = parseOrThrow(
+      ModuleMapping,
+      parseJson(mappingArtifact.bytes, 'trusted pilot module mapping JSON'),
+    );
+    if (mapping.sourceRevision !== policy.pilot.sourceRevision) {
+      throw new Error('trusted pilot module mapping source does not match pilot policy');
+    }
+    pilotModuleMapping = {
+      candidatePath: binding.pilotModuleMapping.candidatePath,
+      identity: hashBytes(mappingArtifact.bytes),
+      mapping,
+    };
+  } else if (binding.pilotModuleMapping !== undefined) {
+    throw new Error('trusted pilot module mapping requires a pilot policy');
+  }
   // Proof: skipping authority loading let authority.does-not-exist.json activate as compatible
   // with empty reselection; the production activation test failed on `Expected: 1, Received: 0`.
   const authorityArtifact = readStableArtifact(
@@ -572,6 +611,7 @@ export function loadTrustedPolicy(
     authority,
     authorityObligations,
     authorityAudit,
+    pilotModuleMapping,
     relationshipRequest,
   };
 }
@@ -990,10 +1030,134 @@ function changedBoundaries(candidate: CandidateSnapshot, policy: TrustedPolicy):
     .sort(compareText);
 }
 
+function mappedPaths(
+  candidate: CandidateSnapshot,
+  memberships: ModuleMappingValue['modules'][number]['memberships'],
+): string[] {
+  const paths = new Set<string>();
+  const candidatePaths = new Set(candidate.entries.map(({ path }) => path));
+  for (const membership of memberships) {
+    if (membership.kind === 'path') {
+      if (!candidatePaths.has(membership.path)) {
+        throw new Error(`pilot module membership target absent: ${membership.path}`);
+      }
+      paths.add(membership.path);
+      continue;
+    }
+    const matches = candidate.entries.filter(
+      ({ path }) =>
+        (path === membership.prefix || path.startsWith(`${membership.prefix}/`)) &&
+        !membership.exclusions.some(
+          (excluded) => path === excluded || path.startsWith(`${excluded}/`),
+        ),
+    );
+    if (matches.length === 0) {
+      throw new Error(`pilot module membership target absent: ${membership.prefix}`);
+    }
+    for (const { path } of matches) paths.add(path);
+  }
+  return [...paths].sort(compareText);
+}
+
+function validatePilotModuleMapping(
+  repository: string,
+  candidate: CandidateSnapshot,
+  trust: LoadedTrust,
+  indexReport: ReturnType<typeof checkIndexes>,
+): string | undefined {
+  const selected = trust.pilotModuleMapping;
+  if (selected === undefined) return undefined;
+  const candidateEntry = candidate.entries.find(({ path }) => path === selected.candidatePath);
+  if (candidateEntry === undefined || candidateEntry.mode === '160000') {
+    throw new Error(`candidate pilot module mapping absent: ${selected.candidatePath}`);
+  }
+  const candidateMappingBytes = readSelectedBlob(
+    repository,
+    candidateEntry.blob,
+    selected.candidatePath,
+  );
+  // The candidate may propose mapping bytes, but only the external binding selects their identity.
+  // Proof: changing the saved-plan predecessor only in the candidate made production observe lint
+  // accept the regenerated candidate evidence; the oracle expected exit 1 and received accepted.
+  if (hashBytes(candidateMappingBytes) !== selected.identity) {
+    throw new Error(
+      `candidate pilot module mapping does not match externally bound identity: ${selected.candidatePath}`,
+    );
+  }
+  const claimedIndexPaths = new Set<string>();
+  const claimedBoundaryIds = new Set<string>();
+  for (const module of selected.mapping.modules) {
+    if (claimedIndexPaths.has(module.indexPath)) {
+      throw new Error(`duplicate pilot module index path: ${module.indexPath}`);
+    }
+    claimedIndexPaths.add(module.indexPath);
+    if (!candidate.entries.some(({ path }) => path === module.indexPath)) {
+      // Proof: deleting the saved-plan README with regenerated candidate evidence made production
+      // observe lint accept; the missing-index oracle expected exit 1 and received accepted.
+      throw new Error(`pilot module index absent for ${module.moduleId}: ${module.indexPath}`);
+    }
+    const index = indexReport.indexes.find(({ indexPath }) => indexPath === module.indexPath);
+    if (index === undefined) {
+      throw new Error(`pilot module index is not a wbs index: ${module.indexPath}`);
+    }
+    // Proof: renaming only the externally pinned saved-plan module made production observe lint
+    // accept valid regenerated evidence; the oracle expected exit 1 and received accepted.
+    if (index.moduleId !== module.moduleId) {
+      throw new Error(
+        `pilot module identity disagrees with index ${module.indexPath}: ${module.moduleId} != ${index.moduleId}`,
+      );
+    }
+    const ownedPaths = mappedPaths(candidate, module.memberships);
+    const indexedPaths = [module.indexPath, ...index.members].sort(compareText);
+    // Proof: removing this comparison moved the production ownership negative to
+    // `trusted pilot boundary has no exact module mapping: boundary.domain.saved-plan`; its own
+    // index-ownership assertion expected the error below and failed there.
+    if (hashCanonical(ownedPaths) !== hashCanonical(indexedPaths)) {
+      throw new Error(
+        `pilot module ownership disagrees with index ${module.indexPath}: ${module.moduleId}`,
+      );
+    }
+    const boundaries = trust.policy.boundaries.filter(
+      (boundary) =>
+        hashCanonical(selectedMembers(candidate, boundary.selector).map(({ path }) => path)) ===
+        hashCanonical(ownedPaths),
+    );
+    if (boundaries.length !== 1) {
+      throw new Error(`pilot module ownership has no exact trusted boundary: ${module.moduleId}`);
+    }
+    claimedBoundaryIds.add(boundaries[0].boundaryId);
+    const mappedConsumers =
+      module.externalConsumers.kind === 'none'
+        ? []
+        : mappedPaths(candidate, module.externalConsumers.memberships);
+    // Proof: dropping this comparison made production observe lint accept a saved-plan mapping
+    // with `externalConsumers: {kind:"none"}`; the oracle expected exit 1 and received accepted.
+    if (hashCanonical(mappedConsumers) !== hashCanonical(index.externalConsumers)) {
+      throw new Error(
+        `pilot module external consumers disagree with index ${module.indexPath}: ${module.moduleId}`,
+      );
+    }
+  }
+  for (const { indexPath } of indexReport.indexes) {
+    // Proof: omitting completeness made production observe lint accept a mapping with the
+    // selected saved-plan module deleted; the oracle expected exit 1 and received accepted.
+    if (!claimedIndexPaths.has(indexPath)) {
+      throw new Error(`pilot index has no module mapping: ${indexPath}`);
+    }
+  }
+  for (const { boundaryId } of trust.policy.boundaries) {
+    if (!claimedBoundaryIds.has(boundaryId)) {
+      throw new Error(`trusted pilot boundary has no exact module mapping: ${boundaryId}`);
+    }
+  }
+  return selected.identity;
+}
+
 function validateSelectedInputs(
   repository: string,
   candidate: CandidateSnapshot,
   trust: LoadedTrust,
+  indexReport: ReturnType<typeof checkIndexes>,
 ): string {
   const policy = trust.policy;
   for (const boundary of policy.boundaries) {
@@ -1012,7 +1176,12 @@ function validateSelectedInputs(
   const applicableChecks = selectedIndexes.flatMap(({ indexPath, metadata }) =>
     metadata.applicableChecks.map((checkId) => ({ indexPath, checkId })),
   );
-  if (selectors.length === 0 && applicableChecks.length === 0) return hashCanonical([]);
+  const mappingIdentity = validatePilotModuleMapping(repository, candidate, trust, indexReport);
+  if (selectors.length === 0 && applicableChecks.length === 0) {
+    return mappingIdentity === undefined
+      ? hashCanonical([])
+      : hashCanonical({ mappingIdentity, relationships: [] });
+  }
   if (trust.relationshipRequest === undefined) {
     throw new Error('trusted policy has no relationship request for declared selectors');
   }
@@ -1028,15 +1197,29 @@ function validateSelectedInputs(
       throw new Error(`unknown relationship selector in ${indexPath}: ${selectorId}`);
     }
   }
-  const declaredFacts = new Set(relationships.declarations.facts.map(({ factId }) => factId));
+  const declaredFacts = new Map(
+    relationships.declarations.facts.map((fact) => [fact.factId, fact.selector]),
+  );
   for (const { indexPath, checkId } of applicableChecks) {
     // Proof: removing this resolution made production lint certify `check.does-not-exist`;
     // the applicable-check oracle expected exit 1 and received accepted true.
-    if (!declaredFacts.has(checkId)) {
+    const fact = declaredFacts.get(checkId);
+    if (fact === undefined) {
       throw new Error(`unknown applicable check in ${indexPath}: ${checkId}`);
     }
+    // An applicable check must resolve to executable check authority. Other declaration kinds
+    // describe topology but cannot demonstrate behavior by sharing a fact ID.
+    // Proof: accepting external-consumer facts made production observe lint accept all five pilot
+    // check IDs as prose; the oracle expected exit 1 and received accepted true.
+    if (fact.kind !== 'nx-target') {
+      throw new Error(
+        `applicable check has no executable authority in ${indexPath}: ${checkId} (${fact.kind})`,
+      );
+    }
   }
-  return hashCanonical(relationships.manifestInputs);
+  return mappingIdentity === undefined
+    ? hashCanonical(relationships.manifestInputs)
+    : hashCanonical({ mappingIdentity, relationships: relationships.manifestInputs });
 }
 
 function modeRank(mode: LintMode): number {
@@ -1248,7 +1431,7 @@ export function lintTrustedCandidate(request: TrustedLintRequest): TrustedLintRe
       ? { ...candidate, untracked: [] }
       : candidate;
   const indexes = checkIndexes(repository, indexCandidate);
-  const relationshipIdentity = validateSelectedInputs(repository, indexCandidate, trust);
+  const relationshipIdentity = validateSelectedInputs(repository, indexCandidate, trust, indexes);
   const identity = candidateIdentity(candidate);
   const validatedEvidence = validateEvidence(trust, candidate, identity);
   const changedBoundaryIds = changedBoundaries(candidate, trust.policy);
