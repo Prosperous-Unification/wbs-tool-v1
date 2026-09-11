@@ -1572,19 +1572,26 @@ test.describe('a Gantt row’s own line', () => {
     expect(await page.getByLabel('Facts for 010').count(), 'the line opened a bar’s card').toBe(0);
   });
 
-  test('points a row that draws no bar at all', async ({ page }) => {
+  test('points a row from a stretch of its line with no bar on it', async ({ page }) => {
     await openTheChart(page, 2);
 
-    // 020 is unestimated in this file's plan, so its row is empty end to end.
-    // That is the row a mark on the bars could never answer for, and the reason
-    // the surface is the row rather than the bar.
-    expect(
-      await page.locator('[data-gantt-bar][aria-label^="020 - "]').count(),
-      'row 020 has a bar, so this case is not about an empty row',
-    ).toBe(0);
+    // 020 is unestimated in this file's plan. Its row was **empty end to end**
+    // until 2026-09-12 — the detail switch hid the assumed bars — and it draws
+    // one now, so the emptiness this case is about is a stretch of the line
+    // rather than the whole row. It is the same claim either way: the surface
+    // that lights a row is the row's line, not any mark on it.
+    const bar = await boxOf(
+      page.locator('[data-gantt-bar][aria-label^="020 - "]').first(),
+      'row 020’s assumed bar',
+    );
 
     const chartBox = await boxOf(page.locator('[data-gantt-chart]'), 'the chart');
-    await restOnLine(page, 1, chartBox.x + chartBox.width / 2);
+    const restAt = chartBox.x + chartBox.width / 2;
+    // The precondition, measured rather than assumed: the point the pointer
+    // rests on is past the end of every bar this row draws, so what lights the
+    // band cannot be a bar.
+    expect(restAt, 'the resting point is on row 020’s own bar').toBeGreaterThan(bar.x + bar.width);
+    await restOnLine(page, 1, restAt);
 
     const bands = page.locator('[data-gantt-row-lit]');
     await expect(bands).toHaveCount(1);

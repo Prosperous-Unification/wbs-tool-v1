@@ -1155,11 +1155,14 @@ test.describe('the chart, after the browser has scaled it', () => {
 
     await page.reload();
     await openTheChart(page);
-    // All three families stay off across the reload, and not the arrows alone:
+    // Both gated families stay off across the reload, and not the arrows alone:
     // the stored answer is one answer about the whole chart.
     await expect(page.locator('[data-gantt-arrow]')).toHaveCount(0);
     await expect(page.locator('[data-gantt-bracket]')).toHaveCount(0);
-    await expect(page.locator('[data-assumed]')).toHaveCount(0);
+    // The uncosted slices are **not** one of them since 2026-09-12: they are
+    // drawn in both states, so their count is the same on both sides of the
+    // reload rather than falling to zero with the rest.
+    await expect(page.locator('[data-assumed]')).toHaveCount(2);
     await expect(page.locator('[data-gantt-detail-toggle]')).toHaveAttribute(
       'aria-pressed',
       'false',
@@ -1184,7 +1187,7 @@ test.describe('the chart, after the browser has scaled it', () => {
    * measured for area: a count of marks is not a count of things a reader can
    * see, which is the sixteenth check's lesson.
    */
-  test('draws every mark at rest, and only costed work once the detail is off', async ({
+  test('draws every mark at rest, and drops only the bracket once the detail is off', async ({
     page,
   }) => {
     await seedPlan(page, nextAccount(), { estimate: PAST_THE_WEEKEND });
@@ -1212,9 +1215,11 @@ test.describe('the chart, after the browser has scaled it', () => {
 
     await page.locator('[data-gantt-detail-toggle]').click();
 
-    // Asked off: two bars — the two Dev bars — and no ghost, no assumed QA.
-    await expect(page.locator('[data-gantt-bar]')).toHaveCount(2);
-    await expect(page.locator('[data-assumed]')).toHaveCount(0);
+    // Asked off: no ghost. The four bars stay — the two Dev bars and the two
+    // uncosted QA slices, which left this switch's scope on 2026-09-12 — so
+    // what the press takes off this chart is the parent's bracket alone.
+    await expect(page.locator('[data-gantt-bar]')).toHaveCount(4);
+    await expect(page.locator('[data-assumed]')).toHaveCount(2);
     await expect(page.locator('[data-gantt-bracket]')).toHaveCount(0);
     // The plan and the chart still line up row for row, which is the one thing
     // the switch is not allowed to touch.
