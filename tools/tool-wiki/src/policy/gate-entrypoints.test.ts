@@ -476,15 +476,26 @@ describe('tool-wiki production entrypoint adapter', () => {
     });
   });
 
-  test.each(['active-v1', 'validator-path', 'ci-binding-path', 'evidence-path'])(
-    'an active rollout refuses a missing or malformed %s artifact',
-    (artifact) => {
+  test.each([
+    ['active-v1', 'committed', 'malformed'],
+    ['validator-path', 'committed', 'missing'],
+    ['validator-path', 'committed', 'malformed'],
+    ['ci-binding-path', 'committed', 'missing'],
+    ['ci-binding-path', 'committed', 'malformed'],
+    ['local-binding-path', 'staged', 'missing'],
+    ['local-binding-path', 'staged', 'malformed'],
+    ['evidence-path', 'committed', 'missing'],
+    ['evidence-path', 'committed', 'malformed'],
+    ['snapshotter-path', 'committed', 'missing'],
+    ['snapshotter-path', 'committed', 'malformed'],
+  ] as const)(
+    'an active rollout refuses a %s artifact for %s selection that is %s',
+    (artifact, selection, state) => {
       const paths = fixture();
-      write(
-        join(paths.activationRoot, artifact),
-        artifact === 'active-v1' ? 'wrong\n' : 'relative\n',
-      );
-      const invocation = runAdapter('committed', paths);
+      const artifactPath = join(paths.activationRoot, artifact);
+      if (state === 'missing') rmSync(artifactPath);
+      else write(artifactPath, artifact === 'active-v1' ? 'wrong\n' : 'relative\n');
+      const invocation = runAdapter(selection, paths);
 
       expect(invocation.exitCode).not.toBe(0);
       expect(streamText(invocation.stderr, 'adapter stderr')).toContain(

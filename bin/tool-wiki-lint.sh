@@ -66,6 +66,8 @@ case "$trusted_cli" in
     ;;
 esac
 evidence=$(read_trusted_path "$trusted_root/evidence-path" 'evidence path')
+# Proof: gate-entrypoints.test.ts removes and malforms the active external snapshotter descriptor;
+# the production adapter refuses before any validator snapshot or candidate read can begin.
 snapshotter=$(read_trusted_path "$trusted_root/snapshotter-path" 'snapshotter path')
 if ! snapshotter=$(realpath -- "$snapshotter") || [[ ! -f "$snapshotter" ]] || [[ ! -r "$snapshotter" ]]; then
   printf 'tool-wiki lint: snapshotter must resolve to a readable regular file\n' >&2
