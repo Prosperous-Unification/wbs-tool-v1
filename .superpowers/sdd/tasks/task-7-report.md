@@ -156,3 +156,27 @@ uncached full tool-wiki aggregate passed lint, typecheck and all 142 tests with 
 fallback with no target skipped. Pinned OpenSpec 1.3.0 strict validation returned the change valid
 with exit 0 and telemetry disabled. Final formatting/diff checks follow this evidence append. No
 pilot files were created, no checkbox changed, and no push was performed.
+
+## Final Containment
+
+Closed the remaining directory-to-README termination gap without changing Task 2.4 or any
+checkbox. Markdown directory resolution now remembers each directory for which it has already
+started an implicit `README.md` fallback. Returning to that same fallback state through one or
+more completed README symlink expansions is refused deterministically, while the existing active
+symlink stack continues to permit finite reuse elsewhere in the path.
+
+The production CLI regressions cover `docs/README.md -> .` and a mutual
+`docs/README.md -> ../manuals`, `manuals/README.md -> ../docs` cycle. Both processes have an
+independent three-second bound. With the repeated-fallback guard removed alone, both reached that
+bound and returned `exitCode: null` instead of the required exit 1. The adjacent audit retained the
+existing README-symlink-to-file case and added the finite `docs/README.md -> ..` case, which resolves
+the repository README and its anchor successfully.
+
+The post-format focused index suite passed 57 tests with zero failures and 454 assertions in 42.01
+seconds. Direct changed-file ESLint and the solution-style source/spec TypeScript build exited 0.
+The exact-tree uncached Nx lint/typecheck/test aggregate passed all 145 tool-wiki tests with zero
+failures and 1,928 assertions in 308.62 seconds (5m9s Nx duration); Nx used its explicit in-process
+fallback after the sandbox denied its socket, with no target skipped. Pinned OpenSpec 1.3.0 strict
+validation returned `Change 'agent-scalable-llm-wiki' is valid` with exit 0 and telemetry disabled.
+Final formatting/diff checks follow this evidence append. No pilot file was created, no checkbox
+changed, and no push was performed.

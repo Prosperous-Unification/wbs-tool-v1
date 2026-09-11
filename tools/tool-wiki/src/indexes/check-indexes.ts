@@ -206,6 +206,7 @@ function resolveSelectedPath(
   const pending: (string | SymlinkCompletion)[] = localPath.split('/');
   const activePaths = new Set<string>();
   const activeSymlinks: { path: string; target: string }[] = [];
+  const fallbackDirectories = new Set<string>();
   for (;;) {
     if (pending.length === 0) {
       const selectedPath = segments.join('/');
@@ -216,6 +217,14 @@ function resolveSelectedPath(
         return selectedPath;
       }
       if (isCandidateDirectory(selectedPath, candidatePaths)) {
+        // Proof: removing this repeated-fallback refusal made both directory-README cycle CLIs
+        // reach their 3 s bound with `exitCode: null` (expected exit 1).
+        if (fallbackDirectories.has(selectedPath)) {
+          throw new Error(
+            `Markdown directory README cycle in ${index.indexPath}: ${selectedPath || '.'}`,
+          );
+        }
+        fallbackDirectories.add(selectedPath);
         // Proof: returning the directory's selected README directly made `docs/README.md`
         // symlink bytes parse as Markdown, so the production CLI failed at `docs#details`
         // (expected exit 0, received 1).

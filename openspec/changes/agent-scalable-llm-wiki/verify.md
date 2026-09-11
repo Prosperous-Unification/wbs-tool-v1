@@ -974,3 +974,36 @@ in 307.10 seconds (5m7s Nx duration); Nx used its explicit in-process fallback a
 denied its socket, with no target skipped. Pinned OpenSpec 1.3.0 strict validation returned
 `Change 'agent-scalable-llm-wiki' is valid` with exit 0 and telemetry disabled. Task 2.4 and all
 task checkboxes remain untouched.
+
+## Slice 2.3 Final Containment
+
+The selected-tree resolver now tracks directory fallback states separately from active symlink
+expansions. Once resolution has implicitly queued `README.md` for a directory, returning to that
+same directory with no lexical components left is a directory-README cycle. This closes the
+non-terminating path where a completed README symlink expansion cleared its active marker before
+restarting the same fallback.
+
+The first bounded production runs reproduced both variants with the unguarded implementation:
+`docs/README.md -> .` and the mutual `docs/README.md -> ../manuals`,
+`manuals/README.md -> ../docs` cycle each reached the process timeout and returned `exitCode: null`
+instead of exit 1. After GREEN, removing only the repeated-fallback refusal reproduced both exact
+three-second timeouts. The restored CLI refuses each as
+`Markdown directory README cycle in README.md: docs`.
+
+| Deliberate one-at-a-time fault       | Observed production-CLI failure                            |
+| ------------------------------------ | ---------------------------------------------------------- |
+| permit a repeated directory fallback | both bounded cycle cases reached 3 s with `exitCode: null` |
+
+The nearby audit kept finite symlink reuse and a directory README symlink to a regular Markdown
+file green. A new `docs/README.md -> ..` control also exits 0 after resolving the repository README
+and its anchor, showing that a parent-directory README target is not mistaken for a cycle.
+
+The post-format focused index run passed 57 tests with zero failures and 454 assertions in 42.01
+seconds. Direct changed-file ESLint and `tsc --build --force tools/tool-wiki/tsconfig.json` exited 0. The exact-tree uncached
+`NX_DAEMON=false bunx nx run-many -t lint typecheck test -p tool-wiki --skip-nx-cache
+--output-style=static` aggregate passed all 145 tool-wiki tests with zero failures and 1,928
+assertions in 308.62 seconds (5m9s Nx duration). Nx used its in-process plugin fallback after the
+sandbox denied its socket; no target was skipped. `OPENSPEC_TELEMETRY=0 bunx
+@fission-ai/openspec@1.3.0 validate agent-scalable-llm-wiki --strict` returned
+`Change 'agent-scalable-llm-wiki' is valid` with exit 0. Task 2.4 and all task checkboxes remain
+untouched.

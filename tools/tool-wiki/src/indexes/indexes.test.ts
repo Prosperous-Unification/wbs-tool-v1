@@ -164,6 +164,7 @@ function runCheck(
   repository: string,
   revision: string,
   env?: Record<string, string>,
+  timeout?: number,
 ): ReturnType<typeof Bun.spawnSync> {
   return Bun.spawnSync(
     [process.execPath, 'run', cliPath, 'check-indexes', 'committed', repository, revision],
@@ -172,6 +173,7 @@ function runCheck(
       env: env === undefined ? process.env : { ...process.env, ...env },
       stderr: 'pipe',
       stdout: 'pipe',
+      timeout,
     },
   );
 }
@@ -1135,6 +1137,71 @@ describe('index production CLI', () => {
     symlinkSync('../guide.md', join(repository, 'docs/README.md'));
 
     const invocation = runCheck(repository, commit(repository, 'directory README symlink'));
+    expect(invocation.exitCode, outputOf(invocation)).toBe(0);
+  });
+
+  test('refuses a directory README symlink that restarts its own fallback', () => {
+    const repository = createRepository();
+    write(
+      repository,
+      'README.md',
+      indexSource('Root', metadata('module.root', [{ kind: 'path', path: 'docs/README.md' }]), [
+        '- [Docs](docs)',
+      ]),
+    );
+    mkdirSync(join(repository, 'docs'), { recursive: true });
+    symlinkSync('.', join(repository, 'docs/README.md'));
+
+    expectRefusal(
+      runCheck(repository, commit(repository, 'self directory README fallback'), undefined, 3_000),
+      'Markdown directory README cycle in README.md: docs',
+    );
+  }, 5_000);
+
+  test('refuses mutual directory README symlinks that restart fallback', () => {
+    const repository = createRepository();
+    write(
+      repository,
+      'README.md',
+      indexSource(
+        'Root',
+        metadata('module.root', [
+          { kind: 'path', path: 'docs/README.md' },
+          { kind: 'path', path: 'manuals/README.md' },
+        ]),
+        ['- [Docs](docs)'],
+      ),
+    );
+    mkdirSync(join(repository, 'docs'), { recursive: true });
+    mkdirSync(join(repository, 'manuals'), { recursive: true });
+    symlinkSync('../manuals', join(repository, 'docs/README.md'));
+    symlinkSync('../docs', join(repository, 'manuals/README.md'));
+
+    expectRefusal(
+      runCheck(
+        repository,
+        commit(repository, 'mutual directory README fallback'),
+        undefined,
+        3_000,
+      ),
+      'Markdown directory README cycle in README.md: docs',
+    );
+  }, 5_000);
+
+  test('resolves a directory README symlink to a finite parent README', () => {
+    const repository = createRepository();
+    write(
+      repository,
+      'README.md',
+      indexSource('Root', metadata('module.root', [{ kind: 'path', path: 'docs/README.md' }]), [
+        '- [Docs](docs#root-details)',
+        '## Root details',
+      ]),
+    );
+    mkdirSync(join(repository, 'docs'), { recursive: true });
+    symlinkSync('..', join(repository, 'docs/README.md'));
+
+    const invocation = runCheck(repository, commit(repository, 'parent directory README'));
     expect(invocation.exitCode, outputOf(invocation)).toBe(0);
   });
 
