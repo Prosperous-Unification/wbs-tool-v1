@@ -110,3 +110,30 @@ failed the exact signaled union; bypassing the signal refusal replaced the SIGTE
 null-telemetry error; and treating the no-exit/no-signal state as numeric exit escaped with
 `exit.exitCode must be a number (was null)` instead of persisting the streams. No 3.2 code or task
 checkbox changed.
+
+## Fix Round 3
+
+`FileInvocationJournal.register` now decodes and reconciles the canonical embedded review request
+before acquiring the journal lock. Previously its outer registration shape and byte hash could be
+valid while the embedded request was malformed, schema-invalid, noncanonical or bound to different
+invocation/receipt identities. The invalid entry was durably renamed over the valid journal before
+readback discovered the semantic failure.
+
+The exported file-journal test starts from a valid preseeded record and byte snapshot. Each invalid
+class uses a unique outer identity and a recomputed byte hash; after every rejection, the test
+requires byte-for-byte unchanged storage, a readable seed record and no lock residue. A later valid
+registration must still succeed. The adjacent transition audit found `acknowledgeCold` reconciles
+the candidate acknowledgement before persistence and `complete` reconciles the candidate terminal
+before persistence. Their idempotent branches compare against already reconciled stored state and
+do not write; create has no embedded entry, while open/read do not write.
+
+The initial RED and the later one-at-a-time preflight bypass both durably appended the unique
+`invocation.malformed-json` entry. The unchanged-byte assertion reported
+`Expected - 0 / Received + 306`; outer validation and duplicate detection had not intercepted it.
+The restored focused protocol/provenance suite passed 26 tests with zero failures and 144
+assertions. The formatted exact-source uncached tool-wiki lint/typecheck/test aggregate passed 171
+tests with zero failures and 2,072 assertions in 391.34 seconds (6m31s Nx duration); Nx used its
+documented in-process fallback after sandbox socket denial and skipped no target. No 3.2 code or
+task checkbox changed. Repository-wide `bunx nx format:check --all`, pinned OpenSpec 1.3.0 strict
+validation and `git diff --check` exited 0; OpenSpec reported
+`Change 'agent-scalable-llm-wiki' is valid`.

@@ -277,6 +277,21 @@ function registerRecord(invocationId: string): InvocationRegistration {
   };
 }
 
+function registrationForBytes(
+  invocationId: string,
+  receiptId: string,
+  stdinBytes: string,
+): InvocationRegistration {
+  return {
+    invocationId,
+    receiptId,
+    registeredAt: '2026-09-11T07:00:00.000Z',
+    harnessArgv: ['harness'],
+    stdinArtifact: hashBytes(stdinBytes),
+    stdinBytes,
+  };
+}
+
 function launchFailureTerminal(registration: InvocationRegistration): InvocationTerminal {
   const coldRequest = {
     schemaVersion: 1,
@@ -652,6 +667,87 @@ describe('review invocation provenance', () => {
     });
     expect(typeof telemetry.observed.endedAt).toBe('string');
     expect(readFileSync(tracePath, 'utf8')).toBe('cold\n');
+  });
+
+  test('rejects invalid embedded registration requests without changing durable state', () => {
+    const directory = createScratch();
+    const journalPath = join(directory, 'journal.json');
+    const journal = FileInvocationJournal.create(journalPath, 'journal.registration-preflight');
+    const seed = registerRecord('invocation.seed');
+    journal.register(seed);
+    const snapshot = readFileSync(journalPath);
+
+    const noncanonicalRequest = request('invocation.noncanonical');
+    const mismatchedInvocation = {
+      ...request('invocation.identity'),
+      invocationId: 'invocation.embedded',
+    };
+    const mismatchedReceipt = {
+      ...request('invocation.receipt'),
+      receiptId: 'receipt.review.different',
+    };
+    const invalidRegistrations: readonly {
+      registration: InvocationRegistration;
+      failure: string;
+    }[] = [
+      {
+        registration: registrationForBytes(
+          'invocation.malformed-json',
+          'receipt.review.invocation.malformed-json',
+          '{',
+        ),
+        failure: 'registered review request is malformed JSON',
+      },
+      {
+        registration: registrationForBytes(
+          'invocation.invalid-schema',
+          'receipt.review.invocation.invalid-schema',
+          '{}\n',
+        ),
+        failure: 'Validation failed',
+      },
+      {
+        registration: registrationForBytes(
+          noncanonicalRequest.invocationId,
+          noncanonicalRequest.receiptId,
+          JSON.stringify(noncanonicalRequest),
+        ),
+        failure: 'registered review request is not exact canonical stdin',
+      },
+      {
+        registration: registrationForBytes(
+          'invocation.identity',
+          mismatchedInvocation.receiptId,
+          serializeCanonical(mismatchedInvocation),
+        ),
+        failure: 'registered review request identity differs from journal registration',
+      },
+      {
+        registration: registrationForBytes(
+          mismatchedReceipt.invocationId,
+          'receipt.review.invocation.receipt',
+          serializeCanonical(mismatchedReceipt),
+        ),
+        failure: 'registered review request identity differs from journal registration',
+      },
+    ];
+
+    for (const invalid of invalidRegistrations) {
+      expect(() => journal.register(invalid.registration)).toThrow(invalid.failure);
+      expect(readFileSync(journalPath)).toEqual(snapshot);
+      expect(readInvocationJournal(journalPath).entries).toEqual([
+        { state: 'registered', registration: seed },
+      ]);
+      expect(existsSync(`${journalPath}.lock`)).toBe(false);
+    }
+
+    const later = registerRecord('invocation.later');
+    journal.register(later);
+    expect(
+      readInvocationJournal(journalPath).entries.map(
+        ({ registration }) => registration.invocationId,
+      ),
+    ).toEqual(['invocation.seed', 'invocation.later']);
   });
 
   test('serializes overlapping registrations without losing either acknowledgement', async () => {

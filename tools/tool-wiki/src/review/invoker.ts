@@ -732,6 +732,9 @@ export class FileInvocationJournal implements InvocationJournal {
 
   register(registration: InvocationRegistration): DurableAcceptance {
     const checked = parseOrThrow(InvocationRegistration, registration);
+    // Proof: bypassing this preflight durably appended `invocation.malformed-json`; the unchanged-
+    // byte assertion reported `Expected - 0 / Received + 306` before any duplicate could apply.
+    decodeRegistration(checked);
     return withJournalLock(this.path, this.lockWaitMs, () => {
       const journal = this.read();
       if (

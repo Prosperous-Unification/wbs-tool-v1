@@ -1180,3 +1180,39 @@ denial and skipped no target. Only OpenSpec task 3.1 remains marked complete; ta
 checkboxes remain untouched. Repository-wide `bunx nx format:check --all` exited 0. Pinned
 `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate agent-scalable-llm-wiki --strict`
 exited 0 with `Change 'agent-scalable-llm-wiki' is valid`.
+
+## Slice 3.1 Fix Round 3
+
+The registration transition previously validated its outer `InvocationRegistration` and exact
+stdin hash, then persisted the new entry before the readback path first decoded the embedded
+`ReviewInvocationRequest`. A semantically invalid request therefore replaced a healthy journal and
+made subsequent reads fail. Registration now calls the existing canonical `decodeRegistration`
+before lock acquisition; semantic refusal cannot enter the write transaction.
+
+The production `FileInvocationJournal` test preseeds a valid record, snapshots exact journal bytes
+and submits independently constructed invalid registrations for malformed JSON, request-schema
+failure, valid but noncanonical bytes, mismatched invocation identity and mismatched receipt
+identity. Every outer record has a unique invocation id and the matching recomputed stdin hash.
+Each rejection leaves the exact bytes unchanged, keeps `readInvocationJournal` valid, leaves no
+lock directory and permits a later valid registration.
+
+| Deliberate one-at-a-time fault         | Observed production-path failure                                                                 |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| bypass registration semantic preflight | the malformed entry was durably appended; byte equality reported `Expected - 0 / Received + 306` |
+
+The initial RED and explicit post-GREEN mutation produced the same failure, and the mutation was
+restored. The unchanged-byte assertion ran after the expected malformed-JSON rejection, proving
+the invalid entry reached persistence rather than duplicate or outer-schema validation. The
+adjacent audit found no analogous write-before-semantic-validation path: cold acknowledgement
+reconciles before persistence, completion reconciles its full next entry before persistence,
+idempotent branches do not write, create has no embedded entry, and open/read are read-only.
+
+The restored focused protocol/provenance command passed 26 tests with zero failures and 144
+assertions. The formatted exact-source uncached
+`NX_DAEMON=false bunx nx run-many -t lint typecheck test -p tool-wiki --skip-nx-cache
+--output-style=static` aggregate exited 0 with 171 tests, zero failures and 2,072 assertions in
+391.34 seconds (6m31s Nx duration). Nx used its documented in-process fallback after sandbox socket
+denial and skipped no target. Only OpenSpec task 3.1 remains marked complete; task 3.2 and all later
+checkboxes remain untouched. Repository-wide `bunx nx format:check --all`, pinned
+`OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate agent-scalable-llm-wiki --strict`
+and `git diff --check` exited 0; OpenSpec reported `Change 'agent-scalable-llm-wiki' is valid`.
