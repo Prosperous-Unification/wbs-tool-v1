@@ -77,3 +77,49 @@ Adjacent `Proof:` comments quote the observed assertion or refusal.
 
 Only OpenSpec task 2.4 is complete. Task 2.5 and all production trust activation or gate wiring
 remain untouched.
+
+## Astra Fix Round 1
+
+Applicable-check IDs now resolve only to extracted `nx-target` facts, the currently modeled
+executable check authority. A prose or topology fact cannot become a check merely by retaining a
+known ID.
+
+Pilot policies now require an externally selected module-mapping artifact. The binding pins its
+stable-read path and SHA-256 separately from the candidate. Production lint strictly decodes that
+artifact, requires the candidate proposal to have the same exact identity, and reconciles every
+module's source revision, stable ID, predecessor bytes, index path, owned path set, exact trusted
+boundary, external consumers and completeness against the candidate's checked README indexes.
+This remains local-operator observe authority; no candidate file selects CI trust.
+
+An index's own README is now part of its owned set for external-consumer validation, alongside its
+declared members.
+
+| Deliberate fault | Observed production-path failure |
+| --- | --- |
+| replace all five Nx check facts with external-consumer prose under the same IDs | production observe lint returned accepted true before the fix; restored code refuses `docs/refactoring/w4-4/README.md: check.tool-wiki.test (external-consumer)` |
+| declare the saved-plan README as its own external consumer | production observe lint returned accepted true before the fix; restored code refuses that exact owned README path |
+| change only the candidate's saved-plan predecessor while external trust retains the reviewed mapping | production observe lint returned accepted true with regenerated authority/evidence; restored code refuses the candidate/external mapping identity mismatch |
+| delete the required saved-plan README | production observe lint returned accepted true with regenerated authority/evidence; restored code names the absent module index |
+| rename the externally pinned saved-plan module | production observe lint returned accepted true with regenerated authority/evidence; restored code names the mapping/index module-ID disagreement |
+| change saved-plan ownership to the core use-case tree | removing the direct check moved failure to `trusted pilot boundary has no exact module mapping: boundary.domain.saved-plan`, so the index-ownership assertion failed at its own expected diagnostic |
+| declare no mapped saved-plan consumers | removing consumer reconciliation returned accepted true; restored code names the mapping/index consumer disagreement |
+| omit the saved-plan module from the externally pinned mapping | removing completeness returned accepted true; restored code names the unmapped selected index |
+
+Verification on implementation commit `29a84723`:
+
+- Pilot production CLI: 10 pass, 0 fail, 163 assertions in 274.36 seconds.
+- Existing trusted-policy production CLI: 47 pass, 0 fail, 1,272 assertions in 88.35 seconds.
+- Uncached Nx lint and forced typecheck: exit 0; cache skipped and no target skipped.
+- Full configured uncached Nx suite: 289 pass, 0 fail, 3,794 assertions across 15 files in 757.95
+  seconds (12m38s Nx duration); cache skipped and no target skipped.
+- An initial combined run exposed canonical serialization of an explicit `undefined` mapping
+  identity for non-pilot bindings. The final implementation preserves the prior non-pilot identity
+  shape; its fresh 47-case trust run and full suite are green.
+- `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate agent-scalable-llm-wiki --strict`: exit 0, change valid.
+- `NX_DAEMON=false NX_INVOCATION_ROOT_PID=91304 bunx nx format:check --all`: exit 0.
+- `git diff --check`: exit 0.
+- `bin/h2puni-gate.sh 29a84723` — unavailable, exit 70 immediately because required heavy-lock
+  path `/home/puni1/.cache` does not exist. No host-gate step ran; the host gate is not green.
+
+Only Task 2.4 remains marked complete. Task 2.5, Task 3.5 and Task 5.3 authority activation remain
+untouched.

@@ -1604,6 +1604,41 @@ validate agent-scalable-llm-wiki --strict` — exit 0; change valid.
 
 Task 3.4 remains complete. Task 3.5 and every later task remain untouched.
 
+## Slice 2.4 Astra Fix Round 1
+
+Applicable checks now require extracted Nx target authority; declared prose facts cannot qualify by
+reusing a check ID. Pilot lint also loads a strict externally bound module mapping, pins the exact
+candidate proposal identity and reconciles every selected module's predecessor-bearing record,
+index, owned candidate paths, exact policy boundary and external consumers. The binding remains an
+external local-operator observe input, not candidate-selected CI authority. External-consumer
+ownership now includes the README index itself.
+
+| Deliberate one-at-a-time fault                                                            | Observed production-path failure                                                                                                                                                                                                                                                |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| replace all executable check facts with external-consumer facts retaining their IDs       | before the guard, production observe lint returned accepted true; restored lint refuses `check.tool-wiki.test (external-consumer)` at the docs index                                                                                                                            |
+| name the saved-plan README as its own external consumer                                   | before index ownership included the README, production observe lint returned accepted true; restored lint refuses the exact owned path                                                                                                                                          |
+| change only the candidate predecessor mapping while external trust retains reviewed bytes | before candidate identity reconciliation, production observe lint returned accepted true with regenerated authority/evidence; restored lint refuses the exact mapping identity mismatch                                                                                         |
+| delete the mapped saved-plan README                                                       | before mapping reconciliation, production observe lint returned accepted true with regenerated authority/evidence; restored lint names the absent index                                                                                                                         |
+| change the externally pinned module ID or ownership                                       | before mapping reconciliation, production observe lint returned accepted true; restored lint names module-ID disagreement, while removing direct ownership comparison moved the ownership negative to the later exact-boundary assertion and failed its own expected diagnostic |
+| drop mapped consumers or omit the mapped module                                           | removing each corresponding reconciliation returned accepted true; restored lint names consumer disagreement and the unmapped selected index respectively                                                                                                                       |
+
+- `bun test --preload ../test/scratch/preload.ts src/policy/pilot-policy.test.ts` from
+  `tools/tool-wiki` — exit 0; 10 pass, 0 fail, 163 assertions in 274.36 seconds.
+- `bun test --preload ../test/scratch/preload.ts src/policy/trusted-policy.test.ts` — exit 0; 47
+  pass, 0 fail, 1,272 assertions in 88.35 seconds.
+- `NX_DAEMON=false NX_INVOCATION_ROOT_PID=91301 bunx nx run-many -t lint typecheck -p
+tool-wiki --skip-nx-cache --output-style=static` — exit 0; cache skipped and no target skipped.
+- `NX_DAEMON=false NX_INVOCATION_ROOT_PID=91302 bunx nx test tool-wiki --skip-nx-cache
+--output-style=static` — exit 0; 289 pass, 0 fail, 3,794 assertions across 15 files in 757.95
+  seconds (12m38s Nx duration), cache skipped and no target skipped.
+- `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate agent-scalable-llm-wiki --strict`: exit 0, change valid.
+- `NX_DAEMON=false NX_INVOCATION_ROOT_PID=91304 bunx nx format:check --all`: exit 0.
+- `git diff --check`: exit 0.
+- `bin/h2puni-gate.sh 29a84723` — unavailable, exit 70 immediately because required heavy-lock
+  path `/home/puni1/.cache` does not exist; no host-gate step ran and the host gate is not green.
+
+Only Task 2.4 remains complete. Task 2.5 and production trust activation remain untouched.
+
 ## Slice 2.4 Pilot Policy and Owned Indexes
 
 The reviewed pilot proposal pins six representative domain, application, adapter, infrastructure,
