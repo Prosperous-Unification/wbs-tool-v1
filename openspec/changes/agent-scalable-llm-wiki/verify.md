@@ -1664,6 +1664,49 @@ agent-scalable-llm-wiki --strict --json` — exit 0; one change passed, zero fai
 
 Task 2.5 is complete. No other task checkbox changed.
 
+## Slice 2.5 Astra Fix Round 1
+
+The production executable now fixes the migration ID, exact three-source declaration digest,
+source count and 58-block count independently of candidate-selected map contents. A candidate may
+describe the expected declaration, but cannot choose, omit or replace its historical authority.
+Destination verification parses complete structural blocks: each exact anchor immediately owns
+its source marker and full preserved payload, and the reverse marker scan rejects any undeclared
+block. Fragment-only links resolve against their referring document and use the same exact anchor
+validation as cross-document links.
+
+All six review faults were first run separately through `check-root-migration` and incorrectly
+exited 0 before the fix. After implementation, the same production-path negatives refused as
+follows:
+
+| Deliberate one-at-a-time fault                                    | Observed production-path refusal                                                               |
+| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| replace the declared sources with an empty array                  | `root migration authority mismatch`                                                            |
+| replace authority with current `AGENTS.md#Migrations`             | `root migration authority mismatch`                                                            |
+| append text to the payload owned by `r5-catalogue-001`            | `mapped destination block mismatch: docs/findings/checks-that-cannot-fail.md#r5-catalogue-001` |
+| insert a structurally valid undeclared source-marker block        | `unexpected root source marker: docs/findings/checks-that-cannot-fail.md#r5.catalogue.orphan`  |
+| move `r5-catalogue-001` away from its source marker and payload   | `unexpected root source marker: docs/findings/checks-that-cannot-fail.md#r5.catalogue.001`     |
+| add a same-document link to `#absent-incident` in `LLM_README.md` | `Markdown anchor must occur once in LLM_README.md: LLM_README.md#absent-incident`              |
+
+The immutable 58-block map, all adjacent anchor/marker/payload triples and existing same-document
+catalogue links are the positive controls. Adjacent `Proof:` comments name the injected fault and
+the observed production diagnostic.
+
+- Focused root migration: exit 0; 20 pass, 0 fail, 305 assertions.
+- Focused pilot integration: exit 0; 3 pass, 0 fail, 52 assertions.
+- Uncached Tool Wiki lint/typecheck: exit 0; both targets succeeded and cache was skipped.
+- Exact uncached configured Tool Wiki suite: exit 0; 314 pass, 0 fail, 4,155 assertions across 16
+  files in 624.25 seconds (10m24s Nx duration); cache skipped and no target skipped.
+- Actual committed root-migration CLI at `3c628165`: exit 0; fixed authority reconciled 3 sources
+  and 58 blocks with AGENTS cap 120 and LLM_README cap 150.
+- Actual committed index CLI at `3c628165`: exit 0; findings index and all selected indexes passed
+  with no review debt.
+- Strict pinned OpenSpec 1.3.0 JSON validation: exit 0; one change passed and zero failed.
+- Repository-wide Nx format check and `git diff --check`: exit 0.
+- `bin/h2puni-gate.sh HEAD`: unavailable, exit 70 immediately because required heavy-lock path
+  `/home/puni1/.cache` does not exist; no host-gate step ran and the host gate is not green.
+
+Task 2.5 remains complete. No other task checkbox changed.
+
 ## Slice 2.4 Astra Fix Round 2
 
 Five production `lint-local observe` negatives now cover the external pilot module-mapping loader
