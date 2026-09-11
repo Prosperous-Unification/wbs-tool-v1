@@ -162,7 +162,6 @@ const CALENDAR_AFFECTING_KINDS: ReadonlySet<PlanCommandKind> = new Set([
   'setAssignee',
   'addDependency',
   'setCapacity',
-  'setPriorityBands',
 ]);
 
 /** Thrown inside a batch to stop it; caught by `run`, never seen outside. */
