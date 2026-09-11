@@ -14,6 +14,7 @@ interface IndexMetadataFixture {
   moduleId: string;
   memberships: Membership[];
   relationshipSelectors: string[];
+  applicableChecks: string[];
   inapplicableSections: { section: string; reason: string }[];
   externalConsumers: { kind: 'none-known'; knowledgeLimit: string };
 }
@@ -55,6 +56,7 @@ function metadata(moduleId: string, memberships: Membership[]): IndexMetadataFix
     moduleId,
     memberships,
     relationshipSelectors: [],
+    applicableChecks: [],
     inapplicableSections: [
       { section: 'relationships', reason: 'The fixture declares no non-derivable relationships.' },
       { section: 'invariants', reason: 'The fixture has no cross-file runtime invariant.' },

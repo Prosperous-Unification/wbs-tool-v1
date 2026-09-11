@@ -120,6 +120,28 @@ function readGraph(workspace: string, cli: string): UnknownRecord {
   const outputDirectory = mkdtempSync(join(tmpdir(), 'tool-wiki-nx-'));
   const outputPath = join(outputDirectory, 'graph.json');
   try {
+    // A graph read is discovery, not a nested execution of the Nx task that launched wiki lint.
+    // Proof: inheriting NX_INVOCATION_ROOT_PID from `nx test tool-wiki` made the pilot's
+    // production lint fail with `tool-wiki:test -> tool-wiki:test` recursive task invocation.
+    const nxTaskEnvironmentNames = new Set([
+      'NX_FORKED_TASK_EXECUTOR',
+      'NX_INVOCATION_ROOT_PID',
+      'NX_INVOKED_BY_RUNNER',
+      'NX_PREFIX_OUTPUT',
+      'NX_SET_CLI',
+      'NX_STREAM_OUTPUT',
+      'NX_TASK_HASH',
+      'NX_TASK_TARGET_CONFIGURATION',
+      'NX_TASK_TARGET_PROJECT',
+      'NX_TASK_TARGET_TARGET',
+      'NX_TERMINAL_CAPTURE_STDERR',
+      'NX_TERMINAL_OUTPUT_PATH',
+      'NX_WORKSPACE_ROOT',
+    ]);
+    const environment = Object.fromEntries(
+      Object.entries(process.env).filter(([name]) => !nxTaskEnvironmentNames.has(name)),
+    );
+    environment['NX_DAEMON'] = 'false';
     const invocation = Bun.spawnSync(
       [
         process.execPath,
@@ -131,7 +153,7 @@ function readGraph(workspace: string, cli: string): UnknownRecord {
       ],
       {
         cwd: workspace,
-        env: { ...process.env, NX_DAEMON: 'false' },
+        env: environment,
         stderr: 'pipe',
         stdout: 'pipe',
       },

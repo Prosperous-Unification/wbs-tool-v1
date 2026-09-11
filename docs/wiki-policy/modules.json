@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "mappingId": "modules.radical-modularity-pilot.v1",
+  "mappingVersion": "pilot-layout-7851161b-v1",
+  "sourceRevision": "7851161bf96312750d07b933ca5d42b75ce575c7",
+  "modules": [
+    {
+      "moduleId": "module.adapter.store-memory",
+      "name": "Memory source adapter pilot boundary",
+      "memberships": [
+        { "kind": "directory-prefix", "prefix": "libs/store-memory/src", "exclusions": [] }
+      ],
+      "predecessorModuleIds": [],
+      "indexPath": "libs/store-memory/src/README.md",
+      "externalConsumers": {
+        "kind": "declared",
+        "memberships": [
+          { "kind": "directory-prefix", "prefix": "apps/be-01/src/testing", "exclusions": [] },
+          { "kind": "directory-prefix", "prefix": "libs/core", "exclusions": [] },
+          { "kind": "directory-prefix", "prefix": "libs/store-sqlite/src", "exclusions": [] }
+        ]
+      }
+    },
+    {
+      "moduleId": "module.application.use-cases",
+      "name": "Core application use cases pilot boundary",
+      "memberships": [
+        { "kind": "directory-prefix", "prefix": "libs/core/src/use-cases", "exclusions": [] }
+      ],
+      "predecessorModuleIds": [],
+      "indexPath": "libs/core/src/use-cases/README.md",
+      "externalConsumers": {
+        "kind": "declared",
+        "memberships": [
+          { "kind": "directory-prefix", "prefix": "libs/core/src/http", "exclusions": [] },
+          { "kind": "path", "path": "libs/core/src/index.ts" },
+          { "kind": "directory-prefix", "prefix": "libs/core/src/service", "exclusions": [] },
+          { "kind": "directory-prefix", "prefix": "libs/core/testing", "exclusions": [] }
+        ]
+      }
+    },
+    {
+      "moduleId": "module.archive.bounded-replay-sweep",
+      "name": "Frozen bounded replay sweep pilot boundary",
+      "memberships": [
+        {
+          "kind": "directory-prefix",
+          "prefix": "openspec/changes/archive/2026-09-08-bounded-replay-sweep",
+          "exclusions": []
+        }
+      ],
+      "predecessorModuleIds": [],
+      "indexPath": "openspec/changes/archive/2026-09-08-bounded-replay-sweep/README.md",
+      "externalConsumers": {
+        "kind": "declared",
+        "memberships": [
+          { "kind": "path", "path": "docs/refactoring/r1-r9-spec-inventory.md" },
+          { "kind": "path", "path": "docs/refactoring/tasks.md" },
+          { "kind": "path", "path": "openspec/specs/bounded-replay-sweep/spec.md" }
+        ]
+      }
+    },
+    {
+      "moduleId": "module.docs.wbs-table-extraction",
+      "name": "Historical WbsTable extraction pilot boundary",
+      "memberships": [
+        { "kind": "directory-prefix", "prefix": "docs/refactoring/w4-4", "exclusions": [] }
+      ],
+      "predecessorModuleIds": [],
+      "indexPath": "docs/refactoring/w4-4/README.md",
+      "externalConsumers": {
+        "kind": "declared",
+        "memberships": [
+          { "kind": "path", "path": "docs/refactoring/tasks.md" },
+          {
+            "kind": "path",
+            "path": "openspec/changes/archive/2026-09-08-wbs-table-modules/tasks.md"
+          },
+          {
+            "kind": "path",
+            "path": "openspec/changes/archive/2026-09-08-wbs-table-modules/verify.md"
+          }
+        ]
+      }
+    },
+    {
+      "moduleId": "module.domain.saved-plan",
+      "name": "Saved-plan value model pilot boundary",
+      "memberships": [
+        { "kind": "directory-prefix", "prefix": "libs/domain/src/saved-plan", "exclusions": [] }
+      ],
+      "predecessorModuleIds": [],
+      "indexPath": "libs/domain/src/saved-plan/README.md",
+      "externalConsumers": {
+        "kind": "declared",
+        "memberships": [
+          { "kind": "directory-prefix", "prefix": "apps", "exclusions": [] },
+          { "kind": "directory-prefix", "prefix": "libs/core/src", "exclusions": [] }
+        ]
+      }
+    },
+    {
+      "moduleId": "module.infra.release-assembly",
+      "name": "Release assembly infrastructure pilot boundary",
+      "memberships": [
+        { "kind": "directory-prefix", "prefix": "tools/tool-dagger/src/lib", "exclusions": [] }
+      ],
+      "predecessorModuleIds": [],
+      "indexPath": "tools/tool-dagger/src/lib/README.md",
+      "externalConsumers": {
+        "kind": "declared",
+        "memberships": [
+          { "kind": "path", "path": "tools/tool-dagger/src/be-01.ts" },
+          { "kind": "path", "path": "tools/tool-dagger/src/dagger.test.ts" },
+          { "kind": "path", "path": "tools/tool-dagger/src/fe-01.ts" },
+          { "kind": "path", "path": "tools/tool-dagger/src/gw-01.ts" },
+          { "kind": "path", "path": "tools/tool-dagger/src/main.ts" }
+        ]
+      }
+    }
+  ]
+}

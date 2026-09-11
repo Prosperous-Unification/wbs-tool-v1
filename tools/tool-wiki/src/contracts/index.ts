@@ -62,6 +62,7 @@ export const IndexMetadata = type({
   moduleId: StableId,
   memberships: IndexMembership.array(),
   relationshipSelectors: StableId.array(),
+  applicableChecks: StableId.array(),
   inapplicableSections: SectionInapplicability.array(),
   externalConsumers: ExternalConsumers,
 })
@@ -71,6 +72,11 @@ export const IndexMetadata = type({
     // exit 0 with an index report (expected exit 1, received 0).
     if (new Set(metadata.relationshipSelectors).size !== metadata.relationshipSelectors.length) {
       return context.mustBe('unique relationship selectors');
+    }
+    // Proof: deleting this guard made production lint certify two `check.fixture` references;
+    // the duplicate-applicable-check oracle expected exit 1 and received accepted true.
+    if (new Set(metadata.applicableChecks).size !== metadata.applicableChecks.length) {
+      return context.mustBe('unique applicable checks');
     }
     const sections = metadata.inapplicableSections.map(({ section }) => section);
     // Proof: bypassing this guard made the duplicate-inapplicable-section production CLI
@@ -86,6 +92,13 @@ export const IndexMetadata = type({
       return context.mustBe(
         'relationship selectors or one explicit relationships inapplicability reason',
       );
+    }
+    const checksInapplicable = sections.includes('checks');
+    // Proof: removing this completeness check made production lint certify an index with neither
+    // an applicable check nor a checks-inapplicability reason; the oracle expected exit 1 and
+    // received accepted true.
+    if ((metadata.applicableChecks.length === 0) !== checksInapplicable) {
+      return context.mustBe('applicable checks or one explicit checks inapplicability reason');
     }
     return true;
   });

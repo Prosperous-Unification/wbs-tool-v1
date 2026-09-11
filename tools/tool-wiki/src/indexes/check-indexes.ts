@@ -63,6 +63,47 @@ function isExcluded(path: string, exclusions: readonly string[]): boolean {
   return exclusions.some((excluded) => path === excluded || path.startsWith(`${excluded}/`));
 }
 
+function externalConsumers(
+  index: ReadIndex,
+  ownedMembers: readonly string[],
+  candidatePaths: ReadonlySet<string>,
+): string[] {
+  if (index.metadata.externalConsumers.kind === 'none-known') return [];
+  const consumers = new Set<string>();
+  for (const membership of index.metadata.externalConsumers.memberships) {
+    if (membership.kind === 'path') {
+      // External-consumer memberships are candidate-root-relative, unlike owned memberships,
+      // because a consumer necessarily lives outside the indexed boundary.
+      // Proof: omitting this refusal made production lint certify `consumer/absent.ts`; the
+      // external-consumer oracle expected exit 1 and received accepted true.
+      if (!candidatePaths.has(membership.path)) {
+        throw new Error(
+          `external consumer target absent in ${index.indexPath}: ${membership.path}`,
+        );
+      }
+      consumers.add(membership.path);
+      continue;
+    }
+    const matches = [...candidatePaths].filter(
+      (path) =>
+        (path === membership.prefix || path.startsWith(`${membership.prefix}/`)) &&
+        !isExcluded(path, membership.exclusions),
+    );
+    if (matches.length === 0) {
+      throw new Error(
+        `external consumer target absent in ${index.indexPath}: ${membership.prefix}`,
+      );
+    }
+    for (const path of matches) consumers.add(path);
+  }
+  for (const consumer of consumers) {
+    if (ownedMembers.includes(consumer)) {
+      throw new Error(`external consumer is owned by ${index.indexPath}: ${consumer}`);
+    }
+  }
+  return [...consumers].sort(compareText);
+}
+
 function declaredMembers(
   index: ReadIndex,
   expected: readonly string[],
@@ -380,6 +421,7 @@ export function checkIndexes(repository: string, candidate: CandidateSnapshot): 
     moduleIds.add(index.metadata.moduleId);
     const expected = expectedMembers(index, read.indexes, paths);
     const members = declaredMembers(index, expected, candidatePaths, entries, read.bytes);
+    const consumers = externalConsumers(index, members, candidatePaths);
     checkLinks(index, entries, candidatePaths, read.bytes);
     checkArchiveEntrypoints(index, members);
     return {
@@ -387,6 +429,8 @@ export function checkIndexes(repository: string, candidate: CandidateSnapshot): 
       moduleId: index.metadata.moduleId,
       identity: index.identity,
       members,
+      externalConsumers: consumers,
+      applicableChecks: index.metadata.applicableChecks,
     };
   });
   const reviewDebt = read.indexes

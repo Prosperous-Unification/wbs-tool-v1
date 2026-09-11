@@ -69,6 +69,10 @@ const TrustedExemption = type({
   reason: 'string>=1',
   reviewIdentity: Sha256,
 }).onUndeclaredKey('reject');
+const PilotExclusion = type({
+  selector: BoundarySelector,
+  reason: 'string>=1',
+}).onUndeclaredKey('reject');
 const TrustedPolicyRecord = type({
   schemaVersion: SchemaVersion,
   policyId: OpaqueId,
@@ -79,6 +83,11 @@ const TrustedPolicyRecord = type({
   boundaries: TrustedBoundary.array(),
   obligations: TrustedObligation.array(),
   exemptions: TrustedExemption.array(),
+  'pilot?': type({
+    sourceRevision: GitIdentity,
+    coverage: "'selected-boundaries-only'",
+    exclusions: PilotExclusion.array(),
+  }).onUndeclaredKey('reject'),
   'relationshipRequest?': 'unknown',
 }).onUndeclaredKey('reject');
 export type TrustedPolicy = typeof TrustedPolicyRecord.infer;
@@ -356,6 +365,29 @@ function validatePolicy(policy: TrustedPolicy): void {
     if (!boundaries.has(boundaryId)) throw new Error(`unknown activation boundary: ${boundaryId}`);
   }
   for (const boundary of policy.boundaries) {
+    // Proof: removing this check made production observe lint accept an empty saved-plan baseline
+    // with all six pilot boundaries merely reported changed (expected exit 1, received accepted).
+    if (policy.pilot !== undefined && boundary.baselineEntries.length === 0) {
+      throw new Error(`trusted boundary baseline is empty: ${boundary.boundaryId}`);
+    }
+    assertUnique(
+      boundary.baselineEntries.map(({ path }) => path),
+      `baseline path in boundary ${boundary.boundaryId}`,
+    );
+    for (const entry of policy.pilot === undefined ? [] : boundary.baselineEntries) {
+      const selected =
+        boundary.selector.kind === 'path'
+          ? entry.path === boundary.selector.value
+          : entry.path === boundary.selector.value ||
+            entry.path.startsWith(`${boundary.selector.value}/`);
+      if (!selected) {
+        // Proof: skipping pilot tuple containment made production observe lint accept a core
+        // replay tuple inside the saved-plan baseline (expected exit 1, received accepted).
+        throw new Error(
+          `trusted boundary baseline escapes selector ${boundary.boundaryId}: ${entry.path}`,
+        );
+      }
+    }
     assertUnique(boundary.obligationIds, `obligation in boundary ${boundary.boundaryId}`);
     for (const obligationId of boundary.obligationIds) {
       if (!obligations.has(obligationId)) {
@@ -973,10 +1005,14 @@ function validateSelectedInputs(
       );
     }
   }
-  const selectors = readIndexes(repository, candidate).indexes.flatMap(({ indexPath, metadata }) =>
+  const selectedIndexes = readIndexes(repository, candidate).indexes;
+  const selectors = selectedIndexes.flatMap(({ indexPath, metadata }) =>
     metadata.relationshipSelectors.map((selectorId) => ({ indexPath, selectorId })),
   );
-  if (selectors.length === 0) return hashCanonical([]);
+  const applicableChecks = selectedIndexes.flatMap(({ indexPath, metadata }) =>
+    metadata.applicableChecks.map((checkId) => ({ indexPath, checkId })),
+  );
+  if (selectors.length === 0 && applicableChecks.length === 0) return hashCanonical([]);
   if (trust.relationshipRequest === undefined) {
     throw new Error('trusted policy has no relationship request for declared selectors');
   }
@@ -990,6 +1026,14 @@ function validateSelectedInputs(
     // Received: 0`.
     if (!available.has(selectorId)) {
       throw new Error(`unknown relationship selector in ${indexPath}: ${selectorId}`);
+    }
+  }
+  const declaredFacts = new Set(relationships.declarations.facts.map(({ factId }) => factId));
+  for (const { indexPath, checkId } of applicableChecks) {
+    // Proof: removing this resolution made production lint certify `check.does-not-exist`;
+    // the applicable-check oracle expected exit 1 and received accepted true.
+    if (!declaredFacts.has(checkId)) {
+      throw new Error(`unknown applicable check in ${indexPath}: ${checkId}`);
     }
   }
   return hashCanonical(relationships.manifestInputs);

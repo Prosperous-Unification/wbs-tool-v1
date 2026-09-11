@@ -71,18 +71,25 @@ function commit(repository: string, message: string): string {
   return runGit(repository, ['rev-parse', 'HEAD']);
 }
 
-function indexSource(paths: string[], relationshipSelectors: string[] = []): string {
+function indexSource(
+  paths: string[],
+  relationshipSelectors: string[] = [],
+  applicableChecks: string[] = [],
+): string {
   const metadata = {
     schemaVersion: 1,
     moduleId: 'module.fixture',
     memberships: paths.map((path) => ({ kind: 'path', path })),
     relationshipSelectors,
+    applicableChecks,
     inapplicableSections: [
       ...(relationshipSelectors.length === 0
         ? [{ section: 'relationships', reason: 'The trust fixture has no declared relationships.' }]
         : []),
       { section: 'invariants', reason: 'The trust fixture has no cross-file runtime invariant.' },
-      { section: 'checks', reason: 'The trusted lint command is the fixture boundary check.' },
+      ...(applicableChecks.length === 0
+        ? [{ section: 'checks', reason: 'The trusted lint command is the fixture boundary check.' }]
+        : []),
     ],
     externalConsumers: {
       kind: 'none-known',
@@ -1294,6 +1301,140 @@ describe('trusted policy production CLI', () => {
     expect(invocation.exitCode, output).toBe(1);
     expect(output).toContain('unknown relationship selector in README.md: selector.does-not-exist');
   });
+
+  test('production lint refuses absent external consumers and unresolved applicable checks', () => {
+    const mutations = [
+      {
+        name: 'external consumer',
+        metadata: {
+          applicableChecks: [],
+          externalConsumers: {
+            kind: 'declared',
+            memberships: [{ kind: 'path', path: 'consumer/absent.ts' }],
+            knowledgeLimit: 'Only the selected candidate is observable.',
+          },
+        },
+        expected: 'external consumer target absent in README.md: consumer/absent.ts',
+      },
+      {
+        name: 'applicable check',
+        metadata: {
+          applicableChecks: ['check.does-not-exist'],
+          externalConsumers: {
+            kind: 'none-known',
+            knowledgeLimit: 'Only the selected candidate is observable.',
+          },
+        },
+        expected: 'unknown applicable check in README.md: check.does-not-exist',
+      },
+      {
+        name: 'missing applicable check disposition',
+        metadata: {
+          applicableChecks: [],
+          externalConsumers: {
+            kind: 'none-known',
+            knowledgeLimit: 'Only the selected candidate is observable.',
+          },
+        },
+        omitCheckDisposition: true,
+        expected: 'applicable checks or one explicit checks inapplicability reason',
+      },
+      {
+        name: 'duplicate applicable check',
+        metadata: {
+          applicableChecks: ['check.fixture', 'check.fixture'],
+          externalConsumers: {
+            kind: 'none-known',
+            knowledgeLimit: 'Only the selected candidate is observable.',
+          },
+        },
+        expected: 'unique applicable checks',
+      },
+    ] as const;
+    for (const mutation of mutations) {
+      const fixture = createFixture('enforce');
+      write(
+        join(fixture.repository, 'tsconfig.json'),
+        `${JSON.stringify({ compilerOptions: { module: 'ESNext' }, include: ['src/**/*.ts'] })}\n`,
+      );
+      const metadataSource = indexSource(
+        [
+          'exemptions.json',
+          'policy.json',
+          'relationships.json',
+          'src/app.ts',
+          'tsconfig.json',
+          'validator.ts',
+        ],
+        ['declarations.facts'],
+        [...mutation.metadata.applicableChecks],
+      );
+      const metadata = JSON.parse(
+        /<!-- wbs-index ([\s\S]+) -->/.exec(metadataSource)?.[1] ?? '{}',
+      ) as Record<string, unknown>;
+      metadata['externalConsumers'] = mutation.metadata.externalConsumers;
+      if ('omitCheckDisposition' in mutation) {
+        metadata['inapplicableSections'] = (
+          metadata['inapplicableSections'] as { section: string }[]
+        ).filter(({ section }) => section !== 'checks');
+      }
+      write(
+        join(fixture.repository, 'README.md'),
+        `# Fixture\n\n<!-- wbs-index ${JSON.stringify(metadata)} -->\n`,
+      );
+      write(
+        join(fixture.repository, 'relationships.json'),
+        `${JSON.stringify({
+          schemaVersion: 1,
+          declarationId: 'fixture.checks',
+          selectorVersion: 1,
+          coverage: 'selected-facts-only',
+          facts: [
+            {
+              factId: 'check.fixture',
+              family: 'external-consumers',
+              at: { kind: 'current' },
+              kind: 'external-consumer',
+              system: 'test-harness',
+              contract: 'production lint fixture',
+              knowledgeLimit: 'Only the selected fixture is observable.',
+            },
+          ],
+          edges: [],
+        })}\n`,
+      );
+      fixture.revision = commit(fixture.repository, mutation.name);
+      fixture.baselineRevision = fixture.revision;
+      writeEvidence(fixture, 'enforce', [
+        'obligation.application',
+        'obligation.exemptions',
+        'obligation.policy',
+        'obligation.validator',
+      ]);
+      writeAuthority(fixture);
+      writeTrust(fixture, 'enforce');
+      const policy = JSON.parse(readFileSync(fixture.policyPath, 'utf8')) as Record<
+        string,
+        unknown
+      >;
+      policy['relationshipRequest'] = {
+        schemaVersion: 1,
+        declarationPaths: ['relationships.json'],
+        typescript: { configPaths: ['tsconfig.json'], publicEntrypoints: ['src/app.ts'] },
+      };
+      write(fixture.policyPath, `${JSON.stringify(policy)}\n`);
+      const binding = JSON.parse(readFileSync(fixture.bindingPath, 'utf8')) as {
+        policy: { sha256: string };
+      };
+      binding.policy.sha256 = sha256(readFileSync(fixture.policyPath));
+      write(fixture.bindingPath, `${JSON.stringify(binding)}\n`);
+
+      const invocation = runCi(fixture);
+      const output = outputOf(invocation);
+      expect(invocation.exitCode, output).toBe(1);
+      expect(output).toContain(mutation.expected);
+    }
+  }, 40_000);
 
   test('trusted obligations must retain one exact boundary assignment', () => {
     const fixture = createFixture('enforce');
