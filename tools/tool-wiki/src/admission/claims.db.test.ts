@@ -18,7 +18,6 @@ import {
   AuthorityContentionError,
   openAuthorityStore,
   resolveAuthorityDatabasePath,
-  SqliteAuthorityStore,
 } from './authority-store';
 import { acquireClaims } from './claims';
 
@@ -457,19 +456,16 @@ test('bounds terminal lock contention and retries until a held write commits', a
 
 test('rejects contention settings outside the finite authority budget', () => {
   const fixture = fixtureRepository();
-  const databasePath = resolveAuthorityDatabasePath(fixture.root);
-  expect(
-    () =>
-      new SqliteAuthorityStore(databasePath, {
-        maxBusyAttempts: 1001,
-        busyDelayMilliseconds: 1,
-      }),
+  expect(() =>
+    openAuthorityStore(fixture.root, {
+      maxBusyAttempts: 1001,
+      busyDelayMilliseconds: 1,
+    }),
   ).toThrow('invalid authority busy attempt bound: 1001');
-  expect(
-    () =>
-      new SqliteAuthorityStore(databasePath, {
-        maxBusyAttempts: 1,
-        busyDelayMilliseconds: 1001,
-      }),
+  expect(() =>
+    openAuthorityStore(fixture.root, {
+      maxBusyAttempts: 1,
+      busyDelayMilliseconds: 1001,
+    }),
   ).toThrow('invalid authority busy delay: 1001');
 });

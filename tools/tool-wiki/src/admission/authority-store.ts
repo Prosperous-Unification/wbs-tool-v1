@@ -519,7 +519,7 @@ function writeSqliteState(database: Database, state: AuthorityState): void {
 }
 
 /** SQLite adapter for the canonical common-Git admission authority. */
-export class SqliteAuthorityStore implements AuthorityStore {
+class SqliteAuthorityStore implements AuthorityStore {
   readonly #database: Database;
   readonly #options: RequiredAuthorityStoreOptions;
 
