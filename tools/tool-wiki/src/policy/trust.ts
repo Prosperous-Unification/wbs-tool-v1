@@ -550,11 +550,18 @@ export function loadTrustedPolicy(
     if (binding.pilotModuleMapping === undefined) {
       throw new Error('trusted pilot policy has no externally bound module mapping');
     }
+    // Proof: pointing the missing-file dependency at the readable mapping, and separately making
+    // the unreadable file readable, made each production test return accepted true and fail on
+    // `Expected: 1 / Received: 0`; the real faults report ENOENT and EACCES respectively.
     const mappingArtifact = readStableArtifact(
       resolveReference(bindingArtifact.path, binding.pilotModuleMapping.artifact.path),
       'trusted pilot module mapping',
     );
+    // Proof: removing this guard made the candidate-owned mapping production test return accepted
+    // true and fail on `Expected: 1 / Received: 0`.
     assertExternal(candidateRoot, mappingArtifact, 'trusted pilot module mapping');
+    // Proof: removing this comparison made the wrong-digest production test return accepted true
+    // and fail on `Expected: 1 / Received: 0`.
     if (hashBytes(mappingArtifact.bytes) !== binding.pilotModuleMapping.artifact.sha256) {
       throw new Error('trusted pilot module mapping digest does not match binding');
     }
@@ -562,6 +569,9 @@ export function loadTrustedPolicy(
       ModuleMapping,
       parseJson(mappingArtifact.bytes, 'trusted pilot module mapping JSON'),
     );
+    // Proof: removing this comparison made the production test miss this assertion and fail on
+    // `Expected to contain: "trusted pilot module mapping source does not match pilot policy" /
+    // Received: "candidate pilot module mapping does not match externally bound identity: ..."`.
     if (mapping.sourceRevision !== policy.pilot.sourceRevision) {
       throw new Error('trusted pilot module mapping source does not match pilot policy');
     }

@@ -1,6 +1,14 @@
 import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
@@ -195,6 +203,21 @@ function createExternalTrust(
   return { bindingPath, evidencePath, mappingPath, policyPath };
 }
 
+interface PilotBinding {
+  pilotModuleMapping: {
+    candidatePath: string;
+    artifact: { path: string; sha256: string };
+  };
+}
+
+function readPilotBinding(path: string): PilotBinding {
+  return JSON.parse(readFileSync(path, 'utf8')) as PilotBinding;
+}
+
+function writePilotBinding(path: string, binding: PilotBinding): void {
+  write(path, `${JSON.stringify(binding)}\n`);
+}
+
 function lint(
   candidate: { repository: string; revision: string },
   trust: { bindingPath: string; evidencePath: string },
@@ -291,6 +314,95 @@ describe('reviewed radical-modularity pilot through production CLI', () => {
       accepted: true,
       certified: false,
     });
+  }, 120_000);
+
+  test('refuses an externally selected mapping that resolves inside the candidate', () => {
+    const candidate = createCandidate();
+    const trust = createExternalTrust(candidate);
+    const binding = readPilotBinding(trust.bindingPath);
+    binding.pilotModuleMapping.artifact = {
+      path: join(candidate.repository, 'docs/wiki-policy/modules.json'),
+      sha256: sha256(readFileSync(join(candidate.repository, 'docs/wiki-policy/modules.json'))),
+    };
+    writePilotBinding(trust.bindingPath, binding);
+
+    const invocation = lint(candidate, trust);
+    const observed = output(invocation);
+    expect(invocation.exitCode, observed).toBe(1);
+    // Proof: removing the mapping's external-boundary guard returned accepted true here and failed
+    // on `Expected: 1 / Received: 0`.
+    expect(observed).toContain('trusted pilot module mapping resolves inside selected candidate:');
+  }, 120_000);
+
+  test('refuses a missing externally selected mapping', () => {
+    const candidate = createCandidate();
+    const trust = createExternalTrust(candidate);
+    const binding = readPilotBinding(trust.bindingPath);
+    const missingPath = join(dirname(trust.mappingPath), 'missing-modules.json');
+    binding.pilotModuleMapping.artifact.path = missingPath;
+    writePilotBinding(trust.bindingPath, binding);
+
+    const invocation = lint(candidate, trust);
+    const observed = output(invocation);
+    expect(invocation.exitCode, observed).toBe(1);
+    // Proof: pointing this dependency at the existing readable mapping returned accepted true and
+    // failed on `Expected: 1 / Received: 0`.
+    expect(observed).toContain(`cannot open trusted pilot module mapping ${missingPath}:`);
+    expect(observed).toContain('ENOENT');
+  }, 120_000);
+
+  test('refuses an unreadable externally selected mapping distinctly from absence', () => {
+    const candidate = createCandidate();
+    const trust = createExternalTrust(candidate);
+    chmodSync(trust.mappingPath, 0o000);
+    let invocation: ReturnType<typeof Bun.spawnSync>;
+    try {
+      invocation = lint(candidate, trust);
+    } finally {
+      chmodSync(trust.mappingPath, 0o600);
+    }
+    const observed = output(invocation);
+    expect(invocation.exitCode, observed).toBe(1);
+    // Proof: making this file readable returned accepted true and failed on
+    // `Expected: 1 / Received: 0`.
+    expect(observed).toContain(`cannot open trusted pilot module mapping ${trust.mappingPath}:`);
+    expect(observed).toContain('EACCES');
+    expect(observed).not.toContain('ENOENT');
+  }, 120_000);
+
+  test('refuses an externally selected mapping whose digest differs from its binding', () => {
+    const candidate = createCandidate();
+    const trust = createExternalTrust(candidate);
+    const binding = readPilotBinding(trust.bindingPath);
+    binding.pilotModuleMapping.artifact.sha256 = '0'.repeat(64);
+    writePilotBinding(trust.bindingPath, binding);
+
+    const invocation = lint(candidate, trust);
+    const observed = output(invocation);
+    expect(invocation.exitCode, observed).toBe(1);
+    // Proof: removing the mapping digest comparison returned accepted true here and failed on
+    // `Expected: 1 / Received: 0`.
+    expect(observed).toContain('trusted pilot module mapping digest does not match binding');
+  }, 120_000);
+
+  test('refuses an externally selected mapping for a different source revision', () => {
+    const candidate = createCandidate();
+    const trust = createExternalTrust(candidate);
+    const mapping = JSON.parse(readFileSync(trust.mappingPath, 'utf8')) as {
+      sourceRevision: string;
+    };
+    mapping.sourceRevision = '0'.repeat(40);
+    write(trust.mappingPath, `${JSON.stringify(mapping)}\n`);
+    const binding = readPilotBinding(trust.bindingPath);
+    binding.pilotModuleMapping.artifact.sha256 = sha256(readFileSync(trust.mappingPath));
+    writePilotBinding(trust.bindingPath, binding);
+
+    const invocation = lint(candidate, trust);
+    const observed = output(invocation);
+    expect(invocation.exitCode, observed).toBe(1);
+    // Proof: removing the source comparison failed this assertion on
+    // `Received: "candidate pilot module mapping does not match externally bound identity: ..."`.
+    expect(observed).toContain('trusted pilot module mapping source does not match pilot policy');
   }, 120_000);
 
   test('fails observe lint when one actual pilot member leaves its index', () => {
