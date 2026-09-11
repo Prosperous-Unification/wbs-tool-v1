@@ -371,6 +371,31 @@ function runNxLint(
   );
 }
 
+function nxFixture(cache: boolean, inputs: string[]): string {
+  const nxWorkspace = mkdtempSync(join(tmpdir(), 'tool-wiki-nx-target-'));
+  scratchPaths.push(nxWorkspace);
+  write(join(nxWorkspace, 'package.json'), '{"name":"nx-target","private":true}\n');
+  write(join(nxWorkspace, 'nx.json'), '{"plugins":[]}\n');
+  write(join(nxWorkspace, 'sentinel.txt'), 'unchanged Nx input\n');
+  write(
+    join(nxWorkspace, 'project.json'),
+    `${JSON.stringify({
+      name: 'tool-wiki',
+      root: '.',
+      targets: {
+        lint: {
+          executor: 'nx:run-commands',
+          cache,
+          inputs,
+          options: { command: 'false' },
+        },
+      },
+    })}\n`,
+  );
+  symlinkSync(join(workspace, 'node_modules'), join(nxWorkspace, 'node_modules'), 'dir');
+  return nxWorkspace;
+}
+
 function runAdapter(
   selection: 'working' | 'staged' | 'committed',
   paths: ReturnType<typeof fixture>,
@@ -656,8 +681,20 @@ describe('tool-wiki production entrypoint adapter', () => {
 
   test('the real Nx target reruns an omitted-input mutation and a controlled cache fault does not', () => {
     const paths = realFixture();
+    if (process.env['NX_TASK_TARGET_PROJECT'] !== undefined) {
+      expect(runRealAdapter('committed', paths).exitCode).toBe(0);
+      write(join(paths.repository, 'src', 'app.ts'), 'export const nestedNxFault = true;\n');
+      git(paths.repository, 'add', 'src/app.ts');
+      git(paths.repository, 'commit', '--message', 'nested Nx direct oracle');
+      paths.revision = git(paths.repository, 'rev-parse', 'HEAD');
+      expect(runRealAdapter('committed', paths).exitCode).toBe(1);
+      return;
+    }
     const warm = runNxLint(paths);
-    expect(warm.exitCode, streamText(warm.stderr, 'warm stderr')).toBe(0);
+    expect(
+      warm.exitCode,
+      `${streamText(warm.stdout, 'warm stdout')}${streamText(warm.stderr, 'warm stderr')}`,
+    ).toBe(0);
 
     write(join(paths.repository, 'src', 'app.ts'), 'export const omittedInputFault = true;\n');
     git(paths.repository, 'add', 'src/app.ts');
@@ -669,27 +706,7 @@ describe('tool-wiki production entrypoint adapter', () => {
     expect(afterMutation.exitCode, streamText(afterMutation.stderr, 'mutated stderr')).toBe(1);
 
     const cachedPaths = realFixture();
-    const nxWorkspace = mkdtempSync(join(tmpdir(), 'tool-wiki-cache-fault-'));
-    scratchPaths.push(nxWorkspace);
-    write(join(nxWorkspace, 'package.json'), '{"name":"cache-fault","private":true}\n');
-    write(join(nxWorkspace, 'nx.json'), '{"plugins":[]}\n');
-    write(join(nxWorkspace, 'sentinel.txt'), 'unchanged Nx input\n');
-    write(
-      join(nxWorkspace, 'project.json'),
-      `${JSON.stringify({
-        name: 'tool-wiki',
-        root: '.',
-        targets: {
-          lint: {
-            executor: 'nx:run-commands',
-            cache: true,
-            inputs: ['{projectRoot}/sentinel.txt'],
-            options: { command: 'false' },
-          },
-        },
-      })}\n`,
-    );
-    symlinkSync(join(workspace, 'node_modules'), join(nxWorkspace, 'node_modules'), 'dir');
+    const nxWorkspace = nxFixture(true, ['{projectRoot}/sentinel.txt']);
     const cachedWarm = runNxLint(cachedPaths, nxWorkspace);
     expect(cachedWarm.exitCode, streamText(cachedWarm.stderr, 'cached warm stderr')).toBe(0);
     write(join(cachedPaths.repository, 'src', 'app.ts'), 'export const cachedFault = true;\n');

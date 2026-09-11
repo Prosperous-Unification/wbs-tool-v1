@@ -1604,6 +1604,37 @@ validate agent-scalable-llm-wiki --strict` — exit 0; change valid.
 
 Task 3.4 remains complete. Task 3.5 and every later task remain untouched.
 
+## Slice 3.5 Review Fix Round 1
+
+Trusted lint wiring now separates rollout state from candidate bytes. An absent external activation
+root or marker is visibly inactive and non-certifying; a present valid marker makes every external
+validator, binding and evidence descriptor mandatory. Bun runs from the trusted validator directory
+with automatic env files disabled and an empty allowlisted environment. The host copies only the
+trusted launcher before pinned checkout. PR verification is a minimal `pull_request_target` job with
+read-only contents, credential persistence disabled, a trusted default-branch launcher and a
+separate exact-head candidate checkout; it runs no candidate gate step.
+
+| Deliberate production-path fault                                       | Observed failure                                                                                                                     |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| candidate-cwd `bunfig.toml` preload plus inherited execution variables | before isolation the preload marker existed (`Expected false, Received true`); restored adapter leaves it absent                     |
+| candidate adapter and gate steps both replaced by exit-zero scripts    | preserved host launcher rejects `obligation.application` and the candidate step marker is absent                                     |
+| active marker or required descriptor malformed                         | adapter exits nonzero naming the marker or active rollout; absent marker alone reports inactive/non-certifying                       |
+| warm real `tool-wiki:lint`, mutate an input omitted from Nx inputs     | cache-disabled production target reruns/exits 1; controlled cache-enabled target returns warmed 0 while direct uncached lint exits 1 |
+
+- `bun test tools/tool-wiki/src/policy/gate-entrypoints.test.ts` — 19 pass, 0 fail, 59
+  assertions.
+- `shellcheck -x` and `bash -n` over the three production gate scripts — exit 0.
+- `tool-wiki:lint:source` and `tool-wiki:typecheck`, uncached — exit 0.
+- Full uncached `tool-wiki:test` — 335 pass, 0 fail, 4,230 assertions across 17 files in
+  642.52 seconds; cache skipped and no target skipped.
+- Relevant devsync and workflow tests — 28 pass, 0 fail, 89 assertions.
+- Strict pinned OpenSpec 1.3.0 and repository-wide Nx format — exit 0.
+- `bin/h2puni-gate.sh HEAD` — unavailable, exit 70 at required
+  `/home/puni1/.cache`; no gate step ran.
+
+Only Task 3.5 is changed. Task 5.3 still owns production activation and no production binding is
+committed.
+
 ## Slice 3.5 — gate, CI and hook wiring
 
 The literal Nx `tool-wiki:lint` target now runs whole-tree working diagnostics with cache disabled
