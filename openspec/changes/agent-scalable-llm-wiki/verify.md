@@ -1367,6 +1367,74 @@ agent-scalable-llm-wiki --strict` — exit 0; change valid.
 
 Task 3.2 remains complete. Task 3.3 and all later task checkboxes remain untouched.
 
+## Slice 3.3 Reproducible Review Audit
+
+Audit selection now derives a canonical SHA-256 score from the candidate, seed, risk stratum,
+obligation and subject, then selects the configured fraction independently within each non-empty
+stratum. File, directory, project and documentation obligations remain separate typed subjects.
+The same population and seed produce the exact same selection regardless of caller order.
+
+Audit evaluation strictly decodes canonical records and reconciles exact candidate, generation,
+source-base, current subject content, invocation, executor/model/price, phase usage and retained
+response identities. It rejects reused identities before reporting. Sampled coverage leaves
+unsampled obligations explicitly unreviewed without failing its own sample contract; exhaustive
+coverage requires every obligation and explicitly refuses sampled evidence.
+
+An earliest-round judgment disagreement always creates named adjudication and fresh review duties
+for the disputed obligation. The configured threshold may expand fresh work to the whole risk shard
+but cannot suppress the disputed obligation. Discharge requires structured current source/check
+evidence and a distinct later review. Finding closure likewise requires an authoritative correction
+bound to the opening review and current candidate/generation, structured current source/check
+evidence, and a fresh post-correction review of the same obligation. Pre-correction evidence cannot
+be reused.
+
+Reports preserve every review and both cold/informed phase receipts, raw usage, observed reads and
+local trust scope. Checked canonical arithmetic rejects unsafe totals and negative zero. Invocation,
+executor, model and context/read overlap are reported separately; duplicate invocation identity is
+rejected rather than counted as independent agreement.
+
+| Deliberate one-at-a-time fault                              | Observed production-path failure                                                                                                     |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| omit the seed from scoring                                  | `review.documentation.guide` was selected instead of `review.project.tool-wiki`                                                      |
+| keep caller order                                           | reversing inputs produced a 40-line report mismatch                                                                                  |
+| remove selection identity/stratum guards                    | duplicate populations became 3, unknown work disappeared, or an empty stratum emitted population 0 with sample size 1                |
+| remove either canonical boundary assertion                  | negative zero lost its canonical diagnosis, or a non-plain inherited envelope was accepted                                           |
+| suppress missing sampled work                               | the report returned `accepted: true`                                                                                                 |
+| allow sampled evidence to claim exhaustive coverage         | `coverage.exhaustive` disappeared from the refusals                                                                                  |
+| suppress disagreement or its base fresh set                 | the named adjudication or below-threshold fresh-review duty disappeared                                                              |
+| accept empty adjudication evidence or reuse its first round | adjudication/fresh-review duties disappeared despite empty source/check evidence or the original review                              |
+| remove review/invocation uniqueness                         | duplicate cost rows or duplicated evidence were accepted                                                                             |
+| loosen current review bindings                              | a foreign subject/source/content/invocation, stale/future generation, mixed model, omitted cold usage or wrong response was accepted |
+| aggregate informed phases only                              | total charge was 28 instead of 50 micro-units                                                                                        |
+| remove checked addition                                     | total charge became unsafe integer `9007199254741004`                                                                                |
+| remove correction/finding/closure/evidence uniqueness       | duplicate records reached closure/reporting instead of failing closed                                                                |
+| accept empty correction evidence                            | `finding.alpha` incorrectly disappeared from unresolved findings                                                                     |
+| reuse the opening review after correction                   | `finding.alpha` incorrectly disappeared from unresolved findings                                                                     |
+
+Every fault ran alone and was restored. Adjacent `Proof:` comments name the exact observed
+mismatch. Verification on the restored source:
+
+- `bun test --preload ../test/scratch/preload.ts src/review/audit.test.ts` from `tools/tool-wiki`
+  — exit 0; 13 pass, 0 fail, 83 assertions.
+- `bunx eslint src/cli.ts src/review/audit.ts src/review/audit.test.ts src/review/index.ts` from
+  `tools/tool-wiki` — exit 0.
+- `bunx tsc --build --force tsconfig.json` from `tools/tool-wiki` — exit 0.
+- The existing production CLI contract matrix passed twice under its unchanged 25-second timeout:
+  56 assertions at 24.7745 seconds and 24.6882 seconds. The initial aggregate had timed out at
+  25.007 seconds because `cli.ts` imported the review barrel and eagerly constructed the new audit
+  schemas in every subprocess. A narrow direct 3.1 invoker import restored startup while preserving
+  the public review barrel export.
+- `NX_DAEMON=false bunx nx run-many -t lint typecheck test -p tool-wiki --skip-nx-cache
+--output-style=static` — exit 0 in 6m26s; 226 pass, 0 fail, 2,323 assertions; cache skipped and no
+  target skipped.
+- Changed-file Prettier and implementation `git diff --check` — exit 0.
+- `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate
+agent-scalable-llm-wiki --strict` — exit 0; change valid.
+- `bunx nx format:check --all` — exit 0.
+
+Only task 3.3 is newly marked complete. Task 3.4 and every later task remain untouched; this slice
+does not promote local cooperative review evidence to external trust.
+
 ## Slice 3.2 Review Fix Round 2
 
 The existing fail-closed behavior-policy branch now has a public `evaluateObligations` regression

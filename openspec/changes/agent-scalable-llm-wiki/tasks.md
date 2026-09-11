@@ -94,7 +94,7 @@ No `verify.md` exists until implementation produces observations.
       change behavior with identical types and observe the required consumer/conformance
       check fail; delete impact classification and observe expanded-review refusal. A
       writer-declared implementation-only label cannot waive behavior checks.
-- [ ] 3.3 Implement `review/audit.ts`, deterministic seed/risk sampling and separate
+- [x] 3.3 Implement `review/audit.ts`, deterministic seed/risk sampling and separate
       file/directory/project/docs obligations, correction closure and fresh post-correction
       review. Test `audit.test.ts`: repeat seed gives exact same stratified sample, missing
       review stays named, disagreement triggers adjudication/fresh shard review. Negative:
