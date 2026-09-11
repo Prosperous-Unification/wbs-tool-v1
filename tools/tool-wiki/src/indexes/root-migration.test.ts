@@ -27,6 +27,7 @@ interface RootMigrationFixture {
 
 const repositories: string[] = [];
 const cliPath = join(import.meta.dir, '..', 'cli.ts');
+const sourceRepository = join(import.meta.dir, '..', '..', '..', '..');
 
 function git(repository: string, argv: string[]): string {
   const invocation = Bun.spawnSync(['git', '-C', repository, ...argv], {
@@ -54,10 +55,62 @@ function hash(source: string): string {
   return new Bun.CryptoHasher('sha256').update(source).digest('hex');
 }
 
+function forgedSourceBlocks(source: string, heading: string): SourceBlock[] {
+  const headingText = `## ${heading}`;
+  const lines = source.split('\n');
+  const start = lines.indexOf(headingText);
+  expect(start).toBeGreaterThanOrEqual(0);
+  const endOffset = lines.slice(start + 1).findIndex((line) => line.startsWith('## '));
+  const end = endOffset < 0 ? lines.length : start + 1 + endOffset;
+  const body = lines
+    .slice(start + 1, end)
+    .join('\n')
+    .replace(/^\n+|\n+$/g, '');
+  const payloads = body.length === 0 ? [] : body.split(/\n\n+/);
+  return [
+    {
+      sourceId: 'forged.migrations.heading',
+      locator: { kind: 'heading' },
+      sha256: hash(headingText),
+      destinationAnchor: 'forged-migrations-heading',
+    },
+    ...payloads.map((payload, index) => ({
+      sourceId: `forged.migrations.${String(index + 1).padStart(3, '0')}`,
+      locator: { kind: 'block' as const, ordinal: index + 1 },
+      sha256: hash(payload),
+      destinationAnchor: `forged-migrations-${String(index + 1).padStart(3, '0')}`,
+    })),
+  ];
+}
+
+function forgedDestination(source: string, heading: string, blocks: SourceBlock[]): string {
+  const headingText = `## ${heading}`;
+  const lines = source.split('\n');
+  const start = lines.indexOf(headingText);
+  const endOffset = lines.slice(start + 1).findIndex((line) => line.startsWith('## '));
+  const end = endOffset < 0 ? lines.length : start + 1 + endOffset;
+  const body = lines
+    .slice(start + 1, end)
+    .join('\n')
+    .replace(/^\n+|\n+$/g, '');
+  const payloads = body.length === 0 ? [] : body.split(/\n\n+/);
+  return `${blocks
+    .map((block, index) => {
+      const payload = index === 0 ? headingText : payloads[index - 1];
+      return `<a id="${block.destinationAnchor}"></a>\n<!-- root-source:${block.sourceId} -->\n\n${payload}`;
+    })
+    .join('\n\n')}\n`;
+}
+
 function createRepository(): string {
-  const repository = mkdtempSync(join(tmpdir(), 'tool-wiki-root-migration-'));
-  repositories.push(repository);
-  git(repository, ['init', '--initial-branch=main']);
+  const parent = mkdtempSync(join(tmpdir(), 'tool-wiki-root-migration-'));
+  repositories.push(parent);
+  const repository = join(parent, 'repository');
+  const invocation = Bun.spawnSync(
+    ['git', 'clone', '--quiet', '--shared', '--no-hardlinks', sourceRepository, repository],
+    { stderr: 'pipe', stdout: 'pipe' },
+  );
+  expect(invocation.exitCode, invocation.stderr.toString('utf8')).toBe(0);
   git(repository, ['config', 'user.email', 'root-migration@example.test']);
   git(repository, ['config', 'user.name', 'Root Migration Fixture']);
   return repository;
@@ -69,119 +122,11 @@ function commit(repository: string, message: string): string {
   return git(repository, ['rev-parse', 'HEAD']);
 }
 
-function sourceBlocks(heading: string, blocks: string[], prefix: string): SourceBlock[] {
-  return [
-    {
-      sourceId: `${prefix}.heading`,
-      locator: { kind: 'heading' },
-      sha256: hash(`## ${heading}`),
-      destinationAnchor: `${prefix}-heading`,
-    },
-    ...blocks.map((block, index) => ({
-      sourceId: `${prefix}.${String(index + 1).padStart(3, '0')}`,
-      locator: { kind: 'block' as const, ordinal: index + 1 },
-      sha256: hash(block),
-      destinationAnchor: `${prefix}-${String(index + 1).padStart(3, '0')}`,
-    })),
-  ];
-}
-
-function destination(heading: string, blocks: string[], sourceBlocks: SourceBlock[]): string {
-  const [headingBlock, ...paragraphs] = sourceBlocks;
-  return [
-    `<a id="${headingBlock.destinationAnchor}"></a>`,
-    `<!-- root-source:${headingBlock.sourceId} -->`,
-    '',
-    `## ${heading}`,
-    '',
-    ...paragraphs.flatMap((entry, index) => [
-      `<a id="${entry.destinationAnchor}"></a>`,
-      `<!-- root-source:${entry.sourceId} -->`,
-      '',
-      blocks[index] ?? '',
-      '',
-    ]),
-  ].join('\n');
-}
-
 function buildFixture(repository: string): { candidate: string; map: RootMigrationFixture } {
-  const agentBlocks = ['A production check needs a watched negative and an adjacent proof.'];
-  const landmineBlocks = ['- A current landmine belongs outside the root router.'];
-  const findingBlocks = ['1. A current finding stays explicit until it is closed.'];
-  const historicalAgents = `# Agent rules\n\n## Checks that cannot fail\n\n${agentBlocks.join('\n\n')}\n`;
-  const historicalReadme = `# Router\n\n## Landmines\n\n${landmineBlocks.join('\n\n')}\n\n## Open findings\n\n${findingBlocks.join('\n\n')}\n`;
-  write(repository, 'AGENTS.md', historicalAgents);
-  write(repository, 'LLM_README.md', historicalReadme);
-  const sourceRevision = commit(repository, 'historical roots');
-
-  const agentSourceBlocks = sourceBlocks('Checks that cannot fail', agentBlocks, 'agents-r5');
-  const landmineSourceBlocks = sourceBlocks('Landmines', landmineBlocks, 'router-landmines');
-  const findingSourceBlocks = sourceBlocks('Open findings', findingBlocks, 'router-findings');
-  const map: RootMigrationFixture = {
-    schemaVersion: 1,
-    migrationId: 'root-knowledge.v1',
-    sources: [
-      {
-        sourcePath: 'AGENTS.md',
-        sourceRevision,
-        sourceBlob: git(repository, [`rev-parse`, `${sourceRevision}:AGENTS.md`]),
-        sourceHeading: 'Checks that cannot fail',
-        destinationPath: 'docs/findings/checks-that-cannot-fail.md',
-        blocks: agentSourceBlocks,
-      },
-      {
-        sourcePath: 'LLM_README.md',
-        sourceRevision,
-        sourceBlob: git(repository, [`rev-parse`, `${sourceRevision}:LLM_README.md`]),
-        sourceHeading: 'Landmines',
-        destinationPath: 'docs/findings/current.md',
-        blocks: landmineSourceBlocks,
-      },
-      {
-        sourcePath: 'LLM_README.md',
-        sourceRevision,
-        sourceBlob: git(repository, [`rev-parse`, `${sourceRevision}:LLM_README.md`]),
-        sourceHeading: 'Open findings',
-        destinationPath: 'docs/findings/current.md',
-        blocks: findingSourceBlocks,
-      },
-    ],
-  };
-
-  write(
-    repository,
-    'AGENTS.md',
-    [
-      '# Agent rules',
-      '',
-      'Keep the operational rule.',
-      '',
-      '[Incident catalogue](docs/findings/checks-that-cannot-fail.md)',
-      '',
-    ].join('\n'),
-  );
-  write(
-    repository,
-    'LLM_README.md',
-    ['# Router', '', '[Findings](docs/findings/README.md#current-findings)', ''].join('\n'),
-  );
-  write(
-    repository,
-    'docs/findings/checks-that-cannot-fail.md',
-    `# Checks that cannot fail\n\n${destination('Checks that cannot fail', agentBlocks, agentSourceBlocks)}`,
-  );
-  write(
-    repository,
-    'docs/findings/current.md',
-    `# Current findings\n\n${destination('Landmines', landmineBlocks, landmineSourceBlocks)}\n${destination('Open findings', findingBlocks, findingSourceBlocks)}`,
-  );
-  write(
-    repository,
-    'docs/findings/README.md',
-    '# Findings\n\n## Current findings\n\n- [Current findings](current.md#router-findings-heading)\n- [R5 catalogue](checks-that-cannot-fail.md#agents-r5-heading)\n',
-  );
-  write(repository, 'docs/findings/root-migration.v1.json', `${JSON.stringify(map, null, 2)}\n`);
-  return { candidate: commit(repository, 'migrated roots'), map };
+  const map = JSON.parse(
+    readFileSync(join(repository, 'docs/findings/root-migration.v1.json'), 'utf8'),
+  ) as RootMigrationFixture;
+  return { candidate: git(repository, ['rev-parse', 'HEAD']), map };
 }
 
 function runCheck(repository: string, revision: string): ReturnType<typeof Bun.spawnSync> {
@@ -225,7 +170,7 @@ describe('root migration production CLI', () => {
       migrationId: 'root-knowledge.v1',
       selection: { kind: 'committed', revision: candidate },
       sourceCount: 3,
-      blockCount: 6,
+      blockCount: 58,
       caps: { agents: 120, llmReadme: 150 },
     });
   });
@@ -350,7 +295,7 @@ describe('root migration production CLI', () => {
     write(repository, 'docs/findings/root-migration.v1.json', `${JSON.stringify(fixture.map)}\n`);
     expectRefusal(
       runCheck(repository, commit(repository, 'duplicate source')),
-      'duplicate root source id: agents-r5.heading',
+      'duplicate root source id: r5.catalogue.heading',
     );
 
     const duplicateRepository = createRepository();
@@ -364,7 +309,7 @@ describe('root migration production CLI', () => {
     );
     expectRefusal(
       runCheck(duplicateRepository, commit(duplicateRepository, 'duplicate anchor')),
-      'destination anchor must occur once: docs/findings/current.md#router-findings-heading (found 2)',
+      'mapped destination block mismatch: docs/findings/current.md#router-findings-003',
     );
 
     const missingRepository = createRepository();
@@ -380,7 +325,7 @@ describe('root migration production CLI', () => {
     );
     expectRefusal(
       runCheck(missingRepository, commit(missingRepository, 'missing anchor')),
-      'destination anchor must occur once: docs/findings/current.md#router-findings-heading (found 0)',
+      'unexpected root source marker: docs/findings/current.md#router.findings.heading',
     );
   });
 
@@ -420,7 +365,7 @@ describe('root migration production CLI', () => {
     );
     expectRefusal(
       runCheck(destinationRepository, commit(destinationRepository, 'duplicate destination')),
-      'duplicate root destination: docs/findings/checks-that-cannot-fail.md#agents-r5-heading',
+      'duplicate root destination: docs/findings/checks-that-cannot-fail.md#r5-catalogue-heading',
     );
   });
 
@@ -444,7 +389,7 @@ describe('root migration production CLI', () => {
     );
     expectRefusal(
       runCheck(blockRepository, commit(blockRepository, 'omit paragraph')),
-      'root source block is not mapped: AGENTS.md#Checks that cannot fail block 1',
+      'root source block is not mapped: AGENTS.md#Checks that cannot fail block 51',
     );
 
     const payloadRepository = createRepository();
@@ -454,13 +399,13 @@ describe('root migration production CLI', () => {
       payloadRepository,
       destinationPath,
       readFileSync(join(payloadRepository, destinationPath), 'utf8').replace(
-        'A production check needs a watched negative',
-        'A production check lost its observed wording',
+        'R5 exists because this failure keeps recurring',
+        'R5 once existed because this failure kept recurring',
       ),
     );
     expectRefusal(
       runCheck(payloadRepository, commit(payloadRepository, 'rewrite payload')),
-      'mapped destination payload must occur once: docs/findings/checks-that-cannot-fail.md#agents-r5-001 (found 0)',
+      'mapped destination block mismatch: docs/findings/checks-that-cannot-fail.md#r5-catalogue-001',
     );
   });
 
@@ -476,7 +421,7 @@ describe('root migration production CLI', () => {
 
     const locatorRepository = createRepository();
     const locatorFixture = buildFixture(locatorRepository);
-    locatorFixture.map.sources[0].blocks[1].locator = { kind: 'block', ordinal: 2 };
+    locatorFixture.map.sources[0].blocks[1].locator = { kind: 'block', ordinal: 52 };
     write(
       locatorRepository,
       'docs/findings/root-migration.v1.json',
@@ -484,7 +429,7 @@ describe('root migration production CLI', () => {
     );
     expectRefusal(
       runCheck(locatorRepository, commit(locatorRepository, 'out of range locator')),
-      'historical source locator absent: agents-r5.001',
+      'historical source locator absent: r5.catalogue.001',
     );
   });
 
@@ -495,7 +440,7 @@ describe('root migration production CLI', () => {
     write(repository, 'docs/findings/root-migration.v1.json', `${JSON.stringify(fixture.map)}\n`);
     expectRefusal(
       runCheck(repository, commit(repository, 'bad historical locator')),
-      'historical source content digest mismatch: agents-r5.001',
+      'historical source content digest mismatch: r5.catalogue.001',
     );
 
     const linksRepository = createRepository();
@@ -544,6 +489,116 @@ describe('root migration production CLI', () => {
     expectRefusal(
       runCheck(repository, commit(repository, 'missing linked path')),
       'Markdown path absent in LLM_README.md: docs/findings/absent.md',
+    );
+  });
+
+  test('refuses a candidate map that omits the trusted historical authority', () => {
+    const emptyRepository = createRepository();
+    const emptyFixture = buildFixture(emptyRepository);
+    emptyFixture.map.sources = [];
+    write(
+      emptyRepository,
+      'docs/findings/root-migration.v1.json',
+      `${JSON.stringify(emptyFixture.map)}\n`,
+    );
+    expectRefusal(
+      runCheck(emptyRepository, commit(emptyRepository, 'omit historical authority')),
+      'root migration authority mismatch',
+    );
+  });
+
+  test('refuses a candidate map that replaces the trusted historical authority', () => {
+    const replacementRepository = createRepository();
+    const replacementFixture = buildFixture(replacementRepository);
+    const agents = readFileSync(join(replacementRepository, 'AGENTS.md'), 'utf8');
+    const blocks = forgedSourceBlocks(agents, 'Migrations');
+    replacementFixture.map.sources = [
+      {
+        sourcePath: 'AGENTS.md',
+        sourceRevision: replacementFixture.candidate,
+        sourceBlob: git(replacementRepository, [
+          'rev-parse',
+          `${replacementFixture.candidate}:AGENTS.md`,
+        ]),
+        sourceHeading: 'Migrations',
+        destinationPath: 'docs/findings/forged.md',
+        blocks,
+      },
+    ];
+    write(
+      replacementRepository,
+      'docs/findings/forged.md',
+      forgedDestination(agents, 'Migrations', blocks),
+    );
+    write(
+      replacementRepository,
+      'docs/findings/root-migration.v1.json',
+      `${JSON.stringify(replacementFixture.map)}\n`,
+    );
+    expectRefusal(
+      runCheck(replacementRepository, commit(replacementRepository, 'replace authority')),
+      'root migration authority mismatch',
+    );
+  });
+
+  test('refuses appended payload text', () => {
+    const appendedRepository = createRepository();
+    buildFixture(appendedRepository);
+    const path = 'docs/findings/checks-that-cannot-fail.md';
+    write(
+      appendedRepository,
+      path,
+      readFileSync(join(appendedRepository, path), 'utf8').replace(
+        '<a id="r5-catalogue-002"></a>',
+        'Appended text outside the preserved payload.\n\n<a id="r5-catalogue-002"></a>',
+      ),
+    );
+    expectRefusal(
+      runCheck(appendedRepository, commit(appendedRepository, 'append mapped payload text')),
+      'mapped destination block mismatch: docs/findings/checks-that-cannot-fail.md#r5-catalogue-001',
+    );
+  });
+
+  test('refuses orphan source markers', () => {
+    const orphanRepository = createRepository();
+    buildFixture(orphanRepository);
+    const path = 'docs/findings/checks-that-cannot-fail.md';
+    const source = readFileSync(join(orphanRepository, path), 'utf8');
+    write(
+      orphanRepository,
+      path,
+      `${source}\n<a id="r5-catalogue-orphan"></a>\n<!-- root-source:r5.catalogue.orphan -->\n\nOrphan payload.\n`,
+    );
+    expectRefusal(
+      runCheck(orphanRepository, commit(orphanRepository, 'append orphan source marker')),
+      'unexpected root source marker: docs/findings/checks-that-cannot-fail.md#r5.catalogue.orphan',
+    );
+  });
+
+  test('refuses an anchor moved away from the payload it owns', () => {
+    const repository = createRepository();
+    buildFixture(repository);
+    const path = 'docs/findings/checks-that-cannot-fail.md';
+    const source = readFileSync(join(repository, path), 'utf8');
+    write(
+      repository,
+      path,
+      `${source.replace('<a id="r5-catalogue-001"></a>\n', '')}\n<a id="r5-catalogue-001"></a>\n`,
+    );
+    expectRefusal(
+      runCheck(repository, commit(repository, 'move mapped anchor')),
+      'unexpected root source marker: docs/findings/checks-that-cannot-fail.md#r5.catalogue.001',
+    );
+  });
+
+  test('resolves fragment-only links against their current document', () => {
+    const repository = createRepository();
+    buildFixture(repository);
+    const source = readFileSync(join(repository, 'LLM_README.md'), 'utf8');
+    write(repository, 'LLM_README.md', `${source}\n[Missing incident](#absent-incident)\n`);
+    expectRefusal(
+      runCheck(repository, commit(repository, 'missing same-document anchor')),
+      'Markdown anchor must occur once in LLM_README.md: LLM_README.md#absent-incident',
     );
   });
 });

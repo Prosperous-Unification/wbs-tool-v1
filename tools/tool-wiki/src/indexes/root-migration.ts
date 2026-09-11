@@ -11,6 +11,10 @@ import type {
 const Sha1 = type(/^[0-9a-f]{40}$/);
 const Sha256 = type(/^[0-9a-f]{64}$/);
 const StableId = type(/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/);
+const TrustedMigrationId = 'root-knowledge.v1';
+const TrustedSourceCount = 3;
+const TrustedBlockCount = 58;
+const TrustedAuthorityDigest = '98c30c15ea93469e36248b5dfc6fcef7e8ef420faca7712bb187b8e11db45460';
 const HeadingLocator = type({ kind: "'heading'" }).onUndeclaredKey('reject');
 const BlockLocator = type({ kind: "'block'", ordinal: 'number.integer>=1' }).onUndeclaredKey(
   'reject',
@@ -177,12 +181,45 @@ function count(source: string, needle: string): number {
   return occurrences;
 }
 
+interface DestinationBlock {
+  anchor: string;
+  payload: string;
+}
+
+function destinationBlocks(path: string, source: string): ReadonlyMap<string, DestinationBlock> {
+  const header = /<a id="([a-z][a-z0-9._-]*)"><\/a>\n<!-- root-source:([a-z][a-z0-9._-]*) -->\n\n/g;
+  const headers = [...source.matchAll(header)];
+  const structuralMarkers = new Set(headers.map((match) => match.index + match[0].indexOf('<!--')));
+  for (const marker of source.matchAll(/<!-- root-source:([^ ]+) -->/g)) {
+    // Proof: moving `r5-catalogue-001` away from its marker and appending
+    // `r5.catalogue.orphan` without an owning map entry separately made the production CLI exit 1
+    // with `unexpected root source marker` in their named tests.
+    if (!structuralMarkers.has(marker.index))
+      throw new Error(`unexpected root source marker: ${path}#${marker[1]}`);
+  }
+  const blocks = new Map<string, DestinationBlock>();
+  for (const [index, match] of headers.entries()) {
+    const anchor = match[1];
+    const sourceId = match[2];
+    const start = match.index + match[0].length;
+    const next = headers.at(index + 1);
+    let end = next === undefined ? source.length : next.index;
+    if (next === undefined && source.endsWith('\n')) end -= 1;
+    if (next !== undefined && source.slice(0, end).endsWith('\n\n')) end -= 2;
+    const payload = source.slice(start, end);
+    if (blocks.has(sourceId)) throw new Error(`duplicate root source marker: ${path}#${sourceId}`);
+    blocks.set(sourceId, { anchor, payload });
+  }
+  return blocks;
+}
+
 function validateSource(
   repository: string,
   entries: ReadonlyMap<string, CandidateEntry>,
   source: RootSource,
   sourceIds: Set<string>,
   destinationKeys: Set<string>,
+  parsedDestinations: Map<string, ReadonlyMap<string, DestinationBlock>>,
 ): number {
   assertCandidatePath(source.destinationPath);
   const historical = sectionBlocks(readHistoricalSource(repository, source), source.sourceHeading);
@@ -192,6 +229,10 @@ function validateSource(
     source.destinationPath,
     `mapped destination absent: ${source.destinationPath}`,
   );
+  const blocks =
+    parsedDestinations.get(source.destinationPath) ??
+    destinationBlocks(source.destinationPath, destination);
+  parsedDestinations.set(source.destinationPath, blocks);
   const locators = new Set<string>();
   for (const block of source.blocks) {
     // Proof: duplicating `agents-r5.heading` made the production CLI exit 1 with
@@ -226,19 +267,16 @@ function validateSource(
     // `historical source content digest mismatch: agents-r5.001`.
     if (hash(payload) !== block.sha256)
       throw new Error(`historical source content digest mismatch: ${block.sourceId}`);
-    const anchorCount = count(destination, `<a id="${block.destinationAnchor}"></a>`);
-    // Proof: deleting and duplicating `router-findings-heading` separately made the production
-    // CLI exit 1 naming an anchor count of 0 and 2 respectively.
-    if (anchorCount !== 1)
+    const destinationBlock = blocks.get(block.sourceId);
+    if (destinationBlock === undefined)
       throw new Error(
-        `destination anchor must occur once: ${source.destinationPath}#${block.destinationAnchor} (found ${String(anchorCount)})`,
+        `mapped destination block absent: ${source.destinationPath}#${block.destinationAnchor}`,
       );
-    const markerCount = count(destination, `<!-- root-source:${block.sourceId} -->\n\n${payload}`);
-    // Proof: rewriting the preserved R5 sentence made the production CLI exit 1 with
-    // `mapped destination payload must occur once` for `agents-r5-001`.
-    if (markerCount !== 1)
+    // Proof: appending text to `r5.catalogue.001` made `refuses appended payload text` exit 1
+    // with `mapped destination block mismatch` instead of accepting its exact payload prefix.
+    if (destinationBlock.anchor !== block.destinationAnchor || destinationBlock.payload !== payload)
       throw new Error(
-        `mapped destination payload must occur once: ${source.destinationPath}#${block.destinationAnchor} (found ${String(markerCount)})`,
+        `mapped destination block mismatch: ${source.destinationPath}#${block.destinationAnchor}`,
       );
   }
   // Proof: deleting the heading mapping made the production CLI exit 1 with
@@ -305,8 +343,11 @@ function validateMarkdownLinks(
     const parts = destination.split('#', 2);
     const rawPath = parts.at(0);
     const anchor = parts.at(1);
-    if (rawPath === undefined || rawPath.length === 0) continue;
-    const requested = posix.normalize(posix.join(posix.dirname(sourcePath), rawPath));
+    if (rawPath === undefined) continue;
+    const requested =
+      rawPath.length === 0
+        ? sourcePath
+        : posix.normalize(posix.join(posix.dirname(sourcePath), rawPath));
     assertCandidatePath(requested);
     const path = exactPath(sourcePath, requested, entries);
     if (anchor === undefined || anchor.length === 0) continue;
@@ -322,8 +363,9 @@ function validateMarkdownLinks(
       .filter(
         (line) => /^#{1,6} /.test(line) && headingAnchor(line.replace(/^#{1,6} /, '')) === anchor,
       ).length;
-    // Proof: linking the router to `#absent` made the production CLI exit 1 with
-    // `Markdown anchor must occur once in LLM_README.md`.
+    // Proof: linking the router to `#absent` and adding the fragment-only `#absent-incident`
+    // separately made the production CLI exit 1 with `Markdown anchor must occur once in
+    // LLM_README.md`, resolving the latter against LLM_README.md itself.
     if (explicitCount + headingCount !== 1)
       throw new Error(`Markdown anchor must occur once in ${sourcePath}: ${path}#${anchor}`);
   }
@@ -361,6 +403,7 @@ export function checkRootMigration(
   const sourceIds = new Set<string>();
   const destinationKeys = new Set<string>();
   const sourceKeys = new Set<string>();
+  const parsedDestinations = new Map<string, ReadonlyMap<string, DestinationBlock>>();
   let blockCount = 0;
   for (const source of migration.sources) {
     const sourceKey = `${source.sourceRevision}:${source.sourceBlob}:${source.sourcePath}#${source.sourceHeading}`;
@@ -368,7 +411,34 @@ export function checkRootMigration(
     // `duplicate root source entry` before reusing its mappings.
     if (sourceKeys.has(sourceKey)) throw new Error(`duplicate root source entry: ${sourceKey}`);
     sourceKeys.add(sourceKey);
-    blockCount += validateSource(repository, entries, source, sourceIds, destinationKeys);
+    blockCount += validateSource(
+      repository,
+      entries,
+      source,
+      sourceIds,
+      destinationKeys,
+      parsedDestinations,
+    );
+  }
+  for (const [path, blocks] of parsedDestinations) {
+    for (const sourceId of blocks.keys()) {
+      // Proof: appending a structurally valid `r5.catalogue.orphan` block made `refuses orphan
+      // source markers` exit 1 with `unexpected root source marker`.
+      if (!sourceIds.has(sourceId))
+        throw new Error(`unexpected root source marker: ${path}#${sourceId}`);
+    }
+  }
+  const authorityDigest = hash(JSON.stringify(migration.sources));
+  // Proof: `sources: []` made `refuses a candidate map that omits the trusted historical
+  // authority` exit 1 with `root migration authority mismatch`; replacing the sources with HEAD
+  // `AGENTS.md#Migrations` made its separately named test fail with the same refusal.
+  if (
+    migration.migrationId !== TrustedMigrationId ||
+    migration.sources.length !== TrustedSourceCount ||
+    blockCount !== TrustedBlockCount ||
+    authorityDigest !== TrustedAuthorityDigest
+  ) {
+    throw new Error(`root migration authority mismatch: ${authorityDigest}`);
   }
   const agents = readSelectedBlob(
     repository,
