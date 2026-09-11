@@ -885,3 +885,52 @@ aggregate passed all 123 tool-wiki tests with zero failures and 1,759 assertions
 (4m53s Nx duration). Pinned OpenSpec 1.3.0 strict validation returned
 `Change 'agent-scalable-llm-wiki' is valid` with exit 0 and telemetry disabled. Task 2.4 and the Task
 2.3 checkbox remain untouched.
+
+## Slice 2.3 Fix Round 3
+
+Heading anchors are now derived in rendered-tree context. Markdown headings inside inert
+`<template>` content are excluded, while inline HTML contributes its rendered visible text.
+Heading slugs use a documented collision-safe convention: lowercase Unicode letters and numbers,
+preserved `_` and `-`, deleted punctuation, whitespace collapsed to `-`, trimmed edge hyphens, and
+the lowest unused `-N` suffix. Thus `A`, `A`, `A-1` produce `a`, `a-1`, `a-1-1`. A source-dependent,
+case-insensitive internal marker prevents user HTML from creating or suppressing headings.
+
+Selected symlink blobs now retain a leading UTF-8 BOM as an exact path code point; Markdown source
+continues to treat a document BOM as encoding syntax. Link and membership resolution share a
+component-aware selected-tree walker. It follows bounded selected symlinks, confines every
+candidate, permits parent segments only through directories, and refuses regular-file traversal
+such as `guide.md/../guide.md` instead of erasing the invalid intermediate component.
+
+The initial focused regressions reproduced every reported gap: an inert-template heading and an
+uppercase forged marker each made the production CLI exit 0; rendered inline HTML and the
+collision `a-1-1` were reported as missing; a present BOM-prefixed symlink target was incorrectly
+decoded without the BOM; the dangling diagnostic omitted it; and both Markdown and membership
+`file/../file` paths exited 0. A final adversarial audit reproduced an additional marker collision:
+encoded angle brackets with emphasis splitting the marker name exited 0. The completed post-format
+suite passed 47 tests, zero failures and 377 assertions.
+
+| Deliberate one-at-a-time fault                    | Observed production-CLI failure                                                        |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| collect mdast headings outside rendered context   | inert `<template>` heading satisfied navigation; expected exit 1, received 0           |
+| call heading extraction with `includeHtml: false` | rendered inline HTML lost `#release-notes`; expected exit 0, received 1                |
+| count collisions only per original base           | `A`, `A`, `A-1` omitted `#a-1-1`; expected exit 0, received 1                          |
+| choose the internal marker case-sensitively       | uppercase user marker forged `#forged`; expected exit 1, received 0                    |
+| insert rendered heading text as raw HTML          | encoded angles plus emphasis forged `#forged`; expected exit 1, received 0             |
+| decode symlink targets with Markdown BOM handling | present target failed as `guide-link -> docs/guide.md`; dangling output omitted U+FEFF |
+| return a regular file before later components     | Markdown and member `guide.md/../guide.md` paths exited 0; expected exit 1             |
+| stop following selected symlinks                  | valid directory symlink failed as a non-directory component                            |
+| reject an implicit-directory symlink at path end  | valid `docs-link -> docs` failed as absent                                             |
+| return the pre-canonical directory spelling       | missing anchor reported `docs/#missing` instead of `docs#missing`                      |
+| bypass member resolution                          | unlinked exact and grouped escaping symlinks exited 0                                  |
+| return when a selected symlink cycle repeats      | `first -> second -> first` exited 0                                                    |
+| erase the absolute-target distinction             | `/outside` degraded to an absent-target diagnostic rather than an escape               |
+| erase the membership absent-target diagnostic     | `not-selected` degraded to a Markdown-path diagnostic                                  |
+
+Each fault ran alone through `check-indexes` against temporary real Git repositories and was
+restored before the next. Adjacent `Proof:` comments record the exact observed boundary failure.
+Direct changed-file ESLint and `tsc --build --force tools/tool-wiki/tsconfig.json` exited 0. The
+uncached Nx lint/typecheck/test aggregate passed all 135 tool-wiki tests with zero failures and
+1,851 assertions in 301.89 seconds (5m2s Nx duration); Nx reported its sandbox socket denial and
+used the in-process fallback, with no target skipped. Pinned OpenSpec 1.3.0 strict validation
+returned `Change 'agent-scalable-llm-wiki' is valid` with exit 0 and telemetry disabled. Task 2.4
+and all task checkboxes remain untouched.

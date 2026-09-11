@@ -9,6 +9,7 @@ import {
   markdownText,
   type ReadIndex,
   readIndexes,
+  symlinkTarget,
 } from './read-indexes';
 
 // Proof: raising this to 41 made the forty-one-entry CLI return `reviewDebt: []`; the test
@@ -21,6 +22,11 @@ const compareText = (left: string, right: string): number =>
 
 function isBelow(path: string, directory: string): boolean {
   return directory === '' || path.startsWith(`${directory}/`);
+}
+
+function isCandidateDirectory(path: string, candidatePaths: ReadonlySet<string>): boolean {
+  if (path.length === 0) return true;
+  return [...candidatePaths].some((candidatePath) => candidatePath.startsWith(`${path}/`));
 }
 
 function joinIndexPath(index: ReadIndex, localPath: string): string {
@@ -108,35 +114,9 @@ function assertMemberContained(
   candidatePaths: ReadonlySet<string>,
   bytes: CandidateBytes,
 ): void {
-  let resolved = target;
-  const visited = new Set<string>();
-  while (entries.get(resolved)?.mode === '120000') {
-    if (visited.has(resolved)) {
-      // Proof: returning on revisit made `first -> second -> first` exit 0 with both cycle members
-      // reported as owned (expected exit 1, received 0).
-      throw new Error(`membership symlink cycle in ${index.indexPath}: ${resolved}`);
-    }
-    visited.add(resolved);
-    const linkTarget = markdownText(resolved, bytes);
-    const next = posix.normalize(posix.join(posix.dirname(resolved), linkTarget));
-    // Proof: removing these member checks made both unlinked exact and grouped escaping-symlink
-    // production CLIs exit 0 and report the escaping symlink as an owned member.
-    // Proof: omitting the absolute-target branch moved `/outside` to the less precise
-    // `membership symlink target absent` failure instead of naming the escape.
-    if (posix.isAbsolute(linkTarget) || next === '..' || next.startsWith('../')) {
-      throw new Error(
-        `membership symlink escapes candidate in ${index.indexPath}: ${resolved} -> ${linkTarget}`,
-      );
-    }
-    // Proof: omitting selected-target membership made `missing -> not-selected` exit 0 and report
-    // the dangling symlink as an owned member (expected exit 1, received 0).
-    if (!candidatePaths.has(next)) {
-      throw new Error(
-        `membership symlink target absent in ${index.indexPath}: ${resolved} -> ${linkTarget}`,
-      );
-    }
-    resolved = next;
-  }
+  // Proof: bypassing selected-path resolution made both unlinked escaping member CLIs exit 0
+  // and report the symlinks as owned (both expected exit 1, both received 0).
+  resolveSelectedPath(index, '', target, 'membership', entries, candidatePaths, bytes);
 }
 
 function decodeDestination(
@@ -160,14 +140,14 @@ function decodeDestination(
   return anchor === undefined ? { path } : { path, anchor };
 }
 
-function resolveLinkPath(index: ReadIndex, localPath: string): string {
+function canonicalLinkPath(index: ReadIndex, localPath: string): string {
   if (localPath.length === 0) return index.indexPath;
   if (posix.isAbsolute(localPath)) {
     throw new Error(`Markdown path escapes candidate in ${index.indexPath}: ${localPath}`);
   }
   const normalized = posix.normalize(posix.join(index.directory, localPath));
-  // Proof: returning `normalized` unchanged made `docs/` and `./` fail as absent, diagnosed
-  // wrong-case `Docs/` as absent, and retained the slash in the absent-directory diagnostic.
+  // Proof: returning `normalized` unchanged made the trailing-directory anchor diagnostic say
+  // `docs/#missing` instead of canonical `docs#missing`.
   const joined =
     normalized === '.' || normalized === './'
       ? ''
@@ -207,30 +187,87 @@ function exactCandidatePath(
   throw new Error(`Markdown path absent in ${sourcePath}: ${requested}`);
 }
 
-function resolveSymlinks(
+function resolveSelectedPath(
   index: ReadIndex,
-  target: string,
+  baseDirectory: string,
+  localPath: string,
+  purpose: 'Markdown' | 'membership',
   entries: ReadonlyMap<string, CandidateEntry>,
   candidatePaths: ReadonlySet<string>,
   bytes: CandidateBytes,
 ): string {
-  let resolved = target;
+  const segments = baseDirectory.length === 0 ? [] : baseDirectory.split('/');
+  const pending = localPath.split('/');
   const visited = new Set<string>();
-  while (entries.get(resolved)?.mode === '120000') {
-    if (visited.has(resolved)) {
-      throw new Error(`Markdown symlink cycle in ${index.indexPath}: ${resolved}`);
+  let activeSymlink: { path: string; target: string } | undefined;
+  while (pending.length > 0) {
+    const component = pending.shift();
+    if (component === undefined || component === '' || component === '.') continue;
+    if (component === '..') {
+      if (segments.pop() === undefined) {
+        if (activeSymlink !== undefined) {
+          throw new Error(
+            `${purpose} symlink escapes candidate in ${index.indexPath}: ${activeSymlink.path} -> ${activeSymlink.target}`,
+          );
+        }
+        throw new Error(`Markdown path escapes candidate in ${index.indexPath}: ${localPath}`);
+      }
+      continue;
     }
-    visited.add(resolved);
-    const linkTarget = markdownText(resolved, bytes);
-    if (posix.isAbsolute(linkTarget)) {
-      throw new Error(
-        `Markdown symlink escapes candidate in ${index.indexPath}: ${resolved} -> ${linkTarget}`,
-      );
+    segments.push(component);
+    const selectedPath = segments.join('/');
+    const entry = entries.get(selectedPath);
+    // Proof: treating a selected symlink as an ordinary entry made `docs-link/guide.md` fail
+    // with `Markdown path component is not a directory ... docs-link` (expected exit 0).
+    if (entry?.mode === '120000') {
+      if (visited.has(selectedPath)) {
+        // Proof: returning on revisit made `first -> second -> first` exit 0 with both cycle
+        // members reported as owned (expected exit 1, received 0).
+        throw new Error(`${purpose} symlink cycle in ${index.indexPath}: ${selectedPath}`);
+      }
+      visited.add(selectedPath);
+      const target = symlinkTarget(selectedPath, bytes);
+      // Proof: omitting the absolute-target distinction moved `/outside` to the less precise
+      // membership-target-absent failure instead of naming the candidate escape.
+      if (target.length === 0 || target.includes('\u0000') || posix.isAbsolute(target)) {
+        throw new Error(
+          `${purpose} symlink escapes candidate in ${index.indexPath}: ${selectedPath} -> ${target}`,
+        );
+      }
+      activeSymlink = { path: selectedPath, target };
+      segments.pop();
+      pending.unshift(...target.split('/'));
+      continue;
     }
-    const next = posix.normalize(posix.join(posix.dirname(resolved), linkTarget));
-    resolved = exactCandidatePath(index.indexPath, next, candidatePaths);
+    if (entry !== undefined) {
+      // Proof: returning the selected file before examining remaining components made both
+      // `docs/guide.md/../guide.md` CLIs exit 0 (Markdown link and member-symlink target;
+      // both expected exit 1, both received 0).
+      if (pending.length > 0) {
+        throw new Error(
+          `${purpose} ${purpose === 'membership' ? 'symlink ' : ''}path component is not a directory in ${index.indexPath}: ${selectedPath}`,
+        );
+      }
+      return selectedPath;
+    }
+    if (!isCandidateDirectory(selectedPath, candidatePaths)) {
+      if (purpose === 'membership' && activeSymlink !== undefined) {
+        // Proof: omitting this member boundary changed `missing -> not-selected` into the
+        // unrelated `Markdown path absent ... not-selected` diagnostic.
+        throw new Error(
+          `membership symlink target absent in ${index.indexPath}: ${activeSymlink.path} -> ${activeSymlink.target}`,
+        );
+      }
+      return exactCandidatePath(index.indexPath, selectedPath, candidatePaths);
+    }
   }
-  return resolved;
+  const selectedPath = segments.join('/');
+  // Proof: requiring a concrete entry here made contained `docs-link -> docs` fail with
+  // `Markdown path absent ... docs` even though selected descendants make `docs` a directory.
+  if (purpose === 'membership' && isCandidateDirectory(selectedPath, candidatePaths)) {
+    return selectedPath;
+  }
+  return exactCandidatePath(index.indexPath, selectedPath, candidatePaths);
 }
 
 function checkLinks(
@@ -249,9 +286,16 @@ function checkLinks(
     if (GlobPattern.test(destination.path)) {
       throw new Error(`Markdown link contains a glob in ${index.indexPath}: ${destination.path}`);
     }
-    const requested = resolveLinkPath(index, destination.path);
-    const selectedTarget = exactCandidatePath(index.indexPath, requested, candidatePaths);
-    const target = resolveSymlinks(index, selectedTarget, entries, candidatePaths, bytes);
+    const requested = canonicalLinkPath(index, destination.path);
+    const target = resolveSelectedPath(
+      index,
+      index.directory,
+      destination.path,
+      'Markdown',
+      entries,
+      candidatePaths,
+      bytes,
+    );
     if (destination.anchor === undefined || destination.anchor.length === 0) continue;
     const anchors = markdownAnchors(markdownText(target, bytes));
     // Proof: skipping this branch made the missing-anchor production CLI exit 0 with all three
@@ -272,7 +316,7 @@ function checkArchiveEntrypoints(index: ReadIndex, members: readonly string[]): 
     const linked = index.links.some(({ destination }) => {
       if (/^[a-z][a-z0-9+.-]*:/i.test(destination)) return false;
       const decoded = decodeDestination(index.indexPath, destination);
-      return resolveLinkPath(index, decoded.path) === proposal;
+      return canonicalLinkPath(index, decoded.path) === proposal;
     });
     if (!linked) throw new Error(`frozen archive proposal has no index entrypoint: ${proposal}`);
   }

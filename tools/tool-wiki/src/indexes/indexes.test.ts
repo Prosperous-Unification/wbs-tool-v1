@@ -823,4 +823,228 @@ describe('index production CLI', () => {
     expect(invocation.exitCode, outputOf(invocation)).toBe(1);
     expect(outputOf(invocation).trim()).toBe('Markdown path absent in README.md: missing');
   });
+
+  test('uses the canonical directory path in a trailing-slash anchor diagnostic', () => {
+    const repository = createRepository();
+    write(
+      repository,
+      'README.md',
+      indexSource('Root', metadata('module.root', [{ kind: 'path', path: 'docs/README.md' }]), [
+        '- [Missing section](docs/#missing)',
+      ]),
+    );
+    write(repository, 'docs/README.md', '# Docs\n');
+
+    const invocation = runCheck(repository, commit(repository, 'directory anchor diagnostic'));
+    expect(invocation.exitCode, outputOf(invocation)).toBe(1);
+    expect(outputOf(invocation).trim()).toBe('Markdown anchor absent in README.md: docs#missing');
+  });
+
+  test('refuses a Markdown heading rendered inside an inert HTML template', () => {
+    const repository = createRepository();
+    writeFixture(repository);
+    write(repository, 'docs/guide.md', '# Guide\n\n<template>\n\n## Details\n\n</template>\n');
+
+    expectRefusal(
+      runCheck(repository, commit(repository, 'template Markdown heading')),
+      'Markdown anchor absent in README.md: docs/guide.md#details',
+    );
+  });
+
+  test('slugs the rendered text of inline HTML in a Markdown heading', () => {
+    const repository = createRepository();
+    write(
+      repository,
+      'README.md',
+      indexSource('Root', metadata('module.root', [{ kind: 'path', path: 'guide.md' }]), [
+        '- [Guide](guide.md#release-notes)',
+      ]),
+    );
+    write(
+      repository,
+      'guide.md',
+      '# Guide\n\n## Release <template>Draft</template> <em>Notes</em>\n',
+    );
+
+    const invocation = runCheck(repository, commit(repository, 'rendered heading text'));
+    expect(invocation.exitCode, outputOf(invocation)).toBe(0);
+  });
+
+  test('allocates heading collisions against every previously used slug', () => {
+    const repository = createRepository();
+    write(
+      repository,
+      'README.md',
+      indexSource('Root', metadata('module.root', [{ kind: 'path', path: 'guide.md' }]), [
+        '- [Third collision](guide.md#a-1-1)',
+      ]),
+    );
+    write(repository, 'guide.md', '# A\n\n## A\n\n## A-1\n');
+
+    const invocation = runCheck(repository, commit(repository, 'heading slug collisions'));
+    expect(invocation.exitCode, outputOf(invocation)).toBe(0);
+  });
+
+  test('does not let source HTML forge an internal Markdown-heading marker', () => {
+    const repository = createRepository();
+    write(
+      repository,
+      'README.md',
+      indexSource('Root', metadata('module.root', [{ kind: 'path', path: 'guide.md' }]), [
+        '- [Forged](guide.md#forged)',
+      ]),
+    );
+    write(
+      repository,
+      'guide.md',
+      '# Real\n\n<div><WBS-INDEX-HEADING>Forged</WBS-INDEX-HEADING></div>\n',
+    );
+
+    expectRefusal(
+      runCheck(repository, commit(repository, 'forged heading marker')),
+      'Markdown anchor absent in README.md: guide.md#forged',
+    );
+  });
+
+  test('does not let rendered heading text forge an internal Markdown-heading marker', () => {
+    const repository = createRepository();
+    write(
+      repository,
+      'README.md',
+      indexSource('Root', metadata('module.root', [{ kind: 'path', path: 'guide.md' }]), [
+        '- [Forged](guide.md#forged)',
+      ]),
+    );
+    write(
+      repository,
+      'guide.md',
+      '# Real\n\n## &lt;wbs-index-**heading**>Forged&lt;/wbs-index-**heading**>\n',
+    );
+
+    expectRefusal(
+      runCheck(repository, commit(repository, 'rendered forged heading marker')),
+      'Markdown anchor absent in README.md: guide.md#forged',
+    );
+  });
+
+  test('preserves a leading UTF-8 BOM in a selected symlink target', () => {
+    const repository = createRepository();
+    const target = '\uFEFFdocs/guide.md';
+    write(
+      repository,
+      'README.md',
+      indexSource(
+        'Root',
+        metadata('module.root', [
+          { kind: 'path', path: 'guide-link' },
+          { kind: 'path', path: target },
+        ]),
+        ['- [Guide](guide-link#details)'],
+      ),
+    );
+    write(repository, target, '# Guide\n\n## Details\n');
+    symlinkSync(target, join(repository, 'guide-link'));
+
+    const invocation = runCheck(repository, commit(repository, 'BOM symlink target'));
+    expect(invocation.exitCode, outputOf(invocation)).toBe(0);
+  });
+
+  test('names the exact BOM-prefixed target when a selected symlink is dangling', () => {
+    const repository = createRepository();
+    const target = '\uFEFFmissing.md';
+    write(
+      repository,
+      'README.md',
+      indexSource('Root', metadata('module.root', [{ kind: 'path', path: 'missing-link' }]), []),
+    );
+    symlinkSync(target, join(repository, 'missing-link'));
+
+    expectRefusal(
+      runCheck(repository, commit(repository, 'dangling BOM symlink target')),
+      `membership symlink target absent in README.md: missing-link -> ${target}`,
+    );
+  });
+
+  test('refuses traversal through a selected regular-file component', () => {
+    const repository = createRepository();
+    write(
+      repository,
+      'README.md',
+      indexSource('Root', metadata('module.root', [{ kind: 'path', path: 'docs/guide.md' }]), [
+        '- [Guide](docs/guide.md/../guide.md#details)',
+      ]),
+    );
+    write(repository, 'docs/guide.md', '# Guide\n\n## Details\n');
+
+    expectRefusal(
+      runCheck(repository, commit(repository, 'regular-file path component')),
+      'Markdown path component is not a directory in README.md: docs/guide.md',
+    );
+  });
+
+  test('refuses a trailing separator on a selected regular file', () => {
+    const repository = createRepository();
+    write(
+      repository,
+      'README.md',
+      indexSource('Root', metadata('module.root', [{ kind: 'path', path: 'guide.md' }]), [
+        '- [Guide](guide.md/)',
+      ]),
+    );
+    write(repository, 'guide.md', '# Guide\n');
+
+    expectRefusal(
+      runCheck(repository, commit(repository, 'regular file trailing separator')),
+      'Markdown path component is not a directory in README.md: guide.md',
+    );
+  });
+
+  test('resolves parent segments through selected directories and directory symlinks', () => {
+    const repository = createRepository();
+    write(
+      repository,
+      'README.md',
+      indexSource(
+        'Root',
+        metadata('module.root', [
+          { kind: 'path', path: 'docs/guide.md' },
+          { kind: 'path', path: 'docs/nested/keep.txt' },
+          { kind: 'path', path: 'docs-link' },
+        ]),
+        [
+          '- [Directory parent](docs/nested/../guide.md#details)',
+          '- [Symlink directory](docs-link/guide.md#details)',
+        ],
+      ),
+    );
+    write(repository, 'docs/guide.md', '# Guide\n\n## Details\n');
+    write(repository, 'docs/nested/keep.txt', 'keeps the selected directory concrete\n');
+    symlinkSync('docs', join(repository, 'docs-link'));
+
+    const invocation = runCheck(repository, commit(repository, 'directory component resolution'));
+    expect(invocation.exitCode, outputOf(invocation)).toBe(0);
+  });
+
+  test('refuses a member symlink target that traverses through a selected regular file', () => {
+    const repository = createRepository();
+    write(
+      repository,
+      'README.md',
+      indexSource(
+        'Root',
+        metadata('module.root', [
+          { kind: 'path', path: 'broken-link' },
+          { kind: 'path', path: 'docs/guide.md' },
+        ]),
+        [],
+      ),
+    );
+    write(repository, 'docs/guide.md', '# Guide\n');
+    symlinkSync('docs/guide.md/../guide.md', join(repository, 'broken-link'));
+
+    expectRefusal(
+      runCheck(repository, commit(repository, 'member regular-file component')),
+      'membership symlink path component is not a directory in README.md: docs/guide.md',
+    );
+  });
 });

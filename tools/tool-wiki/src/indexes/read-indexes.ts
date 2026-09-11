@@ -2,11 +2,11 @@ import { Buffer } from 'node:buffer';
 import { posix } from 'node:path';
 
 import { parseOrThrow } from '@wbs/validation';
-import type { Root } from 'mdast';
+import type { PhrasingContent, Root } from 'mdast';
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { toString } from 'mdast-util-to-string';
 import { type DefaultTreeAdapterTypes, parseFragment } from 'parse5';
-import { visit } from 'unist-util-visit';
+import { SKIP, visit } from 'unist-util-visit';
 
 import { IndexMetadata, type IndexMetadata as IndexMetadataRecord } from '../contracts';
 import { hashCanonical } from '../evidence/content-manifest';
@@ -49,13 +49,22 @@ function readBlob(repository: string, path: string, blob: string): Uint8Array {
   return invocation.stdout;
 }
 
-function decodeMarkdown(path: string, bytes: Uint8Array): string {
+function decodeUtf8(
+  path: string,
+  bytes: Uint8Array,
+  preserveBom: boolean,
+  subject: string,
+): string {
   try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: preserveBom }).decode(bytes);
   } catch (cause) {
     const detail = cause instanceof Error ? cause.message : String(cause);
-    throw new Error(`selected Markdown is not UTF-8 at ${path}: ${detail}`, { cause });
+    throw new Error(`selected ${subject} is not UTF-8 at ${path}: ${detail}`, { cause });
   }
+}
+
+function decodeMarkdown(path: string, bytes: Uint8Array): string {
+  return decodeUtf8(path, bytes, false, 'Markdown');
 }
 
 function parseMetadata(indexPath: string, syntax: Root): IndexMetadataRecord | undefined {
@@ -154,40 +163,96 @@ export function markdownText(path: string, bytes: CandidateBytes): string {
   return decodeMarkdown(path, selected);
 }
 
+/** Decodes an exact selected symlink blob while preserving a leading BOM as a path code point. */
+export function symlinkTarget(path: string, bytes: CandidateBytes): string {
+  const selected = bytes.get(path);
+  if (selected === undefined) throw new Error(`selected symlink bytes absent: ${path}`);
+  // Proof: stripping the BOM made the present-target CLI fail at `guide-link -> docs/guide.md`
+  // and made the dangling-target CLI omit the leading U+FEFF from its required diagnostic.
+  return decodeUtf8(path, selected, true, 'symlink target');
+}
+
+/**
+ * Returns rendered explicit anchors and repository-convention Markdown heading slugs.
+ *
+ * Heading slugs use visible rendered text: lowercase Unicode letters/numbers, preserved `_` and
+ * `-`, deleted punctuation, hyphenated whitespace and no edge hyphens. A collision appends the
+ * lowest unused positive `-N` suffix to that heading's base slug.
+ */
 export function markdownAnchors(source: string): Set<string> {
   const syntax = fromMarkdown(source);
   const anchors = new Set<string>();
-  const counts = new Map<string, number>();
-  visit(syntax, 'heading', (heading) => {
-    const base = toString(heading)
-      .trim()
-      .toLocaleLowerCase('en-US')
-      .replace(/[^\p{Letter}\p{Number}\s_-]/gu, '')
-      .replace(/\s+/g, '-')
-      .replace(/^-+|-+$/g, '');
-    const count = counts.get(base) ?? 0;
-    counts.set(base, count + 1);
-    anchors.add(count === 0 ? base : `${base}-${String(count)}`);
+  const marker = headingMarker(source);
+  const fragments: string[] = [];
+  visit(syntax, (node) => {
+    if (node.type === 'heading') {
+      fragments.push(`<${marker}>${headingHtml(node.children)}</${marker}>`);
+      return SKIP;
+    }
+    if (node.type === 'html') fragments.push(node.value);
+    return undefined;
   });
-  readHtmlAnchors(syntax, anchors);
+  // Proof: collecting mdast headings directly made `## Details` inside `<template>` satisfy
+  // the production CLI link and exit 0 (expected exit 1, received 0).
+  readRenderedAnchors(fragments.join(''), marker, anchors);
   return anchors;
 }
 
-function readHtmlAnchors(syntax: Root, anchors: Set<string>): void {
-  const fragments: string[] = [];
-  visit(syntax, (node) => {
-    if (node.type === 'html') fragments.push(node.value);
-    if (node.type === 'text') {
-      fragments.push(
-        node.value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;'),
-      );
-    }
-  });
+function escapeHtmlText(text: string): string {
+  return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+}
+
+function headingHtml(children: readonly PhrasingContent[]): string {
+  return children
+    .map((child) => {
+      // Proof: setting inline HTML to escaped text exposed inert `Draft` as heading text, so the
+      // `#release-notes` production CLI link failed absent (expected exit 0, received 1).
+      if (child.type === 'html') return toString(child, { includeHtml: true });
+      // Proof: inserting `toString(..., { includeHtml: true })` as raw HTML let encoded angle
+      // brackets plus split emphasis forge the private marker; the production CLI exited 0
+      // (expected exit 1).
+      if (child.type === 'text' || child.type === 'inlineCode') return escapeHtmlText(child.value);
+      if (child.type === 'break') return '\n';
+      if (child.type === 'image' || child.type === 'imageReference') {
+        return escapeHtmlText(child.alt ?? '');
+      }
+      if ('children' in child) return headingHtml(child.children);
+      return escapeHtmlText(toString(child, { includeHtml: false }));
+    })
+    .join('');
+}
+
+function headingMarker(source: string): string {
+  let marker = 'wbs-index-heading';
+  const foldedSource = source.toLocaleLowerCase('en-US');
+  // Proof: case-sensitive collision detection let raw `<WBS-INDEX-HEADING>Forged` source be
+  // normalized by HTML parsing into the internal marker and exit 0 (expected exit 1).
+  while (foldedSource.includes(marker)) marker += '-x';
+  return marker;
+}
+
+function headingBase(text: string): string {
+  return text
+    .trim()
+    .toLocaleLowerCase('en-US')
+    .replace(/[^\p{Letter}\p{Number}\s_-]/gu, '')
+    .replace(/\s+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function renderedText(node: DefaultTreeAdapterTypes.ChildNode): string {
+  if (node.nodeName === '#text' && 'value' in node) return node.value;
+  if (!('tagName' in node) || ['script', 'style', 'template'].includes(node.tagName)) return '';
+  return node.childNodes.map((child) => renderedText(child)).join('');
+}
+
+function readRenderedAnchors(source: string, marker: string, anchors: Set<string>): void {
+  const usedHeadingSlugs = new Set<string>();
   // Proof: restoring the raw `<a>` regex made the comment, script, and inert-template CLI
   // regressions each exit 0 (all expected exit 1, all received 0).
   const pending: DefaultTreeAdapterTypes.ChildNode[] = [
-    ...parseFragment(fragments.join('')).childNodes,
-  ];
+    ...parseFragment(source).childNodes,
+  ].reverse();
   while (pending.length > 0) {
     const node = pending.pop();
     if (node === undefined || !('attrs' in node)) continue;
@@ -199,9 +264,22 @@ function readHtmlAnchors(syntax: Root, anchors: Set<string>): void {
       const name = node.attrs.find((attribute) => attribute.name === 'name');
       if (name !== undefined) anchors.add(name.value);
     }
+    if (node.tagName === marker) {
+      const base = headingBase(renderedText(node));
+      let slug = base;
+      let suffix = 0;
+      // Proof: counting duplicates per base made `A`, `A`, `A-1` omit `a-1-1`, so its
+      // production CLI link failed absent (expected exit 0, received 1).
+      while (usedHeadingSlugs.has(slug)) {
+        suffix += 1;
+        slug = `${base}-${String(suffix)}`;
+      }
+      usedHeadingSlugs.add(slug);
+      anchors.add(slug);
+    }
     // Proof: also enqueuing a template node's `content.childNodes` made inert
     // `<a id="details">` content satisfy the production CLI link and exit 0
     // (expected exit 1, received 0).
-    pending.push(...node.childNodes);
+    pending.push(...[...node.childNodes].reverse());
   }
 }

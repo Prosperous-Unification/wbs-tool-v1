@@ -97,3 +97,35 @@ passed lint, typecheck and all 123 tests with zero failures and 1,759 assertions
 Pinned OpenSpec 1.3.0 strict validation returned the change valid with exit 0 and telemetry disabled.
 Final formatting/diff checks follow this evidence append. No pilot files were created, and no push
 was performed.
+
+## Fix Round 3
+
+Closed Astra's final rendered-heading, slug-collision, symlink-byte and component-traversal findings
+without starting Task 2.4 or changing a checkbox. Heading anchors now come from rendered-tree
+context, excluding inert templates and raw-text contents while retaining visible inline-HTML text.
+The documented collision algorithm allocates the lowest globally unused suffix, including
+`a-1-1` for `A`, `A`, `A-1`, and the private heading marker cannot collide with user source.
+
+Symlink target decoding now preserves an exact leading BOM independently of Markdown document
+decoding. A shared selected-tree resolver walks path components before normalizing them away,
+follows directory symlinks with bounded cycle detection, confines the candidate, and rejects a
+regular file used as an intermediate component for both README navigation and member ownership.
+The audit added adjacent real-directory, directory-symlink, trailing-file-separator, canonical
+directory-anchor and member-path cases.
+
+Initial production CLI tests failed for inert-template headings, rendered inline HTML, colliding
+slugs, present and dangling BOM-prefixed symlink targets, regular-file parent traversal, and a
+case-variant internal-marker forgery. A final adversarial RED also showed encoded angle brackets
+and emphasis forging the marker through rendered text. One-at-a-time mutations then reproduced
+those failures and also watched directory-symlink following, implicit directory membership,
+canonical directory diagnostics, member confinement, cycles, absolute targets and absent targets
+at their production boundaries. Exact outputs are recorded in `verify.md` and adjacent `Proof:`
+comments.
+
+The final focused index suite passed 47 tests with zero failures and 377 assertions. Direct
+changed-file ESLint and the solution-style source/spec TypeScript build exited 0. The uncached full
+tool-wiki aggregate passed lint, typecheck and all 135 tests with zero failures and 1,851 assertions
+in 301.89 seconds (5m2s Nx duration); Nx used its explicit in-process fallback after the sandbox
+denied the daemon socket, and no target was skipped. Pinned OpenSpec 1.3.0 strict validation returned
+the change valid with exit 0 and telemetry disabled. Final formatting/diff checks follow this
+evidence append. No pilot files were created, no checkbox changed, and no push was performed.
