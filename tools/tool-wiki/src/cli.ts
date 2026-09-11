@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { parseOrThrow } from '@wbs/validation';
 
@@ -215,7 +216,11 @@ function writeReviewProvenance(argv: string[]): void {
   process.stdout.write(`${JSON.stringify(validation)}\n`);
 }
 
-function run(argv: string[]): void {
+function validatorArtifactPaths(): string[] {
+  return [join(import.meta.dir, 'cli.ts'), join(import.meta.dir, 'policy', 'trust.ts')];
+}
+
+function run(argv: string[]): Promise<void> | void {
   if (argv.length === 3 && argv[0] === 'validate') {
     validateRecord(argv);
     return;
@@ -248,15 +253,35 @@ function run(argv: string[]): void {
     writeReviewProvenance(argv);
     return;
   }
+  if (argv.length === 7 && argv[0] === 'lint-local') {
+    return import('./policy/trust').then(({ writeLocalLintCommand }) => {
+      writeLocalLintCommand(argv, validatorArtifactPaths());
+    });
+  }
+  if (argv.length === 5 && argv[0] === 'lint-ci') {
+    return import('./policy/trust').then(({ writeCiLintCommand }) => {
+      writeCiLintCommand(argv, validatorArtifactPaths());
+    });
+  }
+  if (argv.length === 4 && argv[0] === 'validate-policy-activation') {
+    return import('./policy/trust').then(({ writePolicyActivationCommand }) => {
+      writePolicyActivationCommand(argv, validatorArtifactPaths());
+    });
+  }
   throw new Error(
-    'usage: tool-wiki <validate|read-candidate|classify-candidate|content-manifest|validate-artifacts|extract-relationships|check-indexes|validate-review-provenance> ...',
+    'usage: tool-wiki <validate|read-candidate|classify-candidate|content-manifest|validate-artifacts|extract-relationships|check-indexes|validate-review-provenance|lint-local|lint-ci|validate-policy-activation> ...',
   );
 }
 
-try {
-  run(process.argv.slice(2));
-} catch (cause) {
+function fail(cause: unknown): void {
   const message = cause instanceof Error ? cause.message : String(cause);
   process.stderr.write(`${message}\n`);
   process.exitCode = 1;
+}
+
+try {
+  const pending = run(process.argv.slice(2));
+  if (pending !== undefined) void pending.catch(fail);
+} catch (cause) {
+  fail(cause);
 }

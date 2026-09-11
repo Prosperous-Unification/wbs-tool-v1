@@ -101,7 +101,7 @@ No `verify.md` exists until implementation produces observations.
       submit sampled evidence as exhaustive, close a finding without source/check evidence,
       or reuse pre-correction review; enforce must name the unmet obligation. Record
       model/context overlap and full review/read costs.
-- [ ] 3.4 Implement `policy/trust.ts` and CLI observe/ratchet/enforce with externally
+- [x] 3.4 Implement `policy/trust.ts` and CLI observe/ratchet/enforce with externally
       selected policy/validator binding. Test `trusted-policy.test.ts` using independent
       candidate and trusted-policy fixtures: every mode performs whole-tree deterministic
       checks; ratchet prevents adopted regressions; enforce rejects missing obligations.
