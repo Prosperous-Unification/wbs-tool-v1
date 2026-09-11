@@ -23,7 +23,7 @@ import {
   type ProvenanceRequirement,
   readInvocationJournal,
   validateReviewProvenance,
-} from './review';
+} from './review/invoker';
 
 interface JsonDocument {
   bytes: Uint8Array;
