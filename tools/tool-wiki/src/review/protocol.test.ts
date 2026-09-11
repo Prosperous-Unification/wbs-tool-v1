@@ -1,24 +1,71 @@
 import { describe, expect, test } from 'bun:test';
 
-import { hashCanonical } from '../evidence/content-manifest';
-import { decodeHarnessOutput, type ReviewProtocolEvidence } from './protocol';
+import { hashBytes, hashCanonical } from '../evidence/content-manifest';
+import {
+  type ColdHarnessOutput,
+  decodeColdHarnessOutput,
+  decodeInformedHarnessOutput,
+  type InformedHarnessOutput,
+} from './protocol';
 
 const SHA_A = 'a'.repeat(64);
 const SHA_B = 'b'.repeat(64);
 const SHA_C = 'c'.repeat(64);
 
-function protocolEvidence(): ReviewProtocolEvidence {
-  const cold = {
-    sequence: 1 as const,
-    judgments: {
-      purpose: 'yes' as const,
-      relationships: 'partial' as const,
-      impact: 'no' as const,
+function verifiedTelemetry(rawResponse: string, receiptId: string) {
+  return {
+    status: 'verified' as const,
+    receipt: {
+      schemaVersion: 1 as const,
+      receiptKind: 'invocation' as const,
+      receiptId,
+      invocationId: 'invocation.protocol-test',
+      startedAt: '2026-09-11T07:00:00.000Z',
+      endedAt: '2026-09-11T07:01:00.000Z',
+      status: 'completed' as const,
+      executor: {
+        provider: 'openai',
+        model: 'gpt-5',
+        version: '2026-09-10',
+        effort: 'high',
+        toolchain: 'codex',
+      },
+      rawUsage: [{ category: 'input_tokens', quantity: 1200, unit: 'tokens' }],
+      priceIdentity: {
+        priceId: 'openai.gpt-5.2026-09-10',
+        provider: 'openai',
+        model: 'gpt-5',
+        currency: 'USD',
+        source: 'provider-receipt',
+      },
+      chargedAmountMicros: 12500,
+      inputArtifact: SHA_C,
+      outputArtifact: hashBytes(rawResponse),
     },
-    observedReadIds: [SHA_A],
+    elapsedReceipts: [
+      {
+        schemaVersion: 1 as const,
+        receiptKind: 'elapsed' as const,
+        receiptId: `receipt.elapsed.${receiptId}`,
+        trialId: 'trial.protocol-test',
+        outcomeId: 'outcome.protocol-test',
+        attemptId: `attempt.${receiptId}`,
+        phase: 'review' as const,
+        startedAt: '2026-09-11T07:00:00.000Z',
+        endedAt: '2026-09-11T07:01:00.000Z',
+        elapsedMs: 60000,
+        status: 'completed' as const,
+      },
+    ],
   };
+}
+
+function coldOutput(): ColdHarnessOutput {
+  const rawResponse = 'cold: relationships partial, impact no\n';
   return {
     schemaVersion: 1,
+    messageKind: 'cold-completion',
+    invocationId: 'invocation.protocol-test',
     protocol: { protocolId: 'review.cold-informed.v1', protocolBlob: SHA_B },
     subject: {
       subjectId: 'subject.protocol-test',
@@ -26,165 +73,101 @@ function protocolEvidence(): ReviewProtocolEvidence {
       path: 'src/example.ts',
       contentIdentity: SHA_A,
     },
-    cold,
-    expansion: {
-      sequence: 2,
-      coldJudgmentArtifact: hashCanonical(cold),
-      suppliedContextIds: [SHA_B],
+    cold: {
+      sequence: 1,
+      judgments: { purpose: 'yes', relationships: 'partial', impact: 'no' },
+      observedReadIds: [SHA_A],
     },
-    informed: {
-      sequence: 3,
-      judgments: { purpose: 'yes', relationships: 'yes', impact: 'yes' },
-      observedReadIds: [SHA_A, SHA_B],
-    },
-  };
-}
-
-function verifiedOutput() {
-  const evidence = protocolEvidence();
-  const rawResponse = 'cold: relationships partial, impact no\ninformed: all yes\n';
-  return {
-    schemaVersion: 1,
-    messageKind: 'review-completion',
-    invocationId: 'invocation.protocol-test',
-    protocolEvidence: evidence,
     actualTools: [
       { toolId: 'read-file', version: '1' },
       { toolId: 'read-file', version: '1' },
-      { toolId: 'run-check', version: '2' },
     ],
     rawResponse: {
       mediaType: 'text/plain',
       payload: rawResponse,
       retention: { kind: 'journal-inline' },
     },
-    telemetry: {
-      status: 'verified',
-      receipt: {
-        schemaVersion: 1,
-        receiptKind: 'invocation',
-        receiptId: 'receipt.invocation.protocol-test',
-        invocationId: 'invocation.protocol-test',
-        startedAt: '2026-09-11T07:00:00.000Z',
-        endedAt: '2026-09-11T07:01:00.000Z',
-        status: 'completed',
-        executor: {
-          provider: 'openai',
-          model: 'gpt-5',
-          version: '2026-09-10',
-          effort: 'high',
-          toolchain: 'codex',
-        },
-        rawUsage: [
-          { category: 'input_tokens', quantity: 1200, unit: 'tokens' },
-          { category: 'output_tokens', quantity: 300, unit: 'tokens' },
-        ],
-        priceIdentity: {
-          priceId: 'openai.gpt-5.2026-09-10',
-          provider: 'openai',
-          model: 'gpt-5',
-          currency: 'USD',
-          source: 'provider-receipt',
-        },
-        chargedAmountMicros: 25000,
-        inputArtifact: SHA_C,
-        outputArtifact: new Bun.CryptoHasher('sha256').update(rawResponse).digest('hex'),
-      },
-      elapsedReceipts: [
-        {
-          schemaVersion: 1,
-          receiptKind: 'elapsed',
-          receiptId: 'receipt.elapsed.protocol-test',
-          trialId: 'trial.protocol-test',
-          outcomeId: 'outcome.protocol-test',
-          attemptId: 'attempt.protocol-test',
-          phase: 'review',
-          startedAt: '2026-09-11T07:00:00.000Z',
-          endedAt: '2026-09-11T07:01:00.000Z',
-          elapsedMs: 60000,
-          status: 'completed',
-        },
-      ],
+    telemetry: verifiedTelemetry(rawResponse, 'receipt.invocation.cold'),
+  };
+}
+
+function informedOutput(coldArtifact = hashCanonical(coldOutput().cold)): InformedHarnessOutput {
+  const rawResponse = 'informed: all yes\n';
+  return {
+    schemaVersion: 1,
+    messageKind: 'informed-completion',
+    invocationId: 'invocation.protocol-test',
+    protocol: coldOutput().protocol,
+    subject: coldOutput().subject,
+    coldArtifact,
+    informed: {
+      sequence: 3,
+      judgments: { purpose: 'yes', relationships: 'yes', impact: 'yes' },
+      observedReadIds: [SHA_A, SHA_B],
     },
+    actualTools: [{ toolId: 'run-check', version: '2' }],
+    rawResponse: {
+      mediaType: 'text/plain',
+      payload: rawResponse,
+      retention: { kind: 'journal-inline' },
+    },
+    telemetry: verifiedTelemetry(rawResponse, 'receipt.invocation.informed'),
   };
 }
 
 describe('cold/informed review protocol', () => {
-  test('retains cold uncertainty separately when informed expansion reaches yes', () => {
-    const decoded = decodeHarnessOutput(verifiedOutput());
+  test('decodes cold and informed phases as separate receipts and tool sequences', () => {
+    const cold = decodeColdHarnessOutput(coldOutput());
+    const informed = decodeInformedHarnessOutput(informedOutput(hashCanonical(cold.cold)));
 
-    expect(decoded.protocolEvidence.cold.judgments).toEqual({
-      purpose: 'yes',
-      relationships: 'partial',
-      impact: 'no',
-    });
-    expect(decoded.protocolEvidence.informed.judgments).toEqual({
-      purpose: 'yes',
-      relationships: 'yes',
-      impact: 'yes',
-    });
-    expect(decoded.actualTools).toEqual(verifiedOutput().actualTools);
-    expect(decoded.telemetry.status).toBe('verified');
-    if (decoded.telemetry.status !== 'verified') throw new Error('expected verified telemetry');
-    expect(decoded.telemetry.elapsedReceipts).toHaveLength(1);
-    expect(decoded.telemetry.elapsedReceipts[0]).toMatchObject({
-      receiptKind: 'elapsed',
-      phase: 'review',
-      elapsedMs: 60000,
-    });
+    expect(cold.cold.judgments.impact).toBe('no');
+    expect(informed.informed.judgments.impact).toBe('yes');
+    expect(cold.actualTools).toHaveLength(2);
+    expect(informed.actualTools).toEqual([{ toolId: 'run-check', version: '2' }]);
+    expect(cold.telemetry.status).toBe('verified');
+    expect(informed.telemetry.status).toBe('verified');
   });
 
-  test('refuses an expansion that does not bind the exact frozen cold judgment', () => {
-    const output = verifiedOutput();
-    output.protocolEvidence.expansion.coldJudgmentArtifact = SHA_C;
-
-    expect(() => decodeHarnessOutput(output)).toThrow('coldJudgmentArtifact');
-  });
-
-  test('refuses verified telemetry that does not identify its exact response or elapsed time', () => {
-    const wrongResponse = verifiedOutput();
-    wrongResponse.telemetry.receipt.outputArtifact = SHA_A;
-    const missingElapsed = verifiedOutput();
-    missingElapsed.telemetry.elapsedReceipts = [];
-
-    expect(() => decodeHarnessOutput(wrongResponse)).toThrow('outputArtifact');
-    expect(() => decodeHarnessOutput(missingElapsed)).toThrow('elapsed receipt');
-  });
-
-  test('models absent required telemetry without fabricated usage, prices or charges', () => {
-    const output = verifiedOutput();
-    const unverified = {
-      ...output,
-      telemetry: {
-        status: 'unverified' as const,
-        reason: 'provider omitted price identity',
+  test('retains known partial telemetry while naming missing requirements', () => {
+    const output = coldOutput();
+    output.telemetry = {
+      status: 'unverified',
+      reason: 'provider omitted price identity',
+      missingRequirements: ['priceIdentity'],
+      observed: {
+        provider: 'openai',
+        model: 'gpt-5',
+        rawUsage: [{ category: 'input_tokens', quantity: 1200, unit: 'tokens' }],
+        chargedAmountMicros: 12500,
+        startedAt: '2026-09-11T07:00:00.000Z',
+        endedAt: '2026-09-11T07:01:00.000Z',
       },
     };
 
-    const decoded = decodeHarnessOutput(unverified);
+    expect(decodeColdHarnessOutput(output).telemetry).toEqual(output.telemetry);
+  });
 
-    expect(decoded.telemetry).toEqual({
-      status: 'unverified',
-      reason: 'provider omitted price identity',
-    });
-    expect(decoded.telemetry).not.toHaveProperty('receipt');
+  test('keeps the informed cold identity explicit for durable-boundary reconciliation', () => {
+    expect(() => decodeInformedHarnessOutput(informedOutput(SHA_C))).not.toThrow();
+    expect(informedOutput(SHA_C).coldArtifact).not.toBe(hashCanonical(coldOutput().cold));
+  });
 
-    expect(() =>
-      decodeHarnessOutput({
-        ...unverified,
-        telemetry: { ...unverified.telemetry, chargedAmountMicros: 0 },
-      }),
-    ).toThrow('chargedAmountMicros must be removed');
+  test('refuses verified phase telemetry that does not identify its exact raw response', () => {
+    const output = coldOutput();
+    if (output.telemetry.status !== 'verified') throw new Error('expected verified telemetry');
+    output.telemetry.receipt.outputArtifact = SHA_A;
+
+    expect(() => decodeColdHarnessOutput(output)).toThrow('outputArtifact');
   });
 
   test('requires a real retention horizon for externally retained raw responses', () => {
-    const output = verifiedOutput();
+    const output = coldOutput();
     Reflect.set(output.rawResponse, 'retention', {
       kind: 'external',
-      artifactUri: 's3://review-evidence/raw-response.txt',
+      artifactUri: 's3://review-evidence/cold.txt',
       retainedUntil: '2026-02-30T00:00:00.000Z',
     });
 
-    expect(() => decodeHarnessOutput(output)).toThrow('retainedUntil');
+    expect(() => decodeColdHarnessOutput(output)).toThrow('retainedUntil');
   });
 });

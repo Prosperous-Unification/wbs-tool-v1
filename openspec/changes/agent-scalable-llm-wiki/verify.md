@@ -1070,3 +1070,75 @@ assertions in 342.56 seconds (5m43s Nx duration). Nx used its in-process plugin 
 sandbox denied its socket; no target was skipped. Pinned OpenSpec 1.3.0 strict validation returned
 `Change 'agent-scalable-llm-wiki' is valid` with exit 0 and telemetry disabled. Only task 3.1 is
 marked complete; task 3.2 and all later task checkboxes remain untouched.
+
+## Slice 3.1 Fix Round 1
+
+This round supersedes the earlier 3.1 implementation details where they differ. Cold and informed
+review are now two process attempts separated by a durably persisted cold acknowledgement. Cold
+stdin contains the pinned protocol and subject but no informed-context identities or resolvable
+informed payload. Only a successful, protocol-reconciled cold completion with verified telemetry
+permits the informed process to launch. Cold and informed usage, price, charge, elapsed receipts and
+exact tool sequences remain separate; the combined tool sequence preserves phase order and
+duplicates.
+
+The journal retains exact canonical registration and phase stdin, raw stdout and raw stderr bytes,
+their SHA-256 identities, process start/end/status, decoded output when available and the decode
+failure otherwise. Nonzero exits, launch failure, malformed output, protocol mismatch and telemetry
+mismatch are terminal unverified observations with no review evidence. Known partial provider,
+model, usage, price, charge, time and elapsed-receipt observations survive in the discriminated
+unverified telemetry state alongside explicit missing requirements; no absent value becomes zero.
+
+Every file-journal transition holds an owner-token lock across its full read-modify-fsync-rename-
+readback operation. A contender cannot release another owner's lock, and an existing or stale lock
+times out without age-based stealing. Registration is durable before cold launch; the complete cold
+attempt is durable before informed launch; repeated identical completion is idempotent while a
+different terminal or a cold acknowledgement after terminal is refused.
+
+All retained review evidence is re-derived from the canonical registered request and decoded exact
+phase stdout by one reconciliation implementation at completion, journal read and provenance
+validation. Submitted forged invocation ids, altered raw-response references, erased observed
+reads and rewritten cold judgments fail through the production CLI. The only accepted journal
+scope is `local-cooperative`; relabeling it is invalid, and local evidence always reports
+`satisfiesExternal: false`. Independently authenticated external provenance and trust selection
+remain deferred to later slices.
+
+Focused TDD began with the revised tests failing on the missing `FileJournalLock` and
+`decodeColdHarnessOutput` exports (zero pass, two failures). The final focused command passed 21
+tests with zero failures and 92 assertions in 9.03 seconds before the aggregate.
+
+| Deliberate one-at-a-time fault                                        | Observed focused or production-boundary failure                                                          |
+| --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| bypass external-provenance refusal                                    | production CLI returned 0; `Expected: 1, Received: 0`                                                    |
+| accept a relabeled local journal                                      | production CLI returned 0 for `trusted-harness`; `Expected: 1, Received: 0`                              |
+| launch cold without durable registration                              | completion failed on `cannot complete unknown invocation: invocation.integration-test`                   |
+| launch informed without durable cold acknowledgement                  | production path failed on `informed terminal has no cold acknowledgement`                                |
+| include informed context identities in cold stdin                     | harness exited 31 with `review harness exited 31`                                                        |
+| accept unverified cold telemetry                                      | informed launched; retained terminal telemetry was `verified`, not cold `unverified`                     |
+| move semantic protocol rejection into byte reconciliation             | terminal persistence threw `cold output protocol, subject or invocation differs from registered request` |
+| accept a foreign telemetry invocation id                              | invocation returned `verified` instead of `unverified`                                                   |
+| omit cold or informed terminal persistence                            | each focused failure threw `expected unverified terminal`                                                |
+| trust retained payload or charge fields without exact stdout decoding | journal read did not throw for either rewrite                                                            |
+| accept forged registration/phase stdin, stdout or stderr identities   | negatives did not throw, or reached only the later telemetry mismatch                                    |
+| swap cold and informed phase receipts                                 | cold charge was 14000 µUSD instead of 11000 µUSD                                                         |
+| drop a repeated tool observation                                      | combined sequence had two entries instead of the exact three                                             |
+| bypass full evidence reconciliation                                   | altered raw-response evidence made the production CLI return 0                                           |
+| fall back to the first journal entry                                  | forged id produced a generic evidence mismatch instead of `unknown invocation`                           |
+| accept all repeated terminal completions                              | changed `completedAt` returned durable; the test reported that the function did not throw                |
+| acknowledge cold after terminal                                       | method returned durable; the test reported that the function did not throw                               |
+| bypass the journal lock                                               | both registration workers exited while held: `[0, 0]` instead of `[null, null]`                          |
+| steal an existing lock                                                | completion workers produced `[1, 0]` instead of remaining blocked at `[null, null]`                      |
+| release after owner-token replacement                                 | release did not throw at the ownership assertion                                                         |
+| discard known partial telemetry                                       | decoded `observed` became `{}` instead of retaining provider/model/usage/charge/time                     |
+| widen external retention time to any string                           | invalid 30 February was accepted; decoder did not throw                                                  |
+| reverse raw-response identity comparison                              | a mismatched output artifact decoded; the test did not throw                                             |
+
+Every fault was restored before the next. Adjacent `Proof:` comments quote the observed failure.
+The first uncached project aggregate
+`NX_DAEMON=false bunx nx run-many -t lint typecheck test -p tool-wiki --skip-nx-cache
+--output-style=static` exited 0 with 166 tests, zero failures and 2,020 assertions in 374.86 seconds
+(6m15s Nx duration). Nx used its in-process plugin fallback after the sandbox denied its socket; no
+target was skipped. After formatting the source, the exact-source rerun also exited 0 with 166
+tests, zero failures and 2,020 assertions in 374.29 seconds (6m14s Nx duration), with the same
+documented fallback and no skipped target. `bunx nx format:check --all` exited 0. Pinned
+`OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate agent-scalable-llm-wiki --strict`
+exited 0 with `Change 'agent-scalable-llm-wiki' is valid`.

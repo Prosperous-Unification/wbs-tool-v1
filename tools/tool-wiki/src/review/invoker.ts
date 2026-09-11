@@ -1,27 +1,40 @@
-import { closeSync, fsyncSync, openSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import {
+  closeSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmdirSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 
 import { parseOrThrow, type } from '@wbs/validation';
 
 import { IsoInstant, OpaqueId, SchemaVersion } from '../contracts/records';
 import { hashBytes, hashCanonical, serializeCanonical } from '../evidence/content-manifest';
-import type { HarnessOutput } from './protocol';
 import {
-  decodeHarnessOutput,
+  ColdHarnessOutput,
+  ColdHarnessRequest,
+  decodeColdHarnessOutput,
+  decodeInformedHarnessOutput,
   decodeReviewEvidence,
-  RetainedRawResponse,
+  InformedHarnessOutput,
+  InformedHarnessRequest,
   ReviewEvidence,
   type ReviewEvidence as ReviewEvidenceRecord,
   ReviewInvocationRequest,
   type ReviewInvocationRequest as ReviewInvocationRequestRecord,
-  ReviewProtocolEvidence,
-  ReviewTelemetry,
-  ToolIdentity,
+  type VerifiedTelemetry,
 } from './protocol';
 
 const Sha256 = type(/^[0-9a-f]{64}$/);
-const TrustScope = type("'local-cooperative'|'trusted-harness'|'external-verifier'");
-export type TrustScope = typeof TrustScope.infer;
+// Proof: widening this boundary to accept `trusted-harness` let a relabeled local journal pass
+// the provenance CLI; the test observed `Expected: 1, Received: 0`.
+const LocalTrustScope = type("'local-cooperative'");
 
 export const InvocationRegistration = type({
   invocationId: OpaqueId,
@@ -32,60 +45,136 @@ export const InvocationRegistration = type({
   stdinBytes: 'string',
 })
   .onUndeclaredKey('reject')
-  // Proof: replacing this comparison with true made "exact stdin or stdout byte identities" fail: "Received function did not throw".
   .narrow((registration, context) =>
+    // Proof: accepting every identity let a forged registration stdinArtifact pass journal
+    // reading; the exact-bytes test reported "function did not throw".
     registration.stdinArtifact === hashBytes(registration.stdinBytes)
       ? true
       : context.mustBe('a stdinArtifact identifying the exact canonical stdin bytes'),
   );
 export type InvocationRegistration = typeof InvocationRegistration.infer;
 
-export const InvocationCompletion = type({
-  completedAt: IsoInstant,
+const ExitedProcess = type({
+  kind: "'exited'",
+  exitCode: 'number.integer',
+}).onUndeclaredKey('reject');
+const LaunchFailedProcess = type({
+  kind: "'launch-failed'",
+  message: 'string>=1',
+}).onUndeclaredKey('reject');
+
+export const ProcessObservation = type({
+  phase: "'cold'|'informed'",
+  startedAt: IsoInstant,
+  endedAt: IsoInstant,
+  stdinArtifact: Sha256,
+  stdinBytes: 'string',
   stdoutArtifact: Sha256,
-  stdoutBytes: 'string',
-  actualTools: ToolIdentity.array(),
-  rawResponse: RetainedRawResponse,
-  protocolEvidence: ReviewProtocolEvidence,
-  telemetry: ReviewTelemetry,
-  evidence: ReviewEvidence.or('null'),
+  stdoutBase64: 'string',
+  stderrArtifact: Sha256,
+  stderrBase64: 'string',
+  exit: ExitedProcess.or(LaunchFailedProcess),
 })
   .onUndeclaredKey('reject')
-  .narrow((completion, context) => {
-    // Proof: bypassing this comparison made "exact stdin or stdout byte identities" fail: "Received function did not throw".
-    if (completion.stdoutArtifact !== hashBytes(completion.stdoutBytes)) {
+  .narrow((observation, context) => {
+    // Proof: bypassing this comparison changed a forged stdinArtifact rejection to the downstream
+    // telemetry mismatch; the exact-bytes test expected the stdinArtifact boundary itself.
+    if (observation.stdinArtifact !== hashBytes(observation.stdinBytes)) {
+      return context.mustBe('a stdinArtifact identifying the exact phase stdin bytes');
+    }
+    const stdout = decodeBase64(observation.stdoutBase64, 'stdoutBase64');
+    // Proof: bypassing this comparison let a forged stdoutArtifact pass journal reading; the
+    // exact-bytes test reported "function did not throw" at the stdoutArtifact assertion.
+    if (observation.stdoutArtifact !== hashBytes(stdout)) {
       return context.mustBe('a stdoutArtifact identifying the exact raw stdout bytes');
     }
-    const hasEvidence = completion.evidence !== null;
-    const completedWithTelemetry =
-      completion.telemetry.status === 'verified' &&
-      completion.telemetry.receipt.status === 'completed';
-    // Proof: replacing this equivalence with true made "makes completion idempotent" reach "different terminal completion" instead of rejecting missing evidence.
-    return completedWithTelemetry === hasEvidence
+    const stderr = decodeBase64(observation.stderrBase64, 'stderrBase64');
+    // Proof: bypassing this comparison let rewritten retained stderr pass journal reading; the
+    // exact-bytes test reported "function did not throw" at the stderrArtifact assertion.
+    if (observation.stderrArtifact !== hashBytes(stderr)) {
+      return context.mustBe('a stderrArtifact identifying the exact raw stderr bytes');
+    }
+    return Date.parse(observation.endedAt) >= Date.parse(observation.startedAt)
       ? true
-      : context.mustBe('evidence exactly when completed telemetry is verified');
+      : context.mustBe('a process observation whose end is not before its start');
   });
-export type InvocationCompletion = typeof InvocationCompletion.infer;
+export type ProcessObservation = typeof ProcessObservation.infer;
+
+export const ColdAttempt = type({
+  observation: ProcessObservation,
+  output: ColdHarnessOutput.or('null'),
+  decodeFailure: 'string|null',
+}).onUndeclaredKey('reject');
+export type ColdAttempt = typeof ColdAttempt.infer;
+
+export const InformedAttempt = type({
+  observation: ProcessObservation,
+  output: InformedHarnessOutput.or('null'),
+  decodeFailure: 'string|null',
+}).onUndeclaredKey('reject');
+export type InformedAttempt = typeof InformedAttempt.infer;
+
+export const ColdAcknowledgement = type({
+  acknowledgedAt: IsoInstant,
+  attempt: ColdAttempt,
+}).onUndeclaredKey('reject');
+export type ColdAcknowledgement = typeof ColdAcknowledgement.infer;
+
+const ReviewedTerminal = type({
+  status: "'reviewed'",
+  completedAt: IsoInstant,
+  informed: InformedAttempt,
+  evidence: ReviewEvidence,
+}).onUndeclaredKey('reject');
+
+const ColdUnverifiedTerminal = type({
+  status: "'unverified'",
+  completedAt: IsoInstant,
+  phase: "'cold'",
+  reason: 'string>=1',
+  attempt: ColdAttempt,
+  evidence: 'null',
+}).onUndeclaredKey('reject');
+
+const InformedUnverifiedTerminal = type({
+  status: "'unverified'",
+  completedAt: IsoInstant,
+  phase: "'informed'",
+  reason: 'string>=1',
+  attempt: InformedAttempt,
+  evidence: 'null',
+}).onUndeclaredKey('reject');
+
+export const InvocationTerminal = ReviewedTerminal.or(ColdUnverifiedTerminal).or(
+  InformedUnverifiedTerminal,
+);
+export type InvocationTerminal = typeof InvocationTerminal.infer;
 
 const RegisteredInvocation = type({
   state: "'registered'",
   registration: InvocationRegistration,
 }).onUndeclaredKey('reject');
 
-const CompletedInvocation = type({
-  state: "'completed'",
+const ColdAcknowledgedInvocation = type({
+  state: "'cold-acknowledged'",
   registration: InvocationRegistration,
-  completion: InvocationCompletion,
+  cold: ColdAcknowledgement,
+}).onUndeclaredKey('reject');
+
+const TerminalInvocation = type({
+  state: "'terminal'",
+  registration: InvocationRegistration,
+  'cold?': ColdAcknowledgement,
+  terminal: InvocationTerminal,
 }).onUndeclaredKey('reject');
 
 export const InvocationJournalRecord = type({
   schemaVersion: SchemaVersion,
   journalId: OpaqueId,
-  trustScope: TrustScope,
-  entries: RegisteredInvocation.or(CompletedInvocation).array(),
+  trustScope: LocalTrustScope,
+  entries: RegisteredInvocation.or(ColdAcknowledgedInvocation).or(TerminalInvocation).array(),
 })
   .onUndeclaredKey('reject')
-  // Proof: replacing this uniqueness comparison with true made "exact stdin or stdout byte identities" accept a duplicated entry and fail "Received function did not throw".
   .narrow((journal, context) =>
     new Set(journal.entries.map(({ registration }) => registration.invocationId)).size ===
     journal.entries.length
@@ -94,22 +183,19 @@ export const InvocationJournalRecord = type({
   );
 export type InvocationJournalRecord = typeof InvocationJournalRecord.infer;
 
-export interface DurableRegistration {
+export interface DurableAcceptance {
   status: 'durable';
   journalId: string;
   invocationId: string;
-  registrationArtifact: string;
+  artifact: string;
 }
 
-/**
- * Persists the lifecycle of a harness invocation outside writer-supplied evidence.
- * `register` returns only after the exact registration is durably readable.
- */
 export interface InvocationJournal {
   readonly journalId: string;
-  readonly trustScope: TrustScope;
-  register(registration: InvocationRegistration): DurableRegistration;
-  complete(invocationId: string, completion: InvocationCompletion): void;
+  readonly trustScope: 'local-cooperative';
+  register(registration: InvocationRegistration): DurableAcceptance;
+  acknowledgeCold(invocationId: string, cold: ColdAcknowledgement): DurableAcceptance;
+  complete(invocationId: string, terminal: InvocationTerminal): DurableAcceptance;
   read(): InvocationJournalRecord;
 }
 
@@ -120,6 +206,12 @@ export interface ReviewInvoker {
 export type ReviewInvocationResult =
   | { status: 'verified'; evidence: ReviewEvidenceRecord }
   | { status: 'unverified'; invocationId: string; reason: string };
+
+function decodeBase64(source: string, subject: string): Uint8Array {
+  const bytes = Buffer.from(source, 'base64');
+  if (bytes.toString('base64') !== source) throw new Error(`${subject} is not canonical base64`);
+  return bytes;
+}
 
 function decodeUtf8(bytes: Uint8Array, subject: string): string {
   try {
@@ -134,26 +226,337 @@ function decodeJson(source: string, subject: string): unknown {
   try {
     return JSON.parse(source) as unknown;
   } catch (cause) {
-    // Proof: bypassing this contextual rethrow made "distinguishes missing, unreadable and malformed" receive "JSON Parse error" instead of "malformed JSON".
     const detail = cause instanceof Error ? cause.message : String(cause);
     throw new Error(`${subject} is malformed JSON: ${detail}`, { cause });
   }
 }
 
-/** Reads and strictly validates a persisted invocation journal. */
+function errorMessage(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
+}
+
+function decodeRegistration(registration: InvocationRegistration): ReviewInvocationRequestRecord {
+  const request = parseOrThrow(
+    ReviewInvocationRequest,
+    decodeJson(registration.stdinBytes, 'registered review request'),
+  );
+  if (serializeCanonical(request) !== registration.stdinBytes) {
+    throw new Error(`registered review request is not exact canonical stdin`);
+  }
+  if (
+    request.invocationId !== registration.invocationId ||
+    request.receiptId !== registration.receiptId
+  ) {
+    throw new Error(`registered review request identity differs from journal registration`);
+  }
+  return request;
+}
+
+/**
+ * Builds the cold stdin without informed context identities or payloads.
+ *
+ * Proof: adding `informedContextIds` here and to the cold schema made the production harness exit
+ * 31 (`review harness exited 31`) in the durable-boundary test.
+ */
+function coldRequest(request: ReviewInvocationRequestRecord): typeof ColdHarnessRequest.infer {
+  return parseOrThrow(ColdHarnessRequest, {
+    schemaVersion: 1,
+    messageKind: 'cold-request',
+    invocationId: request.invocationId,
+    receiptId: request.receiptId,
+    protocol: request.protocol,
+    subject: request.subject,
+  });
+}
+
+function informedRequest(
+  request: ReviewInvocationRequestRecord,
+  cold: ColdAcknowledgement,
+): typeof InformedHarnessRequest.infer {
+  if (cold.attempt.output === null) throw new Error(`cold acknowledgement has no decoded output`);
+  return parseOrThrow(InformedHarnessRequest, {
+    schemaVersion: 1,
+    messageKind: 'informed-request',
+    invocationId: request.invocationId,
+    receiptId: request.receiptId,
+    protocol: request.protocol,
+    subject: request.subject,
+    cold: cold.attempt.output.cold,
+    coldArtifact: hashCanonical(cold.attempt.output.cold),
+    informedContextIds: request.informedContextIds,
+  });
+}
+
+function decodeAttemptOutput<T>(
+  observation: ProcessObservation,
+  retained: T | null,
+  decode: (input: unknown) => T,
+): T | null {
+  const bytes = decodeBase64(observation.stdoutBase64, 'stdoutBase64');
+  let decoded: T;
+  try {
+    decoded = decode(
+      decodeJson(decodeUtf8(bytes, 'retained phase stdout'), 'retained phase stdout'),
+    );
+  } catch (cause) {
+    if (retained !== null) {
+      throw new Error(
+        `retained output is not decodable from exact stdout: ${errorMessage(cause)}`,
+        {
+          cause,
+        },
+      );
+    }
+    return null;
+  }
+  // Proof: removing the retained-vs-decoded comparison let a rewritten payload and telemetry
+  // charge pass readInvocationJournal; the exact-stdout test reported "function did not throw".
+  if (retained === null || hashCanonical(decoded) !== hashCanonical(retained)) {
+    throw new Error(`retained output differs from exact stdout`);
+  }
+  return decoded;
+}
+
+function reconcileTelemetry(
+  telemetry: VerifiedTelemetry,
+  observation: ProcessObservation,
+  registeredAt: string,
+  invocationId: string,
+): void {
+  // Proof: bypassing this comparison made a cold receipt for `invocation.forged` verify; the
+  // telemetry-invalid test received `verified` instead of `unverified`.
+  if (telemetry.receipt.invocationId !== invocationId) {
+    throw new Error(`telemetry invocationId differs from registered invocation`);
+  }
+  if (telemetry.receipt.inputArtifact !== observation.stdinArtifact) {
+    throw new Error(`telemetry inputArtifact differs from exact phase stdin`);
+  }
+  if (Date.parse(telemetry.receipt.startedAt) < Date.parse(registeredAt)) {
+    throw new Error(`telemetry starts before durable invocation registration`);
+  }
+}
+
+/**
+ * Reconciles retained bytes without treating an invalid protocol claim as invalid journal data.
+ *
+ * Proof: moving the protocol comparison into this byte reconciliation made terminal persistence
+ * throw `cold output protocol, subject or invocation differs from registered request`.
+ */
+function reconcileColdAttempt(
+  registration: InvocationRegistration,
+  attempt: ColdAttempt,
+): ColdHarnessOutput | null {
+  const request = decodeRegistration(registration);
+  if (attempt.observation.phase !== 'cold') throw new Error(`cold attempt has informed phase`);
+  const expectedInput = serializeCanonical(coldRequest(request));
+  if (attempt.observation.stdinBytes !== expectedInput) {
+    throw new Error(`cold attempt stdin differs from cold-only request`);
+  }
+  const output = decodeAttemptOutput(attempt.observation, attempt.output, decodeColdHarnessOutput);
+  if (output === null) return null;
+  return output;
+}
+
+function reconcileInformedAttempt(
+  registration: InvocationRegistration,
+  cold: ColdAcknowledgement,
+  attempt: InformedAttempt,
+): InformedHarnessOutput | null {
+  const request = decodeRegistration(registration);
+  if (attempt.observation.phase !== 'informed') throw new Error(`informed attempt has cold phase`);
+  const expected = informedRequest(request, cold);
+  if (attempt.observation.stdinBytes !== serializeCanonical(expected)) {
+    throw new Error(`informed attempt stdin differs from acknowledged cold boundary`);
+  }
+  const output = decodeAttemptOutput(
+    attempt.observation,
+    attempt.output,
+    decodeInformedHarnessOutput,
+  );
+  if (output === null) return null;
+  return output;
+}
+
+function assertSuccessfulAttempt<T extends ColdHarnessOutput | InformedHarnessOutput>(
+  attempt: ColdAttempt | InformedAttempt,
+  output: T | null,
+): asserts output is T & { telemetry: VerifiedTelemetry } {
+  if (attempt.observation.exit.kind === 'launch-failed') {
+    throw new Error(`launch failed: ${attempt.observation.exit.message}`);
+  }
+  if (attempt.observation.exit.exitCode !== 0) {
+    throw new Error(`review harness exited ${String(attempt.observation.exit.exitCode)}`);
+  }
+  if (attempt.decodeFailure !== null) throw new Error(attempt.decodeFailure);
+  if (output === null) throw new Error(`review harness produced no decodable output`);
+  // Proof: accepting unverified telemetry here launched informed; the partial-telemetry test
+  // received informed `verified` telemetry instead of retained cold `unverified` telemetry.
+  if (output.telemetry.status === 'unverified') throw new Error(output.telemetry.reason);
+  if (output.telemetry.receipt.status !== 'completed') {
+    throw new Error(`invocation status ${output.telemetry.receipt.status}`);
+  }
+}
+
+function deriveReviewEvidence(
+  request: ReviewInvocationRequestRecord,
+  cold: ColdHarnessOutput,
+  informed: InformedHarnessOutput,
+  journalId: string,
+): ReviewEvidenceRecord {
+  if (cold.telemetry.status !== 'verified' || informed.telemetry.status !== 'verified') {
+    throw new Error(`review evidence requires verified phase telemetry`);
+  }
+  if (
+    hashCanonical(cold.telemetry.receipt.executor) !==
+      hashCanonical(informed.telemetry.receipt.executor) ||
+    hashCanonical(cold.telemetry.receipt.priceIdentity) !==
+      hashCanonical(informed.telemetry.receipt.priceIdentity)
+  ) {
+    throw new Error(`review phases require one compatible executor and price identity`);
+  }
+  const coldArtifact = hashCanonical(cold.cold);
+  return parseOrThrow(ReviewEvidence, {
+    schemaVersion: 1,
+    receipt: {
+      schemaVersion: 1,
+      receiptKind: 'review',
+      receiptId: request.receiptId,
+      invocationId: request.invocationId,
+      executor: informed.telemetry.receipt.executor,
+      suppliedContextIds: [
+        request.protocol.protocolBlob,
+        request.subject.contentIdentity,
+        ...request.informedContextIds,
+      ],
+      observedReadIds: [...cold.cold.observedReadIds, ...informed.informed.observedReadIds],
+      rawResponseArtifact: hashBytes(informed.rawResponse.payload),
+      rawUsage: [...cold.telemetry.receipt.rawUsage, ...informed.telemetry.receipt.rawUsage],
+      priceIdentity: informed.telemetry.receipt.priceIdentity,
+      trust: { scope: 'local-cooperative', journalId },
+    },
+    protocolEvidence: {
+      schemaVersion: 1,
+      protocol: request.protocol,
+      subject: request.subject,
+      cold: cold.cold,
+      expansion: {
+        sequence: 2,
+        coldJudgmentArtifact: coldArtifact,
+        suppliedContextIds: request.informedContextIds,
+      },
+      informed: informed.informed,
+    },
+    // Proof: swapping these receipts made the cold cost assertion receive 14000 µUSD instead of
+    // 11000 µUSD, so phase costs cannot collapse into an aggregate.
+    phaseReceipts: { cold: cold.telemetry, informed: informed.telemetry },
+    phaseTools: { cold: cold.actualTools, informed: informed.actualTools },
+    // Proof: filtering out the repeated cold tool made the phase-order test receive two tool
+    // observations instead of the exact three-entry sequence (including its duplicate).
+    actualTools: [...cold.actualTools, ...informed.actualTools],
+    rawResponse: {
+      artifact: hashBytes(informed.rawResponse.payload),
+      retention: informed.rawResponse.retention,
+    },
+  });
+}
+
+function reconcileColdAcknowledgement(
+  registration: InvocationRegistration,
+  cold: ColdAcknowledgement,
+): ColdHarnessOutput {
+  const request = decodeRegistration(registration);
+  const output = reconcileColdAttempt(registration, cold.attempt);
+  assertSuccessfulAttempt(cold.attempt, output);
+  reconcileTelemetry(
+    output.telemetry,
+    cold.attempt.observation,
+    registration.registeredAt,
+    registration.invocationId,
+  );
+  if (
+    output.invocationId !== request.invocationId ||
+    hashCanonical(output.protocol) !== hashCanonical(request.protocol) ||
+    hashCanonical(output.subject) !== hashCanonical(request.subject)
+  ) {
+    throw new Error(`cold output protocol, subject or invocation differs from registered request`);
+  }
+  return output;
+}
+
+function reconcileReviewedInformed(
+  registration: InvocationRegistration,
+  cold: ColdAcknowledgement,
+  attempt: InformedAttempt,
+): InformedHarnessOutput {
+  const request = decodeRegistration(registration);
+  const expected = informedRequest(request, cold);
+  const output = reconcileInformedAttempt(registration, cold, attempt);
+  assertSuccessfulAttempt(attempt, output);
+  reconcileTelemetry(
+    output.telemetry,
+    attempt.observation,
+    registration.registeredAt,
+    registration.invocationId,
+  );
+  if (
+    output.invocationId !== request.invocationId ||
+    hashCanonical(output.protocol) !== hashCanonical(request.protocol) ||
+    hashCanonical(output.subject) !== hashCanonical(request.subject) ||
+    output.coldArtifact !== expected.coldArtifact
+  ) {
+    throw new Error(`informed output differs from acknowledged cold boundary or request`);
+  }
+  return output;
+}
+
+function reconcileEntry(
+  entry: InvocationJournalRecord['entries'][number],
+  journalId: string,
+): void {
+  const request = decodeRegistration(entry.registration);
+  if (entry.state === 'registered') return;
+  if (entry.state === 'cold-acknowledged') {
+    reconcileColdAcknowledgement(entry.registration, entry.cold);
+    return;
+  }
+  if (entry.terminal.status === 'unverified') {
+    if (entry.terminal.phase === 'cold') {
+      reconcileColdAttempt(entry.registration, entry.terminal.attempt);
+    } else {
+      if (entry.cold === undefined)
+        throw new Error(`informed terminal has no cold acknowledgement`);
+      reconcileColdAcknowledgement(entry.registration, entry.cold);
+      reconcileInformedAttempt(entry.registration, entry.cold, entry.terminal.attempt);
+    }
+    return;
+  }
+  if (entry.cold === undefined) throw new Error(`reviewed terminal has no cold acknowledgement`);
+  const cold = reconcileColdAcknowledgement(entry.registration, entry.cold);
+  const informed = reconcileReviewedInformed(
+    entry.registration,
+    entry.cold,
+    entry.terminal.informed,
+  );
+  const derived = deriveReviewEvidence(request, cold, informed, journalId);
+  if (hashCanonical(derived) !== hashCanonical(entry.terminal.evidence)) {
+    throw new Error(`retained review evidence differs from exact phase outputs and request`);
+  }
+}
+
+/** Reads and reconciles every retained field against canonical request and process bytes. */
 export function readInvocationJournal(path: string): InvocationJournalRecord {
   let bytes: Uint8Array;
   try {
     bytes = readFileSync(path);
   } catch (cause) {
-    // Proof: bypassing this contextual rethrow made "distinguishes missing, unreadable and malformed" receive ENOENT instead of "cannot read invocation journal".
-    const detail = cause instanceof Error ? cause.message : String(cause);
-    throw new Error(`cannot read invocation journal ${path}: ${detail}`, { cause });
+    throw new Error(`cannot read invocation journal ${path}: ${errorMessage(cause)}`, { cause });
   }
-  return parseOrThrow(
+  const journal = parseOrThrow(
     InvocationJournalRecord,
     decodeJson(decodeUtf8(bytes, `invocation journal ${path}`), `invocation journal ${path}`),
   );
+  for (const entry of journal.entries) reconcileEntry(entry, journal.journalId);
+  return journal;
 }
 
 function syncDirectory(path: string): void {
@@ -192,145 +595,338 @@ function replaceDurably(path: string, journal: InvocationJournalRecord): void {
   syncDirectory(dirname(path));
 }
 
-/** A canonical JSON invocation journal whose writes are fsynced and read back before acceptance. */
+function isExistingLock(cause: unknown): boolean {
+  return cause instanceof Error && Reflect.get(cause, 'code') === 'EEXIST';
+}
+
+function createLockDirectory(path: string, waitMs: number): void {
+  const deadline = Date.now() + waitMs;
+  let lastConflict: unknown;
+  do {
+    try {
+      mkdirSync(path, { mode: 0o700 });
+      return;
+    } catch (cause) {
+      if (!isExistingLock(cause)) throw cause;
+      // Proof: deleting an existing lock here let one completion worker finish and another fail
+      // while the owner still held it; the overlap test observed `[1, 0]`, not `[null, null]`.
+      lastConflict = cause;
+    }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+  } while (Date.now() < deadline);
+  throw new Error(`timed out waiting for invocation journal lock: ${path}`, {
+    cause: lastConflict,
+  });
+}
+
+/** An owned cross-process lock; stale locks are never stolen. */
+export class FileJournalLock {
+  private isReleased = false;
+
+  private constructor(
+    readonly path: string,
+    private readonly owner: string,
+  ) {}
+
+  static acquire(journalPath: string, waitMs = 5000): FileJournalLock {
+    const path = `${journalPath}.lock`;
+    createLockDirectory(path, waitMs);
+    const owner = `${String(process.pid)}.${crypto.randomUUID()}\n`;
+    try {
+      writeFileSync(join(path, 'owner'), owner, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+      syncDirectory(path);
+    } catch (cause) {
+      rmSync(join(path, 'owner'), { force: true });
+      rmdirSync(path);
+      throw cause;
+    }
+    return new FileJournalLock(path, owner);
+  }
+
+  release(): void {
+    if (this.isReleased) throw new Error(`invocation journal lock already released: ${this.path}`);
+    const observed = readFileSync(join(this.path, 'owner'), 'utf8');
+    // Proof: bypassing this comparison let a contender delete another owner's lock; the overlap
+    // test reported "function did not throw" at the ownership assertion.
+    if (observed !== this.owner) {
+      throw new Error(`invocation journal lock ownership changed: ${this.path}`);
+    }
+    unlinkSync(join(this.path, 'owner'));
+    rmdirSync(this.path);
+    syncDirectory(dirname(this.path));
+    this.isReleased = true;
+  }
+}
+
+function withJournalLock<T>(path: string, waitMs: number, action: () => T): T {
+  // Proof: bypassing this lock let both held-lock registration workers finish early; the overlap
+  // test observed `[0, 0]` instead of `[null, null]` before the owner released the lock.
+  const lock = FileJournalLock.acquire(path, waitMs);
+  try {
+    return action();
+  } finally {
+    lock.release();
+  }
+}
+
+/** A canonical invocation journal with serialized, fsynced, read-back transitions. */
 export class FileInvocationJournal implements InvocationJournal {
+  readonly trustScope = 'local-cooperative' as const;
+
   private constructor(
     private readonly path: string,
     readonly journalId: string,
-    readonly trustScope: TrustScope,
+    private readonly lockWaitMs: number,
   ) {}
 
-  static create(path: string, journalId: string, trustScope: TrustScope): FileInvocationJournal {
-    const journal = parseOrThrow(InvocationJournalRecord, {
-      schemaVersion: 1,
-      journalId,
-      trustScope,
-      entries: [],
+  static create(path: string, journalId: string, lockWaitMs = 5000): FileInvocationJournal {
+    return withJournalLock(path, lockWaitMs, () => {
+      const journal = parseOrThrow(InvocationJournalRecord, {
+        schemaVersion: 1,
+        journalId,
+        trustScope: 'local-cooperative',
+        entries: [],
+      });
+      createDurably(path, journal);
+      const stored = readInvocationJournal(path);
+      if (hashCanonical(stored) !== hashCanonical(journal)) {
+        throw new Error(`durable invocation journal creation differs after read-back: ${path}`);
+      }
+      return new FileInvocationJournal(path, journalId, lockWaitMs);
     });
-    createDurably(path, journal);
-    const stored = readInvocationJournal(path);
-    if (hashCanonical(stored) !== hashCanonical(journal)) {
-      throw new Error(`durable invocation journal creation differs after read-back: ${path}`);
-    }
-    return new FileInvocationJournal(path, stored.journalId, stored.trustScope);
   }
 
-  static open(path: string): FileInvocationJournal {
+  static open(path: string, lockWaitMs = 5000): FileInvocationJournal {
     const journal = readInvocationJournal(path);
-    return new FileInvocationJournal(path, journal.journalId, journal.trustScope);
+    return new FileInvocationJournal(path, journal.journalId, lockWaitMs);
   }
 
   read(): InvocationJournalRecord {
     const journal = readInvocationJournal(this.path);
-    // Proof: bypassing this comparison made "exact stdin or stdout byte identities" accept journalId "journal.replaced" and fail "Received function did not throw".
-    if (journal.journalId !== this.journalId || journal.trustScope !== this.trustScope) {
+    if (journal.journalId !== this.journalId) {
       throw new Error(`invocation journal identity changed at ${this.path}`);
     }
     return journal;
   }
 
-  register(registration: InvocationRegistration): DurableRegistration {
+  register(registration: InvocationRegistration): DurableAcceptance {
     const checked = parseOrThrow(InvocationRegistration, registration);
-    const journal = this.read();
-    // Proof: bypassing this guard made "makes completion idempotent" receive the later unique-invocation schema failure instead of "already registered".
-    if (journal.entries.some((entry) => entry.registration.invocationId === checked.invocationId)) {
-      throw new Error(`invocation already registered: ${checked.invocationId}`);
-    }
-    const updated = parseOrThrow(InvocationJournalRecord, {
-      ...journal,
-      entries: [...journal.entries, { state: 'registered', registration: checked }],
-    });
-    replaceDurably(this.path, updated);
-    const stored = this.read().entries.find(
-      (entry) => entry.registration.invocationId === checked.invocationId,
-    );
-    if (
-      stored?.state !== 'registered' ||
-      hashCanonical(stored.registration) !== hashCanonical(checked)
-    ) {
-      throw new Error(
-        `durable invocation registration differs after read-back: ${checked.invocationId}`,
+    return withJournalLock(this.path, this.lockWaitMs, () => {
+      const journal = this.read();
+      if (
+        journal.entries.some((entry) => entry.registration.invocationId === checked.invocationId)
+      ) {
+        throw new Error(`invocation already registered: ${checked.invocationId}`);
+      }
+      return this.persist(
+        checked.invocationId,
+        parseOrThrow(InvocationJournalRecord, {
+          ...journal,
+          entries: [...journal.entries, { state: 'registered', registration: checked }],
+        }),
+        { state: 'registered', registration: checked },
       );
-    }
+    });
+  }
+
+  acknowledgeCold(invocationId: string, cold: ColdAcknowledgement): DurableAcceptance {
+    const checked = parseOrThrow(ColdAcknowledgement, cold);
+    return withJournalLock(this.path, this.lockWaitMs, () => {
+      const journal = this.read();
+      const index = journal.entries.findIndex(
+        (entry) => entry.registration.invocationId === invocationId,
+      );
+      if (index < 0)
+        throw new Error(`cannot acknowledge cold for unknown invocation: ${invocationId}`);
+      const current = journal.entries[index];
+      if (current.state === 'terminal') {
+        // Proof: returning the terminal acceptance here made acknowledgeCold succeed after
+        // completion; the terminal-safety test reported "function did not throw".
+        throw new Error(`cannot acknowledge cold after terminal invocation: ${invocationId}`);
+      }
+      if (current.state === 'cold-acknowledged') {
+        if (hashCanonical(current.cold) === hashCanonical(checked)) {
+          return this.acceptance(invocationId, current);
+        }
+        throw new Error(`invocation already has a different cold acknowledgement: ${invocationId}`);
+      }
+      reconcileColdAcknowledgement(current.registration, checked);
+      const next = {
+        state: 'cold-acknowledged' as const,
+        registration: current.registration,
+        cold: checked,
+      };
+      const entries = [...journal.entries];
+      entries[index] = next;
+      return this.persist(
+        invocationId,
+        parseOrThrow(InvocationJournalRecord, { ...journal, entries }),
+        next,
+      );
+    });
+  }
+
+  complete(invocationId: string, terminal: InvocationTerminal): DurableAcceptance {
+    const checked = parseOrThrow(InvocationTerminal, terminal);
+    return withJournalLock(this.path, this.lockWaitMs, () => {
+      const journal = this.read();
+      const index = journal.entries.findIndex(
+        (entry) => entry.registration.invocationId === invocationId,
+      );
+      if (index < 0) throw new Error(`cannot complete unknown invocation: ${invocationId}`);
+      const current = journal.entries[index];
+      if (current.state === 'terminal') {
+        // Proof: accepting every repeated completion made a changed completedAt return durable;
+        // the terminal-safety test reported "function did not throw".
+        if (hashCanonical(current.terminal) === hashCanonical(checked)) {
+          return this.acceptance(invocationId, current);
+        }
+        throw new Error(`invocation already has a different terminal completion: ${invocationId}`);
+      }
+      const next = {
+        state: 'terminal' as const,
+        registration: current.registration,
+        ...(current.state === 'cold-acknowledged' ? { cold: current.cold } : {}),
+        terminal: checked,
+      };
+      reconcileEntry(next, journal.journalId);
+      const entries = [...journal.entries];
+      entries[index] = next;
+      return this.persist(
+        invocationId,
+        parseOrThrow(InvocationJournalRecord, { ...journal, entries }),
+        next,
+      );
+    });
+  }
+
+  private acceptance(invocationId: string, observation: unknown): DurableAcceptance {
     return {
       status: 'durable',
       journalId: this.journalId,
-      invocationId: checked.invocationId,
-      registrationArtifact: hashCanonical(checked),
+      invocationId,
+      artifact: hashCanonical(observation),
     };
   }
 
-  complete(invocationId: string, completion: InvocationCompletion): void {
-    const checked = parseOrThrow(InvocationCompletion, completion);
-    const journal = this.read();
-    const index = journal.entries.findIndex(
+  private persist(
+    invocationId: string,
+    journal: InvocationJournalRecord,
+    observation: unknown,
+  ): DurableAcceptance {
+    replaceDurably(this.path, journal);
+    const stored = this.read().entries.find(
       (entry) => entry.registration.invocationId === invocationId,
     );
-    // Proof: bypassing this guard made "makes completion idempotent" receive "undefined is not an object" instead of "unknown invocation".
-    if (index < 0) throw new Error(`cannot complete unknown invocation: ${invocationId}`);
-    const current = journal.entries[index];
-    if (current.state === 'completed') {
-      if (hashCanonical(current.completion) === hashCanonical(checked)) return;
-      // Proof: replacing this throw with return made "makes completion idempotent" fail: "Received function did not throw".
-      throw new Error(`invocation already has a different terminal completion: ${invocationId}`);
+    if (stored === undefined || hashCanonical(stored) !== hashCanonical(observation)) {
+      throw new Error(`durable invocation transition differs after read-back: ${invocationId}`);
     }
-    const entries = [...journal.entries];
-    entries[index] = {
-      state: 'completed',
-      registration: current.registration,
-      completion: checked,
+    return this.acceptance(invocationId, observation);
+  }
+}
+
+function phaseObservation(
+  phase: 'cold' | 'informed',
+  stdinBytes: string,
+  harnessArgv: readonly string[],
+): { observation: ProcessObservation; stdout: Uint8Array } {
+  const startedAt = new Date().toISOString();
+  try {
+    const processResult = Bun.spawnSync([...harnessArgv], {
+      stdin: Buffer.from(stdinBytes, 'utf8'),
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const endedAt = new Date().toISOString();
+    return {
+      observation: parseOrThrow(ProcessObservation, {
+        phase,
+        startedAt,
+        endedAt,
+        stdinArtifact: hashBytes(stdinBytes),
+        stdinBytes,
+        stdoutArtifact: hashBytes(processResult.stdout),
+        stdoutBase64: Buffer.from(processResult.stdout).toString('base64'),
+        stderrArtifact: hashBytes(processResult.stderr),
+        stderrBase64: Buffer.from(processResult.stderr).toString('base64'),
+        exit: { kind: 'exited', exitCode: processResult.exitCode },
+      }),
+      stdout: processResult.stdout,
     };
-    const updated = parseOrThrow(InvocationJournalRecord, { ...journal, entries });
-    replaceDurably(this.path, updated);
-    const stored = this.read().entries[index];
-    if (
-      stored.state !== 'completed' ||
-      hashCanonical(stored.completion) !== hashCanonical(checked)
-    ) {
-      throw new Error(`durable invocation completion differs after read-back: ${invocationId}`);
-    }
+  } catch (cause) {
+    const endedAt = new Date().toISOString();
+    const empty = new Uint8Array();
+    return {
+      observation: parseOrThrow(ProcessObservation, {
+        phase,
+        startedAt,
+        endedAt,
+        stdinArtifact: hashBytes(stdinBytes),
+        stdinBytes,
+        stdoutArtifact: hashBytes(empty),
+        stdoutBase64: '',
+        stderrArtifact: hashBytes(empty),
+        stderrBase64: '',
+        exit: { kind: 'launch-failed', message: errorMessage(cause) },
+      }),
+      stdout: empty,
+    };
   }
 }
 
-function buildEvidence(
-  request: ReviewInvocationRequestRecord,
-  output: typeof HarnessOutput.infer,
-  journal: InvocationJournal,
-): ReviewEvidenceRecord | null {
-  // Proof: omitting the failed-status branch made "retains failed invocation telemetry" fail the completion evidence invariant.
-  if (output.telemetry.status === 'unverified' || output.telemetry.receipt.status !== 'completed') {
-    return null;
+function coldAttempt(stdinBytes: string, harnessArgv: readonly string[]): ColdAttempt {
+  const captured = phaseObservation('cold', stdinBytes, harnessArgv);
+  if (captured.observation.exit.kind === 'launch-failed') {
+    return parseOrThrow(ColdAttempt, {
+      observation: captured.observation,
+      output: null,
+      decodeFailure: `launch failed: ${captured.observation.exit.message}`,
+    });
   }
-  const rawResponseArtifact = hashBytes(output.rawResponse.payload);
-  return parseOrThrow(ReviewEvidence, {
-    schemaVersion: 1,
-    receipt: {
-      schemaVersion: 1,
-      receiptKind: 'review',
-      receiptId: request.receiptId,
-      invocationId: request.invocationId,
-      executor: output.telemetry.receipt.executor,
-      suppliedContextIds: [
-        request.protocol.protocolBlob,
-        request.subject.contentIdentity,
-        ...output.protocolEvidence.expansion.suppliedContextIds,
-      ],
-      observedReadIds: [
-        ...output.protocolEvidence.cold.observedReadIds,
-        ...output.protocolEvidence.informed.observedReadIds,
-      ],
-      rawResponseArtifact,
-      rawUsage: output.telemetry.receipt.rawUsage,
-      priceIdentity: output.telemetry.receipt.priceIdentity,
-      trust: { scope: journal.trustScope, journalId: journal.journalId },
-    },
-    protocolEvidence: output.protocolEvidence,
-    actualTools: output.actualTools,
-    rawResponse: { artifact: rawResponseArtifact, retention: output.rawResponse.retention },
-  });
+  try {
+    return parseOrThrow(ColdAttempt, {
+      observation: captured.observation,
+      output: decodeColdHarnessOutput(
+        decodeJson(decodeUtf8(captured.stdout, 'cold stdout'), 'cold stdout'),
+      ),
+      decodeFailure: null,
+    });
+  } catch (cause) {
+    return parseOrThrow(ColdAttempt, {
+      observation: captured.observation,
+      output: null,
+      decodeFailure: errorMessage(cause),
+    });
+  }
 }
 
-/** Invokes one operator-provisioned JSON process after its exact request is durably registered. */
+function informedAttempt(stdinBytes: string, harnessArgv: readonly string[]): InformedAttempt {
+  const captured = phaseObservation('informed', stdinBytes, harnessArgv);
+  if (captured.observation.exit.kind === 'launch-failed') {
+    return parseOrThrow(InformedAttempt, {
+      observation: captured.observation,
+      output: null,
+      decodeFailure: `launch failed: ${captured.observation.exit.message}`,
+    });
+  }
+  try {
+    return parseOrThrow(InformedAttempt, {
+      observation: captured.observation,
+      output: decodeInformedHarnessOutput(
+        decodeJson(decodeUtf8(captured.stdout, 'informed stdout'), 'informed stdout'),
+      ),
+      decodeFailure: null,
+    });
+  } catch (cause) {
+    return parseOrThrow(InformedAttempt, {
+      observation: captured.observation,
+      output: null,
+      decodeFailure: errorMessage(cause),
+    });
+  }
+}
+
+/** Invokes cold and informed phases with a durable acknowledgement between their launches. */
 export class ProcessReviewInvoker implements ReviewInvoker {
   constructor(
     private readonly journal: InvocationJournal,
@@ -341,86 +937,113 @@ export class ProcessReviewInvoker implements ReviewInvoker {
 
   invoke(request: ReviewInvocationRequestRecord): ReviewInvocationResult {
     const checked = parseOrThrow(ReviewInvocationRequest, request);
-    const stdinBytes = serializeCanonical(checked);
+    const registrationBytes = serializeCanonical(checked);
     const registration = parseOrThrow(InvocationRegistration, {
       invocationId: checked.invocationId,
       receiptId: checked.receiptId,
       registeredAt: new Date().toISOString(),
       harnessArgv: [...this.harnessArgv],
-      stdinArtifact: hashBytes(stdinBytes),
-      stdinBytes,
+      stdinArtifact: hashBytes(registrationBytes),
+      stdinBytes: registrationBytes,
     });
-    // Proof: moving registration after spawn made "durably registers before launch" fail: "review harness exited 19: invocation was not durably registered before launch".
-    const acceptance = this.journal.register(registration);
-    // Proof: bypassing this identity guard made "does not launch after a journal accepts a different invocation identity" reach "Executable not found".
-    if (acceptance.invocationId !== checked.invocationId) {
+    // Proof: bypassing registration let the cold harness run first and the production path failed
+    // on `cannot complete unknown invocation: invocation.integration-test`.
+    const registered = this.journal.register(registration);
+    if (registered.invocationId !== checked.invocationId) {
       throw new Error(`invocation journal did not durably accept ${checked.invocationId}`);
     }
 
-    const processResult = Bun.spawnSync([...this.harnessArgv], {
-      stdin: Buffer.from(stdinBytes, 'utf8'),
-      stdout: 'pipe',
-      stderr: 'pipe',
+    const coldInput = serializeCanonical(coldRequest(checked));
+    const cold = coldAttempt(coldInput, this.harnessArgv);
+    const coldAcknowledgement = parseOrThrow(ColdAcknowledgement, {
+      acknowledgedAt: new Date().toISOString(),
+      attempt: cold,
     });
-    if (processResult.exitCode !== 0) {
-      const detail = decodeUtf8(processResult.stderr, 'review harness stderr').trim();
+    let coldOutput: ColdHarnessOutput | null = null;
+    let coldSemanticFailure: string | null = null;
+    try {
+      coldOutput = reconcileColdAcknowledgement(registration, coldAcknowledgement);
+    } catch (cause) {
+      coldSemanticFailure = errorMessage(cause);
+    }
+    const coldFailure = coldSemanticFailure;
+    if (coldFailure !== null || coldOutput === null) {
+      const terminal = parseOrThrow(InvocationTerminal, {
+        status: 'unverified',
+        completedAt: new Date().toISOString(),
+        phase: 'cold',
+        reason: coldFailure ?? 'cold output unavailable',
+        attempt: cold,
+        evidence: null,
+      });
+      // Proof: bypassing this completion left a nonzero process merely `registered`; the failure
+      // persistence test threw `expected unverified terminal`.
+      this.journal.complete(checked.invocationId, terminal);
+      return {
+        status: 'unverified',
+        invocationId: checked.invocationId,
+        reason: coldFailure ?? 'cold output unavailable',
+      };
+    }
+
+    // Proof: bypassing this transition let the informed harness see only `registered`; the
+    // production path failed on `informed terminal has no cold acknowledgement`.
+    const acknowledged = this.journal.acknowledgeCold(checked.invocationId, coldAcknowledgement);
+    if (acknowledged.invocationId !== checked.invocationId) {
       throw new Error(
-        `review harness exited ${String(processResult.exitCode)}${detail.length === 0 ? '' : `: ${detail}`}`,
+        `invocation journal did not durably acknowledge cold ${checked.invocationId}`,
       );
     }
-    const stdoutBytes = decodeUtf8(processResult.stdout, 'review harness stdout');
-    const output = decodeHarnessOutput(decodeJson(stdoutBytes, 'review harness stdout'));
-    // Proof: bypassing this guard made the wrong-output case in "refuses harness identity" fail: "Received function did not throw".
-    if (output.invocationId !== checked.invocationId) {
-      throw new Error(
-        `review harness invocation ${output.invocationId} differs from registered ${checked.invocationId}`,
-      );
+
+    const informedInput = serializeCanonical(informedRequest(checked, coldAcknowledgement));
+    const informed = informedAttempt(informedInput, this.harnessArgv);
+    let informedOutput: InformedHarnessOutput | null = null;
+    let informedSemanticFailure: string | null = null;
+    try {
+      informedOutput = reconcileReviewedInformed(registration, coldAcknowledgement, informed);
+    } catch (cause) {
+      informedSemanticFailure = errorMessage(cause);
     }
-    // Proof: bypassing this comparison made the wrong-protocol case in "refuses harness identity" fail: "Received function did not throw".
-    if (
-      hashCanonical(output.protocolEvidence.protocol) !== hashCanonical(checked.protocol) ||
-      hashCanonical(output.protocolEvidence.subject) !== hashCanonical(checked.subject)
-    ) {
-      throw new Error(
-        `review harness protocol or subject differs from request ${checked.invocationId}`,
-      );
-    }
-    if (output.telemetry.status === 'verified') {
-      // Proof: bypassing this guard made the wrong-invocation case in "refuses harness identity" fail: "Received function did not throw".
-      if (output.telemetry.receipt.invocationId !== checked.invocationId) {
-        throw new Error(`telemetry invocation differs from registered ${checked.invocationId}`);
-      }
-      // Proof: bypassing this guard made the wrong-input case in "refuses harness identity" fail: "Received function did not throw".
-      if (output.telemetry.receipt.inputArtifact !== registration.stdinArtifact) {
-        throw new Error(`telemetry inputArtifact differs from exact harness stdin`);
-      }
-      // Proof: bypassing this guard made the early-start case in "refuses harness identity" fail: "Received function did not throw".
-      if (Date.parse(output.telemetry.receipt.startedAt) < Date.parse(registration.registeredAt)) {
-        throw new Error(`telemetry starts before durable invocation registration`);
+    let informedFailure = informedSemanticFailure;
+    let evidence: ReviewEvidenceRecord | null = null;
+    if (informedFailure === null && informedOutput !== null) {
+      try {
+        evidence = deriveReviewEvidence(
+          checked,
+          coldOutput,
+          informedOutput,
+          this.journal.journalId,
+        );
+      } catch (cause) {
+        informedFailure = errorMessage(cause);
       }
     }
-    const evidence = buildEvidence(checked, output, this.journal);
-    const completion = parseOrThrow(InvocationCompletion, {
+    if (informedFailure !== null || informedOutput === null || evidence === null) {
+      const terminal = parseOrThrow(InvocationTerminal, {
+        status: 'unverified',
+        completedAt: new Date().toISOString(),
+        phase: 'informed',
+        reason: informedFailure ?? 'informed output unavailable',
+        attempt: informed,
+        evidence: null,
+      });
+      // Proof: bypassing this completion left a nonzero informed process at `cold-acknowledged`;
+      // the informed-failure test threw `expected unverified terminal`.
+      this.journal.complete(checked.invocationId, terminal);
+      return {
+        status: 'unverified',
+        invocationId: checked.invocationId,
+        reason: informedFailure ?? 'informed output unavailable',
+      };
+    }
+    const terminal = parseOrThrow(InvocationTerminal, {
+      status: 'reviewed',
       completedAt: new Date().toISOString(),
-      stdoutArtifact: hashBytes(processResult.stdout),
-      stdoutBytes,
-      actualTools: output.actualTools,
-      rawResponse: output.rawResponse,
-      protocolEvidence: output.protocolEvidence,
-      telemetry: output.telemetry,
+      informed,
       evidence,
     });
-    this.journal.complete(checked.invocationId, completion);
-    return evidence === null
-      ? {
-          status: 'unverified',
-          invocationId: checked.invocationId,
-          reason:
-            output.telemetry.status === 'unverified'
-              ? output.telemetry.reason
-              : `invocation status ${output.telemetry.receipt.status}`,
-        }
-      : { status: 'verified', evidence };
+    this.journal.complete(checked.invocationId, terminal);
+    return { status: 'verified', evidence };
   }
 }
 
@@ -428,14 +1051,11 @@ export type ProvenanceRequirement = 'allow-local' | 'require-external';
 
 export interface ProvenanceValidation {
   status: 'verified';
-  scope: TrustScope;
-  satisfiesExternal: boolean;
+  scope: 'local-cooperative';
+  satisfiesExternal: false;
 }
 
-/**
- * Compares writer-supplied review evidence with the exact terminal journal observation.
- * Trust-policy selection remains outside this comparison; callers may require external provenance.
- */
+/** Re-derives writer evidence from exact retained phase bytes before comparison. */
 export function validateReviewProvenance(
   journal: InvocationJournalRecord,
   submitted: unknown,
@@ -445,51 +1065,43 @@ export function validateReviewProvenance(
   const entry = journal.entries.find(
     ({ registration }) => registration.invocationId === evidence.receipt.invocationId,
   );
-  // Proof: falling back to the first entry made the forged-invocation CLI case receive "review evidence differs" instead of "unknown invocation".
+  // Proof: falling back to the first entry changed a forged-id CLI rejection from
+  // `unknown invocation: invocation.forged` to a generic evidence mismatch.
   if (entry === undefined) throw new Error(`unknown invocation: ${evidence.receipt.invocationId}`);
-  // Proof: bypassing this guard made the incomplete CLI case receive "undefined is not an object" instead of "invocation is not complete".
-  if (entry.state !== 'completed') {
-    throw new Error(`invocation is not complete: ${evidence.receipt.invocationId}`);
-  }
-  // Proof: bypassing this guard made the unverified CLI case receive "null is not an object" instead of "invocation telemetry is unverified".
-  if (entry.completion.telemetry.status === 'unverified' || entry.completion.evidence === null) {
+  if (
+    entry.state !== 'terminal' ||
+    entry.terminal.status !== 'reviewed' ||
+    entry.cold === undefined
+  ) {
     throw new Error(
-      `invocation telemetry is unverified: ${entry.completion.telemetry.status === 'unverified' ? entry.completion.telemetry.reason : 'missing evidence'}`,
+      `invocation is not a verified reviewed terminal: ${evidence.receipt.invocationId}`,
     );
   }
-  const recorded = entry.completion.evidence;
-  // Proof: bypassing this comparison made the altered-response CLI case receive "review evidence differs" instead of "raw response reference differs".
+  const request = decodeRegistration(entry.registration);
+  const cold = reconcileColdAcknowledgement(entry.registration, entry.cold);
+  const informed = reconcileReviewedInformed(
+    entry.registration,
+    entry.cold,
+    entry.terminal.informed,
+  );
+  const recorded = deriveReviewEvidence(request, cold, informed, journal.journalId);
+  // Proof: removing this durable-cold comparison changed the production negative to the generic
+  // `review evidence differs from exact journal observations`, missing the cold-boundary failure.
   if (
-    evidence.receipt.rawResponseArtifact !== recorded.receipt.rawResponseArtifact ||
-    hashCanonical(evidence.rawResponse) !== hashCanonical(recorded.rawResponse)
+    hashCanonical(evidence.protocolEvidence.cold) !== hashCanonical(cold.cold) ||
+    evidence.protocolEvidence.expansion.coldJudgmentArtifact !== hashCanonical(cold.cold)
   ) {
-    throw new Error(`raw response reference differs from invocation journal`);
+    throw new Error(`submitted cold judgment differs from durable cold acknowledgement`);
   }
-  // Proof: bypassing this comparison made the erased-reads CLI case receive "cold judgment differs" instead of "observed reads differ".
-  if (
-    hashCanonical(evidence.receipt.observedReadIds) !==
-      hashCanonical(recorded.receipt.observedReadIds) ||
-    hashCanonical(evidence.protocolEvidence.cold.observedReadIds) !==
-      hashCanonical(recorded.protocolEvidence.cold.observedReadIds) ||
-    hashCanonical(evidence.protocolEvidence.informed.observedReadIds) !==
-      hashCanonical(recorded.protocolEvidence.informed.observedReadIds)
-  ) {
-    throw new Error(`observed reads differ from invocation journal`);
-  }
-  // Proof: bypassing this comparison made the rewritten-cold CLI case receive "review evidence differs" instead of "cold judgment differs".
-  if (
-    hashCanonical(evidence.protocolEvidence.cold) !== hashCanonical(recorded.protocolEvidence.cold)
-  ) {
-    throw new Error(`cold judgment differs from frozen invocation journal`);
-  }
-  // Proof: bypassing this comparison made the forged-tools CLI case exit 0 with status "verified".
+  // Proof: bypassing this canonical comparison made the altered raw-response CLI exit 0; the
+  // provenance negative observed `Expected: 1, Received: 0`.
   if (hashCanonical(evidence) !== hashCanonical(recorded)) {
-    throw new Error(`review evidence differs from invocation journal`);
+    throw new Error(`review evidence differs from exact journal observations`);
   }
-  const satisfiesExternal = journal.trustScope !== 'local-cooperative';
-  // Proof: bypassing this guard made require-external exit 0 with local-cooperative scope.
-  if (requirement === 'require-external' && !satisfiesExternal) {
-    throw new Error(`local-cooperative cannot satisfy external provenance`);
+  // Proof: bypassing this refusal made the require-external CLI return 0; the provenance test
+  // observed `Expected: 1, Received: 0`.
+  if (requirement === 'require-external') {
+    throw new Error(`review has no independently authenticated external provenance binding`);
   }
-  return { status: 'verified', scope: journal.trustScope, satisfiesExternal };
+  return { status: 'verified', scope: 'local-cooperative', satisfiesExternal: false };
 }

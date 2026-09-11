@@ -1,13 +1,24 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, test } from 'bun:test';
 
-import { hashCanonical } from '../evidence/content-manifest';
+import { hashBytes, hashCanonical, serializeCanonical } from '../evidence/content-manifest';
 import {
+  type ColdAcknowledgement,
   FileInvocationJournal,
-  type InvocationJournal,
+  FileJournalLock,
+  type InvocationRegistration,
+  type InvocationTerminal,
   ProcessReviewInvoker,
   readInvocationJournal,
   type ReviewInvocationResult,
@@ -16,6 +27,7 @@ import type { ReviewEvidence, ReviewInvocationRequest } from './protocol';
 
 const SHA_A = 'a'.repeat(64);
 const SHA_B = 'b'.repeat(64);
+const SHA_C = 'c'.repeat(64);
 const scratch: string[] = [];
 
 afterEach(() => {
@@ -28,11 +40,11 @@ function createScratch(): string {
   return path;
 }
 
-function request(): ReviewInvocationRequest {
+function request(invocationId = 'invocation.integration-test'): ReviewInvocationRequest {
   return {
     schemaVersion: 1,
-    invocationId: 'invocation.integration-test',
-    receiptId: 'receipt.review.integration-test',
+    invocationId,
+    receiptId: `receipt.review.${invocationId}`,
     protocol: { protocolId: 'review.cold-informed.v1', protocolBlob: SHA_B },
     subject: {
       subjectId: 'subject.integration-test',
@@ -40,108 +52,105 @@ function request(): ReviewInvocationRequest {
       path: 'src/example.ts',
       contentIdentity: SHA_A,
     },
+    informedContextIds: [SHA_C],
   };
 }
 
 type HarnessMode =
   | 'verified'
-  | 'unverified'
-  | 'wrong-input'
-  | 'wrong-output-invocation'
-  | 'wrong-invocation'
-  | 'wrong-protocol'
-  | 'early-start'
-  | 'failed';
+  | 'cold-unverified'
+  | 'cold-nonzero'
+  | 'cold-malformed'
+  | 'cold-wrong-protocol'
+  | 'cold-wrong-telemetry-invocation'
+  | 'informed-nonzero'
+  | 'informed-malformed';
 
 function writeHarness(directory: string, mode: HarnessMode = 'verified'): string {
   const path = join(directory, `harness-${mode}.ts`);
+  const tracePath = join(directory, 'trace.txt');
   writeFileSync(
     path,
-    `import { readFileSync } from 'node:fs';
-import { hashCanonical } from '${join(import.meta.dir, '..', 'evidence', 'content-manifest.ts')}';
-
+    `import { appendFileSync, readFileSync } from 'node:fs';
 const journal = JSON.parse(readFileSync(process.argv[2], 'utf8'));
-if (journal.entries.length !== 1 || journal.entries[0].state !== 'registered') {
-  process.stderr.write('invocation was not durably registered before launch\\n');
-  process.exit(19);
-}
 const stdin = await Bun.stdin.text();
 const request = JSON.parse(stdin);
-const hash = (text) => new Bun.CryptoHasher('sha256').update(text).digest('hex');
-const rawResponse = 'cold: impact partial\\ninformed: impact yes\\n';
-const endedAt = new Date().toISOString();
-const cold = {
-  sequence: 1,
-  judgments: { purpose: 'yes', relationships: 'yes', impact: 'partial' },
-  observedReadIds: [request.subject.contentIdentity],
-};
-const protocolEvidence = {
-  schemaVersion: 1,
-  protocol: ${mode === 'wrong-protocol' ? `{ ...request.protocol, protocolBlob: '${SHA_A}' }` : 'request.protocol'},
-  subject: request.subject,
-  cold,
-  expansion: {
-    sequence: 2,
-    coldJudgmentArtifact: hashCanonical(cold),
-    suppliedContextIds: ['${SHA_B}'],
-  },
-  informed: {
-    sequence: 3,
-    judgments: { purpose: 'yes', relationships: 'yes', impact: 'yes' },
-    observedReadIds: [request.subject.contentIdentity, '${SHA_B}'],
-  },
-};
+const phase = request.messageKind === 'cold-request' ? 'cold' : 'informed';
+appendFileSync('${tracePath}', phase + '\\n');
+if (phase === 'cold') {
+  if (journal.entries.length !== 1 || journal.entries[0].state !== 'registered') {
+    process.stderr.write('cold was not registered before launch\\n');
+    process.exit(19);
+  }
+  if ('informedContextIds' in request || stdin.includes('${SHA_C}')) {
+    process.stderr.write('cold received informed context\\n');
+    process.exit(31);
+  }
+} else if (journal.entries[0].state !== 'cold-acknowledged') {
+  process.stderr.write('informed launched before cold acknowledgement\\n');
+  process.exit(29);
+}
+const hash = (bytes) => new Bun.CryptoHasher('sha256').update(bytes).digest('hex');
+const startedAt = new Date().toISOString();
+const endedAt = startedAt;
+const rawResponse = phase === 'cold' ? 'cold: impact partial\\n' : 'informed: impact yes\\n';
 const telemetry = ${
-      mode !== 'unverified'
-        ? `{
+      mode === 'cold-unverified'
+        ? `phase === 'cold' ? {
+  status: 'unverified',
+  reason: 'provider omitted price identity',
+  missingRequirements: ['priceIdentity'],
+  observed: {
+    provider: 'openai', model: 'gpt-5', rawUsage: [{ category: 'input_tokens', quantity: 700, unit: 'tokens' }],
+    chargedAmountMicros: 11000, startedAt, endedAt,
+  },
+} :`
+        : ''
+    } {
   status: 'verified',
   receipt: {
-    schemaVersion: 1,
-    receiptKind: 'invocation',
-    receiptId: 'receipt.invocation.integration-test',
-    invocationId: ${mode === 'wrong-invocation' ? "'invocation.wrong'" : 'request.invocationId'},
-    startedAt: ${mode === 'early-start' ? "'2020-01-01T00:00:00.000Z'" : 'journal.entries[0].registration.registeredAt'},
-    endedAt,
-    status: '${mode === 'failed' ? 'failed' : 'completed'}',
+    schemaVersion: 1, receiptKind: 'invocation',
+    receiptId: 'receipt.invocation.' + phase,
+    invocationId: '${mode}' === 'cold-wrong-telemetry-invocation' && phase === 'cold' ? 'invocation.forged' : request.invocationId,
+    startedAt, endedAt, status: 'completed',
     executor: { provider: 'openai', model: 'gpt-5', version: '2026-09-10', effort: 'high', toolchain: 'codex' },
-    rawUsage: [
-      { category: 'input_tokens', quantity: 1200, unit: 'tokens' },
-      { category: 'output_tokens', quantity: 300, unit: 'tokens' },
-    ],
+    rawUsage: [{ category: phase + '_input_tokens', quantity: phase === 'cold' ? 700 : 500, unit: 'tokens' }],
     priceIdentity: { priceId: 'openai.gpt-5.2026-09-10', provider: 'openai', model: 'gpt-5', currency: 'USD', source: 'provider-receipt' },
-    chargedAmountMicros: 25000,
-    inputArtifact: ${mode === 'wrong-input' ? `'${SHA_A}'` : 'hash(stdin)'},
-    outputArtifact: hash(rawResponse),
+    chargedAmountMicros: phase === 'cold' ? 11000 : 14000,
+    inputArtifact: hash(stdin), outputArtifact: hash(rawResponse),
   },
   elapsedReceipts: [{
-    schemaVersion: 1,
-    receiptKind: 'elapsed',
-    receiptId: 'receipt.elapsed.integration-test',
-    trialId: 'trial.integration-test',
-    outcomeId: 'outcome.integration-test',
-    attemptId: 'attempt.integration-test',
-    phase: 'review',
-    startedAt: journal.entries[0].registration.registeredAt,
-    endedAt,
-    elapsedMs: Date.parse(endedAt) - Date.parse(journal.entries[0].registration.registeredAt),
-    status: '${mode === 'failed' ? 'failed' : 'completed'}',
+    schemaVersion: 1, receiptKind: 'elapsed', receiptId: 'receipt.elapsed.' + phase,
+    trialId: 'trial.integration-test', outcomeId: 'outcome.integration-test', attemptId: 'attempt.' + phase,
+    phase: 'review', startedAt, endedAt, elapsedMs: 0, status: 'completed',
   }],
-}`
-        : `{ status: 'unverified', reason: 'provider omitted price identity' }`
-    };
-process.stdout.write(JSON.stringify({
-  schemaVersion: 1,
-  messageKind: 'review-completion',
-  invocationId: ${mode === 'wrong-output-invocation' ? "'invocation.wrong-output'" : 'request.invocationId'},
-  protocolEvidence,
-  actualTools: [
-    { toolId: 'read-file', version: '1' },
-    { toolId: 'read-file', version: '1' },
-    { toolId: 'run-check', version: '2' },
-  ],
-  rawResponse: { mediaType: 'text/plain', payload: rawResponse, retention: { kind: 'journal-inline' } },
-  telemetry,
-}) + '\\n');
+};
+if (('${mode}' === 'cold-malformed' && phase === 'cold') || ('${mode}' === 'informed-malformed' && phase === 'informed')) {
+  process.stderr.write('malformed cold json\\n');
+  process.stdout.write('{');
+} else {
+  const output = phase === 'cold' ? {
+    schemaVersion: 1, messageKind: 'cold-completion', invocationId: request.invocationId,
+    protocol: request.protocol, subject: request.subject,
+    cold: { sequence: 1, judgments: { purpose: 'yes', relationships: 'yes', impact: 'partial' }, observedReadIds: [request.subject.contentIdentity] },
+    actualTools: [{ toolId: 'read-file', version: '1' }, { toolId: 'read-file', version: '1' }],
+    rawResponse: { mediaType: 'text/plain', payload: rawResponse, retention: { kind: 'journal-inline' } }, telemetry,
+  } : {
+    schemaVersion: 1, messageKind: 'informed-completion', invocationId: request.invocationId,
+    protocol: request.protocol, subject: request.subject, coldArtifact: request.coldArtifact,
+    informed: { sequence: 3, judgments: { purpose: 'yes', relationships: 'yes', impact: 'yes' }, observedReadIds: [request.subject.contentIdentity, ...request.informedContextIds] },
+    actualTools: [{ toolId: 'run-check', version: '2' }],
+    rawResponse: { mediaType: 'text/plain', payload: rawResponse, retention: { kind: 'journal-inline' } }, telemetry,
+  };
+  if ('${mode}' === 'cold-wrong-protocol' && phase === 'cold') {
+    output.protocol.protocolId = 'review.another-protocol.v1';
+  }
+  process.stdout.write(JSON.stringify(output) + '\\n');
+}
+if (('${mode}' === 'cold-nonzero' && phase === 'cold') || ('${mode}' === 'informed-nonzero' && phase === 'informed')) {
+  process.stderr.write(phase + ' provider failed\\n');
+  process.exit(23);
+}
 `,
     'utf8',
   );
@@ -149,26 +158,43 @@ process.stdout.write(JSON.stringify({
   return path;
 }
 
-function invoke(
-  mode: HarnessMode = 'verified',
-  trustScope: 'local-cooperative' | 'trusted-harness' = 'local-cooperative',
-) {
+function invoke(mode: HarnessMode = 'verified', harnessArgv?: string[]) {
   const directory = createScratch();
   const journalPath = join(directory, 'journal.json');
-  const journal = FileInvocationJournal.create(journalPath, 'journal.integration-test', trustScope);
+  const journal = FileInvocationJournal.create(journalPath, 'journal.integration-test');
   const harnessPath = writeHarness(directory, mode);
-  const invoker = new ProcessReviewInvoker(journal, [
-    process.execPath,
-    'run',
-    harnessPath,
+  const invoker = new ProcessReviewInvoker(
+    journal,
+    harnessArgv ?? [process.execPath, 'run', harnessPath, journalPath],
+  );
+  return {
+    directory,
     journalPath,
-  ]);
-  return { directory, journalPath, journal, invocation: invoker.invoke(request()) };
+    journal,
+    tracePath: join(directory, 'trace.txt'),
+    invocation: invoker.invoke(request()),
+  };
 }
 
 function requireVerified(invocation: ReviewInvocationResult): ReviewEvidence {
   if (invocation.status !== 'verified') throw new Error(invocation.reason);
   return invocation.evidence;
+}
+
+function readUnverifiedTerminal(journalPath: string) {
+  const entry = readInvocationJournal(journalPath).entries[0];
+  if (entry.state !== 'terminal' || entry.terminal.status !== 'unverified') {
+    throw new Error('expected unverified terminal');
+  }
+  return entry as {
+    cold?: ColdAcknowledgement;
+    terminal: InvocationTerminal & { status: 'unverified' };
+  };
+}
+
+function readPipe(bytes: Uint8Array | undefined, name: string): string {
+  if (bytes === undefined) throw new Error(`${name} was not piped`);
+  return new TextDecoder().decode(bytes);
 }
 
 function runValidation(
@@ -193,311 +219,441 @@ function runValidation(
   );
 }
 
-function readPipe(bytes: Uint8Array | undefined, name: string): string {
-  if (bytes === undefined) throw new Error(`${name} was not piped`);
-  return new TextDecoder().decode(bytes);
-}
-
-function output(invocation: ReturnType<typeof Bun.spawnSync>): string {
+function commandOutput(invocation: ReturnType<typeof Bun.spawnSync>): string {
   return `${readPipe(invocation.stdout, 'stdout')}${readPipe(invocation.stderr, 'stderr')}`;
 }
 
-describe('review invocation provenance', () => {
-  test('durably registers before launch and retains exact actual receipts and response bytes', () => {
-    const { journalPath, invocation } = invoke();
-    const evidence = requireVerified(invocation);
-    const journal = readInvocationJournal(journalPath);
-    const entry = journal.entries[0];
+function registerRecord(invocationId: string): InvocationRegistration {
+  const invocationRequest = request(invocationId);
+  const stdinBytes = serializeCanonical(invocationRequest);
+  return {
+    invocationId,
+    receiptId: invocationRequest.receiptId,
+    registeredAt: '2026-09-11T07:00:00.000Z',
+    harnessArgv: ['harness'],
+    stdinArtifact: hashBytes(stdinBytes),
+    stdinBytes,
+  };
+}
 
-    expect(invocation.status).toBe('verified');
-    expect(entry.state).toBe('completed');
-    if (entry.state !== 'completed') throw new Error('expected completed invocation');
-    expect(entry.registration.stdinArtifact).toBe(
-      new Bun.CryptoHasher('sha256').update(entry.registration.stdinBytes).digest('hex'),
-    );
-    expect(entry.registration.stdinBytes).toBe(
-      `{"invocationId":"invocation.integration-test","protocol":{"protocolBlob":"${SHA_B}","protocolId":"review.cold-informed.v1"},"receiptId":"receipt.review.integration-test","schemaVersion":1,"subject":{"contentIdentity":"${SHA_A}","kind":"file","path":"src/example.ts","subjectId":"subject.integration-test"}}\n`,
-    );
-    expect(entry.completion.stdoutArtifact).toBe(
-      new Bun.CryptoHasher('sha256').update(entry.completion.stdoutBytes).digest('hex'),
-    );
-    expect(entry.completion.actualTools).toEqual([
+function launchFailureTerminal(registration: InvocationRegistration): InvocationTerminal {
+  const coldRequest = {
+    schemaVersion: 1,
+    messageKind: 'cold-request',
+    invocationId: registration.invocationId,
+    receiptId: registration.receiptId,
+    protocol: request(registration.invocationId).protocol,
+    subject: request(registration.invocationId).subject,
+  };
+  const stdinBytes = serializeCanonical(coldRequest);
+  const empty = Buffer.alloc(0).toString('base64');
+  return {
+    status: 'unverified',
+    completedAt: '2026-09-11T07:00:01.000Z',
+    phase: 'cold',
+    reason: 'launch failed: fixture',
+    attempt: {
+      observation: {
+        phase: 'cold',
+        startedAt: '2026-09-11T07:00:00.000Z',
+        endedAt: '2026-09-11T07:00:01.000Z',
+        stdinArtifact: hashBytes(stdinBytes),
+        stdinBytes,
+        stdoutArtifact: hashBytes(new Uint8Array()),
+        stdoutBase64: empty,
+        stderrArtifact: hashBytes(new Uint8Array()),
+        stderrBase64: empty,
+        exit: { kind: 'launch-failed', message: 'fixture' },
+      },
+      output: null,
+      decodeFailure: 'launch failed: fixture',
+    },
+    evidence: null,
+  };
+}
+
+function writeWorker(directory: string): string {
+  const path = join(directory, 'journal-worker.ts');
+  writeFileSync(
+    path,
+    `import { readFileSync, writeFileSync } from 'node:fs';
+import { FileInvocationJournal } from '${join(import.meta.dir, 'invoker.ts')}';
+const [journalPath, commandPath, readyPath] = process.argv.slice(2);
+const command = JSON.parse(readFileSync(commandPath, 'utf8'));
+const journal = FileInvocationJournal.open(journalPath, 5000);
+writeFileSync(readyPath, 'ready\\n');
+if (command.kind === 'register') journal.register(command.registration);
+else journal.complete(command.invocationId, command.terminal);
+`,
+    'utf8',
+  );
+  return path;
+}
+
+async function waitForFiles(paths: string[]): Promise<void> {
+  const deadline = Date.now() + 3000;
+  while (!paths.every((path) => existsSync(path))) {
+    if (Date.now() > deadline) throw new Error('workers did not become ready');
+    await Bun.sleep(10);
+  }
+}
+
+describe('review invocation provenance', () => {
+  test('durably acknowledges cold before informed launch and retains separate phase receipts', () => {
+    const { invocation, journalPath, tracePath } = invoke();
+    const evidence = requireVerified(invocation);
+    const entry = readInvocationJournal(journalPath).entries[0];
+
+    expect(readFileSync(tracePath, 'utf8')).toBe('cold\ninformed\n');
+    expect(entry.state).toBe('terminal');
+    if (entry.state !== 'terminal' || entry.cold === undefined) {
+      throw new Error('expected terminal invocation with cold acknowledgement');
+    }
+    const coldInput = entry.cold.attempt.observation.stdinBytes;
+    expect(coldInput).not.toContain('informedContextIds');
+    expect(coldInput).not.toContain(SHA_C);
+    expect(entry.cold.attempt.observation.stderrArtifact).toBe(hashBytes(new Uint8Array()));
+    expect(entry.terminal.status).toBe('reviewed');
+    expect(evidence.phaseReceipts.cold.receipt.chargedAmountMicros).toBe(11000);
+    expect(evidence.phaseReceipts.informed.receipt.chargedAmountMicros).toBe(14000);
+    expect(evidence.phaseTools.cold).toHaveLength(2);
+    expect(evidence.phaseTools.informed).toEqual([{ toolId: 'run-check', version: '2' }]);
+    expect(evidence.actualTools).toEqual([
       { toolId: 'read-file', version: '1' },
       { toolId: 'read-file', version: '1' },
       { toolId: 'run-check', version: '2' },
     ]);
-    expect(evidence.receipt.rawUsage).toEqual([
-      { category: 'input_tokens', quantity: 1200, unit: 'tokens' },
-      { category: 'output_tokens', quantity: 300, unit: 'tokens' },
-    ]);
-    expect(evidence.receipt.priceIdentity).toEqual({
-      priceId: 'openai.gpt-5.2026-09-10',
-      provider: 'openai',
-      model: 'gpt-5',
-      currency: 'USD',
-      source: 'provider-receipt',
-    });
-    expect(evidence.receipt.executor).toEqual({
-      provider: 'openai',
-      model: 'gpt-5',
-      version: '2026-09-10',
-      effort: 'high',
-      toolchain: 'codex',
-    });
-    expect(entry.completion.telemetry.status).toBe('verified');
-    if (entry.completion.telemetry.status !== 'verified') {
-      throw new Error('expected verified telemetry');
-    }
-    expect(entry.completion.telemetry.receipt.chargedAmountMicros).toBe(25000);
-    expect(entry.completion.telemetry.elapsedReceipts).toHaveLength(1);
-    expect(entry.completion.telemetry.elapsedReceipts[0]).toMatchObject({
-      phase: 'review',
-      status: 'completed',
-    });
-    expect(entry.completion.telemetry.elapsedReceipts[0]?.elapsedMs).toBeGreaterThanOrEqual(0);
-    expect(entry.completion.rawResponse.payload).toContain('impact partial');
   });
 
-  test('rejects forged provenance and preserves cold uncertainty through the production CLI', () => {
+  test('never elevates a local journal label to external provenance', () => {
     const { directory, journalPath, invocation } = invoke();
     const evidence = requireVerified(invocation);
-    const cases: { name: string; mutate: (copy: ReviewEvidence) => void; expected: string }[] = [
-      {
-        name: 'forged-invocation',
-        mutate: (copy) => {
-          copy.receipt.invocationId = 'invocation.forged';
-        },
-        expected: 'unknown invocation',
-      },
-      {
-        name: 'altered-response',
-        mutate: (copy) => {
-          copy.receipt.rawResponseArtifact = 'f'.repeat(64);
-          copy.rawResponse.artifact = 'f'.repeat(64);
-        },
-        expected: 'raw response reference differs',
-      },
-      {
-        name: 'erased-reads',
-        mutate: (copy) => {
-          copy.receipt.observedReadIds = [];
-          copy.protocolEvidence.cold.observedReadIds = [];
-          copy.protocolEvidence.informed.observedReadIds = [];
-          copy.protocolEvidence.expansion.coldJudgmentArtifact = hashCanonical(
-            copy.protocolEvidence.cold,
-          );
-        },
-        expected: 'observed reads differ',
-      },
-      {
-        name: 'rewritten-cold',
-        mutate: (copy) => {
-          copy.protocolEvidence.cold.judgments.impact = 'yes';
-          copy.protocolEvidence.expansion.coldJudgmentArtifact = hashCanonical(
-            copy.protocolEvidence.cold,
-          );
-        },
-        expected: 'cold judgment differs',
-      },
-      {
-        name: 'forged-tools',
-        mutate: (copy) => {
-          copy.actualTools = [{ toolId: 'invented-tool', version: '9' }];
-        },
-        expected: 'review evidence differs',
-      },
-    ];
+    const local = runValidation(directory, journalPath, evidence);
+    expect(local.exitCode, commandOutput(local)).toBe(0);
+    expect(JSON.parse(readPipe(local.stdout, 'stdout')) as unknown).toEqual({
+      status: 'verified',
+      scope: 'local-cooperative',
+      satisfiesExternal: false,
+    });
 
-    for (const validationCase of cases) {
-      const forged = structuredClone(evidence);
-      validationCase.mutate(forged);
-      const invocation = runValidation(directory, journalPath, forged);
-      expect(invocation.exitCode, `${validationCase.name}: ${output(invocation)}`).toBe(1);
-      expect(output(invocation)).toContain(validationCase.expected);
-    }
+    const required = runValidation(directory, journalPath, evidence, 'require-external');
+    expect(required.exitCode, commandOutput(required)).toBe(1);
+    expect(commandOutput(required)).toContain('independently authenticated');
 
-    const localOnly = runValidation(directory, journalPath, evidence, 'require-external');
-    expect(localOnly.exitCode, output(localOnly)).toBe(1);
-    expect(output(localOnly)).toContain('local-cooperative cannot satisfy external provenance');
+    const relabeled = JSON.parse(readFileSync(journalPath, 'utf8')) as { trustScope: string };
+    relabeled.trustScope = 'trusted-harness';
+    writeFileSync(journalPath, `${JSON.stringify(relabeled)}\n`, 'utf8');
+    const forged = runValidation(directory, journalPath, evidence);
+    expect(forged.exitCode, commandOutput(forged)).toBe(1);
   });
 
-  test('makes completion idempotent only for the same terminal observation', () => {
-    const { journal, journalPath } = invoke();
-    const completed = readInvocationJournal(journalPath).entries[0];
-    if (completed.state !== 'completed') throw new Error('expected completed invocation');
+  test('rejects post-informed cold mutation even when the local hash is recomputed', () => {
+    const { directory, journalPath, invocation } = invoke();
+    const evidence = requireVerified(invocation);
+    evidence.protocolEvidence.cold.judgments.impact = 'yes';
+    evidence.protocolEvidence.expansion.coldJudgmentArtifact = hashCanonical(
+      evidence.protocolEvidence.cold,
+    );
 
-    expect(() => journal.register(completed.registration)).toThrow('already registered');
-    expect(() => {
-      journal.complete('invocation.forged', completed.completion);
-    }).toThrow('unknown invocation');
-    expect(() => {
-      journal.complete(completed.registration.invocationId, completed.completion);
-    }).not.toThrow();
-    const missingEvidence = structuredClone(completed.completion);
-    missingEvidence.evidence = null;
-    expect(() => {
-      journal.complete(completed.registration.invocationId, missingEvidence);
-    }).toThrow('evidence exactly when completed telemetry is verified');
-    const changed = structuredClone(completed.completion);
-    changed.actualTools.push({ toolId: 'another-tool', version: '1' });
-    expect(() => {
-      journal.complete(completed.registration.invocationId, changed);
-    }).toThrow('different terminal completion');
+    const validation = runValidation(directory, journalPath, evidence);
+    expect(validation.exitCode, commandOutput(validation)).toBe(1);
+    expect(commandOutput(validation)).toContain('cold acknowledgement');
   });
 
-  test('does not launch after a journal accepts a different invocation identity', () => {
-    const rejectingJournal: InvocationJournal = {
-      journalId: 'journal.wrong-acceptance',
-      trustScope: 'local-cooperative',
-      register: (registration) => ({
-        status: 'durable',
-        journalId: 'journal.wrong-acceptance',
-        invocationId: 'invocation.wrong-acceptance',
-        registrationArtifact: hashCanonical(registration),
-      }),
-      complete: () => {
-        throw new Error('completion must not be reached');
-      },
-      read: () => {
-        throw new Error('read must not be reached');
-      },
-    };
-    const invoker = new ProcessReviewInvoker(rejectingJournal, ['not-a-real-harness']);
+  test('rejects forged invocation, raw-response reference and observed-read evidence', () => {
+    const { directory, journalPath, invocation } = invoke();
+    const evidence = requireVerified(invocation);
 
-    expect(() => invoker.invoke(request())).toThrow('did not durably accept');
+    const forgedInvocation = structuredClone(evidence);
+    forgedInvocation.receipt.invocationId = 'invocation.forged';
+    const unknown = runValidation(directory, journalPath, forgedInvocation);
+    expect(unknown.exitCode, commandOutput(unknown)).toBe(1);
+    expect(commandOutput(unknown)).toContain('unknown invocation: invocation.forged');
+
+    const changedReference = structuredClone(evidence);
+    changedReference.rawResponse.artifact = SHA_C;
+    const response = runValidation(directory, journalPath, changedReference);
+    expect(response.exitCode, commandOutput(response)).toBe(1);
+
+    const erasedReads = structuredClone(evidence);
+    erasedReads.protocolEvidence.informed.observedReadIds = [];
+    erasedReads.receipt.observedReadIds = [...erasedReads.protocolEvidence.cold.observedReadIds];
+    const reads = runValidation(directory, journalPath, erasedReads);
+    expect(reads.exitCode, commandOutput(reads)).toBe(1);
   });
 
-  test('refuses harness identity, request and time claims at their registered boundaries', () => {
-    const cases: { mode: HarnessMode; expected: string }[] = [
-      { mode: 'wrong-input', expected: 'inputArtifact differs' },
-      { mode: 'wrong-output-invocation', expected: 'differs from registered' },
-      { mode: 'wrong-invocation', expected: 'telemetry invocation differs' },
-      { mode: 'wrong-protocol', expected: 'protocol or subject differs' },
-      { mode: 'early-start', expected: 'starts before durable' },
-    ];
-
-    for (const validationCase of cases) {
-      expect(() => invoke(validationCase.mode)).toThrow(validationCase.expected);
-    }
-  });
-
-  test('distinguishes missing, unreadable and malformed invocation journals', () => {
-    const directory = createScratch();
-    const absent = join(directory, 'absent.json');
-    const malformed = join(directory, 'malformed.json');
-    const unreadable = join(directory, 'unreadable.json');
-    writeFileSync(malformed, '{', 'utf8');
-    writeFileSync(unreadable, '{}\n', { encoding: 'utf8', mode: 0o000 });
-
-    expect(() => readInvocationJournal(absent)).toThrow('cannot read invocation journal');
-    expect(() => readInvocationJournal(unreadable)).toThrow('cannot read invocation journal');
-    expect(() => readInvocationJournal(malformed)).toThrow('malformed JSON');
-  });
-
-  test('refuses journal records whose exact stdin or stdout byte identities were rewritten', () => {
+  test('re-decodes exact stdout before trusting retained payload or telemetry fields', () => {
     const first = invoke();
-    const changedInput = structuredClone(readInvocationJournal(first.journalPath));
-    changedInput.entries[0].registration.stdinArtifact = 'f'.repeat(64);
-    writeFileSync(first.journalPath, `${JSON.stringify(changedInput)}\n`, 'utf8');
-
-    expect(() => readInvocationJournal(first.journalPath)).toThrow('stdinArtifact');
+    const changedPayload = structuredClone(readInvocationJournal(first.journalPath));
+    const firstEntry = changedPayload.entries[0];
+    if (firstEntry.state !== 'terminal' || firstEntry.terminal.status !== 'reviewed') {
+      throw new Error('expected reviewed terminal');
+    }
+    if (firstEntry.terminal.informed.output === null) throw new Error('expected informed output');
+    firstEntry.terminal.informed.output.rawResponse.payload = 'rewritten payload\n';
+    if (firstEntry.terminal.informed.output.telemetry.status !== 'verified') {
+      throw new Error('expected verified telemetry');
+    }
+    firstEntry.terminal.informed.output.telemetry.receipt.outputArtifact =
+      hashBytes('rewritten payload\n');
+    writeFileSync(first.journalPath, `${JSON.stringify(changedPayload)}\n`, 'utf8');
+    expect(() => readInvocationJournal(first.journalPath)).toThrow('exact stdout');
 
     const second = invoke();
-    const changedOutput = structuredClone(readInvocationJournal(second.journalPath));
-    const completed = changedOutput.entries[0];
-    if (completed.state !== 'completed') throw new Error('expected completed invocation');
-    completed.completion.stdoutArtifact = 'f'.repeat(64);
-    writeFileSync(second.journalPath, `${JSON.stringify(changedOutput)}\n`, 'utf8');
-
-    expect(() => readInvocationJournal(second.journalPath)).toThrow('stdoutArtifact');
+    const changedTelemetry = structuredClone(readInvocationJournal(second.journalPath));
+    const secondEntry = changedTelemetry.entries[0];
+    if (secondEntry.state !== 'terminal' || secondEntry.terminal.status !== 'reviewed') {
+      throw new Error('expected reviewed terminal');
+    }
+    if (secondEntry.terminal.informed.output === null) throw new Error('expected informed output');
+    const telemetry = secondEntry.terminal.informed.output.telemetry;
+    if (telemetry.status !== 'verified') throw new Error('expected verified telemetry');
+    telemetry.receipt.chargedAmountMicros += 1;
+    writeFileSync(second.journalPath, `${JSON.stringify(changedTelemetry)}\n`, 'utf8');
+    expect(() => readInvocationJournal(second.journalPath)).toThrow('exact stdout');
 
     const third = invoke();
-    const duplicate = structuredClone(readInvocationJournal(third.journalPath));
-    duplicate.entries.push(duplicate.entries[0]);
-    writeFileSync(third.journalPath, `${JSON.stringify(duplicate)}\n`, 'utf8');
-
-    expect(() => readInvocationJournal(third.journalPath)).toThrow('unique invocationId');
+    const changedStderr = structuredClone(readInvocationJournal(third.journalPath));
+    const thirdEntry = changedStderr.entries[0];
+    if (thirdEntry.state !== 'terminal' || thirdEntry.terminal.status !== 'reviewed') {
+      throw new Error('expected reviewed terminal');
+    }
+    thirdEntry.terminal.informed.observation.stderrBase64 =
+      Buffer.from('rewritten stderr').toString('base64');
+    writeFileSync(third.journalPath, `${JSON.stringify(changedStderr)}\n`, 'utf8');
+    expect(() => readInvocationJournal(third.journalPath)).toThrow('stderrArtifact');
 
     const fourth = invoke();
-    const changedJournal = structuredClone(readInvocationJournal(fourth.journalPath));
-    changedJournal.journalId = 'journal.replaced';
-    writeFileSync(fourth.journalPath, `${JSON.stringify(changedJournal)}\n`, 'utf8');
-
-    expect(() => fourth.journal.read()).toThrow('journal identity changed');
-  });
-
-  test('classifies configured external provenance without selecting a trust policy', () => {
-    const { directory, journalPath, invocation } = invoke('verified', 'trusted-harness');
-    const validation = runValidation(
-      directory,
-      journalPath,
-      requireVerified(invocation),
-      'require-external',
-    );
-
-    expect(validation.exitCode, output(validation)).toBe(0);
-    expect(JSON.parse(readPipe(validation.stdout, 'stdout')) as unknown).toEqual({
-      status: 'verified',
-      scope: 'trusted-harness',
-      satisfiesExternal: true,
-    });
-  });
-
-  test('refuses incomplete and unverified journal observations through the production CLI', () => {
-    const verified = invoke();
-    const evidence = requireVerified(verified.invocation);
-    const completed = readInvocationJournal(verified.journalPath).entries[0];
-    const directory = createScratch();
-    const registeredPath = join(directory, 'registered.json');
-    const registered = FileInvocationJournal.create(
-      registeredPath,
-      'journal.registered-only',
-      'local-cooperative',
-    );
-    registered.register(completed.registration);
-
-    const incomplete = runValidation(directory, registeredPath, evidence);
-    expect(incomplete.exitCode, output(incomplete)).toBe(1);
-    expect(output(incomplete)).toContain('invocation is not complete');
-
-    const unverified = invoke('unverified');
-    const unverifiable = runValidation(directory, unverified.journalPath, evidence);
-    expect(unverifiable.exitCode, output(unverifiable)).toBe(1);
-    expect(output(unverifiable)).toContain('invocation telemetry is unverified');
-  });
-
-  test('returns explicit unverified telemetry without manufacturing a review receipt', () => {
-    const { invocation, journalPath } = invoke('unverified');
-
-    expect(invocation).toEqual({
-      status: 'unverified',
-      invocationId: 'invocation.integration-test',
-      reason: 'provider omitted price identity',
-    });
-    const completed = readInvocationJournal(journalPath).entries[0];
-    if (completed.state !== 'completed') throw new Error('expected completed invocation');
-    expect(completed.completion.telemetry).toEqual({
-      status: 'unverified',
-      reason: 'provider omitted price identity',
-    });
-    expect(JSON.stringify(completed)).not.toContain('chargedAmountMicros":0');
-  });
-
-  test('retains failed invocation telemetry without turning it into review evidence', () => {
-    const { invocation, journalPath } = invoke('failed');
-
-    expect(invocation).toEqual({
-      status: 'unverified',
-      invocationId: 'invocation.integration-test',
-      reason: 'invocation status failed',
-    });
-    const completed = readInvocationJournal(journalPath).entries[0];
-    if (completed.state !== 'completed') throw new Error('expected completed invocation');
-    expect(completed.completion.telemetry.status).toBe('verified');
-    if (completed.completion.telemetry.status !== 'verified') {
-      throw new Error('expected retained verified telemetry');
+    const changedStdoutIdentity = structuredClone(readInvocationJournal(fourth.journalPath));
+    const fourthEntry = changedStdoutIdentity.entries[0];
+    if (fourthEntry.state !== 'terminal' || fourthEntry.terminal.status !== 'reviewed') {
+      throw new Error('expected reviewed terminal');
     }
-    expect(completed.completion.telemetry.receipt.status).toBe('failed');
-    expect(completed.completion.evidence).toBeNull();
+    fourthEntry.terminal.informed.observation.stdoutArtifact = SHA_C;
+    writeFileSync(fourth.journalPath, `${JSON.stringify(changedStdoutIdentity)}\n`, 'utf8');
+    expect(() => readInvocationJournal(fourth.journalPath)).toThrow('stdoutArtifact');
+
+    const fifth = invoke();
+    const changedStdinIdentity = structuredClone(readInvocationJournal(fifth.journalPath));
+    const fifthEntry = changedStdinIdentity.entries[0];
+    if (fifthEntry.state !== 'terminal' || fifthEntry.cold === undefined) {
+      throw new Error('expected terminal with cold acknowledgement');
+    }
+    fifthEntry.cold.attempt.observation.stdinArtifact = SHA_C;
+    writeFileSync(fifth.journalPath, `${JSON.stringify(changedStdinIdentity)}\n`, 'utf8');
+    expect(() => readInvocationJournal(fifth.journalPath)).toThrow('stdinArtifact');
+
+    const sixth = invoke();
+    const changedRegistrationIdentity = structuredClone(readInvocationJournal(sixth.journalPath));
+    changedRegistrationIdentity.entries[0].registration.stdinArtifact = SHA_C;
+    writeFileSync(sixth.journalPath, `${JSON.stringify(changedRegistrationIdentity)}\n`, 'utf8');
+    expect(() => readInvocationJournal(sixth.journalPath)).toThrow('stdinArtifact');
+  });
+
+  test('persists a nonzero cold process as an exact terminal attempt', () => {
+    const { invocation, journalPath, tracePath } = invoke('cold-nonzero');
+    expect(invocation.status).toBe('unverified');
+    const entry = readUnverifiedTerminal(journalPath);
+    expect(entry.terminal.phase).toBe('cold');
+    expect(entry.terminal.attempt.observation.stderrArtifact).toBe(
+      hashBytes(Buffer.from(entry.terminal.attempt.observation.stderrBase64, 'base64')),
+    );
+    expect(readFileSync(tracePath, 'utf8')).toBe('cold\n');
+  });
+
+  test('persists malformed cold stdout as an exact terminal attempt', () => {
+    const { invocation, journalPath, tracePath } = invoke('cold-malformed');
+    expect(invocation.status).toBe('unverified');
+    const entry = readUnverifiedTerminal(journalPath);
+    expect(entry.terminal.phase).toBe('cold');
+    expect(entry.terminal.attempt.output).toBeNull();
+    expect(entry.terminal.attempt.observation.stdoutBase64).toBe(
+      Buffer.from('{').toString('base64'),
+    );
+    expect(readFileSync(tracePath, 'utf8')).toBe('cold\n');
+  });
+
+  test('persists a cold launch failure as an exact terminal attempt', () => {
+    const launched = invoke('verified', ['not-a-real-review-harness']);
+    expect(launched.invocation.status).toBe('unverified');
+    const entry = readUnverifiedTerminal(launched.journalPath);
+    expect(entry.terminal.attempt.observation.exit.kind).toBe('launch-failed');
+    expect(entry.terminal.attempt.observation.stdoutArtifact).toBe(hashBytes(new Uint8Array()));
+    expect(entry.terminal.attempt.observation.stderrArtifact).toBe(hashBytes(new Uint8Array()));
+  });
+
+  test('persists protocol-invalid cold output and refuses informed launch', () => {
+    const { invocation, journalPath, tracePath } = invoke('cold-wrong-protocol');
+    expect(invocation.status).toBe('unverified');
+    const entry = readUnverifiedTerminal(journalPath);
+    expect(entry.terminal.phase).toBe('cold');
+    expect(entry.terminal.reason).toContain('protocol, subject or invocation');
+    expect(entry.terminal.attempt.output).not.toBeNull();
+    expect(readFileSync(tracePath, 'utf8')).toBe('cold\n');
+  });
+
+  test('persists telemetry-invalid cold output and refuses informed launch', () => {
+    const { invocation, journalPath, tracePath } = invoke('cold-wrong-telemetry-invocation');
+    expect(invocation.status).toBe('unverified');
+    const entry = readUnverifiedTerminal(journalPath);
+    expect(entry.terminal.phase).toBe('cold');
+    expect(entry.terminal.reason).toContain('telemetry invocationId');
+    expect(entry.terminal.attempt.output).not.toBeNull();
+    expect(readFileSync(tracePath, 'utf8')).toBe('cold\n');
+  });
+
+  test('persists a nonzero informed process after the cold acknowledgement', () => {
+    const { invocation, journalPath, tracePath } = invoke('informed-nonzero');
+    expect(invocation.status).toBe('unverified');
+    const entry = readUnverifiedTerminal(journalPath);
+    expect(entry.cold).toBeDefined();
+    expect(entry.terminal.phase).toBe('informed');
+    expect(entry.terminal.attempt.output).not.toBeNull();
+    expect(readFileSync(tracePath, 'utf8')).toBe('cold\ninformed\n');
+  });
+
+  test('persists malformed informed stdout after the cold acknowledgement', () => {
+    const { invocation, journalPath, tracePath } = invoke('informed-malformed');
+    expect(invocation.status).toBe('unverified');
+    const entry = readUnverifiedTerminal(journalPath);
+    expect(entry.cold).toBeDefined();
+    expect(entry.terminal.phase).toBe('informed');
+    expect(entry.terminal.attempt.output).toBeNull();
+    expect(entry.terminal.attempt.observation.stdoutBase64).toBe(
+      Buffer.from('{').toString('base64'),
+    );
+    expect(readFileSync(tracePath, 'utf8')).toBe('cold\ninformed\n');
+  });
+
+  test('retains known partial cold telemetry and never launches informed', () => {
+    const { invocation, journalPath, tracePath } = invoke('cold-unverified');
+    expect(invocation.status).toBe('unverified');
+    const entry = readInvocationJournal(journalPath).entries[0];
+    if (entry.state !== 'terminal' || entry.terminal.status !== 'unverified') {
+      throw new Error('expected unverified terminal');
+    }
+    const telemetry = entry.terminal.attempt.output?.telemetry;
+    expect(telemetry?.status).toBe('unverified');
+    if (telemetry?.status !== 'unverified') throw new Error('expected partial telemetry');
+    expect(telemetry.missingRequirements).toEqual(['priceIdentity']);
+    expect(telemetry.observed).toMatchObject({
+      provider: 'openai',
+      model: 'gpt-5',
+      rawUsage: [{ category: 'input_tokens', quantity: 700, unit: 'tokens' }],
+      chargedAmountMicros: 11000,
+    });
+    expect(typeof telemetry.observed.endedAt).toBe('string');
+    expect(readFileSync(tracePath, 'utf8')).toBe('cold\n');
+  });
+
+  test('serializes overlapping registrations without losing either acknowledgement', async () => {
+    const directory = createScratch();
+    const journalPath = join(directory, 'journal.json');
+    FileInvocationJournal.create(journalPath, 'journal.concurrent-register');
+    const lock = FileJournalLock.acquire(journalPath, 100);
+    const worker = writeWorker(directory);
+    const readyPaths = [join(directory, 'ready-a'), join(directory, 'ready-b')];
+    const processes = ['a', 'b'].map((suffix, index) => {
+      const commandPath = join(directory, `register-${suffix}.json`);
+      writeFileSync(
+        commandPath,
+        JSON.stringify({ kind: 'register', registration: registerRecord(`invocation.${suffix}`) }),
+      );
+      return Bun.spawn(
+        [process.execPath, 'run', worker, journalPath, commandPath, readyPaths[index]],
+        { stderr: 'pipe', stdout: 'pipe' },
+      );
+    });
+    await waitForFiles(readyPaths);
+    await Bun.sleep(50);
+    expect(processes.map((process) => process.exitCode)).toEqual([null, null]);
+    lock.release();
+    expect(await Promise.all(processes.map((process) => process.exited))).toEqual([0, 0]);
+    expect(
+      readInvocationJournal(journalPath)
+        .entries.map((entry) => entry.registration.invocationId)
+        .sort(),
+    ).toEqual(['invocation.a', 'invocation.b']);
+  });
+
+  test('makes exact completion idempotent and refuses conflicting terminal transitions', () => {
+    const directory = createScratch();
+    const journalPath = join(directory, 'journal.json');
+    const journal = FileInvocationJournal.create(journalPath, 'journal.terminal-safety');
+    const registration = registerRecord('invocation.terminal-safety');
+    const terminal = launchFailureTerminal(registration);
+    if (terminal.status !== 'unverified' || terminal.phase !== 'cold') {
+      throw new Error('expected cold unverified fixture');
+    }
+    journal.register(registration);
+
+    const first = journal.complete(registration.invocationId, terminal);
+    const repeated = journal.complete(registration.invocationId, terminal);
+    expect(repeated.artifact).toBe(first.artifact);
+
+    expect(() =>
+      journal.complete(registration.invocationId, {
+        ...terminal,
+        completedAt: '2026-09-11T07:00:02.000Z',
+      }),
+    ).toThrow('different terminal completion');
+    expect(() =>
+      journal.acknowledgeCold(registration.invocationId, {
+        acknowledgedAt: '2026-09-11T07:00:02.000Z',
+        attempt: terminal.attempt,
+      }),
+    ).toThrow('after terminal invocation');
+  });
+
+  test('serializes overlapping completions and enforces lock ownership without stealing stale locks', async () => {
+    const directory = createScratch();
+    const journalPath = join(directory, 'journal.json');
+    const journal = FileInvocationJournal.create(journalPath, 'journal.concurrent-complete');
+    const registrations = [registerRecord('invocation.a'), registerRecord('invocation.b')];
+    for (const registration of registrations) journal.register(registration);
+    const lock = FileJournalLock.acquire(journalPath, 100);
+    const ownerPath = join(`${journalPath}.lock`, 'owner');
+    const owner = readFileSync(ownerPath, 'utf8');
+    writeFileSync(ownerPath, 'different-owner\n', 'utf8');
+    expect(() => {
+      lock.release();
+    }).toThrow('ownership changed');
+    expect(existsSync(`${journalPath}.lock`)).toBe(true);
+    writeFileSync(ownerPath, owner, 'utf8');
+
+    const worker = writeWorker(directory);
+    const readyPaths = [join(directory, 'complete-a'), join(directory, 'complete-b')];
+    const processes = registrations.map((registration, index) => {
+      const commandPath = join(directory, `complete-${String(index)}.json`);
+      writeFileSync(
+        commandPath,
+        JSON.stringify({
+          kind: 'complete',
+          invocationId: registration.invocationId,
+          terminal: launchFailureTerminal(registration),
+        }),
+      );
+      return Bun.spawn(
+        [process.execPath, 'run', worker, journalPath, commandPath, readyPaths[index]],
+        { stderr: 'pipe', stdout: 'pipe' },
+      );
+    });
+    await waitForFiles(readyPaths);
+    await Bun.sleep(50);
+    expect(processes.map((process) => process.exitCode)).toEqual([null, null]);
+    lock.release();
+    expect(await Promise.all(processes.map((process) => process.exited))).toEqual([0, 0]);
+    expect(readInvocationJournal(journalPath).entries.map((entry) => entry.state)).toEqual([
+      'terminal',
+      'terminal',
+    ]);
+
+    mkdirSync(`${journalPath}.lock`, { mode: 0o700 });
+    writeFileSync(ownerPath, 'stale-owner\n', 'utf8');
+    expect(() =>
+      FileInvocationJournal.open(journalPath, 20).register(registerRecord('invocation.c')),
+    ).toThrow('timed out waiting for invocation journal lock');
+    expect(readFileSync(ownerPath, 'utf8')).toBe('stale-owner\n');
+    rmSync(`${journalPath}.lock`, { force: true, recursive: true });
   });
 });

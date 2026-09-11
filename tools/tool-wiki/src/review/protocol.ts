@@ -2,9 +2,12 @@ import { parseOrThrow, type } from '@wbs/validation';
 
 import {
   ElapsedReceipt,
+  ExecutorIdentity,
   InvocationReceipt,
   IsoInstant,
   OpaqueId,
+  PriceIdentity,
+  RawUsage,
   RelativePath,
   ReviewReceipt,
   SchemaVersion,
@@ -37,43 +40,51 @@ export const ReviewInvocationRequest = type({
   receiptId: OpaqueId,
   protocol: ReviewProtocol,
   subject: ReviewSubject,
+  informedContextIds: Sha256.array(),
 }).onUndeclaredKey('reject');
 export type ReviewInvocationRequest = typeof ReviewInvocationRequest.infer;
 
-const ColdJudgment = type({
+export const ColdHarnessRequest = type({
+  schemaVersion: SchemaVersion,
+  messageKind: "'cold-request'",
+  invocationId: OpaqueId,
+  receiptId: OpaqueId,
+  protocol: ReviewProtocol,
+  subject: ReviewSubject,
+}).onUndeclaredKey('reject');
+export type ColdHarnessRequest = typeof ColdHarnessRequest.infer;
+
+export const ColdJudgment = type({
   sequence: '1',
   judgments: Judgments,
   observedReadIds: Sha256.array(),
 }).onUndeclaredKey('reject');
+export type ColdJudgment = typeof ColdJudgment.infer;
 
-const InformedExpansion = type({
-  sequence: '2',
-  coldJudgmentArtifact: Sha256,
-  suppliedContextIds: Sha256.array(),
-}).onUndeclaredKey('reject');
+export const InformedHarnessRequest = type({
+  schemaVersion: SchemaVersion,
+  messageKind: "'informed-request'",
+  invocationId: OpaqueId,
+  receiptId: OpaqueId,
+  protocol: ReviewProtocol,
+  subject: ReviewSubject,
+  cold: ColdJudgment,
+  coldArtifact: Sha256,
+  informedContextIds: Sha256.array(),
+})
+  .onUndeclaredKey('reject')
+  .narrow((request, context) =>
+    request.coldArtifact === hashCanonical(request.cold)
+      ? true
+      : context.mustBe('an informed request binding its exact acknowledged cold judgment'),
+  );
+export type InformedHarnessRequest = typeof InformedHarnessRequest.infer;
 
 const InformedJudgment = type({
   sequence: '3',
   judgments: Judgments,
   observedReadIds: Sha256.array(),
 }).onUndeclaredKey('reject');
-
-export const ReviewProtocolEvidence = type({
-  schemaVersion: SchemaVersion,
-  protocol: ReviewProtocol,
-  subject: ReviewSubject,
-  cold: ColdJudgment,
-  expansion: InformedExpansion,
-  informed: InformedJudgment,
-})
-  .onUndeclaredKey('reject')
-  // Proof: replacing this binding comparison with true made "refuses an expansion" fail: "Received function did not throw".
-  .narrow((evidence, context) =>
-    evidence.expansion.coldJudgmentArtifact === hashCanonical(evidence.cold)
-      ? true
-      : context.mustBe('an expansion whose coldJudgmentArtifact binds the frozen cold judgment'),
-  );
-export type ReviewProtocolEvidence = typeof ReviewProtocolEvidence.infer;
 
 export const ToolIdentity = type({
   toolId: OpaqueId,
@@ -87,7 +98,8 @@ export const RawResponseRetention = type({ kind: "'journal-inline'" })
     type({
       kind: "'external'",
       artifactUri: 'string>=1',
-      // Proof: widening this to a non-empty string made "requires a real retention horizon" fail: "Received function did not throw".
+      // Proof: widening this to any non-empty string let 2026-02-30 decode; the retention test
+      // reported "function did not throw" at the retainedUntil assertion.
       retainedUntil: IsoInstant,
     }).onUndeclaredKey('reject'),
   );
@@ -100,72 +112,148 @@ export const RetainedRawResponse = type({
 }).onUndeclaredKey('reject');
 export type RetainedRawResponse = typeof RetainedRawResponse.infer;
 
-const VerifiedTelemetry = type({
+export const VerifiedTelemetry = type({
   status: "'verified'",
   receipt: InvocationReceipt,
   elapsedReceipts: ElapsedReceipt.array(),
 })
   .onUndeclaredKey('reject')
-  // Proof: replacing this length comparison with true made "refuses verified telemetry" fail: "Received function did not throw".
   .narrow((telemetry, context) =>
     telemetry.elapsedReceipts.length > 0
       ? true
       : context.mustBe('verified telemetry with at least one elapsed receipt'),
   );
+export type VerifiedTelemetry = typeof VerifiedTelemetry.infer;
 
-const UnverifiedTelemetry = type({
+// Proof: rebuilding decoded unverified telemetry with `observed: {}` made the partial-telemetry
+// test show all known provider/model/usage/charge/time fields replaced by an empty observation.
+const PartialTelemetryObservation = type({
+  'provider?': 'string>=1',
+  'model?': 'string>=1',
+  'version?': 'string>=1',
+  'effort?': 'string>=1',
+  'toolchain?': 'string>=1',
+  'executor?': ExecutorIdentity,
+  'rawUsage?': RawUsage.array(),
+  'priceIdentity?': PriceIdentity,
+  'chargedAmountMicros?': 'number.integer>=0',
+  'startedAt?': IsoInstant,
+  'endedAt?': IsoInstant,
+  'elapsedReceipts?': ElapsedReceipt.array(),
+}).onUndeclaredKey('reject');
+
+const MissingRequirements = type('string[]').narrow((requirements, context) =>
+  requirements.length > 0 && requirements.every((requirement) => requirement.trim().length > 0)
+    ? true
+    : context.mustBe('one or more named missing telemetry requirements'),
+);
+
+export const UnverifiedTelemetry = type({
   status: "'unverified'",
   reason: 'string>=1',
-})
-  // Proof: removing undeclared-key rejection made "models absent required telemetry" accept chargedAmountMicros: 0 and fail "Received function did not throw".
-  .onUndeclaredKey('reject');
+  missingRequirements: MissingRequirements,
+  observed: PartialTelemetryObservation,
+}).onUndeclaredKey('reject');
+export type UnverifiedTelemetry = typeof UnverifiedTelemetry.infer;
 
 export const ReviewTelemetry = VerifiedTelemetry.or(UnverifiedTelemetry);
 export type ReviewTelemetry = typeof ReviewTelemetry.infer;
 
-export const HarnessOutput = type({
+export const ColdHarnessOutput = type({
   schemaVersion: SchemaVersion,
-  messageKind: "'review-completion'",
+  messageKind: "'cold-completion'",
   invocationId: OpaqueId,
-  protocolEvidence: ReviewProtocolEvidence,
+  protocol: ReviewProtocol,
+  subject: ReviewSubject,
+  cold: ColdJudgment,
   actualTools: ToolIdentity.array(),
   rawResponse: RetainedRawResponse,
   telemetry: ReviewTelemetry,
 })
   .onUndeclaredKey('reject')
-  .narrow((output, context) => {
-    // Proof: bypassing this comparison made "refuses verified telemetry" fail: "Received function did not throw" for a forged outputArtifact.
-    if (
-      output.telemetry.status === 'verified' &&
-      output.telemetry.receipt.outputArtifact !== hashBytes(output.rawResponse.payload)
-    ) {
-      return context.mustBe('verified telemetry whose outputArtifact identifies the raw response');
-    }
-    return true;
-  });
-export type HarnessOutput = typeof HarnessOutput.infer;
+  .narrow((output, context) =>
+    // Proof: reversing this comparison let a mismatched outputArtifact decode; the protocol test
+    // reported "function did not throw" at the outputArtifact assertion.
+    output.telemetry.status === 'verified' &&
+    output.telemetry.receipt.outputArtifact !== hashBytes(output.rawResponse.payload)
+      ? context.mustBe('verified cold telemetry whose outputArtifact identifies the raw response')
+      : true,
+  );
+export type ColdHarnessOutput = typeof ColdHarnessOutput.infer;
+
+export const InformedHarnessOutput = type({
+  schemaVersion: SchemaVersion,
+  messageKind: "'informed-completion'",
+  invocationId: OpaqueId,
+  protocol: ReviewProtocol,
+  subject: ReviewSubject,
+  coldArtifact: Sha256,
+  informed: InformedJudgment,
+  actualTools: ToolIdentity.array(),
+  rawResponse: RetainedRawResponse,
+  telemetry: ReviewTelemetry,
+})
+  .onUndeclaredKey('reject')
+  .narrow((output, context) =>
+    output.telemetry.status === 'verified' &&
+    output.telemetry.receipt.outputArtifact !== hashBytes(output.rawResponse.payload)
+      ? context.mustBe(
+          'verified informed telemetry whose outputArtifact identifies the raw response',
+        )
+      : true,
+  );
+export type InformedHarnessOutput = typeof InformedHarnessOutput.infer;
+
+export const ReviewProtocolEvidence = type({
+  schemaVersion: SchemaVersion,
+  protocol: ReviewProtocol,
+  subject: ReviewSubject,
+  cold: ColdJudgment,
+  expansion: type({
+    sequence: '2',
+    coldJudgmentArtifact: Sha256,
+    suppliedContextIds: Sha256.array(),
+  }).onUndeclaredKey('reject'),
+  informed: InformedJudgment,
+})
+  .onUndeclaredKey('reject')
+  .narrow((evidence, context) =>
+    evidence.expansion.coldJudgmentArtifact === hashCanonical(evidence.cold)
+      ? true
+      : context.mustBe('an expansion whose coldJudgmentArtifact binds the frozen cold judgment'),
+  );
+export type ReviewProtocolEvidence = typeof ReviewProtocolEvidence.infer;
 
 export const RawResponseReference = type({
   artifact: Sha256,
   retention: RawResponseRetention,
 }).onUndeclaredKey('reject');
-export type RawResponseReference = typeof RawResponseReference.infer;
 
 export const ReviewEvidence = type({
   schemaVersion: SchemaVersion,
   receipt: ReviewReceipt,
   protocolEvidence: ReviewProtocolEvidence,
+  phaseReceipts: type({
+    cold: VerifiedTelemetry,
+    informed: VerifiedTelemetry,
+  }).onUndeclaredKey('reject'),
+  phaseTools: type({
+    cold: ToolIdentity.array(),
+    informed: ToolIdentity.array(),
+  }).onUndeclaredKey('reject'),
   actualTools: ToolIdentity.array(),
   rawResponse: RawResponseReference,
 }).onUndeclaredKey('reject');
 export type ReviewEvidence = typeof ReviewEvidence.infer;
 
-/** Validates one operator-harness response before the journal can retain it. */
-export function decodeHarnessOutput(input: unknown): HarnessOutput {
-  return parseOrThrow(HarnessOutput, input);
+export function decodeColdHarnessOutput(input: unknown): ColdHarnessOutput {
+  return parseOrThrow(ColdHarnessOutput, input);
 }
 
-/** Validates one writer-supplied review evidence record before provenance comparison. */
+export function decodeInformedHarnessOutput(input: unknown): InformedHarnessOutput {
+  return parseOrThrow(InformedHarnessOutput, input);
+}
+
 export function decodeReviewEvidence(input: unknown): ReviewEvidence {
   return parseOrThrow(ReviewEvidence, input);
 }
