@@ -707,4 +707,120 @@ describe('index production CLI', () => {
       'membership symlink cycle in README.md: first',
     );
   });
+
+  test('refuses an anchor spelling that exists only inside an HTML comment', () => {
+    const repository = createRepository();
+    writeFixture(repository);
+    write(repository, 'docs/guide.md', '# Guide\n\n<!-- <a id="details"></a> -->\n');
+
+    expectRefusal(
+      runCheck(repository, commit(repository, 'comment anchor example')),
+      'Markdown anchor absent in README.md: docs/guide.md#details',
+    );
+  });
+
+  test('refuses an anchor spelling inside an HTML raw-text element', () => {
+    const repository = createRepository();
+    writeFixture(repository);
+    write(
+      repository,
+      'docs/guide.md',
+      '# Guide\n\n<script>const example = \'<a id="details"></a>\';</script>\n',
+    );
+
+    expectRefusal(
+      runCheck(repository, commit(repository, 'raw text anchor example')),
+      'Markdown anchor absent in README.md: docs/guide.md#details',
+    );
+  });
+
+  test('refuses an anchor spelling inside inert HTML template contents', () => {
+    const repository = createRepository();
+    writeFixture(repository);
+    write(
+      repository,
+      'docs/guide.md',
+      '# Guide\n\n<template><a id="details">Example</a></template>\n',
+    );
+
+    expectRefusal(
+      runCheck(repository, commit(repository, 'template anchor example')),
+      'Markdown anchor absent in README.md: docs/guide.md#details',
+    );
+  });
+
+  test('accepts rendered HTML element ids and legacy anchor names', () => {
+    const repository = createRepository();
+    writeFixture(repository);
+    write(
+      repository,
+      'docs/guide.md',
+      '# Guide\n\n<section id="details">Details</section>\n\n<a name="legacy">Legacy</a>\n',
+    );
+    const rootPath = join(repository, 'README.md');
+    const source = Bun.file(rootPath).text();
+
+    return source.then((markdown) => {
+      writeFileSync(rootPath, `${markdown}\n[Legacy](docs/guide.md#legacy)\n`, 'utf8');
+      const invocation = runCheck(repository, commit(repository, 'rendered element anchors'));
+      expect(invocation.exitCode, outputOf(invocation)).toBe(0);
+    });
+  });
+
+  test('resolves a trailing-slash directory link', () => {
+    const repository = createRepository();
+    write(
+      repository,
+      'README.md',
+      indexSource('Root', metadata('module.root', [{ kind: 'path', path: 'docs/README.md' }]), [
+        '- [Docs](docs/#details)',
+      ]),
+    );
+    write(repository, 'docs/README.md', '# Docs\n\n## Details\n');
+
+    const invocation = runCheck(repository, commit(repository, 'directory links'));
+    expect(invocation.exitCode, outputOf(invocation)).toBe(0);
+  });
+
+  test('resolves a current-directory self link to its index README', () => {
+    const repository = createRepository();
+    write(
+      repository,
+      'README.md',
+      indexSource('Root', metadata('module.root', []), ['- [Self](./#root)']),
+    );
+
+    const invocation = runCheck(repository, commit(repository, 'current-directory link'));
+    expect(invocation.exitCode, outputOf(invocation)).toBe(0);
+  });
+
+  test('refuses wrong case on a trailing-slash directory link', () => {
+    const repository = createRepository();
+    write(
+      repository,
+      'README.md',
+      indexSource('Root', metadata('module.root', [{ kind: 'path', path: 'docs/README.md' }]), [
+        '- [Docs](Docs/#details)',
+      ]),
+    );
+    write(repository, 'docs/README.md', '# Docs\n\n## Details\n');
+
+    expectRefusal(
+      runCheck(repository, commit(repository, 'wrong-case directory link')),
+      'Markdown path case mismatch in README.md: Docs -> docs/README.md',
+    );
+  });
+
+  test('refuses an absent trailing-slash directory link at its canonical path', () => {
+    const repository = createRepository();
+    write(
+      repository,
+      'README.md',
+      indexSource('Root', metadata('module.root', []), ['- [Missing](missing/)']),
+    );
+
+    const invocation = runCheck(repository, commit(repository, 'absent directory link'));
+    expect(invocation.exitCode, outputOf(invocation)).toBe(1);
+    expect(outputOf(invocation).trim()).toBe('Markdown path absent in README.md: missing');
+  });
 });

@@ -5,6 +5,7 @@ import { parseOrThrow } from '@wbs/validation';
 import type { Root } from 'mdast';
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { toString } from 'mdast-util-to-string';
+import { type DefaultTreeAdapterTypes, parseFragment } from 'parse5';
 import { visit } from 'unist-util-visit';
 
 import { IndexMetadata, type IndexMetadata as IndexMetadataRecord } from '../contracts';
@@ -168,14 +169,39 @@ export function markdownAnchors(source: string): Set<string> {
     counts.set(base, count + 1);
     anchors.add(count === 0 ? base : `${base}-${String(count)}`);
   });
-  visit(syntax, 'html', (html) => {
-    // Proof: scanning the Markdown source made a fenced `<a id="details">` example satisfy the
-    // production CLI's `docs/guide.md#details` link (expected exit 1, received 0).
-    for (const match of html.value.matchAll(
-      /<a\s+(?:[^>]*?\s)?(?:id|name)=["']([^"']+)["'][^>]*>/gi,
-    )) {
-      anchors.add(match[1]);
+  readHtmlAnchors(syntax, anchors);
+  return anchors;
+}
+
+function readHtmlAnchors(syntax: Root, anchors: Set<string>): void {
+  const fragments: string[] = [];
+  visit(syntax, (node) => {
+    if (node.type === 'html') fragments.push(node.value);
+    if (node.type === 'text') {
+      fragments.push(
+        node.value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;'),
+      );
     }
   });
-  return anchors;
+  // Proof: restoring the raw `<a>` regex made the comment, script, and inert-template CLI
+  // regressions each exit 0 (all expected exit 1, all received 0).
+  const pending: DefaultTreeAdapterTypes.ChildNode[] = [
+    ...parseFragment(fragments.join('')).childNodes,
+  ];
+  while (pending.length > 0) {
+    const node = pending.pop();
+    if (node === undefined || !('attrs' in node)) continue;
+    const id = node.attrs.find(({ name }) => name === 'id');
+    // Proof: limiting IDs to `<a>` elements made the rendered `<section id="details">` CLI
+    // fail with `Markdown anchor absent ... #details` (expected exit 0, received 1).
+    if (id !== undefined) anchors.add(id.value);
+    if (node.tagName === 'a') {
+      const name = node.attrs.find((attribute) => attribute.name === 'name');
+      if (name !== undefined) anchors.add(name.value);
+    }
+    // Proof: also enqueuing a template node's `content.childNodes` made inert
+    // `<a id="details">` content satisfy the production CLI link and exit 0
+    // (expected exit 1, received 0).
+    pending.push(...node.childNodes);
+  }
 }

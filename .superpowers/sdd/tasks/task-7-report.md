@@ -72,3 +72,28 @@ append. No checkbox changed and Task 2.4 remains untouched.
 The metadata schema and checker establish the machinery but intentionally add no repository pilot
 indexes or policy bindings; that is Task 2.4. The full repository and browser gates are left for the
 parent integration pass because this slice changes only the isolated infrastructure project.
+
+## Fix Round 2
+
+Closed Astra's remaining HTML-anchor and directory-reference findings without changing Task 2.4 or
+any checkbox. Explicit anchors now come from actual elements in one rendered HTML fragment assembled
+from mdast HTML and text leaves: IDs on rendered elements and legacy anchor names remain valid, while
+comments, raw-text contents and inert templates cannot create an anchor. Parsing one fragment keeps
+HTML parent context across mdast's separate opening and closing nodes. Candidate-relative directory
+references now canonicalize trailing separators and current-directory forms before exact lookup,
+case diagnosis and absence reporting.
+
+Initial production CLI runs reproduced comment/script false anchors as exit 0, rejected a real
+non-`a` element ID, and reported trailing-slash and current-directory links as absent. The original
+absent-directory substring assertion was tightened to exact output and then caught the retained
+slash. The nearby audit additionally found that parsing mdast HTML leaves separately admitted inert
+template content. One-at-a-time mutations restored raw regex matching, traversed parsed template
+content, limited IDs to `<a>`, and removed path canonicalization; each failed its dedicated CLI
+oracle with the exact observations recorded in `verify.md` and adjacent `Proof:` comments.
+
+The final focused index suite passed 35 tests with zero failures and 285 assertions. Direct ESLint
+and the solution-style source/spec TypeScript build exited 0. The uncached full tool-wiki aggregate
+passed lint, typecheck and all 123 tests with zero failures and 1,759 assertions in 292.79 seconds.
+Pinned OpenSpec 1.3.0 strict validation returned the change valid with exit 0 and telemetry disabled.
+Final formatting/diff checks follow this evidence append. No pilot files were created, and no push
+was performed.

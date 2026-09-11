@@ -846,3 +846,42 @@ three additional symlink-state oracles passed all 115 tests with zero failures a
 in 286.01 seconds (4m46s Nx duration). Pinned OpenSpec 1.3.0 strict validation returned
 `Change 'agent-scalable-llm-wiki' is valid` with exit 0; only its optional PostHog flush reported the
 sandbox DNS failure afterward. Task 2.4 and its pilot indexes remain untouched.
+
+## Slice 2.3 Fix Round 2
+
+Explicit Markdown HTML anchors are now derived by assembling mdast's rendered HTML and escaped text
+leaves into one HTML fragment, then walking actual elements. Parsing the complete fragment preserves
+element context across mdast's separate opening and closing HTML nodes. Any rendered element `id`
+and legacy `<a name>` are anchors; HTML comments, raw-text contents and inert template contents are
+not. This prevents anchor-looking source inside `<!-- ... -->`, `<script>` or `<template>` from
+satisfying navigation while retaining real non-anchor element IDs.
+
+Candidate-relative link paths are canonicalized after joining them to the index directory. One
+trailing separator is removed after POSIX normalization, and the current-directory forms `.` and
+`./` become the index directory. Directory lookup, case folding and absence diagnostics therefore
+operate on the same canonical spelling: `docs/` resolves `docs/README.md`, `Docs/` reports its case
+mismatch, and `missing/` reports canonical `missing` as absent.
+
+The first focused CLI regression run passed only the initially substring-based absent-directory
+oracle and failed the other five cases: comment and script anchor source each exited 0; a rendered
+`<section id="details">` was reported absent; `docs/` was reported absent; and `Docs/` was diagnosed
+as ordinary absence. Tightening the absent-directory assertion to exact output then reproduced its
+retained slash, while a separate `./` self-link also reproduced as absent. A nearby-context audit
+then found that parsing mdast HTML leaves separately admitted an anchor inside `<template>`; the
+complete-fragment parse closed that gap. The restored post-format index suite passed 35 tests, zero
+failures and 285 assertions.
+
+| Deliberate one-at-a-time fault                    | Observed production-CLI failure                                                                   |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| restore raw `<a>` matching over HTML source       | comment, script and template anchor spellings each exited 0; expected exit 1                      |
+| accept element IDs only on `<a>`                  | real `<section id="details">` failed as absent; expected exit 0, received 1                       |
+| traverse parsed template `content.childNodes`     | inert `<a id="details">` satisfied navigation; expected exit 1, received 0                        |
+| return POSIX normalization without canonicalizing | `docs/` and `./` failed absent, `Docs/` lost its case diagnostic, `missing/` remained uncanonical |
+
+Each fault ran alone through `check-indexes` in temporary real Git repositories and was restored
+before the next. Adjacent `Proof:` comments contain the observed failure text. Direct project ESLint
+and the solution-style source/spec TypeScript build exited 0. The uncached Nx lint/typecheck/test
+aggregate passed all 123 tool-wiki tests with zero failures and 1,759 assertions in 292.79 seconds
+(4m53s Nx duration). Pinned OpenSpec 1.3.0 strict validation returned
+`Change 'agent-scalable-llm-wiki' is valid` with exit 0 and telemetry disabled. Task 2.4 and the Task
+2.3 checkbox remain untouched.

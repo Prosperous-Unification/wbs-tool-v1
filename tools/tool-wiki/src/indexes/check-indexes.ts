@@ -165,7 +165,15 @@ function resolveLinkPath(index: ReadIndex, localPath: string): string {
   if (posix.isAbsolute(localPath)) {
     throw new Error(`Markdown path escapes candidate in ${index.indexPath}: ${localPath}`);
   }
-  const joined = posix.normalize(posix.join(index.directory, localPath));
+  const normalized = posix.normalize(posix.join(index.directory, localPath));
+  // Proof: returning `normalized` unchanged made `docs/` and `./` fail as absent, diagnosed
+  // wrong-case `Docs/` as absent, and retained the slash in the absent-directory diagnostic.
+  const joined =
+    normalized === '.' || normalized === './'
+      ? ''
+      : normalized.endsWith('/')
+        ? normalized.slice(0, -1)
+        : normalized;
   if (joined === '..' || joined.startsWith('../')) {
     throw new Error(`Markdown path escapes candidate in ${index.indexPath}: ${localPath}`);
   }
