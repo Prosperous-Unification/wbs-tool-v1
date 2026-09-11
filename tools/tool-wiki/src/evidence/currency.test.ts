@@ -624,6 +624,27 @@ describe('review currency', () => {
 });
 
 describe('review obligations', () => {
+  for (const change of ['added', 'changed', 'removed'] as const) {
+    test(`refuses ${change} content without a behavior rule`, () => {
+      const request = obligationRequest();
+      if (change === 'added') request.reviewed.inputs.content = [];
+      if (change === 'removed') request.current.inputs.content = [];
+      request.policy.behaviorRules = [];
+
+      const report = evaluateObligations(request);
+
+      expect(report.refusals).toEqual([
+        {
+          obligationId: 'behavior-policy:content.child',
+          kind: 'behavior-policy',
+          subjectId: 'content.child',
+          reason: 'changed implementation has no behavior obligation policy',
+        },
+      ]);
+      expect(report.accepted).toBe(false);
+    });
+  }
+
   test('refuses duplicate behavior rules instead of selecting by array order', () => {
     const request = obligationRequest();
     request.policy.behaviorRules.unshift({
@@ -996,6 +1017,121 @@ describe('review obligations', () => {
       },
     ]);
     expect(report.currency.judgments).toEqual([]);
+  });
+
+  test('refuses a skipped required check', () => {
+    const request = obligationRequest();
+    request.checks = [
+      {
+        observationId: 'check-observation.consumer.skipped',
+        checkId: 'check.consumer',
+        candidateIdentity: request.current.candidateIdentity,
+        status: 'skipped',
+      },
+    ];
+
+    const report = evaluateObligations(request);
+
+    expect(report.refusals).toEqual([
+      {
+        obligationId: 'check:check.consumer',
+        kind: 'check',
+        subjectId: 'check.consumer',
+        reason: 'required check was skipped for the current candidate',
+      },
+    ]);
+    expect(report.accepted).toBe(false);
+  });
+
+  test('refuses a failed stale review', () => {
+    const reviewed = selectorSnapshot({
+      publicDeclaration: SHA_A,
+      semanticContract: SHA_A,
+      reverseEdges: SHA_A,
+      indexMembership: SHA_A,
+    });
+    const current = selectorSnapshot({
+      publicDeclaration: SHA_B,
+      semanticContract: SHA_A,
+      reverseEdges: SHA_A,
+      indexMembership: SHA_A,
+    });
+    const judgment: ReviewJudgment = {
+      judgmentId: 'judgment.consumer.structure',
+      kind: 'structural',
+      subjectId: 'consumer',
+      bindings: {
+        content: [],
+        structural: [{ kind: 'structural', inputId: 'typescript.public.provider' }],
+        semantic: [],
+        topology: [],
+      },
+    };
+
+    const report = evaluateObligations({
+      reviewed,
+      current,
+      judgments: [judgment],
+      policy: { policyId: 'policy.review.v1', behaviorRules: [] },
+      impactClassifications: [],
+      writerLabels: [],
+      checks: [],
+      reviews: [
+        {
+          observationId: 'review-observation.consumer.failed',
+          judgmentId: judgment.judgmentId,
+          candidateIdentity: current.candidateIdentity,
+          status: 'failed',
+        },
+      ],
+    });
+
+    expect(report.refusals).toEqual([
+      {
+        obligationId: 'review:judgment.consumer.structure',
+        kind: 'review',
+        subjectId: 'judgment.consumer.structure',
+        reason: 'stale review failed for the current candidate',
+      },
+    ]);
+    expect(report.accepted).toBe(false);
+  });
+
+  test('refuses a failed expanded review', () => {
+    const request = obligationRequest();
+    request.impactClassifications = [
+      {
+        ...request.impactClassifications[0],
+        classificationId: 'classification.child.unknown',
+        classification: 'unknown',
+      },
+    ];
+    request.reviews = [
+      {
+        observationId: 'review-observation.impact.failed',
+        judgmentId: 'judgment.child.impact',
+        candidateIdentity: request.current.candidateIdentity,
+        status: 'failed',
+      },
+    ];
+
+    const report = evaluateObligations(request);
+
+    expect(report.refusals).toEqual([
+      {
+        obligationId: 'impact-classification:content.child',
+        kind: 'impact-classification',
+        subjectId: 'content.child',
+        reason: 'impact classification is unknown for the exact content change',
+      },
+      {
+        obligationId: 'expanded-review:judgment.child.impact',
+        kind: 'expanded-review',
+        subjectId: 'judgment.child.impact',
+        reason: 'expanded review failed for the current candidate',
+      },
+    ]);
+    expect(report.accepted).toBe(false);
   });
 
   test('missing impact classification expands review and refuses instead of defaulting', () => {

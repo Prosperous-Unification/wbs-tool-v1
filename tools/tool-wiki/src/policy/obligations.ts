@@ -336,6 +336,9 @@ export function evaluateObligations(input: unknown): ObligationReport {
   for (const contentChange of currency.contentChanges) {
     const rule = behaviorRules.get(contentChange.inputId);
     if (rule === undefined) {
+      // Proof: replacing this refusal with `continue` made the added, changed and removed
+      // `content without a behavior rule` cases each receive `refusals: []` instead of their
+      // exact `behavior-policy:content.child` refusal.
       refusals.push({
         obligationId: `behavior-policy:${contentChange.inputId}`,
         kind: 'behavior-policy',
@@ -401,6 +404,8 @@ export function evaluateObligations(input: unknown): ObligationReport {
 
   for (const checkId of requiredChecks) {
     const evidence = currentCheck(request.checks, checkId, request.current.candidateIdentity);
+    // Proof: treating `skipped` as accepted made `refuses a skipped required check` receive
+    // `refusals: []` instead of its exact `check:check.consumer` skipped-check refusal.
     if (evidence?.status !== 'passed') {
       refusals.push({
         obligationId: `check:${checkId}`,
@@ -418,6 +423,9 @@ export function evaluateObligations(input: unknown): ObligationReport {
 
   for (const [judgmentId, kinds] of reviewKinds) {
     const evidence = currentReview(request.reviews, judgmentId, request.current.candidateIdentity);
+    // Proof: treating a failed review as acceptable made `refuses a failed stale review` receive
+    // `refusals: []` and removed the exact expanded-review refusal from
+    // `refuses a failed expanded review`, leaving only its independent impact refusal.
     if (evidence?.status !== 'current') {
       for (const kind of kinds) {
         refusals.push({

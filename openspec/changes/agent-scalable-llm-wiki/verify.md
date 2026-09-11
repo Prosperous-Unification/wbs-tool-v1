@@ -1366,3 +1366,41 @@ agent-scalable-llm-wiki --strict` — exit 0; change valid.
 - `git diff --check` — exit 0.
 
 Task 3.2 remains complete. Task 3.3 and all later task checkboxes remain untouched.
+
+## Slice 3.2 Review Fix Round 2
+
+The existing fail-closed behavior-policy branch now has a public `evaluateObligations` regression
+for each content-change variant. Added, changed and removed content without a matching behavior rule
+each returns the exact named `behavior-policy:content.child` refusal and `accepted: false`.
+
+A narrow audit of the other refusal branches introduced by 3.2 found two analogous paths without
+direct production proof: a skipped required check and a failed review. Public cases now pin the
+skipped-check refusal and both stale and expanded failed-review refusals. Missing and failed check
+evidence, missing stale/expanded review evidence, and missing, foreign or unknown impact
+classifications already had direct production cases and adjacent proofs, so they were not
+redesigned.
+
+| Deliberate one-at-a-time fault                            | Observed focused production-path failure                                                                                                           |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| replace the missing behavior-rule refusal with `continue` | added, changed and removed cases each received `refusals: []` instead of `behavior-policy:content.child`                                           |
+| treat a skipped required check as accepted                | the skipped-check case received `refusals: []` instead of `check:check.consumer`                                                                   |
+| treat a failed review as accepted                         | the stale-review case received `refusals: []`; the expanded case lost its expanded-review refusal and retained only its independent impact refusal |
+
+Each fault ran alone through `evaluateObligations`, was restored before the next, and has an
+adjacent `Proof:` comment written from the observed failure. Verification on the restored source:
+
+- `bun test tools/tool-wiki/src/evidence/currency.test.ts` — exit 0; 31 pass, 0 fail, 60
+  assertions.
+- `bunx eslint tools/tool-wiki/src/evidence/currency.test.ts
+tools/tool-wiki/src/policy/obligations.ts` — exit 0.
+- `bunx tsc --build --force tools/tool-wiki/tsconfig.json` — exit 0.
+- `NX_DAEMON=false bunx nx run-many -t lint typecheck test -p tool-wiki --skip-nx-cache
+--output-style=static` — exit 0; 213 pass, 0 fail, 2,240 assertions in 385.10 seconds (6m25s
+  Nx duration), cache skipped and no target skipped. Nx used its documented main-process fallback
+  after sandbox socket denial.
+- `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate
+agent-scalable-llm-wiki --strict` — exit 0; change valid.
+- `bunx nx format:check --all` — exit 0.
+- `git diff --check` — exit 0.
+
+Task 3.2 remains complete. Task 3.3 and all later task checkboxes remain untouched.
