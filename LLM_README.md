@@ -1,7 +1,6 @@
 # LLM_README — read this, then only the doc your task needs
+
 TASK-519's idle cue precedence fix is on `fix/task519-idle-cue-precedence`; next: full h2puni gate, terminal reviews, PR, green CI, merge, and dev verification.
-`integration/open-prs` (PR #391) carries every open PR merged onto main — #334, #340, #347,
-#350, #361, #369 — gated as one branch before it merges.
 **wbs-tool-v1** — collaborative real-time WBS tool. `be-01` (API, Elysia+Drizzle+bun:sqlite, :3100),
 `gw-01` (WS gateway, :3200), `fe-01` (Vite+React, :80 in the image, :4200 under `vite dev`),
 `mcp-01` (MCP server over be-01, stdio, spawned by its client). Nx monorepo, Bun — never npm.

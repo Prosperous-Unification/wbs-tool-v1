@@ -900,10 +900,9 @@ describe('OptimizationCoordinator read', () => {
     );
     const raw = openDatabase(path);
     try {
-      raw.run(
-        "UPDATE optimized_schedule_cache SET result_json = ? WHERE objective = 'pri'",
-        [incomplete],
-      );
+      raw.run("UPDATE optimized_schedule_cache SET result_json = ? WHERE objective = 'pri'", [
+        incomplete,
+      ]);
       raw.run("DELETE FROM optimized_schedule_cache WHERE objective = 'time'");
       raw.run(
         "UPDATE optimization_generation SET admission_state = 'draining' WHERE project_id = 'p-1'",
