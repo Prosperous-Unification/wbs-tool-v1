@@ -184,7 +184,7 @@ subscription and awaits its current sweep. Reuse the existing suppression-of-ove
 stop-drains tests through this interface.
 
 The synchronous scheduling contract and engine-unavailable response are specified by
-[scheduler-runtime-port](../scheduler-runtime-port/design.md), whose implementation must
+[scheduler-runtime-port](../2026-09-10-scheduler-runtime-port/design.md), whose implementation must
 precede moving the scheduling consumers. They preserve the current distinction between an
 installed optimizer with pending/failed results and a source with no optimized capability.
 

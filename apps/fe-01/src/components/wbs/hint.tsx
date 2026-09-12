@@ -111,6 +111,17 @@ interface OpenHint {
   node: HTMLElement;
   /** Whether these words wait — true for a tool hint, false for a project fact. */
   waits: boolean;
+  /**
+   * Whether the card stands **beside** the mark rather than under it — true for
+   * a mark inside the plan's own scrolling frame.
+   *
+   * Dany, 2026-09-10: *"include ALL columns in the scheme"*. A card under a
+   * cell's mark covers the rows below it, and a plan is read down a column. A
+   * card under a **toolbar** control covers nothing but the header, and a row of
+   * small buttons whose cards jumped left and right would be worse for it — so
+   * the frame is what decides, not the layer.
+   */
+  aside: boolean;
 }
 
 /** Where the ring is drawn, in viewport coordinates. */
@@ -275,12 +286,13 @@ export function HintLayer(): React.JSX.Element {
       const box = node.getBoundingClientRect();
       return {
         words,
-        anchor: { left: box.left, top: box.top, bottom: box.bottom },
+        anchor: { left: box.left, right: box.right, top: box.top, bottom: box.bottom },
         // Narrowed rather than cast: an `SVGElement` is an `HTMLElement` for
         // everything used here — `setAttribute`, `removeAttribute` — but the
         // two do not share a type, so the state holds the wider one.
         node: node as HTMLElement,
         waits: fact === null,
+        aside: node.closest('[data-table-frame]') !== null,
       };
     };
 
@@ -365,7 +377,10 @@ export function HintLayer(): React.JSX.Element {
         // scrolled or grown a row, and a card placed from a rectangle that old
         // is a card beside where its control used to be.
         const box = at.node.getBoundingClientRect();
-        setOpen({ ...at, anchor: { left: box.left, top: box.top, bottom: box.bottom } });
+        setOpen({
+          ...at,
+          anchor: { left: box.left, right: box.right, top: box.top, bottom: box.bottom },
+        });
       }, TOOL_HINT_WAIT_MS);
     };
 
@@ -546,7 +561,7 @@ export function HintLayer(): React.JSX.Element {
     <>
       {ring === null ? null : <WaitRing at={ring} />}
       {open === null ? null : (
-        <HoverCard id={HINT_CARD_ID} anchor={open.anchor} compact>
+        <HoverCard id={HINT_CARD_ID} anchor={open.anchor} compact opensAside={open.aside}>
           {/*
             `pre-line`, so a mark whose words are **several** — the schedule
             cue's, which carries a block per schedule, one comparing the two

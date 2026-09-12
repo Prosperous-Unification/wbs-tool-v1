@@ -1,7 +1,13 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import { HoverCard, roomForCard, sidewaysPlacement, surfacePlacement } from './hover-card';
+import {
+  asidePlacement,
+  HoverCard,
+  roomForCard,
+  sidewaysPlacement,
+  surfacePlacement,
+} from './hover-card';
 import { HoverPreview } from './hover-preview';
 
 // fe-01 tests require jsdom; only Vitest provides it. Skip under plain `bun test`.
@@ -56,20 +62,24 @@ describe('a hover card hangs over the rows below without touching them', () => {
     expect(preview.style.maxHeight).toBe(
       `${String(roomForCard({ top: 0, bottom: 0 }, { top: 0, bottom: window.innerHeight }).maxHeight)}px`,
     );
-    // The card is placed by its **right** edge, 24px inside its cell's, so that
-    // the lane of `≡` markers stays hoverable at any column width
-    // ({@link HoverCardProps.clearsMarkerLane}) — and the width is the pixel cap
-    // alone, since nothing has to be capped once the edge that matters is the
-    // anchored one. jsdom lays nothing out, so these are the declarations and
-    // not the geometry; what they *do* is `e2e/card-lanes.spec.ts`'s notes
-    // preview lane, in a layout whose Name cell is 192px.
+    // The declarations that put this card past its cell and below its own row
+    // ({@link HoverCardProps.leavesItsRowClear}). jsdom measures every box as
+    // zero, so `top` is the unmeasured `100%` here and the row's own edge in a
+    // browser — `e2e/hover-cards.spec.ts`'s `leaves its own row and the marker
+    // lane clear` is where that is asserted.
     //
-    // Proof: `clearsMarkerLane` dropped from `HoverPreview`'s card — this failed
-    // on `expected '' to be '24px'`, the empty string being an unset `right`.
-    // Watched 2026-09-09.
-    expect(preview.style.right).toBe('24px');
-    expect(preview.style.left).toBe('auto');
-    expect(preview.style.maxWidth).toBe('min(640px, 100vw)');
+    // `max-content` is the load-bearing one: shrink-to-fit measures the room
+    // between `left: 100%` and the cell's right edge, which is 4px, so without
+    // it this card is its 260px minimum however wide the plan is.
+    //
+    // Proof: `leavesItsRowClear` dropped from `HoverPreview`'s card — this
+    // failed on `expected '0px' to be '100%'`, the card back at its cell's own
+    // left edge. Watched 2026-09-10.
+    expect(preview.style.left).toBe('100%');
+    expect(preview.style.width).toBe('max-content');
+    // `1024px` is jsdom's own window width less the cell's zero-width right
+    // edge — the measured room, which in a browser is the frame's.
+    expect(preview.style.maxWidth).toBe('min(1000px, 1024px, 100vw)');
   });
 
   itDom('leaves every other card its own width', () => {
@@ -105,7 +115,7 @@ describe('a hover card hangs over the rows below without touching them', () => {
     // `absolute`. Where it lands once it has a size is a browser fact
     // (`e2e/gantt.spec.ts`).
     const { container } = render(
-      <HoverCard label="Facts for 3.2" anchor={{ left: 120, top: 200, bottom: 228 }}>
+      <HoverCard label="Facts for 3.2" anchor={{ left: 120, right: 140, top: 200, bottom: 228 }}>
         <p>Dev · Kat</p>
       </HoverCard>,
     );
@@ -123,7 +133,9 @@ describe('an anchored surface stays inside the viewport', () => {
   const CARD = { width: 300, height: 120 };
 
   itDom('opens under its mark when there is room below', () => {
-    expect(surfacePlacement({ left: 100, top: 200, bottom: 228 }, CARD, SCREEN)).toEqual({
+    expect(
+      surfacePlacement({ left: 100, right: 120, top: 200, bottom: 228 }, CARD, SCREEN),
+    ).toEqual({
       left: 100,
       top: 234,
     });
@@ -137,7 +149,9 @@ describe('an anchored surface stays inside the viewport', () => {
     // browser's own half of the same fault is
     // `flips a surface above a bar near the bottom of the window`. Watched,
     // 2026-08-09.
-    expect(surfacePlacement({ left: 100, top: 750, bottom: 774 }, CARD, SCREEN)).toEqual({
+    expect(
+      surfacePlacement({ left: 100, right: 120, top: 750, bottom: 774 }, CARD, SCREEN),
+    ).toEqual({
       left: 100,
       top: 624,
     });
@@ -150,7 +164,9 @@ describe('an anchored surface stays inside the viewport', () => {
     // a 1000px screen, and the last test in this block with it. The browser's
     // half is `clamps the right-most bar's surface inside the window`.
     // Watched, 2026-08-09.
-    expect(surfacePlacement({ left: 950, top: 200, bottom: 228 }, CARD, SCREEN)).toEqual({
+    expect(
+      surfacePlacement({ left: 950, right: 970, top: 200, bottom: 228 }, CARD, SCREEN),
+    ).toEqual({
       left: 700,
       top: 234,
     });
@@ -167,7 +183,10 @@ describe('an anchored surface stays inside the viewport', () => {
     // left: 10, top: +0 } to deeply equal { left: +0, top: +0 }`. Watched,
     // 2026-08-09.
     expect(
-      surfacePlacement({ left: 10, top: 30, bottom: 58 }, CARD, { width: 200, height: 100 }),
+      surfacePlacement({ left: 10, right: 30, top: 30, bottom: 58 }, CARD, {
+        width: 200,
+        height: 100,
+      }),
     ).toEqual({ left: 0, top: 0 });
   });
 });
@@ -307,5 +326,57 @@ describe('a card beside its cell picks the side with the room', () => {
     expect(
       sidewaysPlacement({ left: 300, right: 420, top: 870, bottom: 896 }, CARD, FRAME),
     ).toEqual({ side: 'right', align: 'bottom' });
+  });
+});
+
+describe('an anchored card beside its mark', () => {
+  const CARD = { width: 260, height: 60 };
+  const SCREEN = { width: 1000, height: 800 };
+
+  it('opens to the right of the mark, tops aligned', () => {
+    expect(asidePlacement({ left: 100, right: 140, top: 200, bottom: 228 }, CARD, SCREEN)).toEqual({
+      left: 146,
+      top: 200,
+    });
+  });
+
+  it('flips to the left of a mark with no room on its right', () => {
+    // A mark 40px from the right edge: a card opening right would start at 966
+    // and end 226px past the screen.
+    //
+    // Proof: the side fixed at right, this failed on `expected { left: 740, top:
+    // 200 } to deeply equal { left: 654, top: 200 }`. Watched 2026-09-10.
+    expect(asidePlacement({ left: 920, right: 960, top: 200, bottom: 228 }, CARD, SCREEN)).toEqual({
+      left: 654,
+      top: 200,
+    });
+  });
+
+  it('clamps rather than refuses where neither side has the room', () => {
+    // 260px of card and 200px of screen. `besidePlacement` answers `null` for
+    // this and is right to: a picker's card that must cover the list it explains
+    // has no claim on the space. A hint is a sentence about the thing under the
+    // pointer, and a reader who is shown nothing cannot ask again.
+    //
+    // Proof: the clamp replaced by the `null` that {@link besidePlacement}
+    // returns, this failed to compile — the placement's return type is not
+    // nullable — and with the type widened, on `expected null to deeply equal {
+    // left: -60, top: 30 }`. Watched 2026-09-10.
+    expect(
+      asidePlacement({ left: 10, right: 30, top: 30, bottom: 58 }, CARD, {
+        width: 200,
+        height: 100,
+      }),
+    ).toEqual({
+      left: 0,
+      top: 30,
+    });
+  });
+
+  it('lifts a card whose mark is too low for it', () => {
+    expect(asidePlacement({ left: 100, right: 140, top: 780, bottom: 800 }, CARD, SCREEN)).toEqual({
+      left: 146,
+      top: 740,
+    });
   });
 });

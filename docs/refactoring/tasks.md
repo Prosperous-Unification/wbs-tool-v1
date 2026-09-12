@@ -71,7 +71,7 @@ Nothing below has an owning task in the external queue (`backlog/tasks/task-NNN 
       `openspec/changes/store-port-and-unit-of-work`; its `verify.md` carries the failure-proof
       table and the three checks-that-could-not-fail this wave caught. Nothing moved into
       `libs/` — that is Wave 3, and this wave's non-goal.
-- [x] **Ports Wave 3 [core-lib-extraction](../../openspec/changes/core-lib-extraction/tasks.md)** —
+- [x] **Ports Wave 3 [core-lib-extraction](../../openspec/changes/archive/2026-09-10-core-lib-extraction/tasks.md)** —
       completed 2026-09-10. `libs/core`, `store-sqlite`, `store-memory` and `conformance`
       now carry the application, adapter and certification boundaries; `be-01` retains its
       runtime binders, composition root and stable migration entrypoints. The fast-tier count
@@ -79,7 +79,7 @@ Nothing below has an owning task in the external queue (`backlog/tasks/task-NNN 
       survived their 57-file relocation. The staged memory source certifies only its declared
       families and keeps one explicit estimate-capability skip; the remaining source families
       still belong to `source-conformance-completion`. ADR 0014 and ADR 0015 are accepted.
-- [x] **[scheduler-runtime-port](../../openspec/changes/scheduler-runtime-port/tasks.md)** —
+- [x] **[scheduler-runtime-port](../../openspec/changes/archive/2026-09-10-scheduler-runtime-port/tasks.md)** —
       completed on the same branch before the core consumer moves. Missing selected engines
       produce typed 409 reads and `plan_unavailable` publication; detached capture preserves
       the selected schedule or named absence without admitting a solve; the SQLite adapter

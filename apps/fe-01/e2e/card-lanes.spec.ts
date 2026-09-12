@@ -213,6 +213,23 @@ const middleOf = (box: Box): { x: number; y: number } => ({
   y: box.y + box.height / 2,
 });
 
+/**
+ * Brings the pointer to a cell **down its own column**, from the header above it.
+ *
+ * A diagonal from the corner of the window crosses other columns on the way,
+ * and since 2026-09-10 that matters: the notes preview opens *beside* its cell
+ * and takes the pointer (it scrolls), so a path that clips a `≡` marker on the
+ * way leaves a 640px card standing over the column this walk is about, and the
+ * cell it lands on never sees the pointer at all. Found here as `Depends on: 020
+ * opened no card`.
+ */
+async function pointDownTheColumn(page: Page, at: { x: number; y: number }): Promise<void> {
+  const header = await page.locator('thead tr').first().boundingBox();
+  if (header === null) throw new Error('the table has no header to start from');
+  await page.mouse.move(at.x, header.y + header.height / 2);
+  await page.mouse.move(at.x, at.y, { steps: 6 });
+}
+
 const LANES: readonly Lane[] = [
   {
     what: 'Start',
@@ -290,7 +307,7 @@ test.describe('every cell card leaves its own column clear', () => {
       await expect(page.locator('[role="tooltip"]')).toHaveCount(0);
 
       const from = middleOf(await boxOf(lane.triggerOf(page, first), `${lane.what} ${first}`));
-      await page.mouse.move(from.x, from.y, { steps: 6 });
+      await pointDownTheColumn(page, from);
       expect(await cardIn(lane, page, first), `${lane.what}: ${first} opened no card`).toBe(1);
 
       // The precondition, before the claim: a card that stops above the next
@@ -378,7 +395,7 @@ test.describe('every cell card leaves its own column clear', () => {
       await expect(page.locator('[role="tooltip"]')).toHaveCount(0);
 
       const from = middleOf(await boxOf(lane.triggerOf(page, first), `${lane.what} ${first}`));
-      await page.mouse.move(from.x, from.y, { steps: 6 });
+      await pointDownTheColumn(page, from);
       expect(await cardIn(lane, page, first), `${lane.what}: ${first} opened no card`).toBe(1);
 
       // The cell below in the same column, and the cell above where there is

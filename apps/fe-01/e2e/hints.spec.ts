@@ -347,6 +347,52 @@ test.describe('hints are the page’s own', () => {
     await expect(card).toHaveText(/Keyboard shortcuts/);
   });
 
+  test('a cell’s fact stands beside its mark, not over the rows below', async ({ page }) => {
+    // Dany, 2026-09-10: *"i want to have most useful on-hover pop-up for ALL
+    // cells/columns as i asked previously - include ALL columns in the scheme"*.
+    // The hint layer is what most columns' pop-up **is** — `data-hint` and
+    // `data-fact` marks on the drag grip, the row number, Deadline, Finish,
+    // Float, In parallel, Not before, Service and the estimate cells — and a
+    // card under one of those covers the rows below it, which is the context a
+    // plan is read for.
+    //
+    // A toolbar control's card still opens under it (`a toolbar control waits
+    // two seconds` asserts exactly that), and the frame is what tells the two
+    // apart: {@link OpenHint.aside}.
+    //
+    // Proof: `aside` fixed to `false`, so a cell's card opens under its mark
+    // like the toolbar's — this failed on `the card is not beside its mark ·
+    // Expected: >= 0 · Received: -18.078125`, the card overlapping the mark's
+    // own column by 18px. Watched in Chromium, 2026-09-10.
+    await aPlan(page);
+    await page.getByRole('button', { name: 'Add work item' }).click();
+    const mark = page.locator('td[data-column="finish"] [data-fact="No estimate yet"]');
+    await expect(mark).toBeVisible();
+    await mark.hover();
+
+    const card = page.getByRole('tooltip');
+    await expect(card).toBeVisible({ timeout: 400 });
+    const gap = await page.evaluate(() => {
+      const at = document.querySelector('td[data-column="finish"] [data-fact]');
+      const tip = document.querySelector('[role="tooltip"]');
+      if (at === null || tip === null) throw new Error('the mark or its card is missing');
+      const a = at.getBoundingClientRect();
+      const b = tip.getBoundingClientRect();
+      // Positive on either side: the card clear of the mark's right edge, or
+      // clear of its left. Negative means the two overlap horizontally, which
+      // is a card standing over the mark's own column.
+      return {
+        gap: Math.max(b.left - a.right, a.left - b.right),
+        area: b.width > 0 && b.height > 0,
+      };
+    });
+
+    // Its size first, for R5 #16's reason: a card of no area is clear of
+    // everything and says nothing about placement.
+    expect(gap.area, 'the card has no area').toBe(true);
+    expect(gap.gap, 'the card is not beside its mark').toBeGreaterThanOrEqual(0);
+  });
+
   test('a project fact answers at once and never rings', async ({ page }) => {
     await aPlan(page);
     await page.getByRole('button', { name: 'Add work item' }).click();

@@ -3963,13 +3963,19 @@ function GanttChart({
   const showSurface = (sliceId: string, mark: SVGRectElement): void => {
     const box = mark.getBoundingClientRect();
     setOpenDay(null);
-    setOpen({ sliceId, anchor: { left: box.left, top: box.top, bottom: box.bottom } });
+    setOpen({
+      sliceId,
+      anchor: { left: box.left, right: box.right, top: box.top, bottom: box.bottom },
+    });
   };
   const showDaySurface = (offset: number, cell: HTMLElement): void => {
     const box = cell.getBoundingClientRect();
     setOpen(null);
     setOpenMarkers(null);
-    setOpenDay({ offset, anchor: { left: box.left, top: box.top, bottom: box.bottom } });
+    setOpenDay({
+      offset,
+      anchor: { left: box.left, right: box.right, top: box.top, bottom: box.bottom },
+    });
   };
 
   /**
@@ -3987,7 +3993,10 @@ function GanttChart({
     const box = badge.getBoundingClientRect();
     setOpen(null);
     setOpenDay(null);
-    setOpenMarkers({ offset, anchor: { left: box.left, top: box.top, bottom: box.bottom } });
+    setOpenMarkers({
+      offset,
+      anchor: { left: box.left, right: box.right, top: box.top, bottom: box.bottom },
+    });
   };
 
   /**

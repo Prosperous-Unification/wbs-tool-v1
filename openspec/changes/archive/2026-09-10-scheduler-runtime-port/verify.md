@@ -195,3 +195,13 @@ open · Expected: 0 · Received: 1`.
   list. The SSH transport stopped returning output after the remote Playwright and preview
   processes exited, so the final aggregate count and duration were unavailable; the saved
   status and artifacts were read directly rather than inferring success from the transport.
+
+## Final integrated head
+
+The scheduler port landed in the same combined candidate as `core-lib-extraction`.
+After merging `origin/main` at `a42fbf4e`, exact pushed revision
+`3d67da8ec717642c4c9ae13ad14ff38e13a81835` passed all 101 uncached h2puni Nx
+tasks and the 3/3 Docker solver-image cases. Its complete Chromium run passed
+328 cases with 37 intentional rendering-baseline skips and no failures in
+17m57s. The detailed command and host evidence is recorded in
+`../2026-09-10-core-lib-extraction/verify.md` under “Final integrated head”.

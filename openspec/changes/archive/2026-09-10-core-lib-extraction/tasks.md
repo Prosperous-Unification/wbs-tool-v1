@@ -301,7 +301,7 @@ root-level `.ts` file to its explicit lint target in the same slice.
       separate inventory assertion. The fast tier cannot certify that it includes itself
       by enumerating only projects which already have the target.
 
-- [ ] 5.2 **Run the complete gate on the frozen landing tree.** Record revision,
+- [x] 5.2 **Run the complete gate on the frozen landing tree.** Record revision,
       commands, elapsed time, counts and all unavailable checks in `verify.md`.
       On h2puni run `bin/h2puni-gate.sh`; run `openspec validate --all --json` and the
       complete Chromium gate with `CI=1 E2E_PORT_SHIFT=1900 bun run e2e` after proving
@@ -309,7 +309,7 @@ root-level `.ts` file to its explicit lint target in the same slice.
       source conformance and all moved database tests. Review the final full diff after
       any fixes; green evidence from a predecessor does not cover a changed head.
 
-- [ ] 5.3 **Reconcile docs with evidence.** Update `LLM_README.md` links and the queue,
+- [x] 5.3 **Reconcile docs with evidence.** Update `LLM_README.md` links and the queue,
       mark ADR0014/0015 accepted when their implementation obligations are met, and
       explain moved tests/count differences and source capability limits. Each `Proof:`
       comment comes from the observed failure, not the planned row above. Delta specs

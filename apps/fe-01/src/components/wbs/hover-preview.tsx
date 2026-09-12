@@ -107,7 +107,7 @@ export function HoverPreview({ name, notes, number }: HoverPreviewProps) {
     // the rows below, and content nobody can scroll to is content the clamp on
     // the cell has hidden twice over. {@link HoverCard} carries the placement,
     // and the reason every other card refuses the mouse.
-    <HoverCard label={`Notes for ${number}, rendered`} scrolls clearsMarkerLane>
+    <HoverCard label={`Notes for ${number}, rendered`} scrolls leavesItsRowClear>
       {/*
         Sized here rather than left to the browser's default `h1`, which is
         `2em` and would put a name across three lines of a 420px popover.

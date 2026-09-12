@@ -275,64 +275,6 @@ test.describe('a hover card answers at once, whole, and out past its cell', () =
   });
 });
 
-test.describe('a card and the pinned columns it slides under', () => {
-  test('paints over the pinned cell of the row below it', async ({ page }) => {
-    // A pinned cell is `position: sticky` **with a z-index**, which makes that
-    // `<td>` a stacking context and traps a popover hanging out of it at the
-    // pinned layer — the fault R5 #22 shipped twice, once for the Name column
-    // and once for Links. `POPOVER_ROW_LAYER` is the lift that answers it, and
-    // `PlanTableCellView` asks the two facts (pinned, opens a popover) rather
-    // than naming a column.
-    //
-    // **The Name column is the subject**, since 2026-09-10: it is pinned, its
-    // notes preview is the one card left that hangs *below* its cell — every
-    // other card in the table opens beside it now — and its neighbours below
-    // are pinned cells of the same column. No scrolling needed; the earlier
-    // shape of this test slid an unpinned column under the pinned block, and
-    // there is no unpinned card hanging downwards left to slide.
-    //
-    // Proof: `raiseWhenOpen={false}` in `wbs-table.tsx`, the lift taken away
-    // from every column — this failed on `the pinned cell below hides the card ·
-    // Expected: "the card" · Received: "TEXTAREA"`, the next row's pinned Name
-    // box standing over the preview. Watched in Chromium, 2026-09-10.
-    const name = page.getByLabel('Name of 010');
-    await name.fill(
-      'Row 010\n\nNotes long enough that the preview reaches the row below it, ' +
-        'and then some more words to be sure of it.',
-    );
-    await name.blur();
-    await page.getByLabel('Name of 020').click();
-    await page.mouse.move(0, 0);
-
-    await page.getByLabel('Notes on 010').hover();
-    const card = await boxOf(
-      page.getByRole('tooltip', { name: 'Notes for 010, rendered' }),
-      'the notes preview',
-    );
-    const pinnedBelow = await boxOf(
-      page.getByLabel('Name of 020').locator('xpath=ancestor::td'),
-      'the pinned cell below',
-    );
-    // The overlap, as a precondition: a card that stopped above the next row
-    // would make the probe a reading of the cell alone — R5 #16's own shape.
-    const strip = {
-      x: Math.max(card.x, pinnedBelow.x),
-      y: Math.max(card.y, pinnedBelow.y),
-      width: 0,
-      height: 0,
-    };
-    strip.width = Math.min(card.x + card.width, pinnedBelow.x + pinnedBelow.width) - strip.x;
-    strip.height = Math.min(card.y + card.height, pinnedBelow.y + pinnedBelow.height) - strip.y;
-    expect(strip.width, 'the card and the pinned box below it do not overlap').toBeGreaterThan(8);
-    expect(strip.height, 'the card and the pinned box below it do not overlap').toBeGreaterThan(4);
-
-    expect(
-      await cardIsOnTopAt(page, { x: strip.x + strip.width / 2, y: strip.y + strip.height / 2 }),
-      'the pinned cell below hides the card',
-    ).toBe('the card');
-  });
-});
-
 /** The `<tr>` a numbered row's cells sit in, found through its own Name box. */
 const rowOf = (page: Page, number: string): Locator =>
   page.getByLabel(`Name of ${number}`).locator('xpath=ancestor::tr');
@@ -885,26 +827,23 @@ test.describe('the Name cell answers from its marker alone', () => {
     expect(await preview.locator('li em').textContent()).toBe('unsurveyed');
   });
 
-  test('leaves the marker lane clear, so the pointer can run down it', async ({ page }) => {
+  test('leaves its own row and the marker lane clear', async ({ page }) => {
     // Dany, 2026-09-09: _"move the preview tooltip window slightly to the left -
     // so that preview icons can be scrolled down and up by moving the mouse"_.
-    // The `≡` markers are `right: 1` on every Name cell, so they stand in a
-    // column at the cell's right edge — and the preview opened at `left: 0`
-    // across the whole cell, which put its right edge **on that column**.
-    // Measured in the running app before the fix: the preview at
-    // `[145, 240, 555, 370]`, the lane at x 685–700, and `elementFromPoint` at
-    // the next marker down answering the preview's own `DIV`. One row's notes
-    // were readable and no more.
+    // And 2026-09-10, which is the shape it settled in: _"(1) to be way wider to
+    // the right (2) to also not cover the cells from same row - because i wanna
+    // see them for this item to have full context"_.
     //
-    // Proof: `clearsMarkerLane` taken off `HoverPreview`'s `HoverCard` — this
-    // failed on `Error: the preview covers the marker lane · Expected: <=
-    // 486.40625 · Received: 502`, 15.6px of card over the lane's left edge.
-    // Watched in Chromium, 2026-09-09.
+    // So this card hangs **below its own row and past its own cell**: the row
+    // stays whole, the `≡` lane every row below it carries is left of where the
+    // card starts, and the width it grows into is the rest of the plan. Measured
+    // in Chromium on 2026-09-10: the card at `[502, 175, 882, 136]` from a row
+    // ending at 175, with the next row's marker at x 486.
     //
-    // This is the **wide** Name column, where a card pulled left of the lane and
-    // a card anchored to its own right edge are the same box. The narrow one —
-    // the Name cell at 192px with the four reference columns on screen, where
-    // the card's minimum width beats a `100%` cap — is `e2e/card-lanes.spec.ts`.
+    // Proof: `leavesItsRowClear` taken off `HoverPreview`'s `HoverCard` — this
+    // failed on `the preview covers its own row · Expected: >= 174.1875`, the
+    // card back at its cell's own left edge and up inside the row.
+    // Watched in Chromium, 2026-09-10.
     //
     // Three markers, because a lane freed for the first and not the third would
     // pass a check made once — and the seed makes two rows, so the third is
@@ -929,40 +868,35 @@ test.describe('the Name cell answers from its marker alone', () => {
 
     const card = await preview.boundingBox();
     const below = await page.getByLabel('Notes on 020').boundingBox();
-    // The cell is the card's containing block, and the card is anchored 24px
-    // inside its right edge.
-    const cell = await page
-      .getByLabel('Notes on 010')
-      .locator('xpath=ancestor::td[1]')
+    const row = await page
+      .locator('tbody tr')
+      .filter({ has: page.getByLabel('Name of 010') })
       .boundingBox();
-    if (card === null || below === null || cell === null) throw new Error('no boxes to compare');
-    // The preconditions, before the claim. A card that reaches neither down to
-    // the next row nor across to the lane cannot cover it whatever the
-    // placement says, and asserting a clear lane in that state is R5 #16's own
-    // shape — a geometry claim made where the fault cannot appear.
+    if (card === null || below === null || row === null) throw new Error('no boxes to compare');
+    // The preconditions, before the claims. A card of no size, or one that
+    // never reached the rows below, could cover nothing whatever its placement
+    // said — R5 #16's own shape, a geometry claim made where the fault cannot
+    // appear.
+    // Only that it reaches the rows below — which is true of a card placed
+    // either way, so the claims below are about the placement and not about the
+    // size. (A width precondition here would trip *first* under the injected
+    // fault, and a negative that fails at a precondition says nothing.)
     expect(card.y + card.height, 'the preview does not reach the row below').toBeGreaterThan(
       below.y,
     );
-    // And it fills the room it is placed in, but for the lane — which is what
-    // makes the claim below a claim rather than an arithmetic accident: a card
-    // taking every pixel it is offered would stand on the lane, so the
-    // placement is the only thing keeping it off. Measured against the card's
-    // own `offsetParent` and not the `<td>`: the positioned ancestor a card
-    // shrinks to fit is the wrapper inside the cell, 32px narrower than the
-    // cell itself here. 24 is `MARKER_LANE_PX`, module-private to
-    // `hover-card.tsx` and written here as the figure it is.
-    const room = await page.evaluate(() => {
-      const open = document.querySelector('[role="tooltip"]');
-      const parent = open instanceof HTMLElement ? open.offsetParent : null;
-      if (parent === null) throw new Error('the open card has no positioned ancestor');
-      return parent.getBoundingClientRect().width;
-    });
-    expect(
-      card.width + 24,
-      'the preview is too narrow to say anything about the lane',
-    ).toBeGreaterThanOrEqual(room);
 
-    expect(card.x + card.width, 'the preview covers the marker lane').toBeLessThanOrEqual(below.x);
+    // **Its own row, whole.** Dany, 2026-09-10: _"i wanna see them for this item
+    // to have full context"_ — the notes of a work item are read against that
+    // item's own dates and estimates, so the row it belongs to is the one thing
+    // this card may not cover.
+    expect(card.y, 'the preview covers its own row').toBeGreaterThanOrEqual(row.y + row.height - 1);
+
+    // **And the marker lane of every row below it**, which is the ask this test
+    // was written for: the card starts past its cell, and the `≡` marks stand
+    // inside it.
+    expect(card.x, 'the preview covers the marker lane').toBeGreaterThanOrEqual(
+      below.x + below.width,
+    );
 
     // And the markers really are reachable: walked down, each one opening its
     // own row's notes. Asserted per row, because a lane that freed the first

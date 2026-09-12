@@ -10,6 +10,14 @@ import { createPortal } from 'react-dom';
  */
 export interface AnchorRect {
   left: number;
+  /**
+   * Its right edge, which is where a card opens **beside** the mark.
+   *
+   * Added on 2026-09-10 with {@link asidePlacement}: Dany asked for every
+   * column's pop-up to stand left or right of the thing it explains rather than
+   * under it, and the marks the hint layer reads are in those columns too.
+   */
+  right: number;
   top: number;
   bottom: number;
 }
@@ -25,17 +33,6 @@ const ANCHOR_GAP_PX = 6;
 
 /** How wide a card may get, in CSS pixels. */
 const CARD_MAX_WIDTH_PX = 420;
-
-/**
- * How far a card is pulled left of its cell to leave its own trigger's lane
- * clear, in CSS pixels — see {@link HoverCardProps.clearsMarkerLane}.
- *
- * 24 against a 15px marker sitting 1px in from the cell's right edge, measured
- * in the running app on 2026-09-09. The surplus is deliberate: the lane has to
- * be comfortably hoverable rather than exactly uncovered, and a reader running
- * down forty of them should not have to be accurate to the pixel.
- */
-const MARKER_LANE_PX = 24;
 
 /**
  * How narrow a card explaining a cell may be, in CSS pixels.
@@ -62,6 +59,58 @@ const CARD_MIN_WIDTH_PX = 260;
  * than the viewport (see {@link HoverCard}), so a left at or past 0 with the
  * width subtracted from the right edge puts both edges inside.
  */
+/**
+ * Where an anchored card opens **beside** its mark: clear of the mark's right
+ * edge, tops aligned, flipped to its left where the viewport has no room, and
+ * clamped so its own rectangle stays inside the viewport.
+ *
+ * Dany, 2026-09-10: _"i want to have most useful on-hover pop-up for ALL
+ * cells/columns as i asked previously - include ALL columns in the scheme"_. The
+ * hint layer is what most columns' pop-up is — `data-hint` and `data-fact` marks
+ * on the drag grip, the row number, Deadline, Finish, Float, In parallel, Not
+ * before, Service and the estimate cells — and until this it opened under its
+ * mark, over the rows below.
+ *
+ * **Clamped rather than refused**, which is where this differs from
+ * {@link besidePlacement}: a picker's card that would cover the list it explains
+ * is better not shown, but a hint is a sentence about the thing under the
+ * pointer and a reader who gets nothing has no way to ask again. So a viewport
+ * with room on neither side gets the card on the roomier side, pushed inside the
+ * edge.
+ *
+ * Pure, for {@link surfacePlacement}'s reason: jsdom measures every box as zero.
+ *
+ * @param anchor The mark's rectangle, in viewport coordinates.
+ * @param anchor.left Its left edge — a card flipped left ends here.
+ * @param anchor.right Its right edge — a card opening right starts here.
+ * @param anchor.top Its top edge, which the card's top is aligned with.
+ * @param anchor.bottom Its bottom edge, unused here and read by the surface placement.
+ * @param card The card's own box.
+ * @param card.width How wide it is.
+ * @param card.height How tall it is.
+ * @param viewport The window.
+ * @param viewport.width Its width.
+ * @param viewport.height Its height.
+ */
+export function asidePlacement(
+  anchor: AnchorRect,
+  card: { width: number; height: number },
+  viewport: { width: number; height: number },
+): Placement {
+  const toTheRight = viewport.width - (anchor.right + ANCHOR_GAP_PX);
+  const toTheLeft = anchor.left - ANCHOR_GAP_PX;
+  const onTheRight = toTheRight >= card.width || toTheRight >= toTheLeft;
+  const left = onTheRight ? anchor.right + ANCHOR_GAP_PX : anchor.left - ANCHOR_GAP_PX - card.width;
+  return {
+    // Inside both edges: `max(0, …)` for a card pushed off the left, and the
+    // `min` for one that would run off the right.
+    left: Math.max(0, Math.min(left, viewport.width - card.width)),
+    // Tops aligned, and never below the window: a mark low in a tall list gets
+    // its card lifted rather than cut off.
+    top: Math.max(0, Math.min(anchor.top, viewport.height - card.height)),
+  };
+}
+
 export function surfacePlacement(
   anchor: AnchorRect,
   card: { width: number; height: number },
@@ -252,36 +301,41 @@ export interface HoverCardProps {
    */
   opensSideways?: boolean;
   /**
-   * Whether this card is pulled clear of the lane its own trigger stands in, so
-   * that a reader can run the pointer down that lane and read each row's card
-   * in turn.
+   * Whether this card leaves its **own row** clear as well as its own cell:
+   * below the row (or above it) and starting past the cell's right edge, as
+   * wide as the room to the right allows.
    *
-   * The Name cell's notes preview, and Dany asked for it on 2026-09-09: *"move
-   * the preview tooltip window slightly to the left - so that preview icons can
-   * be scrolled down and up by moving the mouse"*. The `≡` markers are
-   * `position: absolute; right: 1` on every Name cell, so they form a column at
-   * the cell's right edge — and the preview opened at `left: 0` across the whole
-   * cell, which put its right edge **on that column**. Measured in the running
-   * app: the preview at `[145, 240, 555, 370]`, the lane at x 685–700, and
-   * `elementFromPoint` at the next marker down answering the preview's own
-   * `DIV`. The marker below was unreachable, so the pointer could read one row's
-   * notes and no more.
+   * The Name cell's notes preview, and Dany asked for exactly this on
+   * 2026-09-10: *"for the notes preview i need the tooltip (1) to be way wider
+   * to the right (2) to also not cover the cells from same row - because i
+   * wanna see them for this item to have full context"*. A document about one
+   * work item is read against that item's own dates, estimates and
+   * dependencies, so the one thing this card must never cover is the row it
+   * belongs to.
    *
-   * A **horizontal** pull rather than a vertical one, because the preview flips
-   * above its cell for a row low in the table ({@link roomForCard}) and would
-   * then cover the lane *upward* instead. Left clear of the lane, it is out of
-   * the way whichever side it opens on.
-   *
-   * Placed by its **right** edge, `right: 24px` inside the cell, rather than by
-   * a negative `left`. Both put the same box on a wide cell, and only this one
-   * holds on a narrow one: shrink-to-fit takes the room between the containing
-   * block's left edge and `right`, and where that is under
-   * {@link CARD_MIN_WIDTH_PX} the card grows *leftwards* out of its cell
-   * instead of over the lane. A `left: -24px` card capped at `100%` of the cell
-   * loses to the same minimum and covers the lane again — which is what the
-   * Name column does at 192px, with the four reference columns on screen.
+   * It is therefore the one in-cell card that does **not** open beside its cell
+   * ({@link HoverCardProps.opensSideways}): beside means level with the row, and
+   * level with the row is over the cells the reader wants. Below and to the
+   * right leaves the row whole, leaves the `≡` marker lane of every row below
+   * it clear — the lane is left of where this card starts — and has the width of
+   * the plan to grow into, which is the other half of the ask.
    */
-  clearsMarkerLane?: boolean;
+  leavesItsRowClear?: boolean;
+  /**
+   * Whether an **anchored** card opens beside its mark rather than under it —
+   * see {@link asidePlacement}.
+   *
+   * The hint layer's card, which is what most columns' pop-up is: `data-hint`
+   * and `data-fact` marks live on the drag grip, the row number, Deadline,
+   * Finish, Float, In parallel, Not before, Service and the estimate cells, and
+   * a card under one of those covers the rows below it. Dany, 2026-09-10:
+   * _"include ALL columns in the scheme"_.
+   *
+   * Not the Gantt's own anchored cards: a bar is as wide as the work it draws,
+   * and a card beside a bar that fills the chart has nowhere to stand. They keep
+   * {@link surfacePlacement}, and the chart's hovers are their own question.
+   */
+  opensAside?: boolean;
   children: ReactNode;
 }
 
@@ -299,6 +353,17 @@ const SCROLLING_MIN_HEIGHT = 160;
 
 /** How wide a scrolling card may get, in CSS pixels. Documents want the width. */
 const SCROLLING_MAX_WIDTH_PX = 640;
+
+/**
+ * How wide the one card that leaves its own row clear may get, in CSS pixels.
+ *
+ * Dany, 2026-09-10: *"i need the tooltip ... to be way wider to the right"*.
+ * It starts past its cell and runs right, so the room it has is the rest of the
+ * plan — 1000px is a document's worth of line length and still less than that
+ * room on any screen this table is read on. The measured room caps it anyway,
+ * which is what keeps it inside the frame.
+ */
+const WIDE_CARD_WIDTH_PX = 1000;
 
 /** Which side of its cell a card opens on, and the height ceiling that side gives it. */
 export interface CardRoom {
@@ -483,7 +548,8 @@ export function HoverCard({
   scrolls = false,
   takesPointer = false,
   opensSideways = false,
-  clearsMarkerLane = false,
+  leavesItsRowClear = false,
+  opensAside = false,
   compact = false,
   anchor,
   beside,
@@ -516,7 +582,7 @@ export function HoverCard({
     if (anchor === undefined || node === null) return;
     const box = node.getBoundingClientRect();
     setPlaced(
-      surfacePlacement(
+      (opensAside ? asidePlacement : surfacePlacement)(
         anchor,
         { width: box.width, height: box.height },
         { width: window.innerWidth, height: window.innerHeight },
@@ -525,7 +591,7 @@ export function HoverCard({
     // Most owners measure once per opening. A portalled card inside a
     // scrollbox may hand over a fresh rectangle while it stays open, so each
     // anchor identity places the card again.
-  }, [anchor]);
+  }, [anchor, opensAside]);
 
   /**
    * This card's own box, or null before it has ever been measured.
@@ -561,6 +627,8 @@ export function HoverCard({
    * content's, and the one that can be tall enough to run off the screen.
    */
   const [room, setRoom] = useState<CardRoom | null>(null);
+  const [roomToTheRight, setRoomToTheRight] = useState<number | null>(null);
+  const [pastTheRow, setPastTheRow] = useState<{ below: number; above: number } | null>(null);
   useLayoutEffect(() => {
     if (!scrolls || anchor !== undefined || beside !== undefined) return;
     // Narrowing, not a guard, and deliberately not a throw: a layout effect runs
@@ -580,11 +648,24 @@ export function HoverCard({
     // computed `overflow`, for `editable-grid.ts`'s reason: the frame is a
     // named thing in this app and the name is the contract.
     const port = wrapper.closest('[data-table-frame]')?.getBoundingClientRect();
+    const cell = wrapper.getBoundingClientRect();
     setRoom(
-      roomForCard(wrapper.getBoundingClientRect(), {
+      roomForCard(cell, {
         top: Math.max(0, port?.top ?? 0),
         bottom: Math.min(window.innerHeight, port?.bottom ?? window.innerHeight),
       }),
+    );
+    // And how much room there is to the **right** of the cell, for the card
+    // that starts there ({@link HoverCardProps.leavesItsRowClear}). Measured
+    // rather than left to `100vw`: the frame is what clips this card, and a
+    // 1000px card in a 700px frame is 300px nobody can read.
+    setRoomToTheRight(Math.min(window.innerWidth, port?.right ?? window.innerWidth) - cell.right);
+    // How far the card has to hang to clear the row it belongs to, from the
+    // wrapper it is positioned in. Both edges, because the card flips above the
+    // row for a row low in the frame.
+    const row = wrapper.closest('tr')?.getBoundingClientRect();
+    setPastTheRow(
+      row === undefined ? null : { below: row.bottom - cell.top, above: cell.bottom - row.top },
     );
     // The cell does not move while the card is open — the card is closed by the
     // pointer leaving the cell — so this runs once per opening. `beside` is in
@@ -679,11 +760,39 @@ export function HoverCard({
                   // card stood 44px over the lane again — measured in Chromium
                   // on 2026-09-09, `elementFromPoint` at the next row's marker
                   // answering the card's own `H1`.
-                  ...(clearsMarkerLane ? { right: MARKER_LANE_PX, left: 'auto' } : { left: 0 }),
-                  ...(room?.side === 'above' ? { bottom: '100%' } : { top: '100%' }),
+                  // Past the cell's right edge, and clear of the **row** —
+                  // measured, because `100%` is the cell's own wrapper and a
+                  // wrapper is a line box inside a row rather than the row
+                  // itself: hanging from it left 3px of the row covered
+                  // (measured in Chromium, 2026-09-10). See
+                  // {@link HoverCardProps.leavesItsRowClear}.
+                  ...(leavesItsRowClear
+                    ? {
+                        left: '100%',
+                        ...(room?.side === 'above'
+                          ? { bottom: pastTheRow === null ? '100%' : pastTheRow.above }
+                          : { top: pastTheRow === null ? '100%' : pastTheRow.below }),
+                        // Shrink-to-fit measures the room between `left` and the
+                        // containing block's right edge, and that block is the
+                        // cell — 4px. Without a `max-content` width this card is
+                        // its 260px minimum however much room the plan has to
+                        // the right of it, which is the opposite of the ask.
+                        width: 'max-content',
+                      }
+                    : {
+                        left: 0,
+                        ...(room?.side === 'above' ? { bottom: '100%' } : { top: '100%' }),
+                      }),
                 }),
             maxWidth: scrolls
-              ? `min(${String(SCROLLING_MAX_WIDTH_PX)}px, 100vw)`
+              ? // The room to the right of the cell where this card starts
+                // there, and the pixel ceiling everywhere else. `100vw` is the
+                // frame before the room has been measured.
+                `min(${String(leavesItsRowClear ? WIDE_CARD_WIDTH_PX : SCROLLING_MAX_WIDTH_PX)}px, ${
+                  leavesItsRowClear && roomToTheRight !== null
+                    ? `${String(Math.round(roomToTheRight))}px`
+                    : '100vw'
+                }, 100vw)`
               : CARD_MAX_WIDTH_PX,
           }
         : {
