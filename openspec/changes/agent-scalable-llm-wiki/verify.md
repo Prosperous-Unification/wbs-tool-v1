@@ -3073,3 +3073,29 @@ from the tree exercised by the complete suite.
 
 No external review, usage, receipt, host/browser gate, activation administration, ruleset, authority
 snapshot, or final binding evidence was created. Task 5.3 remains open.
+
+### CI gate budget repair after 6234d1c1
+
+PR run `34694906449`, job `103556603908`, evaluated head
+`6234d1c1072092123a6d6ede9683a2d739f6c9a6` and was canceled after 20m11s for exceeding the
+20-minute job limit. Its retained `nx-gate-log-1` artifact reports that all four ordinary Nx targets
+for 30 projects completed in 15m56s before `tool-wiki:test` began. Tool Wiki then timed out three
+finite production-CLI aggregates under Bun's 5-second default: malformed-tree selection at
+5022.71ms, manifest binding at 5018.89ms, and reserved-evidence classification at 5023.00ms, each
+with a null child exit status. The artifact upload completed, but cancellation skipped the remaining
+required gate steps, so this run provides no complete-gate duration.
+
+On the same 24-core Pop!_OS host with 30 GiB RAM, from `tools/tool-wiki`, the post-repair working tree
+based on that head ran `bun test --preload ../test/scratch/preload.ts`. It exited 0 with 503 tests
+passed, 0 failed, 4,843 assertions across 26 files in 793.93 seconds. A preceding exact-head timing
+run used `/usr/bin/time -v` around the same Bun command and exited 0 with 502 tests passed, 0 failed,
+4,842 assertions in 734.02 seconds (12m14.04s wall, 162% CPU, 906,432 KiB maximum resident set).
+These local durations do not establish GitHub runner speed or a complete CI duration.
+
+The 45-minute job limit is therefore a chosen finite allowance with headroom over the observed
+15m56s ordinary CI phase and the substantial local Tool Wiki duration. It is not described as a
+measured end-to-end budget; the first successful full CI run still owes that measurement. The three
+five-process aggregates have scoped 10-second ceilings, and the 28-process contract aggregate has a
+scoped 45-second ceiling after a local full-suite RED at 25013.97ms under its former 25-second cap.
+The global Bun timeout, required command chain, exit handling, and all other CI job limits remain
+unchanged.

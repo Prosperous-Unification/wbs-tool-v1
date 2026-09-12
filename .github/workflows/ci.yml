@@ -208,11 +208,10 @@ jobs:
   gate:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    # The original 20-minute box predated Tool Wiki's production-CLI suite. PR run 34694906449
-    # spent 15m56s in the ordinary uncached Nx phase before starting it; the isolated Tool Wiki
-    # suite at the same head takes 12m14s on a low-load 24-core host, and its overlapping cases
-    # take about 1.5-1.65x as long on ubuntu-latest. Forty-five minutes is the measured finite
-    # budget for setup plus both required suites, not permission for an unbounded/hung gate.
+    # The original 20-minute box expired after the ordinary Nx phase and during Tool Wiki.
+    # Forty-five minutes is a chosen finite allowance pending the first complete CI measurement,
+    # not a measured completion time. Evidence: openspec/changes/agent-scalable-llm-wiki/verify.md,
+    # "CI gate budget repair after 6234d1c1".
     steps:
       # Full history: with the default depth of 1 the `main` ref is absent, and
       # nx falls back to a different file scope rather than failing. Depth 0

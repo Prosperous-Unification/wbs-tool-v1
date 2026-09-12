@@ -978,7 +978,7 @@ await import(${JSON.stringify(productionSnapshotter)});
     );
   });
 
-  test('CI gives the complete uncached gate its measured finite budget', () => {
+  test('CI gives the complete uncached gate its chosen finite allowance', () => {
     const ci = readFileSync(join(workspace, '.github', 'workflows', 'ci.yml'), 'utf8');
     const gate = /jobs:\n {2}gate:\n {4}runs-on: ubuntu-latest\n {4}timeout-minutes: ([0-9]+)/.exec(
       ci,
