@@ -727,5 +727,7 @@ describe('production CLI validation boundary', () => {
       expect(child.exitCode, output).toBe(validationCase.expectedExit);
       expect(output).toContain(validationCase.expectedText);
     }
-  }, 25_000);
+    // Proof: the complete local suite timed this production path out at 25013.97ms
+    // under its former 25-second ceiling, after its child returned no exit code.
+  }, 45_000);
 });

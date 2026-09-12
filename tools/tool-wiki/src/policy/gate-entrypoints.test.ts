@@ -978,6 +978,18 @@ await import(${JSON.stringify(productionSnapshotter)});
     );
   });
 
+  test('CI gives the complete uncached gate its measured finite budget', () => {
+    const ci = readFileSync(join(workspace, '.github', 'workflows', 'ci.yml'), 'utf8');
+    const gate = /jobs:\n {2}gate:\n {4}runs-on: ubuntu-latest\n {4}timeout-minutes: ([0-9]+)/.exec(
+      ci,
+    );
+    if (gate === null) throw new Error('CI gate timeout is absent or malformed');
+
+    // Proof: the production workflow's obsolete 20-minute value failed here on
+    // `Expected: 45 · Received: 20` after CI canceled required Tool Wiki work at 20m11s.
+    expect(Number(gate[1])).toBe(45);
+  });
+
   test('committed entrypoint certifies the exact external-trust fixture', () => {
     const paths = realFixture();
     const invocation = runRealAdapter('committed', paths);

@@ -469,7 +469,9 @@ describe('entry classification production CLI', () => {
       expect(invocation.exitCode, `${name}: ${output(invocation)}`).toBe(1);
       expect(output(invocation)).toContain(expected);
     }
-  });
+    // Proof: PR run 34694906449 timed this production path out at 5023.00ms under
+    // Bun's 5-second default, after its child was still running (`Received: null`).
+  }, 10_000);
 
   test('refuses unknown selector versions, changed evidence roots and silently dropped classes', () => {
     const repository = createRepository();

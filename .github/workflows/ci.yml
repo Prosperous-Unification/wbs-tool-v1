@@ -207,7 +207,12 @@ permissions:
 jobs:
   gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
+    # The original 20-minute box predated Tool Wiki's production-CLI suite. PR run 34694906449
+    # spent 15m56s in the ordinary uncached Nx phase before starting it; the isolated Tool Wiki
+    # suite at the same head takes 12m14s on a low-load 24-core host, and its overlapping cases
+    # take about 1.5-1.65x as long on ubuntu-latest. Forty-five minutes is the measured finite
+    # budget for setup plus both required suites, not permission for an unbounded/hung gate.
     steps:
       # Full history: with the default depth of 1 the `main` ref is absent, and
       # nx falls back to a different file scope rather than failing. Depth 0

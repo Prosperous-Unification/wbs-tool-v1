@@ -255,7 +255,9 @@ describe('content manifest production CLI', () => {
     );
     expect(invalidCurrency.exitCode, output(invalidCurrency)).toBe(1);
     expect(output(invalidCurrency)).toContain('reviewed content identity is not SHA-256');
-  });
+    // Proof: PR run 34694906449 timed this production path out at 5018.89ms under
+    // Bun's 5-second default, after its child was still running (`Received: null`).
+  }, 10_000);
 });
 
 describe('canonical JSON', () => {
