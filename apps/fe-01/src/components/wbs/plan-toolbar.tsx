@@ -614,8 +614,8 @@ export function PlanToolbar({
   hiddenColumnIds: string[];
   frameState: FrameLayoutState;
   people: PersonView[];
-  /** `cycle` when the plan has no schedule at all, which is what the control says. */
-  scheduleError: 'cycle' | null;
+  /** Why the plan has no dated schedule to arrange, when it has none. */
+  scheduleError: 'calendar_range' | 'cycle' | null;
   /** Issues the arrangement and says it landed; built where the toast stack is. */
   arrangeBySchedule: () => void;
   chartRead: ChartRead;
@@ -827,13 +827,18 @@ export function PlanToolbar({
         variant="outline"
         size="square"
         type="button"
-        disabled={busy || scheduleError === 'cycle' || awaitingSchedule}
+        disabled={busy || scheduleError !== null || awaitingSchedule}
         aria-label="Arrange by schedule"
         {...(scheduleError === 'cycle'
           ? {
               'data-fact':
                 'The plan has a dependency cycle, so there is no schedule to arrange by.',
             }
+          : scheduleError === 'calendar_range'
+            ? {
+                'data-fact':
+                  'The plan reaches beyond the calendar, so there are no dated bars to arrange by.',
+              }
           : awaitingSchedule
             ? { 'data-fact': 'Optimizing… arrange once the schedule settles.' }
             : { 'data-hint': 'Put every sibling in the order its bar starts' })}

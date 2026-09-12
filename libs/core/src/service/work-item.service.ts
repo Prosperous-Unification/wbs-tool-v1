@@ -1668,6 +1668,9 @@ export class WorkItemService {
       // Scheduling uses dimensionless workday offsets and may remain valid
       // beyond the finite calendar ECMAScript can represent. Name that state
       // before any row calls `datesOf`, which would otherwise surface a 500.
+      // Proof: remove this preflight and the mounted controller case
+      // `models a plan beyond the calendar range without partial dates` fails
+      // on the unhandled invalid-Date projection.
       if (project.startDate !== null) {
         let projectFinish = 0;
         for (const placed of planned.workItems.values()) {

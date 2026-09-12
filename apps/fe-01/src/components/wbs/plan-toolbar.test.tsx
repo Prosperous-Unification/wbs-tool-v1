@@ -253,6 +253,28 @@ describe('the plan toolbar’s controls', () => {
     });
   });
 
+  itDom('stands Arrange by schedule down when the plan is beyond the calendar', async () => {
+    const api = fakeApi();
+    const tree = api.tree.bind(api);
+    api.tree = (projectId) =>
+      tree(projectId).then((answer) => ({
+        ...answer,
+        scheduleError: 'calendar_range' as const,
+        slices: [],
+      }));
+    render(<WbsTable projectId="p1" api={api} />);
+
+    const arrange = await screen.findByRole('button', { name: 'Arrange by schedule' });
+
+    // Proof: retain the post-merge `'cycle' | null` prop and fe-01:typecheck
+    // fails at the WbsTable callsite; widen only the prop and this assertion
+    // fails because a plan with no dated bars still offers the write.
+    expect(arrange).toBeDisabled();
+    expect(arrange.getAttribute('data-fact')).toBe(
+      'The plan reaches beyond the calendar, so there are no dated bars to arrange by.',
+    );
+  });
+
   itDom('puts the rows in the order their bars start', async () => {
     // The end-to-end claim, through the fake's own schedule: `Strip` is made to
     // wait for `Paint`, so `Paint` and `Sand` start on day zero and `Strip`
