@@ -1237,6 +1237,99 @@ test.describe('the Name cell answers from its marker alone', () => {
     await followed.close();
   });
 
+  test('Escape saves the note and closes the editor', async ({ page }) => {
+    // Dany, 2026-09-12: _"so that ESC key hides the notes editor (edits are
+    // saved)"_. The box is one textarea for name and notes, and leaving it is
+    // the save — so Escape leaves it. The oracle for "saved" is the hover
+    // preview, which is drawn from the row be-01 sent back: the box itself
+    // holds whatever was typed whether or not anything was sent (the folded
+    // estimate's lesson, `estimate-triple-visible`).
+    //
+    // Proof: the Escape branch removed from the Name cell's `onKeyDown` — this
+    // failed on the panel staying up (`Escape left the notes panel up`). The
+    // jsdom companion catches the save; this catches the collapse. Watched,
+    // 2026-09-12.
+    const name = page.getByLabel('Name of 010');
+    await name.fill('Row 010\n\nA note to finish.');
+    await name.blur();
+    await page.mouse.move(0, 0);
+    const rested = await boxOf(name, 'the rested Name box');
+
+    await name.click();
+    const panel = page.getByLabel('Notes for 010, rendered while writing');
+    await expect(panel).toBeVisible();
+    const open = await boxOf(name, 'the open Name box');
+    expect(open.height, 'the editor did not open').toBeGreaterThan(rested.height);
+    // Through `fill` rather than `press('End')` + `type`: `End` in a focused
+    // textarea is document-scroll on macOS, so a typed tail lands on the name
+    // line, not the notes (the repo's caret trap, `e2e/caret.ts`). What the test
+    // is about is the box's held value being saved, so set it whole.
+    await name.fill('Row 010\n\nA note to finish. Finished.');
+    await expect(panel).toBeVisible();
+
+    await name.press('Escape');
+    expect(await panel.count(), 'Escape left the notes panel up').toBe(0);
+    await expect
+      .poll(async () => (await boxOf(name, 'the Name box')).height, {
+        message: 'Escape left the editor open',
+      })
+      .toBe(rested.height);
+
+    // Saved, as the row reads it back: the preview is rendered from be-01's
+    // answer, not from the box.
+    await page.getByLabel('Notes on 010').hover();
+    await expect(page.getByRole('tooltip', { name: 'Notes for 010, rendered' })).toContainText(
+      'A note to finish. Finished.',
+    );
+  });
+
+  test('Done is the thing under the pointer, and closes the editor', async ({ page }) => {
+    // Dany, 2026-09-12: _"a non-intrusive neat small 'Done' button that you can
+    // press to hide the editor of markdown"_. The panel it sits in takes no
+    // pointer, on purpose; the button is the one exception, and the hit test at
+    // its own centre is what says so — a button drawn over a `pointer-events:
+    // none` panel with the same declaration is a picture of a button, and the
+    // click falls through to the row behind.
+    //
+    // Proof: the button's `pointerEvents` left to the panel's `none` — this
+    // failed on `Done is not what the pointer lands on · Expected: "Done writing
+    // notes for 010" · Received: "TD"`. Watched in Chromium, 2026-09-12.
+    const name = page.getByLabel('Name of 010');
+    await name.fill('Row 010\n\nA note to finish.');
+    await name.blur();
+    await page.mouse.move(0, 0);
+    const rested = await boxOf(name, 'the rested Name box');
+
+    await name.click();
+    const panel = page.getByLabel('Notes for 010, rendered while writing');
+    await expect(panel).toBeVisible();
+    await name.fill('Row 010\n\nA note to finish. Pressed.');
+    await expect(panel).toBeVisible();
+
+    const done = panel.getByRole('button', { name: 'Done writing notes for 010' });
+    const at = await boxOf(done, 'the Done button');
+    const centre = { x: at.x + at.width / 2, y: at.y + at.height / 2 };
+    const under = await page.evaluate(({ x, y }) => {
+      const hit = document.elementFromPoint(x, y);
+      return hit === null
+        ? 'nothing'
+        : (hit.closest('button')?.getAttribute('aria-label') ?? hit.tagName);
+    }, centre);
+    expect(under, 'Done is not what the pointer lands on').toBe('Done writing notes for 010');
+
+    await page.mouse.click(centre.x, centre.y);
+    expect(await panel.count(), 'Done left the notes panel up').toBe(0);
+    await expect
+      .poll(async () => (await boxOf(name, 'the Name box')).height, {
+        message: 'Done left the editor open',
+      })
+      .toBe(rested.height);
+    await page.getByLabel('Notes on 010').hover();
+    await expect(page.getByRole('tooltip', { name: 'Notes for 010, rendered' })).toContainText(
+      'A note to finish. Pressed.',
+    );
+  });
+
   test('scrolls a note taller than the preview once the pointer is on it', async ({ page }) => {
     // The one card that scrolls, and the only way to scroll it is to put the
     // pointer on it — which means crossing the name box between the marker at
