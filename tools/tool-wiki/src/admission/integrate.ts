@@ -285,6 +285,14 @@ interface GitOutput {
   readonly stdout: Uint8Array;
 }
 
+/** An authenticated immutable patch cannot be replayed on a newer descendant target. */
+export class IntegrationPatchConflictError extends Error {
+  constructor(detail: string) {
+    super(`integration submission is incompatible with the current target: ${detail}`);
+    this.name = 'IntegrationPatchConflictError';
+  }
+}
+
 function git(
   repository: string,
   argv: readonly string[],
@@ -390,12 +398,40 @@ function withTemporaryIndex<T>(repository: string, operation: (index: string) =>
   }
 }
 
-function applyPatch(repository: string, index: string, patch: Uint8Array): void {
-  git(
-    repository,
-    ['apply', '--cached', '--index', '--binary', '--whitespace=nowarn', '-'],
-    'immutable submission patch cannot be applied',
-    { index, stdin: patch },
+function applyPatch(
+  repository: string,
+  index: string,
+  patch: Uint8Array,
+  conflictIsModeled = false,
+): void {
+  const invocation = Bun.spawnSync(
+    [
+      'git',
+      '-C',
+      repository,
+      'apply',
+      '--cached',
+      '--index',
+      '--binary',
+      '--whitespace=nowarn',
+      '-',
+    ],
+    {
+      env: { ...process.env, GIT_INDEX_FILE: index, GIT_OPTIONAL_LOCKS: '0' },
+      stdin: patch,
+      stderr: 'pipe',
+      stdout: 'pipe',
+    },
+  );
+  if (invocation.exitCode === 0) return;
+  const detail = invocation.stderr.toString('utf8').trim();
+  // Only a patch already authenticated against its submitted base, replayed on a proven
+  // descendant, can turn Git's documented non-applicability exit into a modeled conflict.
+  if (conflictIsModeled && invocation.exitCode === 1) {
+    throw new IntegrationPatchConflictError(detail || 'git exited 1');
+  }
+  throw new Error(
+    `integration refused: immutable submission patch cannot be applied: ${detail || `git exited ${String(invocation.exitCode)}`}`,
   );
 }
 
@@ -575,7 +611,9 @@ function compose(
     // Proof: replacing these frozen bytes with a fresh diff from each writer's mutable staged
     // tree made `publication uses frozen patch bytes` fail on `Expected ... one = 2; Received ...
     // one = 99;` at the published-commit oracle.
-    for (const submission of ordered) applyPatch(coordinator, index, submission.patch);
+    for (const submission of ordered) {
+      applyPatch(coordinator, index, submission.patch, integrationBaseCommit !== undefined);
+    }
     return gitIdentity(coordinator, ['write-tree'], 'cannot freeze combined candidate tree', index);
   });
   const entries = readTree(coordinator, candidateTree);

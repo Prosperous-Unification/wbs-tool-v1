@@ -15,6 +15,7 @@ import {
   assertCheckedIntegrationCandidate,
   type CheckedIntegrationCandidate,
   composeIntegrationCandidate,
+  IntegrationPatchConflictError,
   type IntegrationRequest,
   recomposeIntegrationCandidate,
   type UncheckedIntegrationCandidate,
@@ -84,7 +85,8 @@ export interface IntegrationWaitingReport {
 export interface IntegrationTerminalReport {
   readonly status: 'terminal';
   readonly integrationId: string;
-  readonly reason: 'starvation' | 'attempts-exhausted' | 'candidate-refused';
+  readonly reason:
+    'starvation' | 'attempts-exhausted' | 'candidate-refused' | 'incompatible-submission';
   readonly attempts: number;
   readonly reworkCount: number;
   readonly queueTimeMs: number;
@@ -298,17 +300,34 @@ export function enqueueIntegration(
 }
 
 function readRef(repository: string, reference: string): string | undefined {
-  const invocation = Bun.spawnSync(['git', '-C', repository, 'rev-parse', '--verify', reference], {
+  const presence = Bun.spawnSync(['git', '-C', repository, 'show-ref', '--exists', reference], {
+    env: { ...process.env },
     stderr: 'pipe',
     stdout: 'pipe',
   });
-  if (invocation.exitCode === 1 || invocation.exitCode === 128) return undefined;
+  if (presence.exitCode === 2) return undefined;
+  // Proof: treating exit 1/128 as absence made `a malformed publication marker is not mistaken
+  // for absence` return publication-contended and `a publication marker read failure preserves
+  // the exact publishing reservation` advance to the unrelated commit oracle.
+  if (presence.exitCode !== 0) {
+    const detail = presence.stderr.toString('utf8').trim();
+    throw new Error(
+      `integration refused: cannot determine whether ${reference} exists: ${detail || `git exited ${String(presence.exitCode)}`}`,
+    );
+  }
+  const invocation = Bun.spawnSync(
+    ['git', '-C', repository, 'show-ref', '--verify', '--hash', reference],
+    { env: { ...process.env }, stderr: 'pipe', stdout: 'pipe' },
+  );
+  // Proof: accepting this read failure after a positive existence query made `a marker
+  // disappearing after exact existence proof is a read failure` continue past the ref boundary.
   if (invocation.exitCode !== 0) {
     throw new Error(
       `integration refused: cannot read ${reference}: ${invocation.stderr.toString('utf8').trim()}`,
     );
   }
-  const identity = invocation.stdout.toString('utf8').trimEnd();
+  const output = invocation.stdout.toString('utf8');
+  const identity = output.endsWith('\n') ? output.slice(0, -1) : output;
   if (!GitObject.test(identity)) throw new Error(`integration ref is malformed: ${reference}`);
   return identity;
 }
@@ -547,7 +566,12 @@ function assertIntegrationCommit(
   candidateTree: string,
   baseCommit: string,
 ): void {
-  const tree = readRef(repository, `${candidateCommit}^{tree}`);
+  const treeInvocation = Bun.spawnSync(
+    ['git', '-C', repository, 'rev-parse', '--verify', `${candidateCommit}^{tree}`],
+    { stderr: 'pipe', stdout: 'pipe' },
+  );
+  const treeOutput = treeInvocation.stdout.toString('utf8');
+  const tree = treeOutput.endsWith('\n') ? treeOutput.slice(0, -1) : treeOutput;
   const invocation = Bun.spawnSync(
     ['git', '-C', repository, 'rev-list', '--parents', '-n', '1', candidateCommit],
     { stderr: 'pipe', stdout: 'pipe' },
@@ -556,6 +580,8 @@ function assertIntegrationCommit(
   // Proof: removing this oracle made `a wrong-tree or extra-parent candidate commit is refused
   // before refs or lifecycle change` reserve commits with the wrong tree or a second parent.
   if (
+    treeInvocation.exitCode !== 0 ||
+    !GitObject.test(tree) ||
     invocation.exitCode !== 0 ||
     tree !== candidateTree ||
     ancestry.length !== 2 ||
@@ -1179,7 +1205,8 @@ export async function integrateWithRecovery(
     if (
       reason !== 'starvation' &&
       reason !== 'attempts-exhausted' &&
-      reason !== 'candidate-refused'
+      reason !== 'candidate-refused' &&
+      reason !== 'incompatible-submission'
     ) {
       throw new Error('terminal integration reason is invalid');
     }
@@ -1254,10 +1281,21 @@ export async function integrateWithRecovery(
       throw cause;
     }
     const targetBase = requireTargetRef(repository, record.targetRef);
-    const candidate =
-      record.attemptCount === 0 && targetBase === request.submissions[0]?.packet.base.commit
-        ? composeIntegrationCandidate(store, repository, request)
-        : recomposeIntegrationCandidate(store, repository, request, targetBase);
+    let candidate: UncheckedIntegrationCandidate;
+    try {
+      candidate =
+        record.attemptCount === 0 && targetBase === request.submissions[0]?.packet.base.commit
+          ? composeIntegrationCandidate(store, repository, request)
+          : recomposeIntegrationCandidate(store, repository, request, targetBase);
+    } catch (cause) {
+      // Proof: without this narrow production-path transition `a conflicting target advance
+      // terminalizes the exact immutable submission` threw the Git apply diagnostic and retained
+      // `rework` forever instead of returning incompatible-submission on repeated invocation.
+      if (cause instanceof IntegrationPatchConflictError) {
+        return terminal(store, record, 'incompatible-submission');
+      }
+      throw cause;
+    }
     const unavailable = await unavailableResources(
       options.resourceProbe,
       record.integrationId,

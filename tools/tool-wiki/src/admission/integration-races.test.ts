@@ -4,11 +4,12 @@ import {
   mkdirSync,
   mkdtempSync,
   realpathSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { Database } from 'bun:sqlite';
 import { afterAll, expect, test } from 'bun:test';
@@ -315,6 +316,30 @@ function options(integrationId: string, certifier: IntegrationCandidateCertifier
   };
 }
 
+function preparePublication(subject: ReturnType<typeof fixture>, integrationId: string) {
+  const submission = subject.submission('one', 'src/one.ts', 'export const one = 2;\n');
+  const request = { policy, submissions: [submission] };
+  const candidate = composeIntegrationCandidate(subject.store, subject.repository, request);
+  enqueueIntegration(subject.store, request, options(integrationId));
+  const checking = recordIntegrationCheck(subject.store, integrationId, candidate);
+  const checked = certify(candidate);
+  const commit = createIntegrationCommit(
+    subject.repository,
+    checked,
+    checking,
+    options(integrationId).commit,
+  );
+  const reserved = reserveIntegrationPublication(
+    subject.store,
+    subject.repository,
+    checked,
+    commit,
+    integrationId,
+    checking.attemptIdentity,
+  );
+  return { commit, request, reserved, submission };
+}
+
 async function captureRejection(operation: () => Promise<unknown>): Promise<Error> {
   try {
     await operation();
@@ -374,6 +399,134 @@ test('target advance while checks are held refuses the old candidate and recompo
   expect(git(subject.repository, ['show', `${report.commit}:other.ts`])).toBe(
     'export const other = 2;',
   );
+  subject.store.close();
+});
+
+test('a conflicting target advance terminalizes the exact immutable submission', async () => {
+  const subject = fixture();
+  const one = subject.submission('one', 'src/one.ts', 'export const one = 2;\n');
+  let releaseChecks: (() => void) | undefined;
+  let announceChecks: (() => void) | undefined;
+  const checksStarted = new Promise<void>((resolve) => {
+    announceChecks = resolve;
+  });
+  const held = new Promise<void>((resolve) => {
+    releaseChecks = resolve;
+  });
+  const integration = integrateWithRecovery(
+    subject.store,
+    subject.repository,
+    { policy, submissions: [one] },
+    options('conflicting-advance', {
+      certify: async (candidate) => {
+        announceChecks?.();
+        await held;
+        return certify(candidate);
+      },
+    }),
+  );
+  await checksStarted;
+  const advanced = subject.advance('src/one.ts', 'export const one = 3;\n');
+  releaseChecks?.();
+
+  const report = await integration;
+  expect(report).toEqual({
+    attempts: 1,
+    integrationId: 'conflicting-advance',
+    queueTimeMs: 0,
+    reason: 'incompatible-submission',
+    reworkCount: 0,
+    status: 'terminal',
+  });
+  expect(git(subject.repository, ['rev-parse', 'refs/heads/main'])).toBe(advanced);
+  expect(git(one.worktree, ['show', ':src/one.ts'])).toBe('export const one = 2;');
+  expect(subject.store.inspect().integrations[0]).toMatchObject({
+    attemptCount: 1,
+    status: 'terminal',
+    submissions: [
+      {
+        generation: one.packet.generation,
+        packetIdentity: one.packet.packetIdentity,
+        patchIdentity: one.report.patchIdentity,
+        sessionId: one.packet.sessionId,
+      },
+    ],
+    terminalReason: 'incompatible-submission',
+  });
+  // Proof: without the modeled recomposition-conflict transition this production invocation
+  // rejected with `immutable submission patch cannot be applied` and left status `rework`.
+  expect(
+    await integrateWithRecovery(
+      subject.store,
+      subject.repository,
+      { policy, submissions: [one] },
+      options('conflicting-advance', {
+        certify: () => {
+          throw new Error('terminal recovery reran certification');
+        },
+      }),
+    ),
+  ).toEqual(report);
+  subject.store.close();
+});
+
+test('an infrastructure failure during recomposition stays recoverable and is not a conflict', async () => {
+  const subject = fixture();
+  const one = subject.submission('one', 'src/one.ts', 'export const one = 2;\n');
+  let releaseChecks: (() => void) | undefined;
+  let announceChecks: (() => void) | undefined;
+  const checksStarted = new Promise<void>((resolve) => {
+    announceChecks = resolve;
+  });
+  const held = new Promise<void>((resolve) => {
+    releaseChecks = resolve;
+  });
+  const integration = integrateWithRecovery(
+    subject.store,
+    subject.repository,
+    { policy, submissions: [one] },
+    options('recomposition-infrastructure', {
+      certify: async (candidate) => {
+        announceChecks?.();
+        await held;
+        return certify(candidate);
+      },
+    }),
+  );
+  await checksStarted;
+  const advanced = subject.advance();
+  const advancedTree = git(subject.repository, ['rev-parse', `${advanced}^{tree}`]);
+  const objectPath = join(
+    subject.repository,
+    '.git',
+    'objects',
+    advancedTree.slice(0, 2),
+    advancedTree.slice(2),
+  );
+  const heldObjectPath = `${objectPath}.held`;
+  if (!existsSync(objectPath)) throw new Error('advanced tree is not a loose fixture object');
+  renameSync(objectPath, heldObjectPath);
+  try {
+    releaseChecks?.();
+    const failure = await captureRejection(() => integration);
+    expect(failure.message).toContain('cannot resolve current integration base');
+    expect(subject.store.inspect().integrations[0]).toMatchObject({
+      attemptCount: 1,
+      status: 'rework',
+    });
+  } finally {
+    renameSync(heldObjectPath, objectPath);
+  }
+  // Proof: broad conflict classification made this missing-tree failure terminal instead of
+  // retaining exact immutable submissions in rework for a later successful invocation.
+  expect(
+    await integrateWithRecovery(
+      subject.store,
+      subject.repository,
+      { policy, submissions: [one] },
+      options('recomposition-infrastructure'),
+    ),
+  ).toMatchObject({ attempts: 2, status: 'integrated' });
   subject.store.close();
 });
 
@@ -682,6 +835,119 @@ test('a mismatched publication marker after reservation is refused', () => {
     'integration publication marker mismatch',
   );
   expect(git(subject.repository, ['rev-parse', 'refs/heads/main'])).toBe(subject.base.commit);
+  subject.store.close();
+});
+
+test('a genuinely absent publication marker permits the exact atomic publication', () => {
+  const subject = fixture();
+  const { commit, reserved } = preparePublication(subject, 'absent-marker');
+
+  expect(publishReservedIntegration(subject.store, subject.repository, reserved)).toMatchObject({
+    commit,
+    status: 'integrated',
+  });
+  expect(git(subject.repository, ['rev-parse', reserved.markerRef])).toBe(commit);
+  expect(git(subject.repository, ['rev-parse', 'refs/heads/main'])).toBe(commit);
+  subject.store.close();
+});
+
+test('a malformed publication marker is not mistaken for absence', async () => {
+  const subject = fixture();
+  const { reserved } = preparePublication(subject, 'malformed-marker');
+  const markerPath = join(subject.repository, '.git', reserved.markerRef);
+  mkdirSync(dirname(markerPath), { recursive: true });
+  writeFileSync(markerPath, 'not-an-object\n');
+
+  expect(() => publishReservedIntegration(subject.store, subject.repository, reserved)).toThrow(
+    `integration refused: cannot determine whether ${reserved.markerRef} exists`,
+  );
+  expect(git(subject.repository, ['rev-parse', 'refs/heads/main'])).toBe(subject.base.commit);
+  expect(subject.store.inspect().integrations[0]).toMatchObject({
+    attemptCount: 1,
+    candidateCommit: reserved.candidateCommit,
+    markerRef: reserved.markerRef,
+    status: 'publishing',
+  });
+  expect(await Bun.file(markerPath).text()).toBe('not-an-object\n');
+  subject.store.close();
+});
+
+test('a publication marker read failure preserves the exact publishing reservation', () => {
+  const subject = fixture();
+  const { reserved } = preparePublication(subject, 'marker-read-failure');
+  const gitPath = join(subject.repository, '.git');
+  const heldGitPath = join(subject.repository, '.git-held');
+  renameSync(gitPath, heldGitPath);
+  try {
+    expect(() => publishReservedIntegration(subject.store, subject.repository, reserved)).toThrow(
+      `integration refused: cannot determine whether ${reserved.markerRef} exists`,
+    );
+  } finally {
+    renameSync(heldGitPath, gitPath);
+  }
+  // Proof: treating every Git exit 128 as an absent marker advanced to commit validation and
+  // reported the wrong boundary; exact absence proof now fails at the production ref lookup.
+  expect(git(subject.repository, ['rev-parse', 'refs/heads/main'])).toBe(subject.base.commit);
+  expect(subject.store.inspect().integrations[0]).toMatchObject({
+    attemptCount: 1,
+    candidateCommit: reserved.candidateCommit,
+    markerRef: reserved.markerRef,
+    status: 'publishing',
+  });
+  expect(git(subject.repository, ['for-each-ref', '--format=%(refname)', reserved.markerRef])).toBe(
+    '',
+  );
+  subject.store.close();
+});
+
+test('a marker disappearing after exact existence proof is a read failure', () => {
+  const subject = fixture();
+  const { reserved } = preparePublication(subject, 'marker-read-race');
+  git(subject.repository, ['update-ref', reserved.markerRef, reserved.candidateCommit]);
+  const realGit = Bun.which('git');
+  if (realGit === null) throw new Error('git executable is absent from the test environment');
+  const wrapperDirectory = mkdtempSync(join(tmpdir(), 'wiki-git-wrapper-'));
+  scratch.push(wrapperDirectory);
+  const wrapper = join(wrapperDirectory, 'git');
+  writeFileSync(
+    wrapper,
+    `#!/usr/bin/env bun
+import { rmSync } from 'node:fs';
+const argv = process.argv.slice(2);
+const invocation = Bun.spawnSync([${JSON.stringify(realGit)}, ...argv], {
+  stderr: 'pipe',
+  stdout: 'pipe',
+});
+await Bun.write(Bun.stdout, invocation.stdout);
+await Bun.write(Bun.stderr, invocation.stderr);
+if (argv[2] === 'show-ref' && argv[3] === '--exists' && argv[4] === ${JSON.stringify(reserved.markerRef)} && invocation.exitCode === 0) {
+  rmSync(${JSON.stringify(join(subject.repository, '.git', reserved.markerRef))});
+}
+process.exit(invocation.exitCode);
+`,
+  );
+  chmodSync(wrapper, 0o755);
+  const originalPath = process.env['PATH'];
+  process.env['PATH'] = `${wrapperDirectory}:${originalPath ?? ''}`;
+  try {
+    expect(() => publishReservedIntegration(subject.store, subject.repository, reserved)).toThrow(
+      `integration refused: cannot read ${reserved.markerRef}`,
+    );
+  } finally {
+    process.env['PATH'] = originalPath;
+  }
+  // Proof: accepting a failed strict value read after the marker's existence was proven let this
+  // deletion race proceed past the ref boundary instead of preserving the publishing reservation.
+  expect(git(subject.repository, ['rev-parse', 'refs/heads/main'])).toBe(subject.base.commit);
+  expect(subject.store.inspect().integrations[0]).toMatchObject({
+    attemptCount: 1,
+    candidateCommit: reserved.candidateCommit,
+    markerRef: reserved.markerRef,
+    status: 'publishing',
+  });
+  expect(git(subject.repository, ['for-each-ref', '--format=%(refname)', reserved.markerRef])).toBe(
+    '',
+  );
   subject.store.close();
 });
 
