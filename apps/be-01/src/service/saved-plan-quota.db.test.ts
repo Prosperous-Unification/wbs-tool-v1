@@ -57,6 +57,8 @@ describe('SavedPlanService.save refuses each limit before writing anything', () 
     maxParallel: 1,
     startNoEarlierThanReason: null,
     deadline: null,
+    factStart: null,
+    factEnd: null,
     revision: 0,
   });
 

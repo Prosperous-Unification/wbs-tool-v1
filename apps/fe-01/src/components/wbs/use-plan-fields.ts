@@ -1,9 +1,11 @@
+import type { SettableStatus } from '@wbs/domain/progress';
 import type * as React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { PriorityBandView, ProjectApi } from '@/lib/wbs-api';
 
 import { cellIn, focusCellAt } from './editable-grid';
+import { isoToday } from './gantt-panel';
 import { type CommitOutcome } from './live-editing';
 import { priorityTyped } from './priority-cell';
 import type { Toast } from './toasts';
@@ -189,6 +191,42 @@ export function usePlanFields({
   );
 
   /**
+   * Sets or clears one fact date, as the single field it is — the deadline's
+   * shape, for the deadline's reason: a fact has no reason column beside it and
+   * nothing is guarded here. be-01 refuses a non-date at its boundary, and an
+   * end before a start is a typo the two cells show side by side.
+   */
+  const setFactStart = useCallback(
+    (id: string, day: string | null) => {
+      void run(() => api.patchWorkItem(id, { factStart: day }));
+    },
+    [api, run],
+  );
+  const setFactEnd = useCallback(
+    (id: string, day: string | null) => {
+      void run(() => api.patchWorkItem(id, { factEnd: day }));
+    },
+    [api, run],
+  );
+
+  /**
+   * Sets the row's status as one act, sending **the reader's calendar day** as
+   * the day it happened.
+   *
+   * Always sent, never left for be-01 to fill: be-01 has no calendar of its own
+   * and would take the UTC day of the act, which after 21:00 in Kyiv is
+   * yesterday. The reader marked it done today, in their own day, and that is
+   * the day the Fact end cell fills with. `isoToday` is the same reading of the
+   * clock `useToday` keys every printed date on.
+   */
+  const setStatus = useCallback(
+    (id: string, status: SettableStatus) => {
+      void run(() => api.setStatus(id, status, isoToday(new Date())));
+    },
+    [api, run],
+  );
+
+  /**
    * Sets or clears one work item's priority, from what was typed into its cell.
    *
    * An ordering, which be-01 honours in its leveller's queue — never a
@@ -295,6 +333,16 @@ export function usePlanFields({
     open: openDeadline,
     close: closeDeadline,
   } = useDateCellEditor('deadline', gridElement);
+  const {
+    editing: editingFactStart,
+    open: openFactStart,
+    close: closeFactStart,
+  } = useDateCellEditor('fact-start', gridElement);
+  const {
+    editing: editingFactEnd,
+    open: openFactEnd,
+    close: closeFactEnd,
+  } = useDateCellEditor('fact-end', gridElement);
   return {
     setNotBefore,
     setNotBeforeReason,
@@ -307,5 +355,14 @@ export function usePlanFields({
     editingDeadline,
     openDeadline,
     closeDeadline,
+    setFactStart,
+    setFactEnd,
+    setStatus,
+    editingFactStart,
+    openFactStart,
+    closeFactStart,
+    editingFactEnd,
+    openFactEnd,
+    closeFactEnd,
   };
 }

@@ -61,6 +61,14 @@ const WORK_ITEM_DEADLINE = '20260906090000_add_work_item_deadline';
  * {@link WORK_ITEM_DEADLINE} did while it was newest.
  */
 const EXTERNAL_REF_NAME = '20260909120000_add_external_ref_name';
+/**
+ * The newest: `work_item.fact_start` and `work_item.fact_end`, the two nullable
+ * date-only columns `work-item-status-and-facts` adds. Additive forward and two
+ * `DROP COLUMN`s on the way back, so it heads every descending reversal list and
+ * tails every ascending one, exactly as {@link EXTERNAL_REF_NAME} did while it
+ * was newest.
+ */
+const WORK_ITEM_FACTS = '20260912120000_add_work_item_facts';
 
 /** The one below it, which is where every rollback here stops. */
 const LOOKUP_INDEXES = '20260902120000_add_lookup_indexes';
@@ -278,6 +286,7 @@ describe('the optimizer migration', () => {
       // Newest first, so the settings columns come off before the tables they
       // steer — this migration is no longer the only thing above LOOKUP_INDEXES.
       expect(rollbackTo(db.path, FOLDER, LOOKUP_INDEXES)).toEqual([
+        WORK_ITEM_FACTS,
         EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,

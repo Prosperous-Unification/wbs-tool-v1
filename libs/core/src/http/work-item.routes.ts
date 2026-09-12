@@ -10,9 +10,11 @@ import {
 import {
   isIsoDate,
   type IsoDate,
+  isSettableStatus,
   isStepState,
   LONGEST_NOT_BEFORE_REASON,
   MOST_PEOPLE_AT_ONCE,
+  type SettableStatus,
   type StepState,
   ThreePointEstimate,
 } from '@wbs/domain';
@@ -319,7 +321,7 @@ function parseMeasure(body: unknown): number {
  * The one state a statement is, checked by hand for the reason at the top of
  * this file and for one of its own.
  *
- * **`not_started` is refused, and that is the point.** The absence of a
+ * **`unknown` is refused, and that is the point.** The absence of a
  * statement is the absence of a row: the way to say it is `DELETE` on this
  * path, never a third value in the column. Accepting it here would give two
  * spellings of "nobody has said" — one of which every reader would then have to
@@ -336,6 +338,32 @@ function parseProgress(body: unknown): StepState {
   const state: unknown = raw['state'];
   if (!isStepState(state)) throw new BadRequest('invalid_progress');
   return state;
+}
+
+/**
+ * The status a row may be **set** to, checked by hand for {@link parseProgress}'s
+ * reason. `in_progress` is refused: it is a step's statement, made through
+ * `setProgress`, and a row reads it only off the fold. `not_started` is refused
+ * as the spelling this vocabulary retired on 2026-09-12.
+ */
+function parseStatus(body: unknown): SettableStatus {
+  const raw = asRecord(body);
+  const status: unknown = raw['status'];
+  if (!isSettableStatus(status)) throw new BadRequest('invalid_status');
+  return status;
+}
+
+/**
+ * The day a status became true, or absent for be-01 to take the day of the act.
+ * `null` is not a spelling of absent here: a client that has no calendar leaves
+ * the field out, and one that sends a value sends a date.
+ */
+function parseOn(body: unknown): IsoDate | undefined {
+  const raw = asRecord(body);
+  const on: unknown = raw['on'];
+  if (on === undefined) return undefined;
+  if (!isIsoDate(on)) throw new BadRequest('on_must_be_a_date');
+  return on;
 }
 
 function parseCreate(body: unknown): CreateWorkItem {
@@ -503,6 +531,8 @@ function parsePatch(body: unknown): {
   startNoEarlierThan?: IsoDate | null;
   startNoEarlierThanReason?: string | null;
   deadline?: IsoDate | null;
+  factStart?: IsoDate | null;
+  factEnd?: IsoDate | null;
   priority?: number | null;
   serviceTeamId?: string | null;
   teamIds?: readonly string[];
@@ -532,6 +562,12 @@ function parsePatch(body: unknown): {
     // here, because this function has no project to compare against; it is the
     // service's, where `deadlineOffsetOf` already answers `before-project-start`.
     deadline: asOptionalDate(raw['deadline'], 'deadline'),
+    // The deadline's own reader, twice: a non-`IsoDate` becomes
+    // `fact_start_must_be_a_date` / `fact_end_must_be_a_date` through the same
+    // malformed-payload path, and nothing else about a fact is refused anywhere —
+    // an end before a start is a typo the two cells show side by side.
+    factStart: asOptionalDate(raw['factStart'], 'factStart'),
+    factEnd: asOptionalDate(raw['factEnd'], 'factEnd'),
     priority: asOptionalPriority(raw['priority'], 'priority'),
     serviceTeamId:
       'serviceTeamId' in raw ? asIdOrNull(raw['serviceTeamId'], 'serviceTeamId') : undefined,
@@ -707,6 +743,8 @@ function parseKind(kind: PlanCommandKind, raw: Record<string, unknown>): PlanCom
       return { kind, ...target, ...step(), days: parseActual(raw) };
     case 'setProgress':
       return { kind, ...target, ...step(), state: parseProgress(raw) };
+    case 'setStatus':
+      return present({ kind, ...target, status: parseStatus(raw), on: parseOn(raw) });
     // The metric is text here and judged by the service, as the retired route
     // left it: `unknown_metric` is a 404 — a unit this release does not keep,
     // arriving where an id does — and a parser refusal would make it a 400.

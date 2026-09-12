@@ -24,6 +24,8 @@ const workItemPatch = type({
   'notes?': 'string',
   'startNoEarlierThan?': 'string | null',
   'deadline?': 'string | null',
+  'factStart?': 'string | null',
+  'factEnd?': 'string | null',
   'startNoEarlierThanReason?': 'string | null',
   'priority?': 'number | null',
   'serviceTeamId?': 'string | null',
@@ -100,7 +102,17 @@ const command = type({
       'Mark one step of a work item in progress or done.',
     ),
   )
-  .or(type({ kind: "'clearProgress'", ...step }).describe('Take a step back to not started.'))
+  .or(type({ kind: "'clearProgress'", ...step }).describe('Take a step back to unknown.'))
+  .or(
+    type({
+      kind: "'setStatus'",
+      ...target,
+      status: "'unknown' | 'done'",
+      'on?': 'string',
+    }).describe(
+      'Mark a work item done — every step of it, or of every leaf beneath it — or take every statement back to unknown. `on` is the day it happened (YYYY-MM-DD); absent, be-01 takes today. Marking done fills an empty fact end with that day.',
+    ),
+  )
   .or(
     type({ kind: "'setMeasure'", ...step, metric: 'string', value: 'number' }).describe(
       'Record a measured figure (tokens, hours…) for one step of a work item.',

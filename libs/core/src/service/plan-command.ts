@@ -1,4 +1,4 @@
-import type { StepState } from '@wbs/domain';
+import type { IsoDate, SettableStatus, StepState } from '@wbs/domain';
 import type { PriorityBand } from '@wbs/domain/priority-band';
 
 import type { PersonPatch, TeamPatch } from '../ports/directory-store';
@@ -56,6 +56,13 @@ export type PlanCommand =
   | ({ kind: 'clearActual'; stepId: string } & Target)
   | ({ kind: 'setProgress'; stepId: string; state: StepState } & Target)
   | ({ kind: 'clearProgress'; stepId: string } & Target)
+  /**
+   * The row's status, set as one act: `done` writes every step of the row — or
+   * of every leaf beneath a parent — and `unknown` takes every statement away.
+   * `on` is the day it happened; absent, be-01 takes the day of its own stamp.
+   * See `WorkItemService.setStatus` and ADR 0024.
+   */
+  | ({ kind: 'setStatus'; status: SettableStatus; on?: IsoDate } & Target)
   | ({ kind: 'setMeasure'; stepId: string; metric: string; value: number } & Target)
   | ({ kind: 'clearMeasure'; stepId: string; metric: string } & Target)
   | ({ kind: 'setAssignee'; stepId: string; personId: string | null; personRef?: string } & Target)
@@ -135,6 +142,7 @@ const EVERY_KIND = {
   clearActual: true,
   setProgress: true,
   clearProgress: true,
+  setStatus: true,
   setMeasure: true,
   clearMeasure: true,
   setAssignee: true,

@@ -43,6 +43,8 @@ export interface PlanRowReadings {
   actionsOpen: boolean;
   busy: boolean;
   editingDeadline: boolean;
+  editingFactEnd: boolean;
+  editingFactStart: boolean;
   editingNotBefore: boolean;
   dependencies: { id: string; number: string; name: string }[];
   dependencyEntries: PickerEntry[];

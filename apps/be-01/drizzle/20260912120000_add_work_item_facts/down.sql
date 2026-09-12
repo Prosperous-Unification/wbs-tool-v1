@@ -1,0 +1,34 @@
+-- Reverses `20260912120000_add_work_item_facts`.
+--
+-- **What is lost is dates somebody recorded about what happened.** No placement
+-- moves — the scheduler never read either column — and no status changes: a
+-- work item's status is folded from `step_progress`, which this touches nothing
+-- of. What changes on screen is the drawing: a done work item that drew one bar
+-- over its fact span draws its slices again, as every done work item did before
+-- the columns existed.
+--
+-- The dates themselves are not recoverable from here. `plan_event` holds the
+-- `patch` and `setStatus` commands that wrote them for as long as retention
+-- keeps them (365 days), so a fact could in principle be read back out of a
+-- plan's events by hand. Nothing replays them and this rollback does not try.
+--
+-- Undo and redo are unaffected in shape and lossy in one arm, the position
+-- every rollback of an additive column leaves its own kind in: `command_journal`
+-- is not touched, so every entry stays pressable, but a `patch` step whose
+-- forward or inverse names `factStart` or `factEnd` — including the fills inside
+-- a `setStatus` batch — names a column that is no longer there and fails when
+-- applied.
+--
+-- Reversed **before** `20260909120000_add_external_ref_name`: rollback order is
+-- the reverse of application order, which is what `migrate-down-cli.ts
+-- --to=<name>` does with the applied set, and `migrate.db.test.ts` and
+-- `migrate-down.db.test.ts` walk it rather than trusting the CLI's exit code.
+--
+-- Two `DROP COLUMN`s and not a table rebuild: SQLite has supported it since 3.35
+-- and `20260906090000_add_work_item_deadline`'s down script is the precedent.
+-- It runs solely when the release that added the columns is being taken away —
+-- a forward migration in this repo is additive so blue and green can share one
+-- file mid-swap, and reversing an additive change is destructive by definition,
+-- which is why it lives here and not there.
+ALTER TABLE `work_item` DROP COLUMN `fact_end`;--> statement-breakpoint
+ALTER TABLE `work_item` DROP COLUMN `fact_start`;

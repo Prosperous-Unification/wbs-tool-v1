@@ -1227,6 +1227,8 @@ describe('the calendar-marker routes', () => {
       startNoEarlierThan: null,
       startNoEarlierThanReason: null,
       deadline: null,
+      factStart: null,
+      factEnd: null,
       serviceTeamId: null,
       serviceId: null,
       maxParallel: 1,

@@ -332,6 +332,28 @@ The hours a step's work on one work item actually took. Recorded, never derived:
 conversion from tokens or from days exists, because neither is one.
 _Avoid_: actual hours, time spent, effort
 
+**Progress**:
+What one step has said about its own work on one work item — `in_progress` or `done` — with
+the moment it was said. Unknown is the absence of a statement, never a stored value.
+_Avoid_: step status, completion, state
+
+**Status**:
+What a work item reads as — unknown, in progress or done — folded from its steps' progress
+and, for a parent, from its children's statuses, on every read and never stored. Unknown means
+nobody has said anything; done is unanimous; every disagreement in between is in progress.
+_Avoid_: state, completion, progress (which is the step's), done flag
+
+**Fact start**:
+The day work on a work item actually began, date-only, typed by the planner. A record of the
+world beside the schedule's forecast, read by no engine; absent means nobody has said.
+_Avoid_: actual start, real start, started at, start date
+
+**Fact end**:
+The day work on a work item actually finished, date-only. Filled with the day of the act when a
+work item is marked done holding none; otherwise typed. Where a done work item's bar stops,
+whatever the estimate says.
+_Avoid_: actual end, finished at, completion date, done at
+
 **Dependency**:
 One work item waiting for another's reached slice to finish before it starts — which of
 the predecessor's slices that is comes from the project's Dependency reach. Either end may
@@ -521,6 +543,12 @@ How a slice on its assumed duration is painted: a dotted translucent bar with a 
 that the width reads as a guess. The width itself is the schedule's — what the bar adds is
 the saying.
 _Avoid_: ghost bar, placeholder bar
+
+**Done bar**:
+The drawing of a done work item: one bar from its fact start — or where its first slice
+started, when it has none — to its fact end, in place of its slices, and marked as done. A
+picture of what happened, where the slices were a picture of what was expected.
+_Avoid_: completed bar, clipped bar, fact bar, finished slice
 
 **Slack**:
 How long a work item can be late before the plan's end moves — its latest finish less its

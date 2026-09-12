@@ -91,6 +91,8 @@ function row(parentId: string | null, position: number, name: string): WorkItem 
     startNoEarlierThan: null,
     startNoEarlierThanReason: null,
     deadline: null,
+    factStart: null,
+    factEnd: null,
     serviceTeamId: null,
     serviceId: null,
     maxParallel: 1,
@@ -389,6 +391,39 @@ describe('the team set beside the column', () => {
     const read = await repo.listByProject(projectId);
     expect(read.at(0)?.startNoEarlierThan).toBe('2026-09-12');
     expect(read.at(0)?.startNoEarlierThanReason).toBe('waiting on client sign-off');
+  });
+
+  it('writes both fact dates and reads them back, and clears them with nulls', async () => {
+    // The deadline's contract two columns over, for two columns at once: a date
+    // goes in, comes back off both reads — the patch's own `returning()` and a
+    // later `listByProject`, which both project `WORK_ITEM_COLUMNS` — and `null`
+    // takes it off again. No pair rule and no refusal: an end before a start is
+    // a typo the two cells show, not a fact the store has an opinion about.
+    //
+    // Proof: the two `patch.fact… === undefined` lines deleted from the no-field
+    // guard, and this fails on `Expected: "2026-09-08" / Received: null` — the
+    // store answering `ok` with the row it read and writing nothing.
+    const strip = row(null, 10, 'Strip');
+    await repo.insert(strip, [], wrote());
+
+    const written = await repo.patch(
+      strip.id,
+      { factStart: '2026-09-08', factEnd: '2026-09-12' },
+      wrote(),
+    );
+
+    expect(written.ok).toBe(true);
+    expect(written.ok ? [written.workItem.factStart, written.workItem.factEnd] : null).toEqual([
+      '2026-09-08',
+      '2026-09-12',
+    ]);
+    const read = (await repo.listByProject(projectId)).at(0);
+    expect([read?.factStart, read?.factEnd]).toEqual(['2026-09-08', '2026-09-12']);
+
+    const cleared = await repo.patch(strip.id, { factStart: null, factEnd: null }, wrote());
+    expect(cleared.ok).toBe(true);
+    const after = (await repo.listByProject(projectId)).at(0);
+    expect([after?.factStart, after?.factEnd]).toEqual([null, null]);
   });
 
   it('writes a deadline and reads it back, and clears it with a null', async () => {

@@ -18,6 +18,7 @@ export type PlanCommandKind =
   | 'clearActual'
   | 'setProgress'
   | 'clearProgress'
+  | 'setStatus'
   | 'setMeasure'
   | 'clearMeasure'
   | 'setAssignee'
@@ -62,6 +63,7 @@ export type ParserRefusalCode =
   | 'invalid_actual'
   | 'invalid_measure'
   | 'invalid_progress'
+  | 'invalid_status'
   | 'invalid_estimate'
   | 'cannot_send_both_teamIds_and_serviceTeamId'
   | 'unknown_kind'
@@ -87,6 +89,8 @@ export type ParserRefusalCode =
   | `${'tagIds' | 'tagRefs'}_must_be_at_most_50`
   | 'startNoEarlierThan_must_be_a_date'
   | 'deadline_must_be_a_date'
+  | 'on_must_be_a_date'
+  | `${'factStart' | 'factEnd'}_must_be_a_date`
   | `${'priority' | 'maxParallel' | 'size'}_must_be_a_whole_number_from_1`
   | `${'maxParallel' | 'size'}_must_be_at_most_1000`
   | 'cascade_must_be_true_or_false'

@@ -632,6 +632,12 @@ describe('Tab moves between the fields, from every cell', () => {
       'Dev pessimistic for 010',
       'Dev assignee for 010',
       'QA estimate for 010',
+      // The row's status and its two facts, editable with or without a calendar:
+      // a status is a reading and a fact is an absolute day, so neither waits for
+      // a project start the way the two constraints above them do.
+      'Status of 010',
+      'Fact start of 010',
+      'Fact end of 010',
       'Name of 020',
     ])) {
       focusCaret(from, 'end');
@@ -657,6 +663,9 @@ describe('Tab moves between the fields, from every cell', () => {
       'QA realistic for 010',
       'QA pessimistic for 010',
       'QA assignee for 010',
+      'Status of 010',
+      'Fact start of 010',
+      'Fact end of 010',
       'Name of 020',
     ])) {
       focusCaret(from, 'end');
@@ -688,7 +697,14 @@ describe('Tab moves between the fields, from every cell', () => {
 
     // Straight into the next row: both dates are stepped over and they were the
     // last cells of this one, now that the notes are written under the name.
+    // The two constraints are stepped over; the status and the two facts are
+    // not, because neither needs a calendar — a status is a reading and a fact
+    // is an absolute day. So the walk lands on Status, and only from the last
+    // fact does it cross into the next row.
     focusCaret('QA estimate for 010', 'end');
+    tab();
+    expect(document.activeElement).toBe(screen.getByLabelText('Status of 010'));
+    focusCaret('Fact end of 010', 'end');
     tab();
     expect(document.activeElement).toBe(screen.getByLabelText('Name of 020'));
 
@@ -715,6 +731,9 @@ describe('Tab moves between the fields, from every cell', () => {
     expect(
       fireEvent.keyDown(screen.getByLabelText('Work item deadline for 010'), { key: 'Tab' }),
     ).toBe(false);
+    expect(document.activeElement).toBe(screen.getByLabelText('Status of 010'));
+    focusCaret('Fact end of 010', 'end');
+    tab();
     expect(document.activeElement).toBe(screen.getByLabelText('Name of 020'));
   });
 
@@ -784,7 +803,9 @@ describe('Tab moves between the fields, from every cell', () => {
     // where it used to be two.
     await threeRoots();
 
-    const last = focusCaret('QA estimate for 030', 'end');
+    // The last cell of the grid is the last row's Fact end since
+    // `work-item-status-and-facts` put three editable cells after the steps.
+    const last = focusCaret('Fact end of 030', 'end');
     expect(tab()).toBe(true);
     expect(document.activeElement).toBe(last);
 
@@ -796,7 +817,7 @@ describe('Tab moves between the fields, from every cell', () => {
   itDom('a stray committed input cannot extend the logical grid', async () => {
     await threeRoots();
 
-    const last = focusCaret('QA estimate for 030', 'end');
+    const last = focusCaret('Fact end of 030', 'end');
     const grid = last.closest('[data-grid]');
     if (!(grid instanceof HTMLElement)) throw new Error('the focused cell has no grid');
     const stray = document.createElement('input');

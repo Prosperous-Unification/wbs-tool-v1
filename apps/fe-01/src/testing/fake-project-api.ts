@@ -445,7 +445,9 @@ export function fakeProjectApi(): ProjectApi & {
           externalRefs: (r.externalRefs ?? []).map((ref) => ({ ...ref })),
           actuals: {},
           progress: {},
-          state: 'not_started' as const,
+          // The row's own, written by this fake's `setStatus` — the fold be-01
+          // derives, stored here because a fake has no steps to fold.
+          status: r.status,
           measures: {},
           dependsOn: edges.filter((e) => e.successorId === r.id).map((e) => e.predecessorId),
           schedule: scheduleOf(r),
@@ -810,6 +812,9 @@ export function fakeProjectApi(): ProjectApi & {
         // it — the deadline column has none, which is why the table's clear is
         // one field where the floor's is a pair.
         deadline: null,
+        factStart: null,
+        factEnd: null,
+        status: 'unknown' as const,
         // A duplicate `teamIds` sat here until 2026-08-18, and a duplicate
         // `startNoEarlierThanReason` until 2026-09-02 — both harmless, and both
         // only possible because nothing typechecked this file. Moving it here,
@@ -881,6 +886,20 @@ export function fakeProjectApi(): ProjectApi & {
         row.serviceTeamId = row.teamIds.at(0) ?? null;
       } else if (row !== undefined && 'serviceTeamId' in written) {
         row.teamIds = written.serviceTeamId === null ? [] : [written.serviceTeamId ?? ''];
+      }
+      return Promise.resolve();
+    },
+    setStatus(id, status, on) {
+      // be-01's fan-out and its fill, in the fake's own terms: the row and every
+      // row beneath it take the status, and a done row with no fact end takes
+      // `on`. Recorded for the tests that assert what was sent.
+      const beneath = (parentId: string): string[] =>
+        rows.filter((r) => r.parentId === parentId).flatMap((r) => [r.id, ...beneath(r.id)]);
+      for (const id_ of [id, ...beneath(id)]) {
+        const row = rows.find((r) => r.id === id_);
+        if (row === undefined) continue;
+        row.status = status;
+        if (status === 'done' && row.factEnd === null) row.factEnd = on;
       }
       return Promise.resolve();
     },

@@ -111,6 +111,7 @@ export default defineConfig(({ command, mode }) => ({
       //   gate vacuous, which is the property that matters (AGENTS.md R5, and
       //   the one vacuous check ever found in the gate itself).
       '@wbs/domain/workday': resolve(__dirname, '../../libs/domain/src/workday.ts'),
+      '@wbs/domain/progress': resolve(__dirname, '../../libs/domain/src/progress.ts'),
       '@wbs/domain/deadline-offsets': resolve(
         __dirname,
         '../../libs/domain/src/deadline-offsets.ts',

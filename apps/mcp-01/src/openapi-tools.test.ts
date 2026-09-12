@@ -273,7 +273,9 @@ describe('toolsFromDocument, on the generated document', () => {
     // and `be-01`, and `mcp-01` was the project that noticed. Its `describe`
     // reads "Put every sibling group in the order its bars start.", which is
     // what the loop below is checking is there to read.
-    expect(list.items.anyOf).toHaveLength(37);
+    // **37 to 38 with `work-item-status-and-facts`**: `setStatus`, the row-level
+    // mark that writes every step. Same pin, same reason.
+    expect(list.items.anyOf).toHaveLength(38);
     for (const variant of list.items.anyOf) {
       expect(variant.description.length).toBeGreaterThan(10);
       expect(typeof variant.properties.kind.const).toBe('string');

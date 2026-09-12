@@ -549,6 +549,9 @@ const CHART_CHIP_OFF = 'border-dashed text-muted-foreground/60 line-through';
  */
 const PRIORITY_CAP_PX = 3;
 
+/** The done mark's box, in CSS pixels: a tick this tall and this wide at the end of a done bar. */
+const DONE_MARK_PX = 12;
+
 /**
  * A dependency arrow's approach and its head, in CSS pixels — turned into the
  * user space's two units where they are used.
@@ -729,6 +732,15 @@ function arrowRoute(
 const ASSUMED_BAR_CLASSES = '[fill-opacity:0.35] [stroke-dasharray:3_2]';
 
 /**
+ * How a **done bar** is painted beyond its own colour: a little translucent, so
+ * the row light and the weekend bands read through finished work, with a solid
+ * stroke — deliberately **not** the assumed span's dotted signature, which says
+ * "guessed" where this says "over". The done mark the panel draws on top is
+ * the rest of the saying.
+ */
+const DONE_BAR_CLASSES = '[fill-opacity:0.75]';
+
+/**
  * The classes a bar carries beyond its two colours, and the two facts they say.
  *
  * The critical path is a ring rather than a fill, because the fill is the
@@ -745,10 +757,11 @@ const ASSUMED_BAR_CLASSES = '[fill-opacity:0.35] [stroke-dasharray:3_2]';
  * `vector-effect="non-scaling-stroke"`, so 2 is 2 CSS pixels at any zoom of a
  * user space measured in workdays.
  */
-function barClasses(critical: boolean, estimated: boolean): string {
+function barClasses(critical: boolean, estimated: boolean, done = false): string {
   return [
     critical ? 'stroke-foreground [stroke-width:2]' : '',
     estimated ? '' : ASSUMED_BAR_CLASSES,
+    done ? DONE_BAR_CLASSES : '',
   ]
     .filter((part) => part !== '')
     .join(' ');
@@ -1665,6 +1678,7 @@ export function barFacts(
     // to include 'Tags Compliance, Rework'`. Watched on h2puni, 2026-08-20.
     tagWords(bar.tags),
     `${spanWords(startDate, bar.start, bar.finish, today)} · ${durationWords(bar)}`,
+    bar.done ? 'Done — drawn over what happened, not over the estimate' : null,
     // A line of its own rather than a word tucked into the duration: the bar is
     // drawn a width nobody gave it, and the sentence that says so has to be as
     // findable as the dates above it. See {@link ASSUMED_SLICE_WORKDAYS}.
@@ -4593,6 +4607,11 @@ function GanttChart({
             // and three on `expected null to be 'true'` /
             // `expected +0 to be 1`. Watched 2026-08-12.
             {...(bar.estimated ? {} : { 'data-assumed': 'true' })}
+            // The bar that is a done row's fact span, findable as such: the
+            // browser gate measures where it stops against the fact end's axis
+            // cell, and has to tell it from a slice first. Never beside
+            // `data-assumed` — a done bar is not a guess.
+            {...(bar.done ? { 'data-done': 'true' } : {})}
             x={x}
             // The **drawn** span in calendar days — the end reading of
             // the drawn finish less the start reading of the start, so a
@@ -4616,7 +4635,7 @@ function GanttChart({
             // than the destructive one: `#d62728` is the fourth person's
             // colour, and a red ring on a red bar is no ring at all.
             stroke={bar.critical ? undefined : bar.personColor}
-            className={barClasses(bar.critical, bar.estimated)}
+            className={barClasses(bar.critical, bar.estimated, bar.done)}
             vectorEffect="non-scaling-stroke"
             // A control, because it is one: it takes the keyboard, it has
             // a name, and Enter and Space act on it. The step is what
@@ -4760,6 +4779,35 @@ function GanttChart({
               width={Math.min(PRIORITY_CAP_PX / dayPx, width)}
               height={BAR_HEIGHT}
               fill={paint.ink}
+              pointerEvents="none"
+            />,
+          ];
+        })}
+
+        {/*
+              The done mark: a tick at the right end of every done bar, in the
+              SVG so the standalone export keeps it — the HTML labels over the
+              chart are not cloned into that document. Drawn in pixels through
+              the same scale the priority cap is, after the bars so it paints
+              over them, and `pointer-events: none` for the cap's reason: the
+              bar keeps the hover, the focus and the accessible name. Skipped on
+              a bar too narrow to hold it, where the fill and the aria-label
+              still say done.
+            */}
+        {drawnBars.flatMap(({ bar, x, width }) => {
+          if (!bar.done || width * dayPx < DONE_MARK_PX + 6) return [];
+          return [
+            <path
+              key={`${bar.sliceId}-done`}
+              data-done-mark={bar.sliceId}
+              d="M1.5 6 L4.5 9 L10.5 2.5"
+              transform={`translate(${String(x + width - (DONE_MARK_PX + 3) / dayPx)}, ${String(bar.rowIndex + BAR_INSET)}) scale(${String(1 / dayPx)}, ${String(BAR_HEIGHT / DONE_MARK_PX)})`}
+              fill="none"
+              stroke="white"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
               pointerEvents="none"
             />,
           ];
