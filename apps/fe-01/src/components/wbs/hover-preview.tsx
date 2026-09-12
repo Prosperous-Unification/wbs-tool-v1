@@ -16,15 +16,12 @@ export interface HoverPreviewProps {
   /** Named in the popover so a hover on a busy table says which row it belongs to. */
   number: string;
   /**
-   * Present only for the **editing** preview — the one shown beside the open
-   * Name box rather than on hover — where it renders a small Done button that
-   * ends the edit. Dany, 2026-09-12: _"the preview during editing and the
-   * pop-up that will be shown on hover must be identical (in size, content)"_,
-   * which is why editing is this same card and not a second one; the Done
-   * button is the only thing editing adds, drawn without height of its own so
-   * the two cards measure the same.
+   * The editing preview, shown beside the open box, rather than the marker's
+   * hover card. Changes only the accessible label — the visible card is the
+   * same either way, and its Done button lives in the cell ({@link
+   * WrittenNotesPanel}), not in here.
    */
-  onDone?: () => void;
+  editing?: boolean;
 }
 
 /**
@@ -136,8 +133,13 @@ export function RenderedNotes({ name, notes }: { name: string; notes: string }) 
   );
 }
 
-export function HoverPreview({ name, notes, number, onPointerArrives, onDone }: HoverPreviewProps) {
-  const editing = onDone !== undefined;
+export function HoverPreview({
+  name,
+  notes,
+  number,
+  onPointerArrives,
+  editing = false,
+}: HoverPreviewProps) {
   return (
     // The one card in the table that scrolls, and so the one that takes the
     // pointer: ten lines of notes are taller than any box that may hang over
@@ -145,57 +147,14 @@ export function HoverPreview({ name, notes, number, onPointerArrives, onDone }: 
     // the cell has hidden twice over. {@link HoverCard} carries the placement —
     // measured, clamped to the room beside the cell so it never runs off the
     // screen — and the reason every other card refuses the mouse. The editing
-    // preview is this same card, so the two cannot drift in size or content.
+    // preview is this same card, drawn from the box's live text; its Done button
+    // is in the cell beside the notes marker ({@link WrittenNotesPanel}), not
+    // here, so the two cards are byte-identical.
     <HoverCard
       label={`Notes for ${number}, rendered${editing ? ' while writing' : ''}`}
       scrolls
       onPointerArrives={onPointerArrives}
     >
-      {onDone !== undefined && (
-        // Done, for the editing preview only. Dany, 2026-09-12: _"a
-        // non-intrusive neat small 'Done' button that you can press to hide the
-        // editor of markdown"_. Sticky to the card's top so it stays reachable
-        // while a long note scrolls, in a zero-height box so it adds nothing to
-        // the card's measured size and the hover twin stays identical. Answered
-        // on the press, which is what would have moved the focus off the box
-        // anyway; `preventDefault` holds the focus for the instant the blur
-        // needs to be this handler's own doing. Out of the tab order — a Tab to
-        // it would take the card away under the focus — so Escape is the
-        // keyboard's way out.
-        <div
-          style={{
-            position: 'sticky',
-            top: 0,
-            height: 0,
-            textAlign: 'right',
-            zIndex: 1,
-            overflow: 'visible',
-          }}
-        >
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-label={`Done writing notes for ${number}`}
-            onMouseDown={(pressed) => {
-              pressed.preventDefault();
-              onDone();
-            }}
-            style={{
-              font: 'inherit',
-              fontSize: 11,
-              lineHeight: 1.2,
-              padding: '1px 7px',
-              color: 'var(--muted-foreground)',
-              background: 'var(--popover)',
-              border: '1px solid var(--border)',
-              borderRadius: 'var(--radius-md)',
-              cursor: 'pointer',
-            }}
-          >
-            Done
-          </button>
-        </div>
-      )}
       <RenderedNotes name={name} notes={notes} />
     </HoverCard>
   );

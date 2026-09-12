@@ -1317,17 +1317,18 @@ test.describe('the Name cell answers from its marker alone', () => {
     );
   });
 
-  test('Done is the thing under the pointer, and closes the editor', async ({ page }) => {
-    // Dany, 2026-09-12: _"a non-intrusive neat small 'Done' button that you can
-    // press to hide the editor of markdown"_. The panel it sits in takes no
-    // pointer, on purpose; the button is the one exception, and the hit test at
-    // its own centre is what says so — a button drawn over a `pointer-events:
-    // none` panel with the same declaration is a picture of a button, and the
-    // click falls through to the row behind.
+  test('Done stands by the notes marker, and closes the editor when pressed', async ({ page }) => {
+    // Dany, 2026-09-12: _"can you move the done btn to be near the note icon? ...
+    // it is near the place that is being edited"_. So Done is in the cell's
+    // top-right, just left of the `≡`, rather than inside the preview card that
+    // hangs diagonally off the row. Asserted three ways: it is beside the
+    // marker, it is the element the pointer lands on there, and pressing it
+    // saves and closes.
     //
-    // Proof: the button's `pointerEvents` left to the panel's `none` — this
-    // failed on `Done is not what the pointer lands on · Expected: "Done writing
-    // notes for 010" · Received: "TD"`. Watched in Chromium, 2026-09-12.
+    // Proof: `right: 24` on the button changed to `right: 400` (back out toward
+    // the old in-card corner) — this failed on `Done is not beside the notes
+    // marker`. And the `box.current?.blur()` removed — the editor stayed open.
+    // Watched in Chromium, 2026-09-12.
     const name = page.getByLabel('Name of 010');
     await name.fill('Row 010\n\nA note to finish.');
     await name.blur();
@@ -1340,9 +1341,25 @@ test.describe('the Name cell answers from its marker alone', () => {
     await name.fill('Row 010\n\nA note to finish. Pressed.');
     await expect(panel).toBeVisible();
 
-    const done = panel.getByRole('button', { name: 'Done writing notes for 010' });
-    const at = await boxOf(done, 'the Done button');
-    const centre = { x: at.x + at.width / 2, y: at.y + at.height / 2 };
+    const done = await boxOf(
+      page.getByRole('button', { name: 'Done writing notes for 010' }),
+      'the Done button',
+    );
+    const marker = await boxOf(page.getByLabel('Notes on 010'), 'the notes marker');
+
+    // Beside the marker: Done's right edge is within a few px of the marker's
+    // left edge, and the two sit at the same height in the cell's top-right.
+    expect(
+      Math.abs(done.x + done.width - marker.x),
+      'Done is not beside the notes marker',
+    ).toBeLessThanOrEqual(12);
+    expect(
+      Math.abs(done.y - marker.y),
+      'Done is not level with the notes marker',
+    ).toBeLessThanOrEqual(12);
+
+    // And it is what the pointer lands on there — a real control, not painted over.
+    const centre = { x: done.x + done.width / 2, y: done.y + done.height / 2 };
     const under = await page.evaluate(({ x, y }) => {
       const hit = document.elementFromPoint(x, y);
       return hit === null
@@ -1352,10 +1369,10 @@ test.describe('the Name cell answers from its marker alone', () => {
     expect(under, 'Done is not what the pointer lands on').toBe('Done writing notes for 010');
 
     await page.mouse.click(centre.x, centre.y);
-    expect(await panel.count(), 'Done left the notes panel up').toBe(0);
+    expect(await panel.count(), 'Done left the editor open').toBe(0);
     await expect
       .poll(async () => (await boxOf(name, 'the Name box')).height, {
-        message: 'Done left the editor open',
+        message: 'Done left the box expanded',
       })
       .toBe(rested.height);
     await page.getByLabel('Notes on 010').hover();

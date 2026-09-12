@@ -81,14 +81,54 @@ export function WrittenNotesPanel({ number, box, editingRef }: WrittenNotesPanel
   const { name, notes } = splitNameCell(written);
   if (notes.trim() === '') return null;
   return (
-    <HoverPreview
-      name={name}
-      notes={notes}
-      number={number}
-      // The one thing editing adds to the hover card: a press that ends the
-      // edit. Blurring the box is the save (`plan-columns/name.tsx`), and it
-      // takes this panel away with it.
-      onDone={() => box.current?.blur()}
-    />
+    <>
+      <HoverPreview name={name} notes={notes} number={number} editing />
+      {/*
+        **Done, at the notes marker rather than in the card.** Dany, 2026-09-12:
+        _"can you move the done btn to be near the note icon? ... it is near the
+        place that is being edited"_. So it stands in the cell's top-right, just
+        left of the `≡`, instead of inside the preview — which also leaves the
+        editing card byte-identical to the hover one.
+
+        Rendered here and not in the cell so it costs no render of the cell (and
+        so no re-render of the uncontrolled box) — this component is the one that
+        knows the box is being written in, and it is a child of the cell's
+        positioned wrapper, so `position: absolute` lands in the same corner the
+        marker does. Answered on the press, which is what would have moved the
+        focus off the box anyway; `preventDefault` holds the focus for the
+        instant the blur needs to be this handler's own doing, and blurring the
+        box is the save (`plan-columns/name.tsx`), which takes this panel — Done
+        with it — away. Out of the tab order: a Tab to it would do that under the
+        focus, so Escape is the keyboard's way out.
+      */}
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-label={`Done writing notes for ${number}`}
+        onMouseDown={(pressed) => {
+          pressed.preventDefault();
+          box.current?.blur();
+        }}
+        style={{
+          position: 'absolute',
+          top: 0,
+          // Left of the `≡` (which sits at `right: 1`), so the two share the
+          // cell's top-right corner without overlapping.
+          right: 24,
+          zIndex: 1,
+          font: 'inherit',
+          fontSize: 11,
+          lineHeight: 1.2,
+          padding: '1px 7px',
+          color: 'var(--muted-foreground)',
+          background: 'var(--popover)',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--radius-md)',
+          cursor: 'pointer',
+        }}
+      >
+        Done
+      </button>
+    </>
   );
 }
