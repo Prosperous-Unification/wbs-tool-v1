@@ -3153,3 +3153,32 @@ trusted-policy file passed 47 tests and 1,272 assertions. Fresh uncached Tool Wi
 forced typecheck exited 0. `bunx nx format:check --all`, strict
 `bunx @fission-ai/openspec validate agent-scalable-llm-wiki --strict`, and `git diff --check` each
 exited 0; OpenSpec printed `Change 'agent-scalable-llm-wiki' is valid`.
+
+#### Task 6.1 review correction
+
+The project-subject currency input now retains evidence path/mode/classification-kind topology but
+excludes evidence payload blobs and record details. A real Git evidence-only commit initially
+changed the repository-root project identity; restored production code kept both the root project
+and a declared `docs` project unchanged while the evidence-validation identity changed.
+
+Coverage now returns the verified plan's exact unresolved Gitlinks and adds a named coverage
+refusal for each one. A real committed `160000` entry with an exact declared external boundary,
+refreshed inventory/mappings/graph, independent plan verification, and complete local receipts
+initially returned `accepted: true`; restored code returns false and retains
+`vendor/external`, its object, and `boundary.external`. The no-Gitlink control remains accepted.
+
+| Injected production fault                          | Observed RED                                                                |
+| -------------------------------------------------- | --------------------------------------------------------------------------- |
+| include evidence blob/details in project currency  | root project subjects differed after a valid evidence-only commit           |
+| omit unresolved-Gitlink coverage refusal           | complete local receipts returned `Expected: false`, `Received: true`        |
+| remove the per-dimension orphan refusal            | equal-count knowledge substitution returned a plan; function did not throw  |
+| default absent knowledge mapping to review mapping | missing-dimension production freeze returned a plan; function did not throw |
+
+The final focused census suite passed 19 tests with 71 assertions in 47.90 seconds. The final
+unfiltered Tool Wiki suite passed 523 tests with 4,916 assertions across 27 files in 877.41 seconds.
+External review execution, Gitlink access, operational freeze, activation, GitHub administration,
+and final namespacing remain unperformed; Task 6.1 remains unchecked.
+
+Fresh uncached Tool Wiki source lint and forced typecheck exited 0. Whole-repository format check,
+strict OpenSpec validation, and `git diff --check` exited 0; OpenSpec printed
+`Change 'agent-scalable-llm-wiki' is valid`.

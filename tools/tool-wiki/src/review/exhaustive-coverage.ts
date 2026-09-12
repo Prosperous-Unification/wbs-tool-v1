@@ -396,7 +396,13 @@ export function deriveExhaustivePopulation(input: ExhaustivePopulationInput): Ex
   for (const project of projects) {
     const entries = input.entries
       .filter((entry) => isBelow(project.locator, entry.path))
-      .map(({ path, mode, blob, classification }) => ({ path, mode, blob, classification }));
+      // Proof: retaining evidence blob/record fields here made a valid evidence-only commit
+      // change repository-root project currency; the real-Git test received distinct subjects.
+      .map(({ path, mode, blob, classification }) =>
+        classification.kind === 'content'
+          ? { path, mode, blob, classification }
+          : { path, mode, classification: { kind: classification.kind } },
+      );
     // Proof: removing this guard let `nx.missing` create an empty project obligation; the
     // population test expected the exact unresolved locator and received no exception.
     if (entries.length === 0) {
@@ -562,30 +568,45 @@ function membershipPaths(
   return selected;
 }
 
-function resolveMappings(policy: GranularityPolicy, contentPaths: readonly string[]) {
-  const dimensions = ['knowledge', 'review', 'ownership', 'task', 'integration'] as const;
-  return Object.fromEntries(
-    dimensions.map((dimension) => {
-      const groups = policy.mappings[dimension].groups
-        .map((group) => ({
-          groupId: group.groupId,
-          paths: [
-            ...new Set(
-              group.memberships.flatMap((membership) =>
-                membershipPaths(membership, contentPaths, dimension, group.groupId),
-              ),
-            ),
-          ].sort(compareText),
-        }))
-        .sort((left, right) => compareText(left.groupId, right.groupId));
-      const covered = new Set(groups.flatMap(({ paths }) => paths));
-      const orphan = contentPaths.find((path) => !covered.has(path));
-      if (orphan !== undefined) {
-        throw new Error(`exhaustive ${dimension} mapping has orphan content path: ${orphan}`);
-      }
-      return [dimension, { groups }];
-    }),
-  ) as ExhaustivePlan['mappings'];
+function resolveDimension(
+  policy: GranularityPolicy,
+  dimension: keyof GranularityPolicy['mappings'],
+  contentPaths: readonly string[],
+) {
+  const groups = policy.mappings[dimension].groups
+    .map((group) => ({
+      groupId: group.groupId,
+      paths: [
+        ...new Set(
+          group.memberships.flatMap((membership) =>
+            membershipPaths(membership, contentPaths, dimension, group.groupId),
+          ),
+        ),
+      ].sort(compareText),
+    }))
+    .sort((left, right) => compareText(left.groupId, right.groupId));
+  const covered = new Set(groups.flatMap(({ paths }) => paths));
+  const orphan = contentPaths.find((path) => !covered.has(path));
+  // Proof: removing this refusal let an equal-count README.md-to-package.json replacement in
+  // knowledge freeze a plan; the production test received a plan instead of throwing. The same
+  // test repeats the observed production fault independently for all five dimensions.
+  if (orphan !== undefined) {
+    throw new Error(`exhaustive ${dimension} mapping has orphan content path: ${orphan}`);
+  }
+  return { groups };
+}
+
+function resolveMappings(
+  policy: GranularityPolicy,
+  contentPaths: readonly string[],
+): ExhaustivePlan['mappings'] {
+  return {
+    knowledge: resolveDimension(policy, 'knowledge', contentPaths),
+    review: resolveDimension(policy, 'review', contentPaths),
+    ownership: resolveDimension(policy, 'ownership', contentPaths),
+    task: resolveDimension(policy, 'task', contentPaths),
+    integration: resolveDimension(policy, 'integration', contentPaths),
+  };
 }
 
 function resolveModuleMapping(mapping: ModuleMapping, contentPaths: readonly string[]) {
@@ -686,6 +707,8 @@ export function freezeExhaustivePlan(
   const moduleMapping = decodeInput('moduleMapping', documents.moduleMapping, (input) =>
     parseOrThrow(ModuleMapping, input),
   );
+  // Proof: defaulting an absent knowledge dimension to the review dimension let the production
+  // freeze return a complete plan; the missing-dimension test failed with "function did not throw".
   const granularity = decodeInput('granularityPolicy', documents.granularityPolicy, (input) =>
     parseOrThrow(GranularityPolicy, input),
   );
@@ -926,5 +949,25 @@ export function evaluateExhaustiveCoverage(planInput: unknown, auditInput: unkno
       throw new Error(`exhaustive review ${review.reviewId} does not bind the frozen executor`);
     }
   }
-  return evaluateAudit(evaluation);
+  const report = evaluateAudit(evaluation);
+  const unresolvedGitlinks = plan.unresolvedGitlinks;
+  if (unresolvedGitlinks.length === 0) return { ...report, unresolvedGitlinks };
+  const gitlinkRefusals = unresolvedGitlinks.map(({ path, boundaryId }) => ({
+    obligationId: `gitlink:${path}`,
+    kind: 'coverage' as const,
+    reason: `external boundary ${boundaryId} at ${path} remains unresolved`,
+  }));
+  // Proof: omitting this unresolved-boundary refusal let complete local receipts for an
+  // independently verified committed Gitlink return accepted true; the production coverage test
+  // failed on `Expected: false, Received: true`.
+  return {
+    ...report,
+    unresolvedGitlinks,
+    unmetObligationIds: [
+      ...report.unmetObligationIds,
+      ...gitlinkRefusals.map(({ obligationId }) => obligationId),
+    ].sort(compareText),
+    refusals: [...report.refusals, ...gitlinkRefusals],
+    accepted: false,
+  };
 }

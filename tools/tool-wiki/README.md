@@ -25,5 +25,7 @@ bindings are created and retained outside the candidate tree.
 obligations from an immutable commit after exact inventory, classification, relationship, mapping,
 model/context, protocol, and evidence-graph joins. `verify-exhaustive` independently rereads that
 commit; `evaluate-exhaustive-coverage` replaces submitted population claims with the frozen full
-set before audit evaluation. These commands validate a proposed sweep record. They do not run
-reviews, activate policy, or certify the still-pending operational sweep.
+set before audit evaluation. Evidence payload bytes remain confined to evidence-graph validation,
+and any declared Gitlink that is still inaccessible is retained in the coverage report and blocks
+acceptance. These commands validate a proposed sweep record. They do not run reviews, activate
+policy, or certify the still-pending operational sweep.

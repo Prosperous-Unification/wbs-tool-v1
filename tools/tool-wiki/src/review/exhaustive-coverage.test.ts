@@ -872,6 +872,14 @@ describe('exhaustive repository coverage', () => {
 
   test('valid evidence bytes rerun graph validation without changing content-only identity', () => {
     const fixture = repositoryFixture();
+    const exhaustivePolicy = structuredClone(fixture.documents.exhaustivePolicy.input) as {
+      nonNxProjects: { projectId: string; locator: { kind: 'path'; path: string } }[];
+    };
+    exhaustivePolicy.nonNxProjects.push({
+      projectId: 'project.evidence-container',
+      locator: { kind: 'path', path: 'docs' },
+    });
+    fixture.documents.exhaustivePolicy = document(exhaustivePolicy);
     const baseline = freezeExhaustivePlan(
       fixture.repository,
       fixture.revision,
@@ -903,6 +911,17 @@ describe('exhaustive repository coverage', () => {
     expect(changed.plan.evidenceValidationIdentity).not.toBe(
       baseline.plan.evidenceValidationIdentity,
     );
+    for (const locator of [
+      { kind: 'repository-root' as const },
+      { kind: 'path' as const, path: 'docs' },
+    ]) {
+      const project = (plan: ExhaustivePlan) =>
+        plan.subjects.find(
+          (subject) =>
+            subject.kind === 'project' && hashCanonical(subject.locator) === hashCanonical(locator),
+        );
+      expect(project(changed.plan)).toEqual(project(baseline.plan));
+    }
     const staleGraph = structuredClone(fixture.documents);
     staleGraph.artifactGraph = baselineGraph;
     expect(() =>
@@ -991,6 +1010,134 @@ describe('exhaustive repository coverage', () => {
       'exhaustive module mapping group module.alpha has unresolved membership: missing/module-path.ts',
     );
   }, 20_000);
+
+  test('freeze refuses an absent dimension and equal-count orphan substitutions in every dimension', () => {
+    const fixture = repositoryFixture();
+    const dimensions = ['knowledge', 'review', 'ownership', 'task', 'integration'] as const;
+
+    const absent = structuredClone(fixture.documents);
+    const absentPolicy = structuredClone(absent.granularityPolicy.input) as {
+      mappings: Partial<Record<(typeof dimensions)[number], unknown>>;
+    };
+    delete absentPolicy.mappings.knowledge;
+    absent.granularityPolicy = document(absentPolicy);
+    expect(() =>
+      freezeExhaustivePlan(fixture.repository, fixture.revision, absent, 'seed.fixture'),
+    ).toThrow(/invalid exhaustive granularityPolicy/);
+
+    for (const dimension of dimensions) {
+      const changed = structuredClone(fixture.documents);
+      const policy = structuredClone(changed.granularityPolicy.input) as {
+        mappings: Record<
+          (typeof dimensions)[number],
+          { groups: { groupId: string; memberships: { kind: 'path'; path: string }[] }[] }
+        >;
+      };
+      const group = policy.mappings[dimension].groups.at(0);
+      if (group === undefined) throw new Error(`fixture ${dimension} group is absent`);
+      const memberships = group.memberships;
+      const readme = memberships.find(({ path }) => path === 'README.md');
+      if (readme === undefined) throw new Error(`fixture ${dimension} README membership is absent`);
+      readme.path = 'package.json';
+      changed.granularityPolicy = document(policy);
+
+      expect(() =>
+        freezeExhaustivePlan(fixture.repository, fixture.revision, changed, 'seed.fixture'),
+      ).toThrow(`exhaustive ${dimension} mapping has orphan content path: README.md`);
+    }
+  }, 20_000);
+
+  test('verified exhaustive coverage retains and refuses a committed unresolved Gitlink', () => {
+    const fixture = repositoryFixture();
+    const noGitlink = freezeExhaustivePlan(
+      fixture.repository,
+      fixture.revision,
+      fixture.documents,
+      'seed.fixture',
+    );
+    const evaluate = (plan: ExhaustivePlan) =>
+      evaluateExhaustiveCoverage(plan, {
+        schemaVersion: 1,
+        auditId: plan.audit.auditId,
+        sourceBase: plan.source.commit,
+        candidateIdentity: plan.contentIdentity,
+        generation: plan.reviewGeneration,
+        seed: plan.audit.seed,
+        coverage: 'exhaustive',
+        strata: plan.audit.strata,
+        obligations: plan.obligations,
+        mode: 'enforce',
+        claimedCoverage: 'exhaustive',
+        reviews: plan.obligations.map((obligation, index) => auditReview(obligation, plan, index)),
+        corrections: [],
+        closures: [],
+        adjudications: [],
+      });
+    expect(evaluate(noGitlink.plan).accepted).toBe(true);
+
+    const object = 'a'.repeat(40);
+    runGit(fixture.repository, [
+      'update-index',
+      '--add',
+      '--cacheinfo',
+      `160000,${object},vendor/external`,
+    ]);
+    runGit(fixture.repository, ['commit', '--quiet', '--message', 'add unresolved Gitlink']);
+    const classification = structuredClone(fixture.documents.classificationPolicy.input) as {
+      gitlinkBoundaries: {
+        path: string;
+        object: string;
+        boundaryId: string;
+        repository: string;
+      }[];
+    };
+    classification.gitlinkBoundaries.push({
+      path: 'vendor/external',
+      object,
+      boundaryId: 'boundary.external',
+      repository: 'https://example.invalid/unavailable',
+    });
+    fixture.documents.classificationPolicy = document(classification);
+    refreshCandidate(fixture, runGit(fixture.repository, ['rev-parse', 'HEAD']));
+    const moduleMapping = structuredClone(fixture.documents.moduleMapping.input) as {
+      modules: { memberships: { kind: 'path'; path: string }[] }[];
+    };
+    const module = moduleMapping.modules.at(0);
+    if (module === undefined) throw new Error('fixture module is absent');
+    module.memberships.push({ kind: 'path', path: 'vendor/external' });
+    fixture.documents.moduleMapping = document(moduleMapping);
+    const granularity = structuredClone(fixture.documents.granularityPolicy.input) as {
+      mappings: Record<string, { groups: { memberships: { kind: 'path'; path: string }[] }[] }>;
+    };
+    for (const mapping of Object.values(granularity.mappings)) {
+      const group = mapping.groups.at(0);
+      if (group === undefined) throw new Error('fixture granularity group is absent');
+      group.memberships.push({ kind: 'path', path: 'vendor/external' });
+    }
+    fixture.documents.granularityPolicy = document(granularity);
+    const frozen = freezeExhaustivePlan(
+      fixture.repository,
+      fixture.revision,
+      fixture.documents,
+      'seed.fixture',
+    );
+    const verified = verifyExhaustivePlan(
+      fixture.repository,
+      frozen.identity,
+      frozen.plan,
+      fixture.documents,
+      'seed.fixture',
+    );
+    const report = evaluate(verified.plan);
+
+    expect(report.accepted).toBe(false);
+    expect(report).toHaveProperty('unresolvedGitlinks', frozen.plan.unresolvedGitlinks);
+    expect(report.refusals).toContainEqual({
+      obligationId: 'gitlink:vendor/external',
+      kind: 'coverage',
+      reason: 'external boundary boundary.external at vendor/external remains unresolved',
+    });
+  }, 30_000);
 
   test('production CLI names missing and unreadable exhaustive inputs', () => {
     const fixture = repositoryFixture();
