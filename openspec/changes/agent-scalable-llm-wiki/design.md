@@ -199,7 +199,12 @@ deterministic state-machine tests and real SQLite multi-process tests for atomic
 This is infra storage, not the product's SQLite source or its deployment migrations.
 The unactivated claim-only schema from slice 4.1 is deliberately superseded by exact authority
 schema v2 in slice 4.2: retained lifecycle generations, timestamps and submission identities are
-one atomic contract, and an existing v1 database is refused rather than migrated or defaulted.
+one atomic contract. Slice 4.3 supersedes that unactivated schema with v3, which retains the exact
+canonical admission-packet body bytes and their identity beside the generation. Authority reads
+strictly decode those bytes and recompute their identity and owner bindings; packet creation,
+legitimate read expansion and submission update or compare that binding inside the same authority
+transaction as the claims and lifecycle state. Existing v1 or v2 databases are refused rather
+than migrated or defaulted.
 
 `acquire(packet)` normalizes all canonical paths and conflict groups, rejects ancestor/child
 overlap with current owners and either records all claims with one new generation or none.

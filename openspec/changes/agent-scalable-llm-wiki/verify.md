@@ -2400,3 +2400,63 @@ agent-scalable-llm-wiki --strict` — exit 0; change valid.
   path `/home/puni1/.cache` does not exist; no host-gate step ran and the host gate is not green.
 
 Only Task 4.3 is added as complete. Integration, activation and later tasks remain untouched.
+
+## Slice 4.3 Review Fix Round 1
+
+Authority schema v3 now binds each admitted generation to both its admission-packet identity and
+the exact canonical packet-body bytes. Every authority read strictly decodes those retained bytes,
+recomputes the identity and verifies the session, generation and worktree owner bindings. Packet
+creation binds once in the claim transaction; legitimate read expansion resolves immutable tuples
+first, then verifies the exact old packet, claims and owner and replaces them with the expanded
+packet in one transaction; submission verifies the exact current binding while freezing
+publication and transitioning state. A caller-supplied, independently rehashed packet therefore
+cannot authorize itself.
+
+The decoder/submission boundary independently revalidates packet paths against the immutable base
+tree and the real worktree before authority mutation. Exact tracked symlink blobs remain valid
+claims, while descendants through symlinks or Gitlinks and filesystem-following aliases are
+refused. One UTF-8 byte comparator now orders every canonical path, group and identity set, and
+identity validation refuses unpaired surrogates before comparison.
+
+| Deliberate one-at-a-time fault                        | Observed production-path failure                                                                            |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| omit bind-once identity comparison                    | a second packet with changed checks bound to the same generation instead of refusing                        |
+| omit expansion's old packet-binding comparison        | a forged packet with changed checks expanded the authority                                                  |
+| omit expansion's next packet-binding replacement      | authority retained packet `1297b6...` while expansion returned `1e6531...`                                  |
+| omit strict decode of retained canonical packet bytes | authority opened packet bytes carrying undeclared `extraWrites`                                             |
+| omit retained packet owner comparison                 | authority opened packet bytes naming `session-other`                                                        |
+| omit submit's packet-binding comparison               | changed policy/check packet submitted under the original generation                                         |
+| mutate claims before validating the old packet        | stale expansion refused only after the authority claim count grew                                           |
+| omit submit-time base-tree ancestor validation        | hash-valid `CLAUDE.md/escape` and Gitlink-descendant packets reached authority instead of traversal refusal |
+| use host-language string ordering in memory authority | identical U+E000/U+10000 sets disagreed with UTF-8 packet order                                             |
+| omit unpaired-surrogate identity validation           | a malformed claim acquired generation 2                                                                     |
+
+Every fault was observed through the public admission API or production CLI, restored and named by
+an adjacent `Proof:` comment.
+
+- `bun test src/admission/submit.test.ts` from `tools/tool-wiki` — exit 0; 28 pass, 0 fail and 100
+  assertions in 15.44 seconds.
+- `bun test src/admission` from `tools/tool-wiki` — exit 0; 74 pass, 0 fail and 287 assertions in
+  22.12 seconds.
+- Exact target command `bun test --preload ../test/scratch/preload.ts` from `tools/tool-wiki` was
+  run twice. Both runs reached 420 pass and 4,559 assertions, but each exited 1 because the same
+  unchanged `root migration production CLI > refuses missing Markdown anchors and migrated
+headings retained at roots` case exceeded its 5,000ms timeout (5,192ms and 5,200ms; total suite
+  times 775.87s and 770.61s). The exact isolated production-path case then exited 0 with 1 pass and
+  27 assertions in 5.176 seconds. The full Tool Wiki gate is therefore recorded as not green; the
+  isolated result diagnoses a load-sensitive threshold and is not substituted for it.
+- `NX_DAEMON=false ./node_modules/.bin/nx run tool-wiki:lint:source --skip-nx-cache
+--output-style=static` and the equivalent `tool-wiki:typecheck` command — exit 0; source lint and
+  forced source/spec typecheck passed with the cache skipped. Nx could not create its sandbox
+  socket and ran plugins in-process.
+- `NX_DAEMON=false ./node_modules/.bin/nx run tool-wiki:lint --skip-nx-cache
+--output-style=static` — exit 0 with the explicitly inactive external activation report; this is
+  not an enforce-mode certification.
+- `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate
+agent-scalable-llm-wiki --strict`, `NX_DAEMON=false ./node_modules/.bin/nx format:check --all`
+  and `git diff --check` — exit 0.
+- `bin/h2puni-gate.sh 69c5a8e2` — unavailable, exit 70 immediately because required heavy-lock
+  path `/home/puni1/.cache` does not exist; no host-gate step ran and the host gate is not green.
+
+Only the Task 4.3 implementation is changed by this review round. Integration, activation and later
+tasks remain untouched.
