@@ -249,6 +249,12 @@ export function inMemoryWorkItems(
       byId.set(id, { ...existing, parentId, position });
       return Promise.resolve();
     },
+    setPositions(placements: readonly Repositioned[], _moved: readonly string[], _stamp) {
+      // `moved` decides revisions, and this fixture keeps none — `reposition`
+      // is the same helper `move` uses for its respaced siblings.
+      reposition(placements);
+      return Promise.resolve();
+    },
     setFrozenNumbers(updates: readonly FrozenNumber[], _stamp: WriteStamp) {
       for (const update of updates) {
         const existing = byId.get(update.id);

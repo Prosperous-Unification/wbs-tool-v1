@@ -1,19 +1,21 @@
 ## ADDED Requirements
 
-### Requirement: A project arranges every sibling group by the schedule it draws
+### Requirement: A project arranges every sibling group by the selected engine's schedule
 
 A project SHALL accept one plan command, `arrangeBySchedule`, that rewrites the positions of
 every sibling group — roots and every parent's children, at every depth — so that siblings
-read in ascending order of their projection's earliest start in the schedule the plan read
-draws. Two siblings with equal starts SHALL keep the order they read in before the command.
-No work item SHALL change parent. Groups already in that order SHALL not be written.
+read in ascending order of their projection's earliest start in the schedule of the engine
+the project has selected. Two siblings with equal starts SHALL keep the order they read in
+before the command. No work item SHALL change parent. Groups already in that order SHALL not
+be written. When the selected engine is `optimized` and the displayed variant is not ready,
+the command SHALL be refused with reason `schedule_not_ready` rather than arranged by Fast.
 
 #### Scenario: roots out of schedule order are put in it
 
 - **GIVEN** roots `010` and `020`, and `020` starts on day 0 while `010` waits for a
   predecessor and starts on day 5
 - **WHEN** `arrangeBySchedule` runs
-- **THEN** the former `020` reads as `010` and the former `010` as `020`
+- **THEN** the former `020` reads first as `010` and the former `010` second as `020`
 - **AND** the read's rows are in the order the chart's bars start
 
 #### Scenario: a nested group is arranged under a parent that also moves
@@ -33,16 +35,17 @@ No work item SHALL change parent. Groups already in that order SHALL not be writ
 
 #### Scenario: the arrangement follows the displayed optimized variant when it is ready
 
-- **GIVEN** a project displaying `pri` whose `pri` variant is `ready` and orders two roots
-  the other way round from Fast
+- **GIVEN** a project on the `optimized` engine displaying `pri`, whose `pri` variant is
+  `ready` and orders two roots the other way round from Fast
 - **WHEN** the command runs
 - **THEN** the rows read in the `pri` order
 
-#### Scenario: a pending optimized variant means the arrangement is by Fast
+#### Scenario: a pending optimized variant refuses the arrangement
 
-- **GIVEN** a project displaying `pri` whose `pri` variant is not `ready`
+- **GIVEN** a project on the `optimized` engine displaying `pri`, whose `pri` variant is not
+  `ready`
 - **WHEN** the command runs
-- **THEN** the rows read in Fast's order, which is what the read was drawing
+- **THEN** it is refused with reason `schedule_not_ready` and nothing is written
 
 #### Scenario: a plan with a dependency cycle is refused
 
@@ -56,30 +59,56 @@ No work item SHALL change parent. Groups already in that order SHALL not be writ
 - **WHEN** the command runs again
 - **THEN** no group changes and no journal entry is added
 
-### Requirement: A frozen work item keeps its place among its siblings
+### Requirement: A frozen number is a name, not a place
 
-When a sibling group holds frozen work items, each frozen work item SHALL keep its current
-place in the group and the unfrozen siblings SHALL take the remaining places in schedule
-order. A frozen work item's number SHALL be unchanged by the command.
+A work item carrying a frozen number SHALL move like any other work item — by drag, by
+keyboard, by the arrangement and by undo replay — and SHALL report its frozen number
+verbatim wherever it lands. Every reader SHALL order a project's rows by tree order:
+depth-first, siblings by position, a tied position by id. Within one sibling group, the
+unfrozen work items SHALL take, in position order, the natural labels for the group's size
+skipping any label a frozen sibling holds as its last segment; no two siblings SHALL share a
+label. Fast SHALL break a contention tie between two slices by their work items' tree order.
 
-#### Scenario: a frozen middle row stays in the middle
+#### Scenario: a frozen row is arranged with the rest
 
 - **GIVEN** roots A (day 6), B frozen as `020` (day 9), C (day 0)
 - **WHEN** the command runs
-- **THEN** the rows read C, B, A, and B is still `020`
+- **THEN** the rows read C, A, B
+- **AND** B still reads `020`, C reads `010`, A reads `030`
 
-#### Scenario: a plan with every row frozen is unchanged
+#### Scenario: a frozen row can be dragged
 
-- **GIVEN** a project where every work item carries a frozen number
-- **WHEN** the command runs
-- **THEN** it lands, nothing is written and no journal entry is added
+- **GIVEN** a root frozen as `010` and a root below it
+- **WHEN** the frozen root is moved after the other
+- **THEN** the move lands, the frozen root reads second and still as `010`, and the other
+  reads first as `020`
+
+#### Scenario: unfrozen siblings skip the labels frozen ones hold
+
+- **GIVEN** roots frozen as `010` and `020` and one unfrozen root placed above both
+- **WHEN** the plan is read
+- **THEN** the unfrozen root reads `030`
+
+#### Scenario: a plan that has never moved a frozen row keeps every number
+
+- **GIVEN** every plan in the golden corpus and every fixture whose frozen anchors ascend
+  along position
+- **WHEN** the plan is read and scheduled
+- **THEN** every number and every scheduled start is byte-identical to before this change
+
+#### Scenario: a contention tie follows tree order, not the number string
+
+- **GIVEN** two slices tied on every ranking key, whose work items are a frozen `030`
+  sitting first and an unfrozen row reading `010` sitting second
+- **WHEN** Fast places them
+- **THEN** the frozen `030`'s slice is placed first
 
 ### Requirement: An arrangement is one act to undo
 
 The command SHALL be journalled as one entry whose inverse restores the exact prior positions
 of every work item in a group that changed, SHALL announce one `tree_replaced`, and SHALL
 bump the revision of exactly the work items whose place changed. Undo SHALL be refused, in
-the existing wording, when such a work item has changed, been deleted or been frozen since.
+the existing wording, when such a work item has changed or been deleted since.
 
 #### Scenario: undo puts every row back where it was
 
@@ -88,9 +117,9 @@ the existing wording, when such a work item has changed, been deleted or been fr
 - **THEN** every work item has the position it had before the press, and the read's order is
   the pre-press order
 
-#### Scenario: undo is refused once a moved row has been frozen
+#### Scenario: undo is refused once a moved row has changed
 
-- **GIVEN** an arrangement that moved row X, and X frozen afterwards
+- **GIVEN** an arrangement that moved row X, and X renamed afterwards by a peer
 - **WHEN** the actor undoes
 - **THEN** the undo is refused with `stale_undo` and the entry is discarded
 
@@ -101,13 +130,13 @@ the existing wording, when such a work item has changed, been deleted or been fr
 - **THEN** rows in the unchanged group have their previous revision
 - **AND** a peer's pending undo on one of them still applies
 
-### Requirement: The plan toolbar offers the arrangement as one control
+### Requirement: The plan toolbar offers the arrangement as one narrow control
 
-The plan toolbar SHALL offer a control named `Arrange by schedule` that issues the command
-through the toolbar's one write path, is disabled with the busy affordance while a write is
-in flight, carries a tool hint saying what it does, and on a plan with a dependency cycle is
-disabled and carries a project fact saying why instead. On success it SHALL show one info
-toast. The control SHALL appear in the phone toolbar sheet.
+The plan toolbar SHALL offer an icon control named `Arrange by schedule` that issues the
+command through the toolbar's one write path, is disabled with the busy affordance while a
+write is in flight, carries a tool hint saying what it does, and is disabled with a project
+fact saying why on a plan with a dependency cycle or with a selected variant not yet ready.
+On success it SHALL show one info toast. The control SHALL appear in the phone toolbar sheet.
 
 #### Scenario: the control arranges the table in a browser
 
@@ -120,6 +149,12 @@ toast. The control SHALL appear in the phone toolbar sheet.
 - **GIVEN** a plan whose read reports a cycle
 - **WHEN** the reader rests the pointer on the control
 - **THEN** the control is disabled and shows a project fact naming the cycle, at once
+
+#### Scenario: an unsettled variant turns the hint into a fact
+
+- **GIVEN** a plan on the `optimized` engine whose displayed variant is still solving
+- **WHEN** the reader rests the pointer on the control
+- **THEN** the control is disabled and shows a project fact saying it is optimizing
 
 #### Scenario: the toolbar stays inside its width budgets
 

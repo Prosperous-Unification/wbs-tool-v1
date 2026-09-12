@@ -17,7 +17,7 @@ import { opensCheatSheet } from './keyboard-cheat-sheet';
 import { type CommitOutcome, flushCell, FocusIntent } from './live-editing';
 import type { EstimateGaps } from './plan-completeness';
 import { type Toast, toastKey } from './toasts';
-import { expandBranch, FROZEN_REFUSAL } from './use-plan-structure';
+import { expandBranch } from './use-plan-structure';
 import { type TreeRow } from './wbs-rows';
 import { rowWords } from './work-item-words';
 
@@ -443,22 +443,13 @@ export function usePlanKeyboard({
       // Proof: removed, `drops a second alt+down while the first is in flight`
       // failed with two moves asked for. Watched, 2026-08-06.
       if (busy) return;
-      // be-01 refuses this too, and is the authority. Refusing here is what
-      // lets the reason be read — the drag's own sentence, so one rule does not
-      // acquire two wordings.
-      // Proof: removed, `refuses to move a frozen row and says why` failed on
-      // the move it sent. Watched, 2026-08-06.
-      if (row.frozenNumber !== null) {
-        pushToast({ kind: 'error', text: FROZEN_REFUSAL });
-        return;
-      }
       if (move === 'up' || move === 'down') {
         moveAmongSiblings(row, move, columnId);
         return;
       }
       void (move === 'indent' ? indent(row, columnId) : outdent(row, columnId));
     },
-    [busy, indent, moveAmongSiblings, outdent, pushToast],
+    [busy, indent, moveAmongSiblings, outdent],
   );
 
   /** Takes the tint and the pending delete off, whatever the reason. */

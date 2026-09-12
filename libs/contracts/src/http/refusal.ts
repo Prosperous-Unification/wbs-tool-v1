@@ -23,6 +23,7 @@ export type PlanCommandKind =
   | 'setAssignee'
   | 'addDependency'
   | 'removeDependency'
+  | 'arrangeBySchedule'
   | 'freezeProject'
   | 'unfreezeProject'
   | 'unfreezeWorkItem'
@@ -103,7 +104,28 @@ export type CommandRefusalCode =
   | 'forbidden'
   | 'strategy_required'
   | 'cycle'
+  | 'calendar_range'
+  /**
+   * **Retired at ADR 0023 and deliberately still here.** No release since
+   * produces it: a frozen work item moves like any other, so `move` has no
+   * frozen refusal left to answer with.
+   *
+   * It stays in the union because blue and green serve one deployment in turn
+   * — a browser holding the new fe-01 can be answered by the outgoing be-01
+   * for the length of a swap — and an arm missing from this union is a 409 the
+   * client cannot parse at all, which reads to the user as a broken drag
+   * rather than as a refusal with a reason.
+   */
   | 'frozen'
+  /**
+   * `arrangeBySchedule` on a project whose selected engine is `optimized` and
+   * whose displayed variant has not finished solving.
+   *
+   * A conflict rather than a fault: the same request is accepted the moment
+   * the solve lands, and arranging by Fast instead would put the rows in an
+   * order the reader did not pick (ADR 0022's reasoning about unmarked dates).
+   */
+  | 'schedule_not_ready'
   | 'rolled_up'
   | 'has_children'
   | 'ancestor'

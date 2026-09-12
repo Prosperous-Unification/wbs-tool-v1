@@ -143,6 +143,19 @@ describe('projecting the live plan as a comparison side', () => {
       now: () => OPENED_AT,
     });
 
+  const calendarRangeScheduler: Scheduler = {
+    supports: (engine) => fastScheduler.supports(engine),
+    read: (ask) => {
+      const answer = fastScheduler.read(ask);
+      if (answer.kind !== 'scheduled') return answer;
+      const workItems = new Map(answer.fast.workItems);
+      const first = workItems.entries().next().value;
+      if (first === undefined) throw new Error('calendar-range fixture has no work item');
+      workItems.set(first[0], { ...first[1], earliestFinish: 90_000_000 });
+      return { ...answer, fast: { ...answer.fast, workItems } };
+    },
+  };
+
   it('returns null for a project that is not there', async () => {
     expect(await service().projectCurrentPlan('missing')).toBeNull();
   });
@@ -243,6 +256,15 @@ describe('projecting the live plan as a comparison side', () => {
 
     const side = await service().projectCurrentPlan('p1');
 
+    expect(side!.schedule).toEqual({ present: false, absentReason: 'infeasible' });
+    expect(side!.input.workItems.map((row) => row.id)).toEqual(['wi-1', 'wi-2']);
+  });
+
+  it('maps a calendar-range plan to infeasible and still carries the input', async () => {
+    const side = await service('sp-1', calendarRangeScheduler).projectCurrentPlan('p1');
+
+    // Proof: return `buildScheduleBody` directly from `projectCurrentPlan` and
+    // this awaited comparison-side projection throws CalendarRangeError.
     expect(side!.schedule).toEqual({ present: false, absentReason: 'infeasible' });
     expect(side!.input.workItems.map((row) => row.id)).toEqual(['wi-1', 'wi-2']);
   });

@@ -323,7 +323,7 @@ function coordinatedStores(
     steps: coordinatedStore(stores.steps, ['add', 'rename', 'remove'], coordinator),
     workItems: coordinatedStore(
       stores.workItems,
-      ['insert', 'patch', 'move', 'setFrozenNumbers', 'remove'],
+      ['insert', 'patch', 'move', 'setPositions', 'setFrozenNumbers', 'remove'],
       coordinator,
     ),
     estimates: coordinatedStore(stores.estimates, ['set', 'remove', 'moveAll'], coordinator),

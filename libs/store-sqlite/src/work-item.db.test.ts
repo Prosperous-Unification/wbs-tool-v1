@@ -967,6 +967,50 @@ describe('deleting a subtree', () => {
   });
 });
 
+describe('arranging a sibling group', () => {
+  /**
+   * The half of `setPositions` that the in-memory fixture cannot hold, and the
+   * reason `arrange-by-schedule.test.ts` does not try: a position carries no
+   * revision, so a sibling respaced without changing place must keep the
+   * revision it had. Bumping it would refuse a peer's pending undo of something
+   * else on that row — the arrangement did not touch it.
+   */
+  it('bumps the revision of moved rows only', async () => {
+    const rows = [row(null, 10, 'Held'), row(null, 20, 'Early'), row(null, 30, 'Late')];
+    for (const each of rows) await repo.insert(each, [], wrote());
+    const before = Object.fromEntries(
+      (await repo.listByProject(projectId)).map((each) => [each.name, each.revision]),
+    );
+
+    await repo.setPositions(
+      [
+        { id: rows[0].id, position: 10 },
+        { id: rows[2].id, position: 20 },
+        { id: rows[1].id, position: 30 },
+      ],
+      [rows[2].id, rows[1].id],
+      wrote(),
+    );
+
+    const after = Object.fromEntries(
+      (await repo.listByProject(projectId)).map((each) => [each.name, each.revision]),
+    );
+    // Proof: `bumping.has(placed.id) ? … : {}` replaced by an unconditional
+    // `revision: bumpedWorkItem` — watched failing on this line, `Expected: 0 ·
+    // Received: 1`, `Held` gaining a revision for a respace that did not move
+    // it; restored 2026-09-11 (652 pass / 1 fail).
+    expect(after['Held']).toBe(before['Held'] ?? -1);
+    expect(after['Early']).not.toBe(before['Early'] ?? -1);
+    expect(after['Late']).not.toBe(before['Late'] ?? -1);
+    const placed = await repo.listByProject(projectId);
+    expect(placed.map((each) => [each.name, each.position]).sort()).toEqual([
+      ['Early', 30],
+      ['Held', 10],
+      ['Late', 20],
+    ]);
+  });
+});
+
 describe('freezing every number', () => {
   /**
    * A freeze names **every** work item in the project, so a loop of `UPDATE`s

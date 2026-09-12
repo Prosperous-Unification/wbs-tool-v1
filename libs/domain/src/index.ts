@@ -1,4 +1,9 @@
 export * from './assumed-duration';
+// One press of `Arrange by schedule`: every sibling group put in the order its
+// bars start. Here because it is a question about a plan's shape answered from
+// a `Schedule` this package already produces, and because be-01 and any later
+// caller must arrange a plan exactly one way (ADR 0023).
+export * from './arrange-siblings';
 export * from './capacity';
 // The read-time resolution of stored deadline dates to `schedule()`'s offsets,
 // beside `dependency-reach` rather than inside `leaf-constraints`: the fold is
@@ -100,5 +105,11 @@ export * from './slice-groups';
 export * from './solver-quantum';
 export * from './solver-quantum-golden-corpus';
 export * from './step';
+// The order every reader draws a project in, and the one sibling grouping
+// `deriveNumbers`, `treeOrder` and `arrangeBySchedule` share. Since ADR 0023 a
+// number is a name rather than a place, so the order has to be stated: two
+// groupings would disagree about which work item is second, and the first two
+// of those are drawn on the same screen.
 export * from './stored-vocabularies';
+export * from './tree-order';
 export * from './workday';

@@ -38,6 +38,21 @@ row above the pinned cells the preview opens over`, `lifts the links cell over t
 while its card is open`, and the dependency bridge's `keeps the card mounted across passive
 padding`. The lights still go at once; only the card waits.
 
+- [x] 2.3 **A departure is not an arrival.** 2.1's "every write cancels it" was the fault: a cell
+      with no card of its own writes a same-cell clear on its `mouseleave`, the notes marker is the
+      Name cell's right edge, and the hand leaving it crossed the Depends cell beside it inside the
+      reach — that leave cancelled the hold, and the preview stayed until something opened a card of
+      its own. Dany, 2026-09-11: _"notes md preview pop-up does not go away if i move cursor away, but
+      then move it up or down to other table elements"_, and the rule asked for: _"cursor away from
+      notes icon & the preview pop-up for N ms => remove the preview"_. `arriveOn(cell)` is now the
+      one write that cancels the hold; `updateHovered` revises the reading and leaves the hold alone.
+      Test: `cell-card-store.test.ts` (seven cases, fast tier) and `e2e/hover-cards.spec.ts` — `goes
+when the hand leaves the marker through the cell beside it`, which walks **right** where the
+      2026-09-10 case walks left into the name box and crosses no cell that writes.
+      Negative: `stopHolding()` put back at the top of `updateHovered`; watched failing on `expected
+'a:name' to be null`, on `expected "vi.fn()" to be called 1 times, but got 0 times`, and in
+      Chromium on `the preview stayed after the hand left · Expected: 0 · Received: 1`.
+
 ## 3. The written notes, beside the box
 
 - [x] 3.1 `RenderedNotes` is lifted out of `HoverPreview` so the panel and the card are one

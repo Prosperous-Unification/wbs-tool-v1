@@ -7,6 +7,8 @@
 // DOM to test anyway. The tag is read by a regex over the whole file
 // (`groupFilesByEnv`), so a line comment carries it as well as a docblock —
 // and a docblock would need a `@vitest-environment` the jsdoc lint rejects.
+import { readFileSync } from 'node:fs';
+
 import type * as Vite from 'vite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -65,6 +67,27 @@ beforeEach(() => {
 // container behind Caddy, so a localhost bind or a rejected Host header makes
 // the dev site fail in a way that looks like a proxy misconfiguration.
 describe('vite dev server config', () => {
+  it('declares public mode in the source-run container', () => {
+    const compose = readFileSync(
+      new URL('../../deploy/dev-src/compose.yml', import.meta.url),
+      'utf8',
+    );
+    expect(compose).toContain("      WBS_PUBLIC_DEV: 'true'");
+  });
+
+  it('does not expose HMR on the public dev site', () => {
+    process.env['WBS_PUBLIC_DEV'] = 'true';
+    try {
+      expect(serveConfig({ VITE_BE_URL: BE_URL, VITE_GW_URL: GW_URL }).server?.hmr).toBe(false);
+    } finally {
+      delete process.env['WBS_PUBLIC_DEV'];
+    }
+  });
+
+  it('keeps HMR for a developer and the isolated browser gate', () => {
+    expect(serveConfig({ VITE_BE_URL: BE_URL, VITE_GW_URL: GW_URL }).server?.hmr).toBeUndefined();
+  });
+
   it('binds all interfaces so a reverse proxy outside the container can reach it', () => {
     expect(serveConfig({ VITE_BE_URL: BE_URL, VITE_GW_URL: GW_URL }).server?.host).toBe('0.0.0.0');
   });

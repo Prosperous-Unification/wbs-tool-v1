@@ -47,6 +47,10 @@ services:
       NODE_ENV: 'development'
       AUTH_MODE: 'oidc'
       NX_DAEMON: 'false'
+      # Public QA needs a stable document. Browser Use Cloud closes Vite's HMR
+      # socket after about ten seconds, and Vite reloads on the reconnect. The
+      # source server still serves changed modules to a fresh request.
+      WBS_PUBLIC_DEV: 'true'
     # Dev shares a host with prod, so it gets hard ceilings. Measured
     # 2026-08-04: 278 MiB and 60 PIDs steady-state, on a 7.5 GiB host where
     # dagger-engine alone holds 2.6 GiB. These are ~5x headroom, sized to stop a

@@ -1,5 +1,6 @@
 import { expect, type Locator, type Page, test } from '@playwright/test';
 
+import { REACH_FOR_THE_CARD_MS, TAKEOVER_MS } from '../src/components/wbs/cell-card-store';
 import { cardIsOnTopAt } from './card-paint';
 import { createProject } from './create-project';
 
@@ -990,49 +991,229 @@ test.describe('the Name cell answers from its marker alone', () => {
     );
   });
 
-  test('the open editor shows the same rendering beside it', async ({ page }) => {
-    // Dany, 2026-09-10: _"when you click on title cell and note field expands -
-    // the right half of the row is a md preview which is same as in the on-hover
-    // md preview"_. Same means the same component — {@link RenderedNotes} — so
-    // that a mapping added to one is in both.
+  test('goes when the hand leaves the marker through the cell beside it', async ({ page }) => {
+    // Dany, 2026-09-11: _"notes md preview pop-up does not go away if i move
+    // cursor away, but then move it up or down to other table elements"_ — and
+    // the rule he asked for: _"cursor away from notes icon & the preview
+    // pop-up for N ms => remove the preview"_.
     //
-    // Proof: the panel's `focus`/`input` listeners never attached — this failed
-    // on `expect(locator).toBeVisible() · waiting for getByLabel('Notes for 010,
-    // rendered while writing')`. Watched in Chromium, 2026-09-10.
+    // The marker is the right edge of the Name cell, so "away" is through the
+    // **Depends cell** beside it more often than not. On a row with no
+    // dependencies that cell has no card of its own, and its `mouseleave` still
+    // writes the store a same-cell clear — a departure that changes nothing.
+    // The store read every write as an arrival and cancelled the hold the
+    // marker's leave had started, so the card stayed for as long as the hand
+    // kept off anything that opens a card of its own: whole columns of Depends
+    // cells included, which is the "up or down" in the report.
     //
-    // The words are the **panel's** state and not the cell's, which is not a
-    // detail: held one level up they re-render the cell on every keystroke, and
-    // `a chord waits for the blur's patch that is still out` went red on a
-    // re-render inside the blur putting the old text back in the box.
+    // The test above walks **left**, into the name box, and crosses no such
+    // cell; this one walks right. In steps, back to back, so the crossing
+    // lands inside the reach — a teleport straight past the cell fires the
+    // enter and the leave in one frame and is still inside it, but a hand is
+    // steps.
+    //
+    // Proof: on the code before the fix, and again with `stopHolding()` put
+    // back at the top of the store's `updateHovered`, this failed at the first
+    // read on `the preview stayed after the hand left · Expected: 0 · Received:
+    // 1`. Watched in Chromium, 2026-09-11.
+    const name = page.getByLabel('Name of 010');
+    await name.fill('Row 010\n\nNotes the hand is about to leave behind.');
+    await name.blur();
+    await page.mouse.move(0, 0);
+
+    // The preview by name, because the walk below ends on a Prio cell whose
+    // own hint may open while the pointer rests there: a second card that says
+    // nothing about this one.
+    const preview = page.getByRole('tooltip', { name: 'Notes for 010, rendered' });
+    const marker = await boxOf(page.getByLabel('Notes on 010'), 'the notes marker');
+    await page.getByLabel('Notes on 010').hover();
+    expect(await preview.count(), 'the marker opened no preview').toBe(1);
+
+    // Right along the row, through the Depends cell and out the far side of it.
+    const depends = await boxOf(
+      rowOf(page, '010').locator('td[data-column="depends"]'),
+      'the Depends cell of 010',
+    );
+    await page.mouse.move(depends.x + depends.width + 30, marker.y + 2, { steps: 8 });
+
+    // Read once, three reaches after the hand left: the rule is "N ms after",
+    // and an auto-waiting matcher would wait thirty seconds for a card that
+    // never goes and then report the same figure, later.
+    await page.waitForTimeout(REACH_FOR_THE_CARD_MS * 3);
+    expect(await preview.count(), 'the preview stayed after the hand left').toBe(0);
+
+    // And nothing the hand does next brings it back: down the Depends column,
+    // which is where the report says it used to stay.
+    const below = await boxOf(
+      rowOf(page, '020').locator('td[data-column="depends"]'),
+      'the Depends cell of 020',
+    );
+    await page.mouse.move(below.x + below.width / 2, below.y + below.height / 2, { steps: 8 });
+    await page.waitForTimeout(REACH_FOR_THE_CARD_MS * 3);
+    expect(await preview.count(), 'the preview came back on the way down').toBe(0);
+  });
+
+  /**
+   * Row 010 with notes, waiting on 020 — so the Depends cell beside its marker
+   * is a live trigger with a card of its own.
+   */
+  async function seed010WithNotesWaitingFor020(page: Page): Promise<void> {
+    const name = page.getByLabel('Name of 010');
+    await name.fill('Row 010\n\nNotes worth reaching for across a live cell.');
+    await name.blur();
+    const depends = page.getByLabel('Add a dependency to 010');
+    await depends.click();
+    await depends.fill('020');
+    await depends.press('Enter');
+    await expect(page.getByRole('button', { name: /^Stop 010 waiting for / })).toHaveCount(1);
+    // At rest: the picker owns the cell while the box has the focus.
+    await name.click();
+    await name.blur();
+    await page.mouse.move(0, 0);
+  }
+
+  test('keeps the preview while the hand crosses a live trigger on its way to it', async ({
+    page,
+  }) => {
+    // Dany, 2026-09-11: _"i want to move cursor over to the pop-up - it can
+    // move over the dependency cell (which triggers it's own pop-up) or over
+    // the neighbouring notes preview icon (which triggers another notes
+    // pop-up); i need for cursor in flight while the notes pop-up is open - to
+    // have a small delay"_.
+    //
+    // The preview's corner is the Depends cell's left edge one row down, so the
+    // diagonal from the `≡` to it crosses the same row's Depends cell. With a
+    // dependency in that cell it is a live trigger, and until this change its
+    // enter took the card over at once. Two legs, in steps: into the Depends
+    // cell's passive padding at the marker's height, then on to the card near
+    // the corner nearest that cell — the second leg is what has to land inside
+    // {@link TAKEOVER_MS}.
+    //
+    // Proof: {@link TAKEOVER_MS} set to 0 — this failed on `the preview was
+    // taken over on the way · Expected: 1 · Received: 0`. Watched in Chromium,
+    // 2026-09-11.
+    await seed010WithNotesWaitingFor020(page);
+    const preview = page.getByRole('tooltip', { name: 'Notes for 010, rendered' });
+    const dependsCard = page.getByRole('tooltip', { name: 'What 010 waits for' });
+
+    const marker = await boxOf(page.getByLabel('Notes on 010'), 'the notes marker');
+    await page.getByLabel('Notes on 010').hover();
+    expect(await preview.count(), 'the marker opened no preview').toBe(1);
+    const card = await boxOf(preview, 'the preview');
+    const cell = await boxOf(
+      rowOf(page, '010').locator('td[data-column="depends"]'),
+      'the Depends cell of 010',
+    );
+
+    await page.mouse.move(cell.x + 2, marker.y + marker.height / 2, { steps: 4 });
+    await page.mouse.move(card.x + 40, card.y + 20, { steps: 4 });
+    expect(await preview.count(), 'the preview was taken over on the way').toBe(1);
+    expect(await dependsCard.count(), 'the Depends cell opened its card on a passing hand').toBe(0);
+
+    // And the pointer being on the card keeps it past every delay there is.
+    await page.waitForTimeout(TAKEOVER_MS * 3);
+    expect(await preview.count(), 'the preview did not outlast the takeover delay').toBe(1);
+  });
+
+  test('lets a pointer that rests on another trigger take over', async ({ page }) => {
+    // The other half of the rule: a hand that stops on the Depends cell wanted
+    // that card, and gets it once the delay has run.
+    //
+    // Proof: the takeover timer's `land()` removed — this failed on `the
+    // rested-on cell opened no card · Expected: 1 · Received: 0`. The preview
+    // had gone anyway, to the reach the marker's leave started, which is why
+    // the card and not the preview is the line that sees this fault. Watched in
+    // Chromium, 2026-09-11.
+    await seed010WithNotesWaitingFor020(page);
+    const preview = page.getByRole('tooltip', { name: 'Notes for 010, rendered' });
+    const dependsCard = page.getByRole('tooltip', { name: 'What 010 waits for' });
+
+    await page.getByLabel('Notes on 010').hover();
+    expect(await preview.count(), 'the marker opened no preview').toBe(1);
+
+    await hoverPassiveDependsCell(page, '010');
+    await page.waitForTimeout(TAKEOVER_MS * 3);
+    expect(await preview.count(), 'the preview outstayed a pointer that rested elsewhere').toBe(0);
+    expect(await dependsCard.count(), 'the rested-on cell opened no card').toBe(1);
+  });
+
+  test('the editing preview is the same card as the hover preview, and stays on screen', async ({
+    page,
+  }) => {
+    // Dany, 2026-09-12: _"the preview during editing and the pop-up that will be
+    // shown on hover must be identical (in size, content)"_ — and _"it also
+    // overflows the screen which is an issue on it's own"_. They are one
+    // component ({@link HoverPreview}) now, placed and clamped by the same
+    // {@link HoverCard}: this measures both from the **same saved text** (no
+    // unsent keystrokes) and asserts they come out the same size, and that the
+    // editing one does not run off the right edge.
+    //
+    // Proof: the editing preview back to its hand-rolled `min(1000px, 55vw)`
+    // panel — this failed on the width no longer matching the hover card's, and
+    // on a wide Name cell it also failed the on-screen check. Watched in
+    // Chromium, 2026-09-12.
     const name = page.getByLabel('Name of 010');
     await name.fill('Row 010\n\nNotes with **bold** and a list:\n\n- one\n- two\n- three');
     await name.blur();
     await page.mouse.move(0, 0);
 
+    // Editing: the same rendering, from the box's own text.
     await name.click();
-    const panel = page.getByLabel('Notes for 010, rendered while writing');
-    await expect(panel).toBeVisible();
-    // The rendering, not the source: the box beside it holds the markdown.
-    await expect(panel.locator('strong')).toHaveText('bold');
-    await expect(panel.locator('li')).toHaveCount(3);
+    const writing = page.getByLabel('Notes for 010, rendered while writing');
+    await expect(writing).toBeVisible();
+    await expect(writing.locator('strong')).toHaveText('bold');
+    await expect(writing.locator('li')).toHaveCount(3);
+    const editBox = await boxOf(writing, 'the editing preview');
 
-    // Beside the box and taking the row's right half — the same diagonal the
-    // hover preview takes, minus the row offset, because this one explains the
-    // box that is open rather than the row it belongs to.
-    const cell = await boxOf(
-      page.locator('tbody tr').filter({ has: name }).locator('td[data-column="name"]'),
-      'the Name cell',
-    );
-    const box = await boxOf(panel, 'the writing panel');
-    expect(box.x, 'the panel covers the cell it explains').toBeGreaterThanOrEqual(
-      cell.x + cell.width - 5,
-    );
-    expect(box.width, 'the panel is not the row’s right half').toBeGreaterThan(400);
+    // On screen — the overflow Dany reported. HoverCard clamps to the room
+    // beside the cell, so the right edge is inside the window.
+    const viewport = page.viewportSize();
+    if (viewport === null) throw new Error('the page has no viewport size');
+    expect(
+      Math.round(editBox.x + editBox.width),
+      'the editing preview runs off the right of the screen',
+    ).toBeLessThanOrEqual(viewport.width);
 
-    // And it goes when the box is left, which is what says it belongs to the
-    // writing rather than to the row.
+    // Close the editor, then the marker's hover card, from the same saved text.
+    await name.press('Escape');
+    await expect(writing).toHaveCount(0);
+    await page.getByLabel('Notes on 010').hover();
+    const hovering = page.getByRole('tooltip', { name: 'Notes for 010, rendered' });
+    await expect(hovering).toBeVisible();
+    const hoverBox = await boxOf(hovering, 'the hover preview');
+
+    // Identical in size: one card, one placement, one text.
+    expect(
+      Math.abs(hoverBox.width - editBox.width),
+      'the two previews differ in width',
+    ).toBeLessThanOrEqual(2);
+    expect(
+      Math.abs(hoverBox.height - editBox.height),
+      'the two previews differ in height',
+    ).toBeLessThanOrEqual(2);
+  });
+
+  test('while editing, the notes marker opens no second preview', async ({ page }) => {
+    // Dany, 2026-09-12: _"when i edit and see the preview - the notes icon must
+    // not trigger another preview pop-up"_. The editing card is the same card
+    // the marker would open, so the marker is inert while the box is focused.
+    //
+    // Proof: the `document.activeElement` guard removed from the marker's
+    // `onMouseEnter` — this failed on `two previews open while editing ·
+    // Expected: 1 · Received: 2`. Watched in Chromium, 2026-09-12.
+    const name = page.getByLabel('Name of 010');
+    await name.fill('Row 010\n\nA note worth reading.');
     await name.blur();
-    await expect(panel).toHaveCount(0);
+    await page.mouse.move(0, 0);
+
+    await name.click();
+    await expect(page.getByLabel('Notes for 010, rendered while writing')).toBeVisible();
+    expect(await page.locator('[role="tooltip"]').count(), 'the editor opened no preview').toBe(1);
+
+    await page.getByLabel('Notes on 010').hover();
+    expect(await page.locator('[role="tooltip"]').count(), 'two previews open while editing').toBe(
+      1,
+    );
   });
 
   test('a link in the notes is followable, and drawn like the name’s', async ({ page }) => {
@@ -1088,6 +1269,99 @@ test.describe('the Name cell answers from its marker alone', () => {
     const followed = await opened;
     expect(followed.url()).toBe('http://example.test/lift');
     await followed.close();
+  });
+
+  test('Escape saves the note and closes the editor', async ({ page }) => {
+    // Dany, 2026-09-12: _"so that ESC key hides the notes editor (edits are
+    // saved)"_. The box is one textarea for name and notes, and leaving it is
+    // the save — so Escape leaves it. The oracle for "saved" is the hover
+    // preview, which is drawn from the row be-01 sent back: the box itself
+    // holds whatever was typed whether or not anything was sent (the folded
+    // estimate's lesson, `estimate-triple-visible`).
+    //
+    // Proof: the Escape branch removed from the Name cell's `onKeyDown` — this
+    // failed on the panel staying up (`Escape left the notes panel up`). The
+    // jsdom companion catches the save; this catches the collapse. Watched,
+    // 2026-09-12.
+    const name = page.getByLabel('Name of 010');
+    await name.fill('Row 010\n\nA note to finish.');
+    await name.blur();
+    await page.mouse.move(0, 0);
+    const rested = await boxOf(name, 'the rested Name box');
+
+    await name.click();
+    const panel = page.getByLabel('Notes for 010, rendered while writing');
+    await expect(panel).toBeVisible();
+    const open = await boxOf(name, 'the open Name box');
+    expect(open.height, 'the editor did not open').toBeGreaterThan(rested.height);
+    // Through `fill` rather than `press('End')` + `type`: `End` in a focused
+    // textarea is document-scroll on macOS, so a typed tail lands on the name
+    // line, not the notes (the repo's caret trap, `e2e/caret.ts`). What the test
+    // is about is the box's held value being saved, so set it whole.
+    await name.fill('Row 010\n\nA note to finish. Finished.');
+    await expect(panel).toBeVisible();
+
+    await name.press('Escape');
+    expect(await panel.count(), 'Escape left the notes panel up').toBe(0);
+    await expect
+      .poll(async () => (await boxOf(name, 'the Name box')).height, {
+        message: 'Escape left the editor open',
+      })
+      .toBe(rested.height);
+
+    // Saved, as the row reads it back: the preview is rendered from be-01's
+    // answer, not from the box.
+    await page.getByLabel('Notes on 010').hover();
+    await expect(page.getByRole('tooltip', { name: 'Notes for 010, rendered' })).toContainText(
+      'A note to finish. Finished.',
+    );
+  });
+
+  test('Done is the thing under the pointer, and closes the editor', async ({ page }) => {
+    // Dany, 2026-09-12: _"a non-intrusive neat small 'Done' button that you can
+    // press to hide the editor of markdown"_. The panel it sits in takes no
+    // pointer, on purpose; the button is the one exception, and the hit test at
+    // its own centre is what says so — a button drawn over a `pointer-events:
+    // none` panel with the same declaration is a picture of a button, and the
+    // click falls through to the row behind.
+    //
+    // Proof: the button's `pointerEvents` left to the panel's `none` — this
+    // failed on `Done is not what the pointer lands on · Expected: "Done writing
+    // notes for 010" · Received: "TD"`. Watched in Chromium, 2026-09-12.
+    const name = page.getByLabel('Name of 010');
+    await name.fill('Row 010\n\nA note to finish.');
+    await name.blur();
+    await page.mouse.move(0, 0);
+    const rested = await boxOf(name, 'the rested Name box');
+
+    await name.click();
+    const panel = page.getByLabel('Notes for 010, rendered while writing');
+    await expect(panel).toBeVisible();
+    await name.fill('Row 010\n\nA note to finish. Pressed.');
+    await expect(panel).toBeVisible();
+
+    const done = panel.getByRole('button', { name: 'Done writing notes for 010' });
+    const at = await boxOf(done, 'the Done button');
+    const centre = { x: at.x + at.width / 2, y: at.y + at.height / 2 };
+    const under = await page.evaluate(({ x, y }) => {
+      const hit = document.elementFromPoint(x, y);
+      return hit === null
+        ? 'nothing'
+        : (hit.closest('button')?.getAttribute('aria-label') ?? hit.tagName);
+    }, centre);
+    expect(under, 'Done is not what the pointer lands on').toBe('Done writing notes for 010');
+
+    await page.mouse.click(centre.x, centre.y);
+    expect(await panel.count(), 'Done left the notes panel up').toBe(0);
+    await expect
+      .poll(async () => (await boxOf(name, 'the Name box')).height, {
+        message: 'Done left the editor open',
+      })
+      .toBe(rested.height);
+    await page.getByLabel('Notes on 010').hover();
+    await expect(page.getByRole('tooltip', { name: 'Notes for 010, rendered' })).toContainText(
+      'A note to finish. Pressed.',
+    );
   });
 
   test('scrolls a note taller than the preview once the pointer is on it', async ({ page }) => {
@@ -1572,19 +1846,26 @@ test.describe('a Gantt row’s own line', () => {
     expect(await page.getByLabel('Facts for 010').count(), 'the line opened a bar’s card').toBe(0);
   });
 
-  test('points a row that draws no bar at all', async ({ page }) => {
+  test('points a row from a stretch of its line with no bar on it', async ({ page }) => {
     await openTheChart(page, 2);
 
-    // 020 is unestimated in this file's plan, so its row is empty end to end.
-    // That is the row a mark on the bars could never answer for, and the reason
-    // the surface is the row rather than the bar.
-    expect(
-      await page.locator('[data-gantt-bar][aria-label^="020 - "]').count(),
-      'row 020 has a bar, so this case is not about an empty row',
-    ).toBe(0);
+    // 020 is unestimated in this file's plan. Its row was **empty end to end**
+    // until 2026-09-12 — the detail switch hid the assumed bars — and it draws
+    // one now, so the emptiness this case is about is a stretch of the line
+    // rather than the whole row. It is the same claim either way: the surface
+    // that lights a row is the row's line, not any mark on it.
+    const bar = await boxOf(
+      page.locator('[data-gantt-bar][aria-label^="020 - "]').first(),
+      'row 020’s assumed bar',
+    );
 
     const chartBox = await boxOf(page.locator('[data-gantt-chart]'), 'the chart');
-    await restOnLine(page, 1, chartBox.x + chartBox.width / 2);
+    const restAt = chartBox.x + chartBox.width / 2;
+    // The precondition, measured rather than assumed: the point the pointer
+    // rests on is past the end of every bar this row draws, so what lights the
+    // band cannot be a bar.
+    expect(restAt, 'the resting point is on row 020’s own bar').toBeGreaterThan(bar.x + bar.width);
+    await restOnLine(page, 1, restAt);
 
     const bands = page.locator('[data-gantt-row-lit]');
     await expect(bands).toHaveCount(1);

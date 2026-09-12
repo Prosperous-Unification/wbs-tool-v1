@@ -325,11 +325,14 @@ function commandCode(refusal: RefusalOf<'postApiProjectsByIdCommands'>): string 
     case 'unknown_system':
     case 'cycle':
     case 'frozen':
+    case 'schedule_not_ready':
+    case 'engine_unavailable':
     case 'rolled_up':
     case 'ancestor':
     case 'too_large':
     case 'taken':
     case 'in_use':
+    case 'calendar_range':
     case 'deadline_before_project_start':
       return refusal.error;
     default:

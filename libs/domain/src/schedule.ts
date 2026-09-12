@@ -1,10 +1,11 @@
 import { ASSUMED_SLICE_WORKDAYS } from './assumed-duration';
 import type { DependencyReach } from './dependency-reach';
-import { deriveNumbers, type PlannedRow } from './derive-numbers';
+import type { PlannedRow } from './derive-numbers';
 import { leafDeadlinesOf, leafFloorsOf } from './leaf-constraints';
 import { workdaysLateBy } from './on-time';
 import { sliceGraphEdges } from './slice-edges';
 import { groupSlicesByLeaf } from './slice-groups';
+import { treeOrder } from './tree-order';
 import { lastWorkdayOf, snapWorkdays, withinDrift } from './workday';
 
 /** A finish-to-start edge, as written: either end may be a parent. */
@@ -1126,8 +1127,16 @@ interface SlicePriority {
   start: number;
   /** How much it could slip there without moving the project. */
   float: number;
-  /** Its work item's number — the tie goes to the row that reads first. */
-  number: string;
+  /**
+   * Its work item's place in **tree order** — the tie goes to the row that
+   * reads first.
+   *
+   * The work item *number* until ADR 0023, which is the same answer on every
+   * plan whose labels ascend along position and a different one the moment a
+   * frozen work item moves. A frozen number is a name now; the place is the
+   * thing this rule was always reaching for, so it asks for it directly.
+   */
+  treePlace: number;
   /** Its place in the step order — what separates two slices of one work item. */
   at: number;
   /**
@@ -1135,10 +1144,13 @@ interface SlicePriority {
    *
    * **It is {@link at} *and* this that cannot both tie, and neither alone is
    * enough.** The five rules above them are all facts a planner can repeat: two
-   * work items may carry one priority, one date, one start, one float, and —
-   * because `deriveNumbers` reports a `frozenNumber` verbatim and enforces no
-   * uniqueness on it — one number. `at` does not separate them, being the step
-   * index *inside* a work item, so two one-slice items both sit at 0. And the
+   * work items may carry one priority, one date, one start and one float. Two
+   * slices of **one** work item then share a {@link treePlace} as well, which
+   * is what the pair below is really for: `at` does not separate them either,
+   * being the step index *inside* a work item, so two one-slice items both
+   * sit at 0. (Before ADR 0023 this paragraph named a second way to tie — two
+   * work items sharing a verbatim `frozenNumber` — which a place cannot do.)
+   * And the
    * key does not separate every pair either: `slice-edges.ts` records that a
    * plan may hand two slices of one leaf the same `stepId`, `groupByWorkItem`
    * accepts it, and those two nodes share a key. {@link Schedule.slices} being
@@ -2132,7 +2144,7 @@ export const SCHEDULE_ALGORITHM_ID = 'slice-leveling-v2';
  * `WorkItem` satisfies it structurally, so nothing maps anything. The engine
  * now sits beside the rules it always shared: {@link snapWorkdays},
  * {@link ASSUMED_SLICE_WORKDAYS}, {@link DependencyReach},
- * {@link deriveNumbers}. It reads those four modules and {@link leafFloorsOf},
+ * {@link treeOrder}. It reads those four modules and {@link leafFloorsOf},
  * and no others — the fifth is the floor fold, moved out on 2026-09-03 so the
  * solver request builder reads the same walk rather than writing a second one.
  *
@@ -2386,7 +2398,7 @@ export function schedule(
     false,
   );
 
-  const numbers = deriveNumbers(rows);
+  const places = treeOrder(rows);
   const leafPriorities = priorityByLeaf(rows, index);
   // Deadlines expanded down the tree by the same walk the floors take and the
   // solver wire takes — see {@link leafDeadlinesOf}, which holds the rule that
@@ -2411,11 +2423,11 @@ export function schedule(
       slack: deadline - lastWorkdayOf(unleveled.placed[at].start, unleveled.placed[at].finish),
       start: unleveled.placed[at].start,
       float: criticalPath[at].latestStart - unleveled.placed[at].start,
-      // `deriveNumbers` covers every row or throws, so the fallback is
+      // `treeOrder` covers every row or throws, so the fallback is
       // unreachable; it is a default rather than a throw because this is the
-      // third of four tie-breaks and an empty string only ever reorders slices
-      // that are already equal on time.
-      number: numbers.get(node.slice.workItemId) ?? '',
+      // third of four tie-breaks and one shared place only ever reorders
+      // slices that are already equal on time.
+      treePlace: places.get(node.slice.workItemId) ?? 0,
       at: node.at,
       key: node.key,
     };
@@ -2480,7 +2492,7 @@ export function schedule(
     if (first.priority !== second.priority) return first.priority < second.priority;
     if (first.start !== second.start) return first.start < second.start;
     if (first.float !== second.float) return first.float < second.float;
-    if (first.number !== second.number) return first.number < second.number;
+    if (first.treePlace !== second.treePlace) return first.treePlace < second.treePlace;
     if (first.at !== second.at) return first.at < second.at;
     return first.key < second.key;
   };

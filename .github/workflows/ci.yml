@@ -338,6 +338,18 @@ jobs:
       - name: Gate head pinning
         run: bash bin/h2puni-gate.test.sh
 
+      # `bin/dev.sh` and the port preflight it calls. This is the dev image's
+      # CMD (`deploy/dev-src/Dockerfile`), so a guard rotting here breaks the
+      # dev deployment and not only somebody's terminal — and until 2026-09-12
+      # this suite ran nowhere but a developer typing `bun run dev:test`.
+      #
+      # It binds ephemeral sockets and reads a mode-000 file. The mode-000 case
+      # is meaningless as root, which reads anything: on `ubuntu-latest` the job
+      # is `runner`, and `the check path refuses an unreadable .env` would pass
+      # for the wrong reason inside a root container.
+      - name: Dev entrypoint
+        run: bash bin/dev.test.sh
+
       # The two lefthook hooks, re-run here over every tracked file rather than
       # only the staged ones. A `--no-verify` commit reaches this.
       # xargs, not `$files`. The file list was passed as one unquoted argv, which

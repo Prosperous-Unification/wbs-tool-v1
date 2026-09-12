@@ -18,6 +18,9 @@
       "@wbs/contracts": ["../../libs/contracts/src/index.ts"],
       "@wbs/validation": ["../../libs/validation/src/index.ts"],
       "@wbs/domain/is-within": ["../../libs/domain/src/is-within.ts"],
+      "@wbs/domain/derive-numbers": ["../../libs/domain/src/derive-numbers.ts"],
+      "@wbs/domain/tree-order": ["../../libs/domain/src/tree-order.ts"],
+      "@wbs/domain/arrange-siblings": ["../../libs/domain/src/arrange-siblings.ts"],
       "@wbs/domain/priority-band": ["../../libs/domain/src/priority-band.ts"],
       "@wbs/domain/dependency-reach": ["../../libs/domain/src/dependency-reach.ts"],
       "@wbs/domain/external-system": ["../../libs/domain/src/external-system.ts"]

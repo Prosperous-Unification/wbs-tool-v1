@@ -129,6 +129,11 @@ const command = type({
       'Stop a work item waiting for another.',
     ),
   )
+  .or(
+    type({ kind: "'arrangeBySchedule'" }).describe(
+      'Put every sibling group in the order its bars start.',
+    ),
+  )
   .or(type({ kind: "'freezeProject'" }).describe('Freeze every work item number as it stands.'))
   .or(type({ kind: "'unfreezeProject'" }).describe('Let every number follow the tree again.'))
   .or(
