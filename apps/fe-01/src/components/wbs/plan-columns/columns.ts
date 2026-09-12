@@ -34,6 +34,9 @@ export function createPlanColumns(
     [
       createDragColumn({ live }),
       createNumberColumn(),
+      // Between `#` and Links, pinned with them (`PINNED_COLUMN_IDS`): one glyph
+      // the eye reads before the name, where Dany asked for it (`status-at-a-glance`).
+      createStatusColumn({ live }),
       createRefsColumn({ live }),
       createNameColumn({ live }),
       createDependsColumn({ live }),
@@ -47,7 +50,6 @@ export function createPlanColumns(
       createFinalTotalColumn(),
       createNotBeforeColumn({ live }),
       createDeadlineColumn({ live }),
-      createStatusColumn({ live }),
       createFactStartColumn({ live }),
       createFactEndColumn({ live }),
       createStartColumn({ live }),

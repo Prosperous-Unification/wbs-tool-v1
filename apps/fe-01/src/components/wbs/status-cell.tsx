@@ -11,12 +11,34 @@ export const STATUS_LABEL: Readonly<Record<WorkItemStatus, string>> = {
   done: 'Done',
 };
 
+/**
+ * The glyph each status is drawn as, in the cell and on the column heading.
+ *
+ * An empty ring, a half ring and a tick: the first two are one shape filling
+ * up, the third is the one mark every reader takes for finished. Glyphs and
+ * not an icon set because the table draws with text everywhere else (`⠿`, `✕`)
+ * and 28px holds one character. The word stays in the cell's `title` and on
+ * the picker's lines.
+ */
+export const STATUS_GLYPH: Readonly<Record<WorkItemStatus, string>> = {
+  unknown: '○',
+  in_progress: '◐',
+  done: '✓',
+};
+
+/** The colour each status is said in — the strip's, the tint's and this cell's. */
+const STATUS_COLOR: Readonly<Record<WorkItemStatus, string>> = {
+  unknown: 'var(--muted-foreground)',
+  in_progress: 'var(--status-in-progress)',
+  done: 'var(--status-done)',
+};
+
 /** What each status says about the row, for the cell's project fact. */
 const STATUS_WORDS: Readonly<Record<WorkItemStatus, string>> = {
   unknown: 'Nobody has said where this work has got to.',
   in_progress:
     'Its steps disagree — one has finished, or one has said nothing — so the row is part-way through. Set it per step, or choose Done for all of it.',
-  done: 'Every step of this work item says finished. The chart draws it over its fact span, and its name is struck through.',
+  done: 'Every step of this work item says finished. The chart draws it over its fact span, the row is tinted, and its name is struck through.',
 };
 
 export interface StatusCellProps {
@@ -29,7 +51,15 @@ export interface StatusCellProps {
 }
 
 /**
- * The Status cell: the row's status in a word, and a two-line list to set it.
+ * The Status cell: the row's status as one glyph, and a two-line list to set it.
+ *
+ * The glyph is the box's `value`; the word is its `title` (a combobox takes no
+ * `aria-description`, per `jsx-a11y`), and the row is its `aria-label`
+ * (`Status of 010`) — the
+ * handle every keyboard walk, browser proof and hint already finds the cell by,
+ * kept stable when the cell stopped reading a word (`status-at-a-glance` D4).
+ * `data-status-value` carries the status itself for anything that has to
+ * assert on it rather than read a glyph.
  *
  * The priority cell's shape without its typing: there is nothing to type here,
  * so the box is a closed combobox that opens its list on a click or a plain
@@ -61,6 +91,7 @@ export function StatusCell({
     >
       <input
         aria-label={`Status of ${rowNumber}`}
+        title={STATUS_LABEL[status]}
         role="combobox"
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
@@ -77,9 +108,11 @@ export function StatusCell({
           background: 'transparent',
           border: 'none',
           cursor: 'pointer',
-          color: status === 'done' ? 'var(--muted-foreground)' : undefined,
+          textAlign: 'center',
+          padding: 0,
+          color: STATUS_COLOR[status],
         }}
-        value={STATUS_LABEL[status]}
+        value={STATUS_GLYPH[status]}
         onChange={() => {
           setOpen(true);
         }}

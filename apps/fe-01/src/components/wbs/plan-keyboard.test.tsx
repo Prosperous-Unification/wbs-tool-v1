@@ -632,12 +632,14 @@ describe('Tab moves between the fields, from every cell', () => {
       'Dev pessimistic for 010',
       'Dev assignee for 010',
       'QA estimate for 010',
-      // The row's status and its two facts, editable with or without a calendar:
-      // a status is a reading and a fact is an absolute day, so neither waits for
-      // a project start the way the two constraints above them do.
-      'Status of 010',
+      // The two facts, editable with or without a calendar: a fact is an
+      // absolute day, so neither waits for a project start the way the two
+      // constraints above them do. Status is editable the same way and sits at
+      // the row's head since `status-at-a-glance`, so the walk out of one row's
+      // last fact lands on the next row's Status, and only then on its Name.
       'Fact start of 010',
       'Fact end of 010',
+      'Status of 020',
       'Name of 020',
     ])) {
       focusCaret(from, 'end');
@@ -663,9 +665,9 @@ describe('Tab moves between the fields, from every cell', () => {
       'QA realistic for 010',
       'QA pessimistic for 010',
       'QA assignee for 010',
-      'Status of 010',
       'Fact start of 010',
       'Fact end of 010',
+      'Status of 020',
       'Name of 020',
     ])) {
       focusCaret(from, 'end');
@@ -697,16 +699,16 @@ describe('Tab moves between the fields, from every cell', () => {
 
     // Straight into the next row: both dates are stepped over and they were the
     // last cells of this one, now that the notes are written under the name.
-    // The two constraints are stepped over; the status and the two facts are
-    // not, because neither needs a calendar — a status is a reading and a fact
-    // is an absolute day. So the walk lands on Status, and only from the last
-    // fact does it cross into the next row.
+    // The two constraints are stepped over; the two facts are not, because a
+    // fact is an absolute day and needs no calendar. So the walk lands on the
+    // first fact, and from the last fact it crosses into the next row — onto
+    // its Status, which heads the row since `status-at-a-glance`.
     focusCaret('QA estimate for 010', 'end');
     tab();
-    expect(document.activeElement).toBe(screen.getByLabelText('Status of 010'));
+    expect(document.activeElement).toBe(screen.getByLabelText('Fact start of 010'));
     focusCaret('Fact end of 010', 'end');
     tab();
-    expect(document.activeElement).toBe(screen.getByLabelText('Name of 020'));
+    expect(document.activeElement).toBe(screen.getByLabelText('Status of 020'));
 
     typeIntoDate('Project start date', '2026-08-06');
     await waitFor(() => {
@@ -731,10 +733,10 @@ describe('Tab moves between the fields, from every cell', () => {
     expect(
       fireEvent.keyDown(screen.getByLabelText('Work item deadline for 010'), { key: 'Tab' }),
     ).toBe(false);
-    expect(document.activeElement).toBe(screen.getByLabelText('Status of 010'));
+    expect(document.activeElement).toBe(screen.getByLabelText('Fact start of 010'));
     focusCaret('Fact end of 010', 'end');
     tab();
-    expect(document.activeElement).toBe(screen.getByLabelText('Name of 020'));
+    expect(document.activeElement).toBe(screen.getByLabelText('Status of 020'));
   });
 
   itDom('the arrows land in a date cell without asking it for a caret it has none of', async () => {
@@ -809,7 +811,9 @@ describe('Tab moves between the fields, from every cell', () => {
     expect(tab()).toBe(true);
     expect(document.activeElement).toBe(last);
 
-    const first = focusCaret('Name of 010', 'end');
+    // And the first is the first row's Status, at the row's head since
+    // `status-at-a-glance` — with every hideable column shown, as this walk has.
+    const first = focusCaret('Status of 010', 'end');
     expect(tab(true)).toBe(true);
     expect(document.activeElement).toBe(first);
   });
@@ -1537,8 +1541,10 @@ describe('the command chords', () => {
   itDom('a chord at the grid’s edge is consumed rather than leaking to the browser', async () => {
     // Ctrl+H in Chrome is the history. A chord this table advertises must never
     // reach it, edge or no edge — so the key is taken whether or not it moved.
+    // The edge is the Status cell since `status-at-a-glance` put it at the
+    // row's head; from Name the same chord would simply move there.
     await threeRoots();
-    const cell = nameOf('010');
+    const cell = screen.getByLabelText<HTMLInputElement>('Status of 010');
     cell.focus();
 
     const event = createEvent.keyDown(cell, { key: 'h', code: 'KeyH', ctrlKey: true });

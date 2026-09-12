@@ -1,4 +1,5 @@
 import { type Cell as TableCell, flexRender, type Header, useTable } from '@tanstack/react-table';
+import type { WorkItemStatus } from '@wbs/domain/progress';
 import {
   type ComponentProps,
   memo,
@@ -17,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { type CellCards, createCellCards, useCardOpenOn } from './cell-card-store';
 import type { CellRef } from './cell-navigation';
 import { type ColumnHintState, hintFor } from './column-hints';
+import { CompletionPrompt } from './completion-prompt';
 import { createDepLights, type DepLights } from './dep-light-store';
 import { type DropZone, zoneFor } from './drag-drop';
 import { cellIn, cellKey, type CellLanding, cellRefOf, focusCellAt } from './editable-grid';
@@ -107,11 +109,12 @@ interface PlanRowProps {
   attach: (rowId: string, node: HTMLTableRowElement | null) => void;
   frozen: boolean;
   /**
-   * Whether the row's status is `done`, so the `<tr>` can say so and
-   * `styles.css` can strike the name. Pure row data off the read, like
-   * `frozen`: it changes only when the plan does, never with the pointer.
+   * The row's status, so the `<tr>` can say it — `data-row-status` for the
+   * status strip and the done tint, `data-row-done` for the strike — and
+   * `styles.css` can paint off it. Pure row data off the read, like `frozen`:
+   * it changes only when the plan does, never with the pointer.
    */
-  done: boolean;
+  status: WorkItemStatus;
   /**
    * Where this row's **dependency** light is read from.
    *
@@ -182,7 +185,7 @@ function PlanRow({
   rowIndex,
   attach,
   frozen,
-  done,
+  status,
   depLights,
   armed,
   drop,
@@ -210,7 +213,8 @@ function PlanRow({
       // shell's own subscription key. Nothing else in the app reads it.
       data-row-id={rowId}
       data-frozen={frozen ? 'true' : 'false'}
-      data-row-done={done ? 'true' : undefined}
+      data-row-status={status}
+      data-row-done={status === 'done' ? 'true' : undefined}
       data-dep-lit={depLit ? 'true' : undefined}
       data-row-lit={lit ? 'true' : undefined}
       data-armed={armed ? 'true' : undefined}
@@ -687,6 +691,12 @@ export function WbsTable({
    * is open redraws the list instead of leaving a stale copy on screen.
    */
   const [refsEditing, setRefsEditing] = useState<string | null>(null);
+  /**
+   * The row the completion prompt is open over, by id, for `refsEditing`'s
+   * reason: the prompt reads the row's held fact end off the current tree, and
+   * a row deleted while it asks is a prompt that is simply not there.
+   */
+  const [completionFor, setCompletionFor] = useState<string | null>(null);
   const { dragging, setDragging, dropHint, setDropHint } = usePlanDragState();
   /**
    * The Depends on picker: which row's cell it is open under, what has been
@@ -905,6 +915,10 @@ export function WbsTable({
     () => (refsEditing === null ? null : (flat.find((row) => row.id === refsEditing) ?? null)),
     [flat, refsEditing],
   );
+  const completionRow = useMemo(
+    () => (completionFor === null ? null : (flat.find((row) => row.id === completionFor) ?? null)),
+    [flat, completionFor],
+  );
   const {
     namedInTheTree,
     effectiveTeams,
@@ -1116,6 +1130,23 @@ export function WbsTable({
     openFactEnd,
     closeFactEnd,
   } = usePlanFields({ run, api, priorityBands, pushToast, gridElement });
+  /**
+   * What confirming the completion prompt does: the mark, on the day confirmed,
+   * and then — only when the row already held a fact end and the reader changed
+   * it — the `patch` that moves it, because `setStatus` fills an empty fact end
+   * and never overwrites a held one. Two journal entries in that one case,
+   * deliberately: a fill-and-overwrite variant of `setStatus` is a contract
+   * change for one uncommon gesture (`status-at-a-glance` design, Risks). The
+   * patch is skipped after a refusal: nothing landed for it to correct.
+   */
+  const confirmCompletion = useCallback(
+    async (id: string, day: string, heldFactEnd: string | null): Promise<void> => {
+      const outcome = await setStatus(id, 'done', day);
+      if (outcome !== 'landed') return;
+      if (heldFactEnd !== null && heldFactEnd !== day) setFactEnd(id, day);
+    },
+    [setFactEnd, setStatus],
+  );
   const {
     setTeamOf,
     setServicesOf,
@@ -1358,6 +1389,7 @@ export function WbsTable({
     setFactStart,
     setFactEnd,
     setStatus,
+    openCompletionPrompt: setCompletionFor,
     openFactStart,
     closeFactStart,
     openFactEnd,
@@ -2368,7 +2400,7 @@ export function WbsTable({
                       rowIndex={entry.index}
                       attach={viewport.attachRow}
                       frozen={row.original.frozenNumber !== null}
-                      done={row.original.status === 'done'}
+                      status={row.original.status}
                       depLights={depLights}
                       armed={armedDelete?.rowId === row.original.id}
                       drop={dropHint?.rowId === row.original.id ? dropHint.zone : undefined}
@@ -2621,6 +2653,29 @@ export function WbsTable({
         than an invariant: the surface simply is not there, which is what a
         deleted row's editor should be.
       */}
+      {completionRow !== null && (
+        <CompletionPrompt
+          number={completionRow.number}
+          heldFactEnd={completionRow.factEnd}
+          today={isoToday(new Date())}
+          onOpenChange={(open) => {
+            if (!open) setCompletionFor(null);
+          }}
+          onConfirm={(day) => {
+            setCompletionFor(null);
+            void confirmCompletion(completionRow.id, day, completionRow.factEnd);
+          }}
+          onClosed={() => {
+            // Back to the Status cell that asked. A cell that is not there is
+            // a modeled state, not a fault: the row was deleted, or the column
+            // hidden, while the prompt was open, and there is nothing to land on.
+            const asked = gridElement.current?.querySelector<HTMLElement>(
+              `[data-cell="${cellKey(completionRow.id, 'status')}"]`,
+            );
+            asked?.focus();
+          }}
+        />
+      )}
       {refsEditingRow !== null && (
         <ExternalRefsModal
           open

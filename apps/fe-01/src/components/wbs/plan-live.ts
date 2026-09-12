@@ -1,4 +1,5 @@
 import type { SettableStatus } from '@wbs/domain/progress';
+import type { IsoDate } from '@wbs/domain/workday';
 import type * as React from 'react';
 
 import { type ProjectApi } from '@/lib/wbs-api';
@@ -85,7 +86,14 @@ export interface PlanLiveValues {
    * empty fact end with the reader's day, `unknown` takes every statement back.
    * `in_progress` is not offered here — it is a step's statement.
    */
-  setStatus: (id: string, status: SettableStatus) => void;
+  /**
+   * Sets the row's status as one act, on the day given. `done` reaches this
+   * only through the completion prompt, which is where the day comes from;
+   * `unknown` sends the reader's day and be-01 ignores it.
+   */
+  setStatus: (id: string, status: SettableStatus, on: IsoDate) => Promise<CommitOutcome>;
+  /** Opens the completion prompt over a row: `Done` is asked about before it is written. */
+  openCompletionPrompt: (rowId: string) => void;
   setPriority: (id: string, typed: string) => Promise<CommitOutcome>;
   setParallelism: (id: string, typed: string) => Promise<CommitOutcome>;
   openNotBefore: (rowId: string) => void;

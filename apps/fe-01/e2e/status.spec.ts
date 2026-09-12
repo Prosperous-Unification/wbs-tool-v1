@@ -3,10 +3,12 @@ import { expect, type Locator, type Page, test } from '@playwright/test';
 import { createProject } from './create-project';
 
 /**
- * `work-item-status-and-facts` in a browser: choosing Done in the Status cell
- * strikes the row through, fills the Fact end with the reader's own day, and
- * stops the row's bar on the chart inside that day's axis cell — whatever the
- * estimate said.
+ * `work-item-status-and-facts` and `status-at-a-glance` in a browser: choosing
+ * Done in the Status cell asks for the day in the completion prompt, and
+ * confirming it strikes the row through, paints the status strip and the done
+ * tint on it — pinned cells included — fills the Fact end with the day
+ * confirmed, and stops the row's bar on the chart inside that day's axis cell,
+ * whatever the estimate said.
  *
  * The plan is dated **weeks in the past** with a long estimate, so the engine's
  * finish stands well past today and the clip has something to clip. Every
@@ -98,7 +100,7 @@ async function boxOf(mark: Locator, name: string): Promise<{ left: number; right
 }
 
 test.describe('marking a row done, in a browser', () => {
-  test('strikes the row, fills the fact end with today, and stops the bar in today’s cell', async ({
+  test('asks for the day, then strikes and tints the row, fills the fact end and stops the bar', async ({
     page,
   }, testInfo) => {
     await seedALongRow(page);
@@ -111,17 +113,77 @@ test.describe('marking a row done, in a browser', () => {
     await expect(page.locator('[data-gantt-bar][data-done="true"]')).toHaveCount(0);
 
     const status = page.getByRole('combobox', { name: 'Status of 010' });
-    await expect(status).toHaveValue('Unknown');
-    await status.click();
-    await page
-      .getByRole('listbox', { name: 'Status for 010' })
-      .getByRole('option', { name: 'Done' })
-      .click();
+    await expect(status).toHaveAttribute('data-status-value', 'unknown');
+    const row = page.locator('tbody tr[data-row-id]').first();
+    const dragCell = row.locator('td[data-column="drag"]');
+    const pinnedCell = row.locator('td[data-column="number"]');
+    const unpinnedCell = row.locator('td[data-column="depends"]');
+    const paintOf = (cell: Locator) =>
+      cell.evaluate((node) => {
+        const style = getComputedStyle(node);
+        return { shadow: style.boxShadow, layer: style.backgroundImage };
+      });
+    // Before: no strip on the drag cell, and the tint layer is there but clear.
+    const atRest = await paintOf(dragCell);
+    expect(atRest.shadow, 'an unknown row already wears a strip').not.toMatch(
+      /3px 0px 0px 0px inset/,
+    );
+    expect((await paintOf(pinnedCell)).layer).toMatch(/linear-gradient\(rgba\(0, 0, 0, 0\)/);
 
-    await expect(status).toHaveValue('Done');
-    const today = localIsoDay(new Date());
+    const chooseDone = async (): Promise<void> => {
+      await status.click();
+      await page
+        .getByRole('listbox', { name: 'Status for 010' })
+        .getByRole('option', { name: 'Done' })
+        .click();
+    };
+    // The browser's own day, not this process's: Playwright runs Chromium in
+    // UTC while the runner keeps the host's zone, and after 21:00 in Kyiv the
+    // two are a day apart. The day the prompt offers and the day the Fact end
+    // shows are both the browser's.
+    const today = await page.evaluate(() => {
+      const at = new Date();
+      const month = String(at.getMonth() + 1).padStart(2, '0');
+      const day = String(at.getDate()).padStart(2, '0');
+      return `${String(at.getFullYear())}-${month}-${day}`;
+    });
+
+    // Done asks first. Escape leaves the row as it was and puts the focus back
+    // in the cell that asked — the one focus question jsdom cannot answer.
+    await chooseDone();
+    const prompt = page.getByRole('dialog', { name: 'Mark 010 done' });
+    await expect(prompt).toBeVisible();
+    await expect(prompt.getByLabel('Finished on')).toHaveValue(today);
+    await page.keyboard.press('Escape');
+    await expect(prompt).toHaveCount(0);
+    await expect(status).toHaveAttribute('data-status-value', 'unknown');
+    await expect(status).toBeFocused();
+
+    await chooseDone();
+    await expect(prompt).toBeVisible();
+    await prompt.getByRole('button', { name: 'Mark done' }).click();
+
+    await expect(status).toHaveAttribute('data-status-value', 'done');
     await expect(page.getByLabel('Fact end of 010')).toHaveValue(shortDay(today));
     await expect(page.locator('tbody tr[data-row-done="true"]')).toHaveCount(1);
+    await expect(row).toHaveAttribute('data-row-status', 'done');
+    // The strip, drawn as the drag cell's inset shadow beside the separator …
+    expect((await paintOf(dragCell)).shadow).toMatch(/3px 0px 0px 0px inset/);
+    // … and the tint on a pinned and an unpinned cell alike: both carry the
+    // layer, and neither layer is clear any more.
+    // Proof: the gradient dropped from `ROW_BACKGROUND` in `table-frame.ts`,
+    // and the run fails at the pinned cell's at-rest check above — `Expected
+    // pattern: /linear-gradient\(rgba\(0, 0, 0, 0\)/ · Received string: "none"`
+    // — a pinned cell with no layer for the tint to land in while the cells
+    // beside it carry one; watched in Chromium 2026-09-13.
+    for (const [cell, name] of [
+      [pinnedCell, 'pinned'],
+      [unpinnedCell, 'unpinned'],
+    ] as const) {
+      const painted = await paintOf(cell);
+      expect(painted.layer, `the ${name} cell has no tint layer`).toMatch(/linear-gradient/);
+      expect(painted.layer, `the ${name} cell's tint is clear`).not.toMatch(/rgba\(0, 0, 0, 0\)/);
+    }
     const struck = await page
       .locator('tbody tr[data-row-done="true"] td[data-column="name"] [data-cell]')
       .first()
