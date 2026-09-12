@@ -2343,3 +2343,60 @@ agent-scalable-llm-wiki --strict` — exit 0; change valid.
 - The host gate was not rerun: fresh `stat /home/puni1/.cache` exited 1 with `No such file or
 directory`, so the unchanged heavy-lock prerequisite remains unavailable and no host-gate result
   is claimed for this documentation/test-fidelity round.
+
+## Slice 4.3 — finite packets and immutable submission
+
+Admission packets now bind objective/outcome, exact base commit/tree, policy and mapping identities,
+session/worktree/generation, owned paths, pinned read tuples, conflict groups, consumed/produced
+contracts and interfaces, invariants, checks and evidence requirements under one canonical packet
+identity. Repository-relative paths are lexical identities. A packet may own or read a tracked
+symlink blob exactly, but it refuses a descendant through a symlink or Gitlink and refuses a
+filesystem alias of the real worktree.
+
+Submission explicitly selects either the staged index or a committed candidate. Staged selection
+requires both the caller's base and current HEAD to equal the packet base; committed selection
+requires the candidate to descend from that base. The implementation compares complete base and
+candidate tuple maps, so additions, deletions, modes, symlink blobs and both rename sides are in the
+write-boundary decision without parsing rename heuristics. It freezes exact binary patch bytes,
+candidate-diff tuples and the candidate content/tree identity, reselects the candidate to detect a
+race, and compares packet claims/worktree while transitioning to `submitted` in the same authority
+transaction. Refusal leaves the generation working. Reports state that publication violations were
+detected and refused at submission and do not claim editing-time writes were prevented.
+
+| Deliberate one-at-a-time fault                                 | Observed production-path failure                                                  |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| remove complete changed-path ownership comparison              | `new-outside.ts` submitted; the unowned-addition case received no refusal         |
+| remove pinned-read tuple comparison                            | changed `src/read.ts` submitted instead of being refused                          |
+| compare authority before, but not inside, submit transaction   | a post-packet read expansion submitted; expected authority mismatch               |
+| allow read expansion to overlap writes                         | `src/owned.ts` joined the read set below the `src` write claim                    |
+| omit symlink/Gitlink ancestor refusal                          | `owned-link/escaped.ts` produced a packet instead of a traversal refusal          |
+| omit canonical worktree and expansion-repository bindings      | a filesystem alias produced a packet and a sibling worktree expanded it           |
+| omit staged HEAD or committed ancestry relation                | an advanced staged HEAD reached diff admission and an unrelated root submitted    |
+| omit final candidate reselection                               | an index mutation during `diff-tree` exited 0 and submitted the earlier selection |
+| accept undeclared packet fields                                | production CLI accepted `extraWrites` and exited 0                                |
+| weaken packet objective/outcome/obligation/identity boundaries | independently rehashed malformed packets exited 0 in their targeted cases         |
+| accept noncanonical owned/check order or an invalid read mode  | production CLI accepted the independently rehashed malformed packet               |
+| omit packet identity comparison                                | changed outcome bytes under the old packet identity exited 0                      |
+
+Every fault was observed through the public packet/submission API or production CLI and restored.
+Adjacent `Proof:` comments record the exact observed oracle.
+
+- `bun test src/admission/submit.test.ts` from `tools/tool-wiki` — exit 0; 23 pass, 0 fail and 74
+  assertions in 13.85 seconds.
+- `bun test src/admission` from `tools/tool-wiki` — exit 0; 69 pass, 0 fail and 260 assertions in
+  16.10 seconds.
+- Exact target command `bun test --preload ../test/scratch/preload.ts` from `tools/tool-wiki` — exit
+  0; 416 pass, 0 fail and 4,532 assertions across 22 files in 753.04 seconds.
+- `NX_DAEMON=false ./node_modules/.bin/nx run tool-wiki:lint:source --skip-nx-cache
+--output-style=static` and the equivalent `tool-wiki:typecheck` command — exit 0; cache skipped
+  and no target skipped. Nx could not create its sandbox socket and ran plugins in-process.
+- `NX_DAEMON=false ./node_modules/.bin/nx run tool-wiki:lint --skip-nx-cache
+--output-style=static` — exit 0 with the explicitly inactive external activation report; this is
+  not an enforce-mode certification.
+- `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate
+agent-scalable-llm-wiki --strict` — exit 0; change valid.
+- `NX_DAEMON=false ./node_modules/.bin/nx format:check --all` and `git diff --check` — exit 0.
+- `bin/h2puni-gate.sh 8bd1690e` — unavailable, exit 70 immediately because required heavy-lock
+  path `/home/puni1/.cache` does not exist; no host-gate step ran and the host gate is not green.
+
+Only Task 4.3 is added as complete. Integration, activation and later tasks remain untouched.

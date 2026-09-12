@@ -133,7 +133,7 @@ No `verify.md` exists until implementation produces observations.
       generation. Negative: resume old writer after successor acquisition, wrong-generation
       release, or second publication after submit; observe refusal preserving successor and
       immutable submission identities. Do not claim expired heartbeat stopped a process.
-- [ ] 4.3 Implement `admission/packet.ts` and `admission/submit.ts`: pin base/policy/mapping,
+- [x] 4.3 Implement `admission/packet.ts` and `admission/submit.ts`: pin base/policy/mapping,
       objective/outcome, owned/read sets, contracts/invariants/checks; normalize paths without
       symlink escape; freeze patch and candidate identities. Test `submit.test.ts` in real
       fixture worktrees. Negative: out-of-packet rename destination, unowned addition/deletion,
