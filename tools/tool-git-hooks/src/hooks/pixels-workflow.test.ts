@@ -12,6 +12,7 @@ interface WorkflowStep {
 
 interface WorkflowJob {
   if?: string;
+  name?: string;
   needs?: string;
   steps?: WorkflowStep[];
   strategy?: { matrix?: { shard?: number[] } };
@@ -45,6 +46,7 @@ describe('the CI pixels gate', () => {
     );
 
     expect(shardJob?.strategy?.matrix?.shard).toEqual([1, 2, 3, 4]);
+    expect(shardJob?.name).toBe('pixels shard ${{ matrix.shard }}/4');
     expect(layoutStep?.run).toBe('bun run e2e -- --shard=${{ matrix.shard }}/4');
     expect(artifactStep?.with?.name).toBe(
       'wbs-table-screenshot-${{ matrix.shard }}-${{ github.run_attempt }}',
