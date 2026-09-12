@@ -149,7 +149,7 @@ No `verify.md` exists until implementation produces observations.
       one checked candidate; contract-only incompatible transition fails until consumers
       join the same batch. Negative: reuse scoped evidence after a gate/relationship change
       and observe reselection/refusal; final candidate manifest must match every receipt.
-- [ ] 5.2 Add final generation/base recheck with compare-and-swap Git ref update, bounded
+- [x] 5.2 Add final generation/base recheck with compare-and-swap Git ref update, bounded
       retry and exact-submission recovery. Test `integration-races.test.ts`: advance target
       branch while checks are held, then release; old candidate cannot publish. Negative:
       omit ref/base check or use mutable writer patch and observe the wrong-candidate oracle

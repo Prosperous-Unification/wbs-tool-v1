@@ -2605,3 +2605,63 @@ tools/tool-wiki/src/admission/integration.test.ts` and `git diff --check` — ex
 
 Source commit: `6b5c6ccd` (`fix(tool-wiki): reject unmapped contracts`). The correction does not
 publish refs or transition authority lifecycle state.
+
+## Slice 5.2 — CAS publication and bounded recovery
+
+Publication now reserves a durable exact candidate before touching Git, rechecks every submitted
+generation and the target base in the final authority transaction, and then updates the target ref
+and creates `refs/wbs-wiki/publications/<integration-identity>` in one `git update-ref --stdin`
+transaction. The retained immutable marker closes the crash gap between Git publication and
+authority finalization: recovery verifies its exact commit, parent and tree and can finalize even
+after the target advances again. An absent marker can retry only while the reserved base remains the
+target; a mismatched or preexisting marker is refused.
+
+Retries recompose only the submitted immutable patch bytes, never a writer worktree. The initial
+experiment policy is deliberately fixed at three attempts, four submissions and five trusted-clock
+minutes. Queue, attempts, checked candidate, publication reservation and resource prerequisites are
+strict durable v4 records. Existing unactivated v3 state is intentionally incompatible: silently
+defaulting its missing queue could erase an in-flight publication fact. Resource availability is a
+separate typed trusted-probe lane whose receipt binds the exact composition and prerequisite set;
+it is not inferred from file claims or caller assertions. Rejected and other-session submissions,
+authority records and worktree files remain intact.
+
+| Deliberate one-at-a-time fault                                     | Observed production-path failure                                              |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| bypass final base recheck and the old-object CAS guard             | the held-check race published attempt 1 instead of recomposing attempt 2      |
+| read a fresh writer diff instead of the frozen patch               | the published `one` value was `99`, not the submitted `2`                     |
+| omit marker creation from the atomic ref transaction               | crash recovery could not prove the published commit after the target advanced |
+| bypass the final generation recheck and publishing-state invariant | publication occurred before the changed generation was refused                |
+| omit the queue batch ceiling in request or persisted state         | five submissions reached or constructed live authority state                  |
+| omit the five-minute deadline                                      | the exact deadline reported `waiting` instead of `terminal`                   |
+| raise the attempt ceiling to four                                  | a fourth attempt was persisted instead of terminal failure at three           |
+| omit either resource receipt binding                               | a forged candidate or forged prerequisite receipt resolved the resource wait  |
+| accept a mismatched or preexisting publication marker              | a conflicting private marker was treated as a CAS miss or overwritten         |
+| omit the publication lifecycle fence                               | a reserved generation reached a terminal transition before finalization       |
+| weaken durable checked-field, resource or packet/patch validation  | malformed or independently rebound queue state constructed successfully       |
+| accept v3 authority state                                          | queue-less v3 bytes opened as current state                                   |
+| omit the recovery tree oracle                                      | a marker commit with a forged tree finalized successfully                     |
+
+Every fault was watched through `integration-races.test.ts`, restored, and recorded by the adjacent
+`Proof:` comment at the production check.
+
+- `bun test tools/tool-wiki/src/admission/integration-races.test.ts` — exit 0; 12 pass, 0 fail and
+  39 assertions in 3.11 seconds.
+- `bun test tools/tool-wiki/src/admission/*.test.ts` — exit 0; 101 pass, 0 fail and 384 assertions in
+  29.59 seconds.
+- Exact target command `bun test --preload ../test/scratch/preload.ts` from `tools/tool-wiki` — exit
+  0; 458 pass, 0 fail and 4,656 assertions across 24 files in 785.79 seconds.
+- `NX_DAEMON=false bunx nx lint tool-wiki --skip-nx-cache` — exit 0 with the explicitly inactive
+  external activation report; this is not enforce-mode certification. Nx could not create a sandbox
+  plugin socket and ran plugins in-process.
+- `NX_DAEMON=false bunx nx typecheck tool-wiki --skip-nx-cache`,
+  `NX_DAEMON=false bunx nx format:check --all`, and `git diff --check` — exit 0. Nx used the same
+  in-process plugin fallback for the first command.
+- `bash bin/tool-wiki-lint.sh working . HEAD` — exit 0 with the explicitly inactive external
+  activation report. Task 5.3 still owns production activation.
+- `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate agent-scalable-llm-wiki --strict
+--json` — exit 0; one valid change and no issues.
+
+Implementation checkpoint: `328d6278` (`feat(tool-wiki): publish integration candidates with CAS
+recovery`). Only Task 5.2 is newly marked complete. Task 5.3 activation remains out of scope. The
+required `bin/h2puni-gate.sh 328d6278` was unavailable, exit 70 before any gate step because the
+heavy-lock path `/home/puni1/.cache` does not exist; the host gate is not green.
