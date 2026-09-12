@@ -113,6 +113,19 @@ describe('SavedPlanService.save', () => {
       createdById: null,
     });
 
+  const calendarRangeScheduler: Scheduler = {
+    supports: (engine) => fastScheduler.supports(engine),
+    read: (ask) => {
+      const answer = fastScheduler.read(ask);
+      if (answer.kind !== 'scheduled') return answer;
+      const workItems = new Map(answer.fast.workItems);
+      const first = workItems.entries().next().value;
+      if (first === undefined) throw new Error('calendar-range fixture has no work item');
+      workItems.set(first[0], { ...first[1], earliestFinish: 90_000_000 });
+      return { ...answer, fast: { ...answer.fast, workItems } };
+    },
+  };
+
   const selectOptimized = async (projectId = 'p1', enabled = true) => {
     await new ProjectRepository(reader.db, OPEN).update(
       projectId,
@@ -367,6 +380,17 @@ describe('SavedPlanService.save', () => {
     expect(rows[0].scheduleSha256).toBeNull();
     expect(rows[0].schedulerAlgorithmId).toBeNull();
     // The input body is there in full, which is the whole point of saving it.
+    expect((await bodies()).map((row) => row.kind)).toEqual(['input']);
+  });
+
+  it('saves a calendar-range plan with no schedule and the reason infeasible', async () => {
+    const result = await save(calendarRangeScheduler);
+
+    expect(result.outcome).toBe('saved');
+    if (result.outcome !== 'saved') return;
+    // Proof: remove CalendarRangeError mapping in `scheduleWrite` and this
+    // awaited save throws instead of persisting the recoverable input alone.
+    expect(result.record.schedule).toEqual({ present: false, absentReason: 'infeasible' });
     expect((await bodies()).map((row) => row.kind)).toEqual(['input']);
   });
 

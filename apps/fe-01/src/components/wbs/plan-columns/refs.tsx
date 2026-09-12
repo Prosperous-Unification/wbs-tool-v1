@@ -97,7 +97,7 @@ export function createRefsColumn({ live }: { live: PlanLive }) {
             // announced about a cell that says nothing.
             aria-describedby={marks.length === 0 ? undefined : sentenceId}
             onMouseEnter={() => {
-              live.current.cellCards.updateHovered(() => refsCell);
+              live.current.cellCards.arriveOn(refsCell);
             }}
             onClick={() => {
               live.current.setRefsEditing(row.original.id);
@@ -180,7 +180,7 @@ export function createRefsColumn({ live }: { live: PlanLive }) {
               // The hand got to the card: keep it. Off it again, the cell's
               // own `mouseleave` holds and then closes.
               onPointerArrives={() => {
-                live.current.cellCards.cancelHold();
+                live.current.cellCards.arriveOnCard();
               }}
             />
           )}

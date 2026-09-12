@@ -260,7 +260,7 @@ export function usePlanReadState({ projectId }: { projectId: string }) {
 
   const [connected, setConnected] = useState(true);
 
-  const [scheduleError, setScheduleError] = useState<'cycle' | null>(null);
+  const [scheduleError, setScheduleError] = useState<'calendar_range' | 'cycle' | null>(null);
 
   const [estimateMethod, setEstimateMethod] = useState<EstimateMethod>('pert');
 
@@ -456,7 +456,7 @@ export function usePlanRead({
   setStack: React.Dispatch<React.SetStateAction<{ undoable: boolean; redoable: boolean }>>;
   setTeamCapacities: React.Dispatch<React.SetStateAction<TeamCapacityView[]>>;
   setPriorityBands: React.Dispatch<React.SetStateAction<PriorityBandView[]>>;
-  setScheduleError: React.Dispatch<React.SetStateAction<'cycle' | null>>;
+  setScheduleError: React.Dispatch<React.SetStateAction<'calendar_range' | 'cycle' | null>>;
   setEstimateMethod: React.Dispatch<
     React.SetStateAction<'pert' | 'optimistic' | 'realistic' | 'pessimistic'>
   >;

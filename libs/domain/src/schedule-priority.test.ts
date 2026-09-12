@@ -603,3 +603,71 @@ describe('a plan that priorities nothing is scheduled exactly as it was', () => 
     expect(found.waitingForPerson).toBe(4);
   });
 });
+
+describe('a contention tie falls to tree order', () => {
+  /**
+   * The one pair that can tell {@link treeOrder} apart from the work item
+   * number, and therefore the only place ADR 0023's change to `goesFirst` is
+   * visible at all.
+   *
+   * `first` and `second` tie on every rule above the sixth — neither has a
+   * deadline or a priority, both are eligible at day zero, and with nobody in
+   * the way both carry no float — so the queue's decision is the tie-break's
+   * alone. Their frozen numbers are written to **contradict** their positions:
+   * the work item that reads first is numbered `030` and the one below it
+   * `010`, which a byte-wise comparison of numbers orders the other way round.
+   *
+   * A plan whose numbers agree with its positions cannot separate the two
+   * rules, which is why every one of the eight golden-corpus cases stayed green
+   * when tree order was deliberately reversed. Measured, not assumed
+   * (2026-09-11): that injection moved **nothing** across all 629 domain tests.
+   */
+  it('gives the person to the work item that reads first, not to the smaller number', () => {
+    const rows: PlannedRow[] = [
+      { id: 'first', parentId: null, position: 10, frozenNumber: '030', priority: null },
+      { id: 'second', parentId: null, position: 20, frozenNumber: '010', priority: null },
+    ];
+    const slices = [slice('first', DEV, 2, 'kim'), slice('second', DEV, 2, 'kim')];
+
+    const found = schedule(rows, [], slices, new Map(), new Map(), 'whole-item', new Map());
+
+    // Proof: the sixth rule taken back to the number string — `places` rebuilt
+    // by sorting `deriveNumbers(rows)` byte-wise — watched failing on
+    // `Expected - 2 · Received + 18`, `first` coming back
+    // `earliestStart: 2, boundBy: "person", resourcePredecessorId: "second
+    // step-dev"`: the person went to `010`, which is the row below.
+    //
+    // A second test went red with it, and it is worth knowing which:
+    // `canonicalScheduleInput › … two frozen numbers that contradict position,
+    // which no longer reorder anything`. That case asserts the two plans
+    // schedule *identically*, so it fails exactly when frozen numbers start
+    // moving placements again. Restored 2026-09-11; 629 pass / 2 fail.
+    expect(planned(found, 'first', DEV)).toMatchObject({ earliestStart: 0, earliestFinish: 2 });
+    expect(planned(found, 'second', DEV)).toMatchObject({
+      earliestStart: 2,
+      boundBy: 'person',
+    });
+  });
+
+  /**
+   * The half that says the tie was real: with the two slices tied on every
+   * rule, the plan schedules the same way whichever order the rows arrive in.
+   * Without it the case above could be passing on `Array` order rather than on
+   * the comparison it names.
+   */
+  it('answers the same plan whichever order the two rows arrive in', () => {
+    const rows: PlannedRow[] = [
+      { id: 'first', parentId: null, position: 10, frozenNumber: '030', priority: null },
+      { id: 'second', parentId: null, position: 20, frozenNumber: '010', priority: null },
+    ];
+    const slices = [slice('first', DEV, 2, 'kim'), slice('second', DEV, 2, 'kim')];
+    const run = (order: PlannedRow[]): number =>
+      planned(
+        schedule(order, [], slices, new Map(), new Map(), 'whole-item', new Map()),
+        'first',
+        DEV,
+      ).earliestStart;
+
+    expect(run([...rows].reverse())).toBe(run(rows));
+  });
+});

@@ -200,15 +200,13 @@ export function createEstimatesColumns({
                 // cell's own enter for why passing an empty cell must not
                 // close the card open somewhere else.
                 if (!cardable) return;
-                live.current.cellCards.updateHovered(() => finalCell);
+                live.current.cellCards.arriveOn(finalCell);
               }}
               onMouseLeave={() => {
                 // The same-cell guard the Name cell's marker gives its
                 // reason for: a leave lands after the enter of whatever the
                 // pointer moved on to.
-                live.current.cellCards.updateHovered((current) =>
-                  current === finalCell ? null : current,
-                );
+                live.current.cellCards.leave(finalCell);
               }}
               // No native `title` here or on the input below: the card is
               // this cell's one hint (CONTEXT.md, "Hover preview"), and a

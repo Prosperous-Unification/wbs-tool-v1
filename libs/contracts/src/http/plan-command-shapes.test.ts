@@ -25,6 +25,7 @@ const commands: PlanCommandWire[] = [
   { kind: 'setAssignee', stepId: 's' },
   { kind: 'addDependency' },
   { kind: 'removeDependency' },
+  { kind: 'arrangeBySchedule' },
   { kind: 'freezeProject' },
   { kind: 'unfreezeProject' },
   { kind: 'unfreezeWorkItem' },
@@ -47,8 +48,8 @@ const commands: PlanCommandWire[] = [
   { kind: 'deleteWorkItemType' },
 ];
 
-test('validates all 36 structural wire arms without applying semantic defaults or a batch cap', async () => {
-  expect(commands).toHaveLength(36);
+test('validates all 37 structural wire arms without applying semantic defaults or a batch cap', async () => {
+  expect(commands).toHaveLength(37);
   for (const command of commands) {
     expect(await validateSchema(planCommandSchema, command)).toEqual({ value: command });
   }
@@ -143,7 +144,7 @@ test('emits inline MCP-readable command branches with real nested patch and esti
   const descriptor = planCommandsBody.jsonSchema as Descriptor;
   expect(JSON.stringify(descriptor)).not.toContain('"$ref"');
   const branches = descriptor.properties?.['commands']?.items?.anyOf;
-  expect(branches).toHaveLength(36);
+  expect(branches).toHaveLength(37);
   if (branches === undefined) throw new Error('Missing command alternatives');
   const find = (kind: string) =>
     branches.find((branch) => branch.properties?.['kind']?.const === kind);

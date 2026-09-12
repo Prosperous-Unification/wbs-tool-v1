@@ -2072,13 +2072,68 @@ describe('names wrap and notes carry markdown', () => {
     await screen.findByRole('tooltip');
     fireEvent.mouseEnter(notesMarkerOf('020'));
 
-    const open = screen.getAllByRole('tooltip');
-    expect(open).toHaveLength(1);
-    expect(open[0]?.getAttribute('aria-label')).toBe('Notes for 020, rendered');
+    // The second card is a **takeover** (`card-takeover-delay`): with 010's
+    // card open, 020's marker gets the card only once the pointer has rested
+    // on it for {@link TAKEOVER_MS}. Until then the one card open is still
+    // 010's — never two, never none.
+    const waiting = screen.getAllByRole('tooltip');
+    expect(waiting).toHaveLength(1);
+    expect(waiting[0]?.getAttribute('aria-label')).toBe('Notes for 010, rendered');
+    await waitFor(() => {
+      expect(screen.getByRole('tooltip').getAttribute('aria-label')).toBe(
+        'Notes for 020, rendered',
+      );
+    });
+    expect(screen.getAllByRole('tooltip')).toHaveLength(1);
 
     fireEvent.mouseLeave(notesMarkerOf('010'));
 
     expect(screen.getByRole('tooltip').getAttribute('aria-label')).toBe('Notes for 020, rendered');
+  });
+
+  itDom('Escape saves what was typed and closes the notes editor', async () => {
+    // Dany, 2026-09-12: _"so that ESC key hides the notes editor (edits are
+    // saved)"_. Escape did nothing in this box until now — the only way out was
+    // leaving it — and leaving is the save, so Escape leaves: the blur is the
+    // one commit path, and the box collapses to its one-line rest because it is
+    // no longer focused. No abandon is added; Cmd+Z stays the undo.
+    //
+    // Proof: the Escape branch removed from the Name cell's `onKeyDown` — this
+    // failed on `expected '## Risks' to be '## Risks\n\nand a mitigation'`.
+    // Watched, 2026-09-12.
+    const api = await oneRowWithNotes('## Risks');
+    const box = await screen.findByLabelText('Name of 010');
+    box.focus();
+    expect(document.activeElement).toBe(box);
+    fireEvent.change(box, { target: { value: 'Strip\n## Risks\n\nand a mitigation' } });
+    fireEvent.keyDown(box, { key: 'Escape' });
+    await waitFor(() => {
+      expect(api.rows[0]?.notes).toBe('## Risks\n\nand a mitigation');
+    });
+    expect(document.activeElement).not.toBe(box);
+  });
+
+  itDom('the Done button beside the notes saves and closes the editor too', async () => {
+    // Dany, 2026-09-12: _"a non-intrusive neat small 'Done' button that you can
+    // press to hide the editor of markdown"_. It lives in the rendered-notes
+    // panel — the one thing there that takes the pointer — and does what Escape
+    // does. A press, not a click: the press is what would have moved the focus
+    // off the box anyway, so it is answered where it lands.
+    //
+    // Proof: the button's `blur()` removed — this failed on `expected '## Risks'
+    // to be '## Risks\n\n- one more'`. Watched, 2026-09-12.
+    const api = await oneRowWithNotes('## Risks');
+    const box = await screen.findByLabelText('Name of 010');
+    box.focus();
+    fireEvent.input(box, { target: { value: 'Strip\n## Risks\n\n- one more' } });
+    const panel = await screen.findByLabelText('Notes for 010, rendered while writing');
+    const done = within(panel).getByRole('button', { name: 'Done writing notes for 010' });
+    fireEvent.mouseDown(done);
+    await waitFor(() => {
+      expect(api.rows[0]?.notes).toBe('## Risks\n\n- one more');
+    });
+    expect(document.activeElement).not.toBe(box);
+    expect(screen.queryByLabelText('Notes for 010, rendered while writing')).toBeNull();
   });
 
   itDom('reads the whole note in the preview while the box shows the name', async () => {

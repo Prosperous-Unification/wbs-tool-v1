@@ -736,6 +736,7 @@ function parseKind(kind: PlanCommandKind, raw: Record<string, unknown>): PlanCom
         predecessorId: asOptionalId(raw['predecessorId'], 'predecessorId'),
         predecessorRef: asOptionalId(raw['predecessorRef'], 'predecessorRef'),
       });
+    case 'arrangeBySchedule':
     case 'freezeProject':
     case 'unfreezeProject':
       return { kind };
@@ -936,6 +937,8 @@ function answerBatch(
         status: 422,
         body: { ...context, error: outcome.reason, ...outcome.detail },
       };
+    case 'calendar_range':
+      return { ok: false, status: 422, body: { ...context, error: outcome.reason } };
     case 'taken':
       return {
         ok: false,
@@ -970,7 +973,13 @@ function answerBatch(
       return { ok: false, status: 404, body: { ...context, error: outcome.reason } };
     case 'cycle':
       return { ok: false, status: 409, body: { ...context, error: outcome.reason } };
-    case 'frozen':
+    case 'schedule_not_ready':
+      // A conflict, not a fault: the same request is accepted the moment the
+      // solve lands. `refusal-status.ts` has the family's definition.
+      return { ok: false, status: 409, body: { ...context, error: outcome.reason } };
+    case 'engine_unavailable':
+      // What the plan read answers for the same deployment, with the same code,
+      // so a client meets one word for "this release has no optimizer".
       return { ok: false, status: 409, body: { ...context, error: outcome.reason } };
     case 'rolled_up':
       return { ok: false, status: 409, body: { ...context, error: outcome.reason } };

@@ -1008,7 +1008,10 @@ describe('moving rows with alt and the arrows', () => {
     });
   });
 
-  itDom('refuses to move a frozen row and says why', async () => {
+  itDom('moves a frozen row on alt+down, like any other', async () => {
+    // The inverse of the case that stood here until ADR 0023: it asserted no
+    // move was sent and that an alert said "frozen". A frozen number is a name
+    // now, and the row moves with it.
     const api = await threeRoots();
     takeFreezeAction('Freeze numbering');
     await waitFor(() => {
@@ -1016,10 +1019,15 @@ describe('moving rows with alt and the arrows', () => {
     });
     const moved = watchMoves(api);
 
+    // `false` is "the chord took the key", which it did before too — the
+    // refusal called `preventDefault` on its way to a toast. What changed is
+    // what happens next.
     expect(altArrow('Name of 010', 'ArrowDown')).toBe(false);
 
-    expect(moved).toEqual([]);
-    expect(screen.getByRole('alert').textContent).toContain('frozen');
+    await waitFor(() => {
+      expect(moved).toHaveLength(1);
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   itDom('drops a second alt+down while the first is in flight', async () => {

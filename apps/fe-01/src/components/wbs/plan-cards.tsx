@@ -1258,6 +1258,9 @@ function CardDeadlineField({
   const hasCalendar = projectStart !== null;
   const impossible = deadlineBeforeProjectStart(projectStart, day);
   const [draftDay, setDraftDay] = useState(day ?? '');
+  const deadlineName = `Work item deadline for ${row.number}`;
+  const shortDay = day === null ? null : shortIsoDate(day, new Date());
+  const sheetImpossibleReasonId = `card-deadline-sheet-impossible-${row.id}`;
   const title = hasCalendar
     ? [
         day === null ? null : `${day}.`,
@@ -1289,7 +1292,7 @@ function CardDeadlineField({
           disabled={!hasCalendar}
           // The table cell's own label, so one plan read on two faces answers to
           // one name — a screen reader and a test both find this by it.
-          aria-label={`Work item deadline for ${row.number}`}
+          aria-label={shortDay === null ? deadlineName : `${deadlineName}: due ${shortDay}`}
           // What the cell's own `aria-describedby` does one face over: the mark
           // is drawn beside the date, and on a card the two are one control, so
           // the sentence goes on the control a reader reaches rather than on a
@@ -1314,7 +1317,7 @@ function CardDeadlineField({
           ) : (
             <>
               <span data-card-deadline data-fact={title}>
-                due {shortIsoDate(day, new Date())}
+                due {shortDay}
               </span>
               {impossible && (
                 <span
@@ -1354,7 +1357,11 @@ function CardDeadlineField({
             // reader who has opened the editor is the one about to act on it,
             // and `aria-describedby` on the trigger is announced on the way in
             // rather than while the date box has focus.
-            <p data-card-deadline-impossible-reason className="text-destructive text-sm">
+            <p
+              id={sheetImpossibleReasonId}
+              data-card-deadline-impossible-reason
+              className="text-destructive text-sm"
+            >
               {DEADLINE_BEFORE_START}
             </p>
           )}
@@ -1373,6 +1380,8 @@ function CardDeadlineField({
             <input
               type="date"
               aria-label={`Work item deadline for ${row.number}`}
+              aria-describedby={impossible ? sheetImpossibleReasonId : undefined}
+              aria-invalid={impossible || undefined}
               data-cell={cellKey(row.id, 'deadline')}
               data-card-deadline-input
               className={`${TAP} box-border w-full rounded-md border p-2 text-base`}

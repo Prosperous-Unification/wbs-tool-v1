@@ -2654,12 +2654,13 @@ export function GanttPanel({
   // that is what lets {@link GanttChart} hold its hooks unconditionally: this
   // component has none, so the early return below cannot be a hook order that
   // changes with the payload.
-  if (scheduleError === 'cycle') {
+  if (scheduleError !== null) {
     return (
       <section data-gantt-panel aria-label="Gantt chart" className="border-border border-t p-3">
         <p role="status" className="text-sm">
-          Nothing can be drawn while these dependencies run in a circle — no dates could be worked
-          out. Remove one and the chart comes back.
+          {scheduleError === 'cycle'
+            ? 'Nothing can be drawn while these dependencies run in a circle — no dates could be worked out. Remove one and the chart comes back.'
+            : 'Nothing can be drawn because this plan extends beyond the supported calendar range. Shorten it and the chart comes back.'}
         </p>
       </section>
     );
@@ -2695,7 +2696,7 @@ interface GanttProps {
   /** The day the plan begins, or null while it is not on a calendar. */
   startDate: IsoDate | null;
   /** be-01's answer when no dates could be worked out at all. */
-  scheduleError: 'cycle' | null;
+  scheduleError: 'calendar_range' | 'cycle' | null;
   /**
    * Which chart read this is drawn from — a number that moves whenever a new
    * one lands.
@@ -3533,39 +3534,33 @@ function GanttChart({
     [chart, startDate],
   );
   /**
-   * The bars that are drawn: every placed bar with the detail asked for, and
-   * the slices somebody costed alone without it.
+   * The bars that are drawn, which since 2026-09-11 is **all of them**.
    *
    * A slice nobody has estimated is drawn across an assumed span of two
-   * workdays, translucent and dashed and carrying a `?`. On a fresh plan that is
-   * most of the chart — two steps a leaf, one of them nearly always uncosted, so
-   * ten rows draw twenty bars and half of them are a width nobody gave (Dany,
-   * 2026-08-11: "remove … unestimated QA bars"). At rest they are not drawn, and
-   * where unestimated work is found is the plan's own `?` cells, which is a
-   * place that can say how many there are; a chart cannot. Asked for, they come
-   * back whole — the reader who wants to see what has not been costed yet says
-   * so with the one switch that says it about everything.
+   * workdays, translucent and dashed and carrying a `?`. Those bars were part of
+   * what the detail switch hid, by Dany's own ask on 2026-08-11 ("remove …
+   * unestimated QA bars") and folded into one control on 2026-08-12 ("all
+   * decluttering into one button").
+   *
+   * **Reversed on sight, 2026-09-11**: _"with details disabled you still have to
+   * show the unestimated slices"_. Measured in his own plan before the change —
+   * twelve rows of a twenty-eight-bar chart are uncosted, and with the switch
+   * off those twelve lanes drew **nothing at all**. A row that is on the chart
+   * and draws nothing reads as a row with no work rather than as a row nobody
+   * has costed, which is the opposite of what the `?` is for.
+   *
+   * So the switch answers about **two** families now — the stored-dependency
+   * arrows and the parent rows' summary brackets — and an uncosted slice is
+   * drawn in both of its states. The dashes and the `?` are what say the span
+   * was assumed; they do that whether or not the reader wants elbows.
    *
    * One list, read by the rects, the ticks and the on-bar labels alike, so the
-   * three cannot come to different answers about which bars exist.
-   *
-   * The narrowing is here and not in {@link layOutGantt}: `placed.horizon`
-   * contains the assumed span either way, so the canvas and the axis are one
-   * width in both states and the switch moves no coordinate of anything.
-   *
-   * Proof, both directions, watched 2026-08-12. Pinned to `placed.bars` — the
-   * uncosted slice drawn at rest — `6 failed | 85 passed`: the five tests that
-   * assert a mark is absent, each on `expected SVGElement{…} to be null`, and
-   * `the detail switch`'s own case on `expected 1 to be +0` for the assumed
-   * count. Pinned to the filtered arm — the switch drawing nothing new —
-   * `7 failed | 84 passed`: four of them on {@link askForTheDetail}'s own throw,
-   * `the detail switch was pressed and nothing arrived at [data-assumed]`, and
-   * three on `expected +0 to be 1` / `expected undefined to be 'true'`.
+   * three cannot come to different answers about which bars exist. It is kept
+   * as a name rather than inlined to `placed.bars` because {@link drawn} below
+   * is derived from it, and because a row with no bars at all is still a thing
+   * the flags and links have to ask about.
    */
-  const drawnBars = useMemo(
-    () => (detailShown ? placed.bars : placed.bars.filter(({ bar }) => bar.estimated)),
-    [detailShown, placed],
-  );
+  const drawnBars = placed.bars;
   /**
    * The bar the open surface belongs to, or null when there is no surface, or
    * no such bar, or that bar is not being drawn.
@@ -6074,8 +6069,8 @@ function GanttChart({
           aria-pressed={detailShown}
           data-hint={
             detailShown
-              ? 'Hide the arrows, the parent bars and the unestimated slices'
-              : 'Show the arrows, the parent bars and the unestimated slices'
+              ? 'Hide the arrows and the parent bars'
+              : 'Show the arrows and the parent bars'
           }
           className={detailShown ? chartChip() : chartChip(CHART_CHIP_OFF)}
           onClick={() => {

@@ -1,7 +1,8 @@
-import { chmod, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { scratchAsync } from '@wbs/tool-test-scratch';
+import { $ } from 'bun';
 import { describe, expect, it } from 'bun:test';
 
 import { readProjects } from '../workspace-projects.mjs';
@@ -19,6 +20,7 @@ import {
   RESTART_PATHS,
   runDevSyncLock,
   SOLVER_COMPATIBILITY_PATHS,
+  solverTargetDependencies,
   sync,
 } from './sync';
 
@@ -184,6 +186,7 @@ describe('dev supervisor', () => {
     expect(fetchAt).toBeGreaterThan(-1);
     expect(targetAt).toBeGreaterThan(fetchAt);
     expect(proofAt).toBeGreaterThan(targetAt);
+    expect(source).toContain('const sourceRepository = options.sourceRepository ?? SRC;');
   });
 
   it('prepares a changed solver target and keeps unchanged targets on the existing preflight', async () => {
@@ -225,6 +228,66 @@ describe('dev supervisor', () => {
       },
     });
     expect(unchangedEvents).toEqual(['preflight', 'reset']);
+  });
+
+  it('reads target compatibility from the source repository, not the exported deployer tree', async () => {
+    const directory = await scratchAsync('wbs-devsync-source-repository-');
+    const sourceRepository = join(directory, 'source');
+    const exportedRuntime = join(directory, 'bin', 'sync.target');
+    await mkdir(join(sourceRepository, 'libs', 'solver-py'), { recursive: true });
+    await mkdir(join(sourceRepository, 'apps', 'be-01'), { recursive: true });
+    await mkdir(exportedRuntime, { recursive: true });
+    await writeFile(join(sourceRepository, 'libs', 'solver-py', 'solver.py'), 'version = 1\n');
+    await writeFile(join(sourceRepository, 'apps', 'be-01', 'Dockerfile'), 'FROM scratch\n');
+    await $`git -C ${sourceRepository} init --quiet`;
+    await $`git -C ${sourceRepository} add libs/solver-py apps/be-01/Dockerfile`;
+    await $`git -C ${sourceRepository} -c user.name=devsync-test -c user.email=devsync@example.invalid commit --quiet -m compatibility`;
+    const compatibilitySha = (await $`git -C ${sourceRepository} rev-parse HEAD`.text()).trim();
+    const dependencies = solverTargetDependencies({
+      sourceRepository,
+      runtimeRoot: exportedRuntime,
+      solverConfigPath: join(directory, 'missing-solver-config.json'),
+    });
+
+    const exportedQuery = await $`git -C ${exportedRuntime} rev-parse --git-dir`.nothrow().quiet();
+    expect(exportedQuery.exitCode).toBe(128);
+    expect(exportedQuery.stderr.toString()).toContain('not a git repository');
+    const identity = await dependencies.compatibilityIdentity(compatibilitySha);
+    expect(identity).toMatch(/^[0-9a-f]{64}$/);
+
+    await writeFile(join(sourceRepository, 'README.md'), 'unrelated change\n');
+    await $`git -C ${sourceRepository} add README.md`;
+    await $`git -C ${sourceRepository} -c user.name=devsync-test -c user.email=devsync@example.invalid commit --quiet -m unrelated`;
+    const unrelatedSha = (await $`git -C ${sourceRepository} rev-parse HEAD`.text()).trim();
+    expect(await dependencies.compatibilityIdentity(unrelatedSha)).toBe(identity);
+
+    await $`git -C ${sourceRepository} reset --hard --quiet ${compatibilitySha}`;
+    let preparations = 0;
+    await deploySolverTarget(unrelatedSha, {
+      ...dependencies,
+      prepare: () => {
+        preparations += 1;
+        return Promise.reject(new Error('unrelated target must not prepare the solver'));
+      },
+    });
+    expect(preparations).toBe(0);
+    expect((await $`git -C ${sourceRepository} rev-parse HEAD`.text()).trim()).toBe(unrelatedSha);
+  });
+
+  it('names the source repository and compatibility path when git cannot answer the query', async () => {
+    const directory = await scratchAsync('wbs-devsync-missing-source-repository-');
+    const missingRepository = join(directory, 'missing-source');
+    const exportedRuntime = join(directory, 'bin', 'sync.target');
+    await mkdir(exportedRuntime, { recursive: true });
+
+    const message = await rejection(
+      solverTargetDependencies({
+        sourceRepository: missingRepository,
+        runtimeRoot: exportedRuntime,
+      }).compatibilityIdentity('a'.repeat(40)),
+    );
+    expect(message).toContain(`git repository ${missingRepository}`);
+    expect(message).toContain(`${'a'.repeat(40)}:libs/solver-py`);
   });
 
   it('does not require supervisor host state for source-unrelated deploys', async () => {

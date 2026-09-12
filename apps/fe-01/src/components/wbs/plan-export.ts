@@ -220,8 +220,8 @@ export interface PlanExport {
   method: EstimateMethod;
   /** The day the plan starts, or null while it is not on a calendar at all. */
   startDate: string | null;
-  /** `cycle` when be-01 could not order the graph, and so has no schedule to report. */
-  scheduleError: 'cycle' | null;
+  /** Why be-01 could not produce calendar dates for the plan. */
+  scheduleError: 'calendar_range' | 'cycle' | null;
   steps: readonly NamedEntry[];
   teams: readonly NamedEntry[];
   /** The tag vocabulary, for the Tags column — `teams`' shape, one dimension over. */
@@ -431,7 +431,10 @@ function headerFields(plan: PlanExport): { key: string; value: string }[] {
   if (plan.scheduleError !== null) {
     fields.push({
       key: 'Schedule',
-      value: `these dependencies run in a circle, so no dates could be worked out — every date and slack reads ${NO_SCHEDULE}`,
+      value:
+        plan.scheduleError === 'cycle'
+          ? `these dependencies run in a circle, so no dates could be worked out — every date and slack reads ${NO_SCHEDULE}`
+          : `this plan extends beyond the supported calendar range, so no dates could be worked out — every date and slack reads ${NO_SCHEDULE}`,
     });
   }
   // Last, and in **both** formats: a document that is not the whole plan says

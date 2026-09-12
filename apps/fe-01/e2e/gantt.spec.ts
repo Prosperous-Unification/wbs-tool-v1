@@ -1155,11 +1155,14 @@ test.describe('the chart, after the browser has scaled it', () => {
 
     await page.reload();
     await openTheChart(page);
-    // All three families stay off across the reload, and not the arrows alone:
+    // Both gated families stay off across the reload, and not the arrows alone:
     // the stored answer is one answer about the whole chart.
     await expect(page.locator('[data-gantt-arrow]')).toHaveCount(0);
     await expect(page.locator('[data-gantt-bracket]')).toHaveCount(0);
-    await expect(page.locator('[data-assumed]')).toHaveCount(0);
+    // The uncosted slices are **not** one of them since 2026-09-12: they are
+    // drawn in both states, so their count is the same on both sides of the
+    // reload rather than falling to zero with the rest.
+    await expect(page.locator('[data-assumed]')).toHaveCount(2);
     await expect(page.locator('[data-gantt-detail-toggle]')).toHaveAttribute(
       'aria-pressed',
       'false',
@@ -1184,7 +1187,7 @@ test.describe('the chart, after the browser has scaled it', () => {
    * measured for area: a count of marks is not a count of things a reader can
    * see, which is the sixteenth check's lesson.
    */
-  test('draws every mark at rest, and only costed work once the detail is off', async ({
+  test('draws every mark at rest, and drops only the bracket once the detail is off', async ({
     page,
   }) => {
     await seedPlan(page, nextAccount(), { estimate: PAST_THE_WEEKEND });
@@ -1212,9 +1215,11 @@ test.describe('the chart, after the browser has scaled it', () => {
 
     await page.locator('[data-gantt-detail-toggle]').click();
 
-    // Asked off: two bars — the two Dev bars — and no ghost, no assumed QA.
-    await expect(page.locator('[data-gantt-bar]')).toHaveCount(2);
-    await expect(page.locator('[data-assumed]')).toHaveCount(0);
+    // Asked off: no ghost. The four bars stay — the two Dev bars and the two
+    // uncosted QA slices, which left this switch's scope on 2026-09-12 — so
+    // what the press takes off this chart is the parent's bracket alone.
+    await expect(page.locator('[data-gantt-bar]')).toHaveCount(4);
+    await expect(page.locator('[data-assumed]')).toHaveCount(2);
     await expect(page.locator('[data-gantt-bracket]')).toHaveCount(0);
     // The plan and the chart still line up row for row, which is the one thing
     // the switch is not allowed to touch.
@@ -2619,9 +2624,31 @@ test.describe('the chart edge the reader drags', () => {
   test('re-measures the room when the toolbar wraps under a new control', async ({ page }) => {
     // Narrow enough that the toolbar takes a second row once `Reset layout`
     // joins it, and wide enough to stay on the table face: the cards renderer
-    // takes over below this and has a different column entirely. Measured
-    // 2026-08-30: 780 and 770 wrap as well, 790 and up do not.
-    await page.setViewportSize({ width: 768, height: 900 });
+    // takes over below this and has a different column entirely.
+    //
+    // **780, moved from 768 on 2026-09-11 and re-measured there.**
+    // `arrange-by-schedule` put one more icon on the bar, and at 768 the
+    // toolbar now takes its second row *before* the drag — so the premise this
+    // case is built on was gone and its own guard said so: `the toolbar did not
+    // take a second row, so this is the 1400px case at a narrower window ·
+    // Expected: > 104 · Received: 104`. That guard is the reason this is a
+    // re-measurement rather than a silent pass.
+    //
+    // The window, measured in this file's Chromium on 2026-09-11 — toolbar
+    // height without `Reset layout`, then with it:
+    //
+    // | width | folded | with the control |
+    // | ----- | ------ | ---------------- |
+    // | 770   | 104    | 104              |
+    // | 775   | 68     | 104              |
+    // | 780   | 68     | 104              |
+    // | 785   | 68     | 104              |
+    // | 790   | 68     | 68               |
+    //
+    // So the band is 775–785 and this sits in the middle of it. It is ten
+    // pixels wide: one more control on this bar closes it, and the next change
+    // to add one has to re-measure here as well as at the two width pins.
+    await page.setViewportSize({ width: 780, height: 900 });
     await seedPlan(page, nextAccount());
     await openTheChart(page);
 

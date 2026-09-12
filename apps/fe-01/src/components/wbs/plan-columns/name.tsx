@@ -170,6 +170,28 @@ export function createNameColumn({ live }: { live: PlanLive }) {
               live.current.commitNameCell(row.original.id, typed, baseline)
             }
             onKeyDown={(e) => {
+              // **Escape leaves the box, and leaving is the save.** Dany,
+              // 2026-09-12: _"so that ESC key hides the notes editor (edits are
+              // saved)"_. The blur is this table's one commit path, so the edit
+              // goes out exactly as a Tab sends it, and the box collapses to its
+              // one-line rest because it is no longer focused. Nothing is
+              // abandoned — a paragraph of markdown is not thrown away on a stray
+              // key — and the keyboard goes nowhere, as after a click away; the
+              // collapsed box and the editor are one textarea, so there is no
+              // "closed but focused" to land on. Before the chords and the
+              // arrows: Escape is nobody else's here, the Name cell has no list
+              // to close.
+              // Proof: this branch removed — `Escape saves what was typed and
+              // closes the notes editor` (`plan-cells.test.tsx`) failed on
+              // `expected '## Risks' to be '## Risks\n\nand a mitigation'`, the
+              // edit never sent; and `e2e/hover-cards.spec.ts`'s `Escape saves
+              // the note and closes the editor` on the panel staying up. Watched,
+              // 2026-09-12.
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                e.currentTarget.blur();
+                return;
+              }
               live.current.onAltMove(e, row.original, 'name');
               // Before the Name cell's own keys, and before the arrows:
               // Ctrl+Enter is a command here and a plain Enter is a
@@ -219,7 +241,7 @@ export function createNameColumn({ live }: { live: PlanLive }) {
               aria-label={`Notes on ${row.original.number}`}
               data-notes-marker={row.original.id}
               onMouseEnter={() => {
-                live.current.cellCards.updateHovered(() => nameCell);
+                live.current.cellCards.arriveOn(nameCell);
               }}
               // **And the marker's leave is what dismisses it**, held for the
               // length of a reach in case the hand is going to the card. Dany,
@@ -273,7 +295,7 @@ export function createNameColumn({ live }: { live: PlanLive }) {
               // got there. Leaving it is the cell's own `mouseleave`, which
               // holds and then closes.
               onPointerArrives={() => {
-                live.current.cellCards.cancelHold();
+                live.current.cellCards.arriveOnCard();
               }}
             />
           )}

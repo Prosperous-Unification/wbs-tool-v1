@@ -754,9 +754,24 @@ export function createDependsColumn({ live }: { live: PlanLive }) {
               depLights={live.current.depLights}
               rowId={row.original.id}
               onPointEntry={(pillId) => {
-                // On the cell or on the card: either way a hold started by an
-                // earlier `onPointerOutside` is cancelled.
-                live.current.cellCards.cancelHold();
+                // **A line of the card, and only a line, is an arrival on the
+                // card.** The bridge also reports the pointer on this cell
+                // itself (`pillId === null`), and until the takeover that too
+                // went to the store as `cancelHold` — harmless while every
+                // arrival elsewhere was instant. It is not harmless now: at a
+                // row boundary the bridge's rectangle test still says "owner"
+                // for a point Chromium has already handed to the row below, so
+                // the store had just been told `arriveOn(030)` when this said
+                // "on the card" and dropped that takeover. Traced in Chromium
+                // on 2026-09-11 — `arriveOn 030 · bridge move owner · arriveOnCard
+                // pending=030 · bridge move outside · hold fired` — and 030 never
+                // answered. The cell's own `mouseenter` is what says the pointer
+                // is back on this cell, and it goes through `arriveOn`.
+                // Proof: the guard removed (every region cancelling) — `card-lanes.spec.ts`'s
+                // `the pointer walks down each column and every row answers for
+                // itself` failed on `Depends on: the pointer reached 030 and 030
+                // did not answer · Expected: 1 · Received: 0`. Watched, 2026-09-11.
+                if (pillId !== null) live.current.cellCards.arriveOnCard();
                 live.current.depLights.updateHover((current) =>
                   current?.rowId === row.original.id && current.pillId === pillId
                     ? current

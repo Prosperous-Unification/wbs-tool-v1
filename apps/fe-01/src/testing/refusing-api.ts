@@ -213,6 +213,7 @@ const PROJECT_API_OPERATIONS = {
   removeWorkItem: 'postApiProjectsByIdCommands',
   setEstimate: 'postApiProjectsByIdCommands',
   clearEstimate: 'postApiProjectsByIdCommands',
+  arrangeBySchedule: 'postApiProjectsByIdCommands',
   freezeProject: 'postApiProjectsByIdCommands',
   unfreezeProject: 'postApiProjectsByIdCommands',
   unfreezeWorkItem: 'postApiProjectsByIdCommands',
@@ -1225,6 +1226,17 @@ function checkedAnswers(answers: Partial<ProjectApi>): Partial<ProjectApi> {
         { kind: 'clearEstimate', workItemId, stepId },
         (_normalizedProjectId, normalized) =>
           clearEstimateAnswer(normalized.workItemId, normalized.stepId),
+        () => VOID_COMMAND_RESULT,
+      );
+  }
+
+  const arrangeByScheduleAnswer = answers.arrangeBySchedule;
+  if (arrangeByScheduleAnswer !== undefined) {
+    checked.arrangeBySchedule = (projectId) =>
+      throughProjectCommand(
+        projectId,
+        { kind: 'arrangeBySchedule' },
+        (normalizedProjectId) => arrangeByScheduleAnswer(normalizedProjectId),
         () => VOID_COMMAND_RESULT,
       );
   }

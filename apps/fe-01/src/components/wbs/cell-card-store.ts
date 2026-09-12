@@ -42,11 +42,66 @@ export interface CellCards {
    */
   openCard: () => string | null;
   /**
-   * The pointer's reading, as a `useState` setter took it.
+   * The pointer arrived on `cell`.
    *
-   * Cancels any pending {@link CellCards.holdHovered}: a write means the
-   * pointer has arrived somewhere, and the card it arrived on must not be
-   * closed by a timer the previous cell started.
+   * With nothing open, or back on the open card's own trigger, its card is on
+   * screen at once and any pending {@link CellCards.holdHovered} is cancelled —
+   * the card the pointer is on must not be closed by a timer the previous cell
+   * started, and the cell it came back to must not lose its card to the hold
+   * its own leave began.
+   *
+   * With **another** cell's card open, this is a **takeover** and it waits
+   * {@link TAKEOVER_MS}: the card changes only if the pointer is still here
+   * when the delay runs out. Every in-cell card opens diagonally — past its
+   * cell and past its row — so the hand going from the notes marker to the
+   * preview crosses the Depends cell beside it, or the next row's marker, and
+   * both are triggers. Until 2026-09-11 either took the card over the moment
+   * the pointer entered it. Dany: _"i need for cursor in flight while the
+   * notes pop-up is open - to have a small delay between when cursor is away
+   * from the cell and over another pop-up triggering place and moment when
+   * current pop-up disappears; same for links, deps"_.
+   *
+   * A pending takeover is dropped by {@link CellCards.arriveOnCard} (the hand
+   * got where it was going), by {@link CellCards.leave} or
+   * {@link CellCards.holdHovered} naming the pending cell (the hand moved on),
+   * and by a later arrival anywhere (which starts its own).
+   *
+   * The pointer's enter handlers call this and nothing else does. It is the
+   * one write that means "the hand is here"; a keyboard focus goes through
+   * {@link CellCards.updateFocused}, so a focus never waits behind a pointer
+   * rule.
+   */
+  arriveOn: (cell: string) => void;
+  /**
+   * The pointer left `cell`: a takeover aimed at it is dropped, and its card —
+   * if it is the one open — closes at once.
+   *
+   * The same-cell guard every leave carries, because a leave lands after the
+   * next cell's enter: a cell whose card is not the open one clears nothing.
+   * For a card a reader may point at, {@link CellCards.holdHovered} is the
+   * leave instead.
+   */
+  leave: (cell: string) => void;
+  /**
+   * The pointer's reading revised without an arrival, as a `useState` setter
+   * took it: a refresh settling the open card against the rows that just
+   * arrived (`hoveredCellAfterRefresh`). The leave handlers' same-cell clears
+   * went through here until the takeover, and are {@link CellCards.leave} now.
+   *
+   * **Does not touch a pending {@link CellCards.holdHovered}.** It did until
+   * 2026-09-11, on the reasoning that a write means the pointer has arrived
+   * somewhere — and a same-cell clear from a cell with no card of its own is a
+   * write that changes nothing. The notes marker is the right edge of the Name
+   * cell, so the hand leaving it crossed the Depends cell beside it inside the
+   * reach, that cell's leave cancelled the hold, and the preview stayed for as
+   * long as the pointer kept off anything that opens a card of its own (Dany:
+   * _"notes md preview pop-up does not go away if i move cursor away, but then
+   * move it up or down to other table elements"_). A departure is not an
+   * arrival; only {@link CellCards.arriveOn} and {@link CellCards.arriveOnCard}
+   * keep a held card.
+   *
+   * A clear of the held cell itself is still immediate: `hovered` goes to null
+   * and the hold finds nothing of its own to close.
    */
   updateHovered: (next: (current: string | null) => string | null) => void;
   /**
@@ -61,30 +116,40 @@ export interface CellCards {
    * moving cursor fast"*.
    *
    * In the store rather than in the cells because **arriving** is what cancels
-   * it, and arriving is a write here: a cell that opens its own card cancels
-   * the previous cell's hold without knowing it exists. The first cut put the
-   * timer in the cells and the dependency cell's card died to a hold started
-   * before the pointer came back — 120 seconds of `waiting for
+   * it, and arriving is {@link CellCards.arriveOn}: a cell that opens its own
+   * card cancels the previous cell's hold without knowing it exists. The first
+   * cut put the timer in the cells and the dependency cell's card died to a
+   * hold started before the pointer came back — 120 seconds of `waiting for
    * locator('[role="tooltip"]')`, in Chromium.
    *
-   * The same-cell guard is kept inside the hold: a leave lands after the next
-   * cell's enter, and after a delay that is truer still.
+   * Only the open card's own trigger holds anything: a hold named for any
+   * other cell drops a takeover aimed at that cell and does nothing else. It
+   * used to replace whatever hold was running — harmless while every arrival
+   * was instant, and with the takeover it would have let the marker the hand
+   * crossed cancel the hold on the card it was leaving.
+   *
+   * Nothing but an arrival cancels it. Dany's rule, 2026-09-11: *"cursor away
+   * from notes icon & the preview pop-up for N ms => remove the preview"* —
+   * whatever else the hand crosses on the way.
    */
   holdHovered: (cell: string) => void;
   /**
-   * Cancels a pending {@link CellCards.holdHovered} without writing anything.
+   * The pointer landed **on the open card**: a pending
+   * {@link CellCards.holdHovered} and a pending takeover are both dropped, and
+   * nothing is written.
    *
-   * For the one arrival that is not a write: the pointer landing **on the card**
-   * itself. A card is a child of its cell's wrapper, so entering it is entering
-   * that wrapper — but the cell must not re-open a card the marker alone is
-   * allowed to open (the Name cell's preview, Dany's rule since 2026-08-09), so
-   * the enter cancels and says nothing else.
+   * The one arrival that is not a write. A card is a child of its cell's
+   * wrapper, so entering it is entering that wrapper — but the cell must not
+   * re-open a card the marker alone is allowed to open (the Name cell's
+   * preview, Dany's rule since 2026-08-09), so the arrival cancels and says
+   * nothing else.
    *
-   * Without it the hold runs out while the reader is reading: watched in
-   * Chromium as `the card closed while walking to item 2`, three items into the
-   * links card.
+   * Without the hold's half the card runs out while the reader is reading:
+   * watched in Chromium as `the card closed while walking to item 2`, three
+   * items into the links card. Without the takeover's half the Depends cell
+   * the hand crossed on the way takes the card over under the reader.
    */
-  cancelHold: () => void;
+  arriveOnCard: () => void;
   /** The keyboard's reading, likewise. */
   updateFocused: (next: (current: string | null) => string | null) => void;
 }
@@ -99,23 +164,48 @@ export interface CellCards {
  * shorter on 2026-09-10 (*"ok, can you remove it just a bit faster"*), a card
  * that lingers being a card in the way.
  *
- * A hold that outlives the pointer by a moment costs nothing else: any write
- * cancels it, and the same-cell guard inside it means a card another cell has
- * opened is never the one closed.
+ * A hold that outlives the pointer by a moment costs nothing else: any
+ * arrival cancels it, and the same-cell guard inside it means a card another
+ * cell has opened is never the one closed.
  */
 export const REACH_FOR_THE_CARD_MS = 180;
+
+/**
+ * How long the pointer rests on another cell's trigger before its card takes
+ * an open card's place, in milliseconds.
+ *
+ * 50ms, Dany's figure. 100 shipped first, on the arithmetic that the path from
+ * the notes marker to its preview's nearest corner runs ~26px through the
+ * Depends cell beside it — 13ms at a flick, ~90ms at a deliberate 300px/s — and
+ * he asked for it halved the day after, having watched it (_"maybe reduce it
+ * to 50ms?"_, 2026-09-12): a card that waits 100ms under a hand that has
+ * stopped is a card that hesitates. The flick is still covered, and a slow
+ * hand that dwells on a live cell gets that cell's card, which is what dwelling
+ * asks for. Running down a column of markers shows each card 50ms after
+ * landing. One constant, judged in Chrome.
+ */
+export const TAKEOVER_MS = 50;
 
 export function createCellCards(): CellCards {
   let hovered: string | null = null;
   let focused: string | null = null;
   let open: string | null = null;
   let holding: ReturnType<typeof setTimeout> | null = null;
+  let takeover: { cell: string; timer: ReturnType<typeof setTimeout> } | null = null;
   const listeners = new Set<() => void>();
 
   const stopHolding = (): void => {
     if (holding === null) return;
     clearTimeout(holding);
     holding = null;
+  };
+  const dropTakeover = (): void => {
+    if (takeover === null) return;
+    clearTimeout(takeover.timer);
+    takeover = null;
+  };
+  const dropTakeoverAimedAt = (cell: string): void => {
+    if (takeover?.cell === cell) dropTakeover();
   };
 
   const settle = (): void => {
@@ -131,13 +221,80 @@ export function createCellCards(): CellCards {
       return () => listeners.delete(onChange);
     },
     openCard: () => open,
+    arriveOn: (cell) => {
+      // Wherever the hand is now, it is not on the trigger it was waiting on.
+      dropTakeover();
+      const land = (): void => {
+        // Proof: this `stopHolding()` removed — `keeps the card while the
+        // pointer is back on what opened it` and `coming back to its own
+        // trigger keeps the card` failed on `expected null to be 'a:name'`.
+        // Watched, 2026-09-11.
+        stopHolding();
+        hovered = cell;
+        settle();
+      };
+      // Proof: the `null` half removed, so that every arrival waited — nine
+      // cases failed, `opens at once when nothing is open` on `expected null to
+      // be 'a:name'`. Watched, 2026-09-11.
+      if (hovered === null || hovered === cell) {
+        land();
+        return;
+      }
+      // Proof: the branch above made unconditional, so an arrival under an
+      // open card landed at once — six takeover cases failed, `gives an open
+      // card to another trigger only after the pointer has rested there` on
+      // `expected 'a:depends' to be 'a:name'`; and in Chromium, with
+      // `TAKEOVER_MS` at 0 (the same fault), `e2e/hover-cards.spec.ts`'s
+      // `keeps the preview while the hand crosses a live trigger on its way to
+      // it` on `the preview was taken over on the way · Expected: 1 · Received:
+      // 0`. The timer's `land()` removed instead: `lets a pointer that rests on
+      // another trigger take over` on `the rested-on cell opened no card ·
+      // Expected: 1 · Received: 0`. Watched, 2026-09-11.
+      takeover = {
+        cell,
+        timer: setTimeout(() => {
+          takeover = null;
+          land();
+        }, TAKEOVER_MS),
+      };
+    },
+    leave: (cell) => {
+      // Proof: this drop removed — `drops a takeover the pointer leaves behind,
+      // and the reach still closes the first card` failed on `expected
+      // 'a:depends' to be 'a:name'`. Watched, 2026-09-11.
+      dropTakeoverAimedAt(cell);
+      if (hovered !== cell) return;
+      hovered = null;
+      settle();
+    },
+    // No `stopHolding()` here — see the interface: a departure written from
+    // another cell must not keep the card the hand is leaving.
+    // Proof: `stopHolding()` put back on the first line — `closes it however
+    // many cells the hand crosses on the way out` failed on `expected 'a:name'
+    // to be null`, `tells its subscribers when the held card goes, and not
+    // before` on `expected "vi.fn()" to be called 1 times, but got 0 times`,
+    // and `e2e/hover-cards.spec.ts`'s `goes when the hand leaves the marker
+    // through the cell beside it` on `the preview stayed after the hand left ·
+    // Expected: 0 · Received: 1`, in Chromium. Watched, 2026-09-11.
     updateHovered: (next) => {
-      stopHolding();
       hovered = next(hovered);
       settle();
     },
-    cancelHold: stopHolding,
+    arriveOnCard: () => {
+      // Proof: this drop removed — `keeps the card the hand reaches, whatever
+      // trigger it crossed on the way` failed on `expected 'a:depends' to be
+      // 'a:name'`. Watched, 2026-09-11.
+      dropTakeover();
+      stopHolding();
+    },
     holdHovered: (cell) => {
+      // Proof: the drop removed — `drops a takeover when the trigger is left
+      // with a hold of its own, and keeps the first card’s hold` failed on
+      // `expected 'b:name' to be 'a:name'`; the guard under it removed instead
+      // — the same case on `expected 'a:name' to be null`, the open card's hold
+      // replaced by an inert one for the crossed trigger. Watched, 2026-09-11.
+      dropTakeoverAimedAt(cell);
+      if (hovered !== cell) return;
       stopHolding();
       holding = setTimeout(() => {
         holding = null;

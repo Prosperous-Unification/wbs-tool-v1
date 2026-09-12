@@ -1,5 +1,6 @@
 import { expect, type Locator, type Page, test } from '@playwright/test';
 
+import { TAKEOVER_MS } from '../src/components/wbs/cell-card-store';
 import { cardIsOnTopAt } from './card-paint';
 import { createProject } from './create-project';
 
@@ -359,6 +360,10 @@ test.describe('every cell card leaves its own column clear', () => {
       // break it is a card in the way, and the hit test above is what sees that.
       // It is kept because it is what Dany asked for in his own words.
       await page.mouse.move(to.x, to.y, { steps: 12 });
+      // The next row answers after the **takeover**, not at once: with a card
+      // open, a trigger takes over only once the pointer has rested on it for
+      // {@link TAKEOVER_MS} (`card-takeover-delay`). Read once, past that.
+      await page.waitForTimeout(TAKEOVER_MS * 3);
       expect(
         await cardIn(lane, page, second),
         `${lane.what}: the pointer reached ${second} and ${second} did not answer`,
@@ -528,6 +533,9 @@ test.describe('every cell card leaves its own column clear', () => {
     expect(under, 'the links card is over the next row’s own cell').toBe('the row');
 
     await page.mouse.move(to.x, to.y, { steps: 12 });
+    // Past the takeover, as above: a rested pointer gets the next row's card
+    // {@link TAKEOVER_MS} after landing.
+    await page.waitForTimeout(TAKEOVER_MS * 3);
     expect(await cardIn(lane, page, '020'), '020 did not answer with its own links').toBe(1);
   });
 });

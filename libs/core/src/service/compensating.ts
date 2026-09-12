@@ -69,6 +69,23 @@ export type CompensatingCommand =
   | { do: 'add_dependency'; successorId: string; predecessorId: string }
   | { do: 'remove_dependency'; successorId: string; predecessorId: string }
   | { do: 'move'; workItemId: string; parentId: string | null; afterId: string | null }
+  /**
+   * One press of `Arrange by schedule`: every work item of every sibling group
+   * whose order changed, at the position it now holds.
+   *
+   * **Exact positions rather than *n* `move` steps**, which is the decision ADR
+   * 0023's second half records. A `move` replays through `placeAfter`, one at a
+   * time and respacing as it goes, and every `afterId` in such a batch goes
+   * stale the moment somebody adds a sibling between the press and the undo.
+   * A position is what the arrangement decided; re-deriving it later is a
+   * second arrangement, of a plan that has moved on.
+   *
+   * `moved` is carried beside them because it is not recoverable from the
+   * positions alone: it names the work items whose **place** changed, which is
+   * what decides revisions and therefore what a peer's pending undo is refused
+   * by. Respacing a sibling that stayed put must not bump it.
+   */
+  | { do: 'set_positions'; placements: Reparented[]; moved: string[] }
   | { do: 'set_frozen'; updates: FrozenNumber[] }
   | DeleteSubtree
   | RestoreSubtree
@@ -287,6 +304,7 @@ const COMMANDS = [
   'remove_dependency',
   'move',
   'set_frozen',
+  'set_positions',
   'delete_subtree',
   'restore_subtree',
   'batch',
@@ -381,6 +399,11 @@ export function touchedBy(command: CompensatingCommand): string[] {
       return [command.workItemId];
     case 'set_frozen':
       return command.updates.map((each) => each.id);
+    case 'set_positions':
+      // The rows whose place changed, never every placement: the respaced ones
+      // kept their place, took no revision, and must not have a peer's undo
+      // refused on their behalf.
+      return command.moved;
     case 'delete_subtree':
       return [
         ...command.remove,
@@ -457,6 +480,11 @@ export function subjectOf(command: CompensatingCommand): CommandSubject {
       // The whole plan, even when one row's number moved: freezing is a project
       // act and the label says so. Naming `updates[0]` would make a plan-wide
       // event read as one item's.
+      return { workItemId: null, stepId: null };
+    case 'set_positions':
+      // Plan-wide for `set_frozen`'s reason exactly: arranging is one act over
+      // the whole project, and naming the first row it happened to move would
+      // make the history read as though somebody dragged that one row.
       return { workItemId: null, stepId: null };
     case 'batch': {
       // The row the first step was aimed at, as `restore_subtree` names its

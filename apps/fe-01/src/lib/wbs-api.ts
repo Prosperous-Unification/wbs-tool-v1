@@ -1616,6 +1616,15 @@ export interface ProjectApi {
    * there is anything there to remove.
    */
   clearEstimate(id: string, stepId: string): Promise<void>;
+  /**
+   * Puts every sibling group in the order its bars start.
+   *
+   * No arguments beyond the project: the order is the server's, taken from the
+   * schedule the chart is drawing, inside the write lock. A client that sent
+   * its own ordering would be sending one computed from a read that may already
+   * be stale (ADR 0023).
+   */
+  arrangeBySchedule(projectId: string): Promise<void>;
   freezeProject(projectId: string): Promise<void>;
   unfreezeProject(projectId: string): Promise<void>;
   unfreezeWorkItem(id: string): Promise<void>;
@@ -2560,6 +2569,9 @@ export function httpProjectApi(token: string): ProjectApi {
     },
     async clearEstimate(id, stepId) {
       await onRow(id, { kind: 'clearEstimate', workItemId: id, stepId });
+    },
+    async arrangeBySchedule(projectId) {
+      await command(projectId, { kind: 'arrangeBySchedule' });
     },
     async freezeProject(projectId) {
       await command(projectId, { kind: 'freezeProject' });

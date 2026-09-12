@@ -1,3 +1,4 @@
+import { stat } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 
 import {
@@ -28,6 +29,7 @@ export interface SolverBindingRuntimeInvocation {
 
 export interface SolverBindingRuntimeIo {
   exists(path: string): Promise<boolean>;
+  isDirectory(path: string): Promise<boolean>;
   read(path: string): Promise<Uint8Array>;
   command(
     invocation: SolverBindingRuntimeInvocation,
@@ -42,6 +44,7 @@ export interface SolverBindingRuntimeIo {
 export interface SolverBindingRuntimeTarget {
   root: string;
   bunPath: string;
+  sourceRepository?: string;
   sourceSha: string;
   compatibilityIdentity: string;
 }
@@ -84,6 +87,13 @@ async function query(
 
 const DEFAULT_IO: SolverBindingRuntimeIo = {
   exists: (path) => Bun.file(path).exists(),
+  isDirectory: async (path) => {
+    try {
+      return (await stat(path)).isDirectory();
+    } catch {
+      return false;
+    }
+  },
   read: async (path) =>
     new Uint8Array(
       await Bun.file(path)
@@ -136,6 +146,10 @@ export function createTargetSolverBindingRuntime(
   if (!isAbsolute(target.bunPath)) {
     throw new Error('solver binding runtime Bun path must be absolute');
   }
+  const sourceRepository = target.sourceRepository ?? LIVE_SOURCE_ROOT;
+  if (!isAbsolute(sourceRepository) || resolve(sourceRepository) !== sourceRepository) {
+    throw new Error('solver binding source repository must be an absolute normalized path');
+  }
   if (!/^[0-9a-f]{40}$/.test(target.sourceSha)) {
     throw new Error('solver binding runtime source SHA is invalid');
   }
@@ -185,10 +199,18 @@ export function createTargetSolverBindingRuntime(
           io,
         ),
       publish: async (sourceSha, registryPassword) => {
+        const cleanTreeEnvironment: Readonly<Record<string, string>> = (await io.isDirectory(
+          join(target.root, '.git'),
+        ))
+          ? {}
+          : { WBS_CLEAN_TREE_REPOSITORY: sourceRepository };
         await run(
           'solver image publish',
           [
-            join(target.root, 'bin/with-heavy-lock.sh'),
+            // The target is an exported, install-free candidate tree. The
+            // durable lock wrapper belongs to the live checkout; the build
+            // entrypoint below remains pinned to the target candidate.
+            join(sourceRepository, 'bin/with-heavy-lock.sh'),
             '--',
             'env',
             `WBS_SHA=${sourceSha}`,
@@ -197,7 +219,10 @@ export function createTargetSolverBindingRuntime(
             join(target.root, 'tools/tool-dagger/src/main.ts'),
             'be',
           ],
-          { REGISTRY_PASS: registryPassword },
+          {
+            REGISTRY_PASS: registryPassword,
+            ...cleanTreeEnvironment,
+          },
         );
         return io.read(releasePath);
       },
@@ -251,7 +276,7 @@ export function createTargetSolverBindingRuntime(
         run('dev checkout reset', [
           'git',
           '-C',
-          LIVE_SOURCE_ROOT,
+          sourceRepository,
           'reset',
           '--hard',
           '--quiet',

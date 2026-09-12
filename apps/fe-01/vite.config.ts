@@ -137,6 +137,15 @@ export default defineConfig(({ command, mode }) => ({
       '@wbs/domain/label-mismatch': resolve(__dirname, '../../libs/domain/src/label-mismatch.ts'),
       '@wbs/domain/marker-color': resolve(__dirname, '../../libs/domain/src/marker-color.ts'),
       '@wbs/domain/is-within': resolve(__dirname, '../../libs/domain/src/is-within.ts'),
+      '@wbs/domain/derive-numbers': resolve(__dirname, '../../libs/domain/src/derive-numbers.ts'),
+      // The order every reader draws a project in (ADR 0023), and the sibling
+      // grouping it shares with the numbering. The fake answers the server's
+      // own numbers and row order through these rather than a second copy.
+      '@wbs/domain/tree-order': resolve(__dirname, '../../libs/domain/src/tree-order.ts'),
+      '@wbs/domain/arrange-siblings': resolve(
+        __dirname,
+        '../../libs/domain/src/arrange-siblings.ts',
+      ),
       '@wbs/contracts/ws-frames': resolve(__dirname, '../../libs/contracts/src/ws-frames.ts'),
       // Proof: removing either shared alias from both configs failed its explicit
       // required-alias assertion in vite-config.test.ts, despite map parity.

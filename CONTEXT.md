@@ -31,9 +31,16 @@ _Avoid_: clone, copy-paste, template
 
 **Work item number**:
 The label a work item is known by outside the tool, formed `010`, `020`, `010.1`,
-`010.01`. Derived from position unless frozen. Zero-prefixed so it sorts lexicographically,
-zero-suffixed so later work can be inserted between two numbers already in use.
+`010.01`. Derived from position unless frozen, and reading as tree order until a frozen
+work item has moved — after that a number is a name and the work item's place says where
+it is.
 _Avoid_: id, index, wbs code
+
+**Tree order**:
+The one order every reader draws a project in: depth-first, siblings by position, a tied
+position by id. Numbers used to be the only spelling of it; since a frozen work item may
+move, they are not.
+_Avoid_: number order, sort order, display order
 
 **Position**:
 An integer ordering a work item among its siblings, spaced in gaps of ten. The input a
@@ -48,15 +55,20 @@ their numbers as before, until the next freeze.
 _Avoid_: lock, pin, publish
 
 **Frozen number**:
-A work item number that a freeze wrote down. It survives insertions, deletions and
-repadding elsewhere in the project, and blocks the work item from moving until explicitly
-unfrozen.
+A work item number that a freeze wrote down. It survives insertions, deletions, repadding
+and its own work item moving; unfrozen siblings skip the label it holds.
 _Avoid_: fixed number, locked number
 
 **Repadding**:
 Widening every child number under one parent when that parent gains a tenth child, so
 `010.1` becomes `010.01` and the tenth sorts last rather than second.
 _Avoid_: renumbering, padding fix
+
+**Arrange by schedule**:
+The project-wide act of rewriting each sibling group's positions so siblings read in the
+order their projections start in the selected engine's schedule, work items starting
+together keeping their order. Frozen work items move with the rest; nothing changes parent.
+_Avoid_: sort, reorder, sort by Gantt, sequence, sync with chart
 
 **Step**:
 A named kind of work a project estimates separately, unique by name within it. Every
@@ -632,8 +644,16 @@ _Avoid_: notes icon, badge, indicator, button
 **Hover card**:
 The instant answer a cell gives to the mouse resting on it: the whole of what its at-rest
 face folds away — a folded step's three points and assignee, a depends chip's names. Opens
-on enter with no delay, one at a time; the Name cell's hover preview is one.
+on enter with no delay while nothing is open, one at a time; an open one gives way by
+Takeover. The Name cell's hover preview is one.
 _Avoid_: tooltip, title attribute, hint
+
+**Takeover**:
+How an open hover card gives way to another cell's: only once the pointer has rested on the
+other trigger for a moment (50ms), so a hand crossing that trigger on its way to the open
+card keeps what it was reaching for. Arriving on the open card, or leaving the trigger, drops
+a pending takeover; with nothing open a trigger opens at once. One rule for every card.
+_Avoid_: hover intent, switch delay, debounce, grace period
 
 **Project fact**:
 Words a mark carries that say something about **this project** — who a tag was inherited
@@ -768,7 +788,11 @@ _Avoid_: formatted date, pretty date, display date
 **Edit exit**:
 How an edit in a field ends, as one of two answers: committed, or abandoned. Leaving and
 Enter commit; Escape abandons and puts back what the server agreed, so nothing is left for
-the blur it causes to send. Closing returns the focus to the cell that was being edited.
+the blur it causes to send — except in the Name box, where Escape leaves the box and leaving
+is the save: a paragraph of markdown is not thrown away on a stray key, and the Done button
+beside the rendered notes is the same exit by pointer. Closing returns the focus to the cell
+that was being edited; the Name box, whose rest is itself, returns it to nobody, as a click
+away does.
 _Avoid_: cancel, dismiss, close, blur handling
 
 **Hover preview**:

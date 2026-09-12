@@ -7,25 +7,18 @@ export function createDragColumn({ live }: { live: PlanLive }) {
     id: 'drag',
     header: () => <span aria-label="Reorder" />,
     cell: ({ row }) => {
-      // A frozen row keeps its handle, and says on it why the handle will
-      // not help. Hiding it was the first attempt, and it made the refusal
-      // unreachable: nothing could explain the freeze to someone who tried,
-      // and the test that claimed to prove the refusal was proving only that
-      // the handle was gone. Both reviewers found that test.
-      const frozen = row.original.frozenNumber !== null;
+      // No frozen state here since ADR 0023. This handle used to carry
+      // `aria-disabled` and a `data-fact` reading "Frozen — unfreeze this row
+      // before moving it", because be-01 refused the move; a frozen work item
+      // moves like any other now, and the number travels with it.
       return (
         <span
           draggable
           role="button"
           tabIndex={-1}
-          aria-disabled={frozen}
           aria-label={`Reorder ${row.original.number}`}
-          // The refusal is about this row and opens at once; what the grip
-          // is for is the tool, and waits.
-          {...(frozen
-            ? { 'data-fact': 'Frozen — unfreeze this row before moving it' }
-            : { 'data-hint': 'Drag to move this row' })}
-          style={{ cursor: frozen ? 'not-allowed' : 'grab' }}
+          data-hint="Drag to move this row"
+          style={{ cursor: 'grab' }}
           onDragStart={() => {
             live.current.setDragging(row.original.id);
           }}

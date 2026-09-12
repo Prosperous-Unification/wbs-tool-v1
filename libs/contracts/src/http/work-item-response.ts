@@ -123,7 +123,7 @@ const optimization = type({
 export const workItemTree = type({
   workItems: numberedWorkItem.array(),
   seq: 'number',
-  scheduleError: "'cycle' | null",
+  scheduleError: "'calendar_range' | 'cycle' | null",
   waitingForPerson: 'number',
   waitingForCapacity: 'number',
   slices: slice.array(),

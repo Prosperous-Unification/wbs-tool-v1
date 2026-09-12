@@ -136,18 +136,26 @@ describe('review finding: unfreezing a project tells the other clients', () => {
   });
 });
 
-describe('review finding: between() across a digit-width boundary', () => {
-  it('refuses rather than emitting a number that sorts into the wrong place', () => {
-    // Nothing digit-shaped sorts between `010` and `0100`, so there is no right
-    // answer here. Throwing surfaces the corruption; returning `0105` — which is
-    // what it used to do — puts the row visibly out of order and looks
-    // deliberate enough to reach an exported ticket.
-    expect(() =>
-      deriveNumbers([
-        { id: 'a', parentId: null, position: 10, frozenNumber: '010' },
-        { id: 'mid', parentId: null, position: 15, frozenNumber: null },
-        { id: 'b', parentId: null, position: 20, frozenNumber: '0100' },
-      ]),
-    ).toThrow(/no label sorts between/);
+describe('review finding: two frozen anchors at different widths', () => {
+  it('numbers the work item between them without a collision', () => {
+    // This case used to **throw**: nothing digit-shaped sorts between `010` and
+    // `0100`, `between()` had no right answer, and returning `0105` would have
+    // put a row visibly out of order on an exported ticket.
+    //
+    // ADR 0023 removed the question rather than answering it. Labels are no
+    // longer fitted between anchors, so a group's naturals are all that is on
+    // offer: `0100` is not one of the three a group of three has, so it
+    // consumes none of them and `mid` takes the first free — `020`. The number
+    // no longer promises where the row sits, and `treeOrder` does.
+    const numbers = deriveNumbers([
+      { id: 'a', parentId: null, position: 10, frozenNumber: '010' },
+      { id: 'mid', parentId: null, position: 15, frozenNumber: null },
+      { id: 'b', parentId: null, position: 20, frozenNumber: '0100' },
+    ]);
+
+    expect(numbers.get('mid')).toBe('020');
+    // What survives the change, and the only invariant a ticket needs: no two
+    // siblings share a label.
+    expect(new Set([...numbers.values()]).size).toBe(3);
   });
 });
