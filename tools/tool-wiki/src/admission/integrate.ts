@@ -546,6 +546,17 @@ export function composeIntegrationCandidate(
       }
     }
   }
+  const contractRules = new Set(policy.contractRules.map(({ contractId }) => contractId));
+  for (const { packet } of ordered) {
+    for (const contractId of packet.producedContracts) {
+      // Proof: removing this registry lookup made `every produced contract must resolve in the
+      // trusted contract registry` fail on `Received function did not throw` and print an unchecked
+      // candidate carrying `contract.unmapped` without any consumer obligation.
+      if (!contractRules.has(contractId)) {
+        throw new Error(`produced contract is absent from integration policy: ${contractId}`);
+      }
+    }
+  }
   for (const rule of policy.contractRules) {
     const produced = ordered.some(({ packet }) =>
       packet.producedContracts.includes(rule.contractId),

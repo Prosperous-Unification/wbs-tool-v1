@@ -838,6 +838,23 @@ test('contract consumers must be distinct and change trusted implementation path
   unrelated.store.close();
 });
 
+test('every produced contract must resolve in the trusted contract registry', () => {
+  const subject = integrationFixture();
+  const producer = subject.submission(
+    'producer',
+    'src/producer.ts',
+    'export const version = 2;\n',
+    { producedContracts: ['contract.unmapped'] },
+  );
+  expect(() =>
+    composeIntegrationCandidate(subject.store, subject.repository, {
+      policy,
+      submissions: [producer],
+    }),
+  ).toThrow('produced contract is absent from integration policy: contract.unmapped');
+  subject.store.close();
+});
+
 test('strict policy decoding rejects unknown selector kinds and malformed primitive fields', () => {
   const globBody = {
     ...policyBody,
