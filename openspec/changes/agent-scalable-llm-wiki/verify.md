@@ -2438,13 +2438,19 @@ an adjacent `Proof:` comment.
   assertions in 15.44 seconds.
 - `bun test src/admission` from `tools/tool-wiki` — exit 0; 74 pass, 0 fail and 287 assertions in
   22.12 seconds.
-- Exact target command `bun test --preload ../test/scratch/preload.ts` from `tools/tool-wiki` was
-  run twice. Both runs reached 420 pass and 4,559 assertions, but each exited 1 because the same
-  unchanged `root migration production CLI > refuses missing Markdown anchors and migrated
-headings retained at roots` case exceeded its 5,000ms timeout (5,192ms and 5,200ms; total suite
-  times 775.87s and 770.61s). The exact isolated production-path case then exited 0 with 1 pass and
-  27 assertions in 5.176 seconds. The full Tool Wiki gate is therefore recorded as not green; the
-  isolated result diagnoses a load-sensitive threshold and is not substituted for it.
+- The first two exact `bun test --preload ../test/scratch/preload.ts` runs from `tools/tool-wiki`
+  each reached 420 pass and 4,559 assertions, then exited 1 when one test containing three
+  independent clone/commit/production-CLI scenarios exceeded its shared 5,000ms budget (5,192ms
+  and 5,200ms; total suite times 775.87s and 770.61s). The combined test passed alone in 5.176
+  seconds, confirming that the three serial production subprocesses, rather than an assertion or
+  product failure, consumed the shared budget. Splitting those scenarios made the root-migration
+  file green at 24 pass and 324 assertions, but the next complete run exposed the same structure
+  in a second three-scenario test at 5,211ms. The run was stopped after that known red result.
+- The root-migration file audit found four tests with three independent production-CLI scenarios.
+  Each was split into one test per scenario without changing assertions, production paths or the
+  timeout. The file then exited 0 with 32 pass and the same 324 assertions in 57.80 seconds; every
+  split scenario completed within 1,806ms. The subsequent exact complete suite exited 0 with 431
+  pass, 0 fail and 4,559 assertions across 22 files in 769.76 seconds.
 - `NX_DAEMON=false ./node_modules/.bin/nx run tool-wiki:lint:source --skip-nx-cache
 --output-style=static` and the equivalent `tool-wiki:typecheck` command — exit 0; source lint and
   forced source/spec typecheck passed with the cache skipped. Nx could not create its sandbox
@@ -2458,5 +2464,5 @@ agent-scalable-llm-wiki --strict`, `NX_DAEMON=false ./node_modules/.bin/nx forma
 - `bin/h2puni-gate.sh 69c5a8e2` — unavailable, exit 70 immediately because required heavy-lock
   path `/home/puni1/.cache` does not exist; no host-gate step ran and the host gate is not green.
 
-Only the Task 4.3 implementation is changed by this review round. Integration, activation and later
-tasks remain untouched.
+Only the Task 4.3 implementation and the independent root-migration test budgeting are changed by
+this review round. Integration, activation and later tasks remain untouched.
