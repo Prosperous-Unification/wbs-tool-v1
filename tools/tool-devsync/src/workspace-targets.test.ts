@@ -290,7 +290,18 @@ describe('every cached target declares what it reads', () => {
     ) as NxJsonConfiguration;
     const shared = nxJson.namedInputs?.['sharedGlobals'];
     expect(shared).toBeDefined();
-    const projectGraph = await createProjectGraphAsync({ exitOnError: true });
+    const inheritedDaemon = process.env['NX_DAEMON'];
+    process.env['NX_DAEMON'] = 'false';
+    let projectGraph: ProjectGraph;
+    try {
+      // Proof: without this self-contained daemon selection, the direct production test timed out
+      // at both 5,000ms and 15,000ms while Nx waited on its unavailable daemon; the identical
+      // graph build completed in-process in 783ms with NX_DAEMON=false.
+      projectGraph = await createProjectGraphAsync({ exitOnError: true });
+    } finally {
+      if (inheritedDaemon === undefined) delete process.env['NX_DAEMON'];
+      else process.env['NX_DAEMON'] = inheritedDaemon;
+    }
 
     const undeclared: string[] = [];
     for (const { dir, config } of await projectsOnDisk()) {
