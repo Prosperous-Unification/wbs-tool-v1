@@ -2728,3 +2728,61 @@ Task 5.2 remains complete; no later task or production activation is included.
 --json` — exit 0; one valid change and no issues.
 - `bin/h2puni-gate.sh 8236fbe1` — unavailable, exit 70 before any step because required heavy-lock
   path `/home/puni1/.cache` does not exist; the host gate is not green.
+
+### Slice 5.2 Astra fix round 2 — serialized publication recovery
+
+Review found that a second recovery could observe Git ref-lock contention while the first publisher
+was paused in `update-ref`'s prepared phase, then erase the first publisher's durable reservation.
+It also found that checked candidates were not compared to the queue's complete submission tuples,
+and that marker-absent publishing recovery could publish after the queue deadline.
+
+The correction holds SQLite's OS-managed `BEGIN IMMEDIATE` writer lock from exact reservation
+validation through marker inspection, Git publication and the durable lifecycle decision. Lock
+acquisition may retry, but the synchronous callback containing Git I/O runs exactly once; a blocked
+commit retries only `COMMIT`. Process death releases the OS lock, leaving the durable `publishing`
+record and marker available to recovery. Git contention with an absent marker and unchanged target
+retains that exact owner and reports `publication-contended`; ordinary rework cannot clear a
+publishing reservation. The checked candidate and publication reservation now bind the canonical
+complete set of session, generation, packet and patch identities.
+
+Recovery gives an existing exact marker precedence over queue age and still validates its commit,
+tree and sole parent before finalization. With no marker, trusted time is refreshed immediately
+before CAS; exactly 600000ms terminalizes as starvation without touching either ref.
+
+| Deliberate one-at-a-time fault                                    | Observed production-path failure                                                                |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| split authority validation/lifecycle from the prepared Git window | the first process failed on `integration publication reservation changed: prepared-publication` |
+| delegate one-shot publication to the replaying transaction        | commit contention produced `Expected: 1, Received: 16` callback attempts                        |
+| omit the publication callback's synchronous-value boundary        | the async callback returned a resolved Promise and `Received function did not throw`            |
+| omit complete submission binding at check start                   | candidate two was recorded against queue one; `Received function did not throw`                 |
+| omit complete submission binding again at reservation             | candidate one reserved after the durable queue changed to candidate two                         |
+| omit durable reservation submission comparison                    | an empty reserved submission set returned `integrated`                                          |
+| enforce deadline before inspecting the immutable marker           | marker-proven recovery returned terminal starvation at 600000ms                                 |
+| omit refreshed deadline before marker-absent CAS                  | the expired recovery advanced the target and returned `integrated`                              |
+| clear publishing after an eligible Git lock failure               | one attempt became three and returned `attempts-exhausted` instead of waiting                   |
+| allow ordinary rework to clear `publishing`                       | the live owner changed to `rework`; `Received function did not throw`                           |
+
+Every fault failed through `integration-races.test.ts`, was restored, and has an adjacent exact
+`Proof:` comment at the production check.
+
+- `bun test --preload ../test/scratch/preload.ts src/admission/integration-races.test.ts` from
+  `tools/tool-wiki` — exit 0; 25 pass, 0 fail and 113 assertions in 7.67 seconds.
+- `bun test --preload ../test/scratch/preload.ts src/admission` from `tools/tool-wiki` — exit 0;
+  114 pass, 0 fail and 458 assertions in 33.90 seconds on the final current state.
+- Exact target command `bun test --preload ../test/scratch/preload.ts` from `tools/tool-wiki` at
+  `b9cb77c3` — exit 0; 471 pass, 0 fail and 4,730 assertions across 24 files in 780.89 seconds.
+- `NX_DAEMON=false NX_ISOLATE_PLUGINS=false ./node_modules/.bin/nx run tool-wiki:lint:source
+--skip-nx-cache --output-style=static` and the corresponding forced `tool-wiki:typecheck` target —
+  exit 0, uncached.
+- `NX_DAEMON=false NX_ISOLATE_PLUGINS=false ./node_modules/.bin/nx run tool-wiki:lint
+--skip-nx-cache --output-style=static` and `bash bin/tool-wiki-lint.sh working . HEAD` — exit 0
+  with `{status:"inactive",certified:false}` because Task 5.3 still owns external activation.
+- `NX_DAEMON=false NX_ISOLATE_PLUGINS=false ./node_modules/.bin/nx format:check --all` and
+  `git diff --check` — exit 0.
+- `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate agent-scalable-llm-wiki
+--strict --json` — exit 0; one valid change and no issues.
+- `bin/h2puni-gate.sh b9cb77c3` — unavailable, exit 70 before any step because required heavy-lock
+  path `/home/puni1/.cache` does not exist; the host gate is not green.
+
+Implementation checkpoint: `b9cb77c3` (`fix(tool-wiki): serialize publication recovery`). Task 5.2
+remains the only completed publication slice; Task 5.3 activation remains out of scope.
