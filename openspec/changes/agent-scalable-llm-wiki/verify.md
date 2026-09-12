@@ -1717,6 +1717,39 @@ retry on an unknown transaction state.
 - `bin/h2puni-gate.sh b6737bac`: unavailable, exit 70 immediately because required heavy-lock
   path `/home/puni1/.cache` does not exist. No host-gate step ran and the host gate is not green.
 
+### Review Fix Round 2
+
+Opening an existing authority now validates the quick check, foreign keys, exact schema, metadata,
+owners and claims inside one deferred SQLite transaction and commits only after the complete state
+is accepted. The transaction is one read snapshot, so a concurrent valid authority commit is
+observed either wholly before or wholly after validation rather than as a false mixture. The same
+bounded busy/locked policy covers opening; an error rolls the snapshot back before any retry, and a
+rollback failure remains terminal.
+
+The production two-store regression intercepts only the test process's real `bun:sqlite` owner
+query. A second Bun process prepares a valid metadata/owner/claim transaction precisely after the
+opening store has read metadata. Without the snapshot, releasing that commit before the owner query
+made opening fail with `authority next generation does not follow existing generations`, although
+both the preceding empty state and following one-owner state were valid. With the snapshot, opening
+accepts the complete preceding state while the writer waits for the read transaction to close; a
+subsequent opener accepts the complete following state. The interception fabricates no rows and no
+timing hook exists in production.
+
+| Deliberate one-at-a-time fault                     | Observed production-path failure                                                                          |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| remove the opening validation transaction snapshot | valid between-query commit falsely threw `authority next generation does not follow existing generations` |
+
+- Focused memory plus production SQLite suite: exit 0; 28 pass, 0 fail, 92 assertions.
+- Uncached lint plus forced typecheck: exit 0; lint remained truthfully inactive/non-certifying
+  pending Task 5.3; cache skipped and no target was skipped.
+- Final uncached configured Tool Wiki suite at `d9b4258e`: exit 0; 375 pass, 0 fail, 4,361
+  assertions across 19 files in 741.89 seconds (12m22s Nx duration); cache skipped and no target
+  was skipped.
+- Pinned strict OpenSpec 1.3.0 validation: exit 0; one change valid with no issues.
+- Repository-wide `nx format:check --all` and `git diff --check`: exit 0.
+- `bin/h2puni-gate.sh d9b4258e`: unavailable, exit 70 immediately because required heavy-lock
+  path `/home/puni1/.cache` does not exist. No host-gate step ran and the host gate is not green.
+
 Only Task 4.1 is completed by this slice; generation lifecycle transitions remain Task 4.2.
 
 ## Slice 3.5 Review Fix Round 4
