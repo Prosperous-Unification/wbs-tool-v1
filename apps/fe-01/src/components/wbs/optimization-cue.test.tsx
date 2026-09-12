@@ -195,7 +195,7 @@ describe('the schedule cue', () => {
    * state report `incomplete`; this assertion then fails because the second
    * variant is still solving. The production plan-read path can also expose
    * an idle miss beside the ready result while admission is closing.
-  */
+   */
   itDom.each(['pending', 'retrying', 'idle'] as const)(
     'keeps the solving marker while one variant is %s and another settled incomplete',
     (state) => {
