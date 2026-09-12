@@ -2786,3 +2786,61 @@ Every fault failed through `integration-races.test.ts`, was restored, and has an
 
 Implementation checkpoint: `b9cb77c3` (`fix(tool-wiki): serialize publication recovery`). Task 5.2
 remains the only completed publication slice; Task 5.3 activation remains out of scope.
+
+### Slice 5.2 completion correction — Git failure classification
+
+The completion review at `3913d6dedd01f2fb1a7585a830114e4199dfe808` found two Git failures
+that the recovery state machine modeled too broadly. Its fresh race run passed 31 tests and 136
+assertions in 9.85 seconds; its admission run passed 120 tests and 481 assertions in 35.64 seconds;
+and `git diff --check` exited 0. Those results did not exercise a missing object inside descendant
+patch replay or a rejecting publication hook, and this file previously ended at `b9cb77c3`, leaving
+the `3913d6de` review gap unrecorded. The review did not run the complete Tool Wiki suite, lint,
+typecheck, format, OpenSpec validation, browser checks or host gate.
+
+Descendant replay now terminalizes only exit 1 accompanied exclusively by Git's C-locale semantic
+non-applicability diagnostics. An object-read diagnostic stays an infrastructure error, while the
+durable immutable submission remains in `rework` and succeeds after the object is restored. Atomic
+ref publication now treats only a positively identified loose-ref lock or a moved target as modeled
+contention. A rejecting hook retains the exact `publishing` reservation and throws its Git stderr.
+
+| Deliberate one-at-a-time fault                                                          | Observed production-path failure                                                                                                                                      |
+| --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| classify every descendant `git apply` exit 1 as an incompatible submission              | `an object read failure inside descendant patch replay stays recoverable` failed on `fixture promise resolved unexpectedly`; the integration had terminalized instead |
+| classify every marker-absent update failure with an unchanged target as lock contention | `a rejecting Git publication hook preserves the exact reservation and throws` returned `publication-contended`; `Received function did not throw`                     |
+
+Both faults failed through `integration-races.test.ts`, were restored separately, and have adjacent
+`Proof:` comments written from those observed failures.
+
+- RED, descendant apply infrastructure: `bun test --preload ../test/scratch/preload.ts
+src/admission/integration-races.test.ts -t "object read failure inside descendant patch replay"`
+  from `tools/tool-wiki` — exit 1; 0 pass, 1 fail, 31 filtered; `fixture promise resolved
+unexpectedly`.
+- GREEN after narrow patch diagnostics: the same command — exit 0; 1 pass, 0 fail, 31 filtered and
+  4 assertions in 0.96 seconds. The surfaced Git detail was `error: failed to read src/one.ts`;
+  restoration resumed the same integration id at attempt two and integrated it.
+- RED, non-contention publication failure: `bun test --preload ../test/scratch/preload.ts
+src/admission/integration-races.test.ts -t "rejecting Git publication hook"` from
+  `tools/tool-wiki` — exit 1; 0 pass, 1 fail, 32 filtered; expected a contextual throw but received
+  `{status:"waiting",reason:"publication-contended",attempts:1}`.
+- GREEN after positive loose-ref-lock classification: the same command — exit 0; 1 pass, 0 fail,
+  32 filtered and 4 assertions in 0.58 seconds. The assertion also observed the hook's `fixture
+rejected publication` stderr, unchanged target and marker refs, and the retained exact
+  `publishing` reservation.
+- Genuine contention restoration: `bun test --preload ../test/scratch/preload.ts
+src/admission/integration-races.test.ts -t "retains its exact attempt across Git ref contention"`
+  from `tools/tool-wiki` — exit 0; 1 pass, 0 fail, 32 filtered and 5 assertions in 0.80 seconds.
+- Final focused race file: `bun test --preload ../test/scratch/preload.ts
+src/admission/integration-races.test.ts` from `tools/tool-wiki` — exit 0; 33 pass, 0 fail and 144
+  assertions in 10.98 seconds.
+- Final admission suite: `bun test --preload ../test/scratch/preload.ts src/admission` from
+  `tools/tool-wiki` — exit 0; 122 pass, 0 fail and 489 assertions in 37.07 seconds.
+- Uncached `tool-wiki:lint`, `tool-wiki:lint:source` and `tool-wiki:typecheck` — exit 0. The external
+  activation report remains `{status:"inactive",certified:false}` because Task 5.3 is outside this
+  correction.
+- `NX_DAEMON=false NX_ISOLATE_PLUGINS=false ./node_modules/.bin/nx format:check --all` initially
+  exited 1 because the new race test needed formatting; the test was formatted and the final
+  restoration run exited 0. `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate
+agent-scalable-llm-wiki --strict --json` exited 0 with one valid change and no issues.
+
+The complete Tool Wiki suite, browser checks, host gate and external activation were not run. Their
+older results do not certify this correction.

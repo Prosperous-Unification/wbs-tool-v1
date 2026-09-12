@@ -530,6 +530,98 @@ test('an infrastructure failure during recomposition stays recoverable and is no
   subject.store.close();
 });
 
+test('an object read failure inside descendant patch replay stays recoverable', async () => {
+  const subject = fixture();
+  const one = subject.submission('one', 'src/one.ts', 'export const one = 2;\n');
+  let releaseChecks: (() => void) | undefined;
+  let announceChecks: (() => void) | undefined;
+  const checksStarted = new Promise<void>((resolve) => {
+    announceChecks = resolve;
+  });
+  const held = new Promise<void>((resolve) => {
+    releaseChecks = resolve;
+  });
+  const integration = integrateWithRecovery(
+    subject.store,
+    subject.repository,
+    { policy, submissions: [one] },
+    options('descendant-apply-infrastructure', {
+      certify: async (candidate) => {
+        announceChecks?.();
+        await held;
+        return certify(candidate);
+      },
+    }),
+  );
+  await checksStarted;
+  subject.advance();
+
+  const sourceBlob = git(subject.repository, ['rev-parse', `${subject.base.commit}:src/one.ts`]);
+  const objectPath = join(
+    subject.repository,
+    '.git',
+    'objects',
+    sourceBlob.slice(0, 2),
+    sourceBlob.slice(2),
+  );
+  const heldObjectPath = `${objectPath}.held`;
+  if (!existsSync(objectPath)) throw new Error('source blob is not a loose fixture object');
+  const realGit = Bun.which('git');
+  if (realGit === null) throw new Error('git executable is absent from the test environment');
+  const wrapperDirectory = mkdtempSync(join(tmpdir(), 'wiki-git-wrapper-'));
+  scratch.push(wrapperDirectory);
+  const invocationCountPath = join(wrapperDirectory, 'apply-count');
+  const wrapper = join(wrapperDirectory, 'git');
+  writeFileSync(
+    wrapper,
+    `#!/usr/bin/env bun
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+const argv = process.argv.slice(2);
+if (argv[2] === 'apply') {
+  const count = existsSync(${JSON.stringify(invocationCountPath)})
+    ? Number(readFileSync(${JSON.stringify(invocationCountPath)}, 'utf8')) + 1
+    : 1;
+  writeFileSync(${JSON.stringify(invocationCountPath)}, String(count));
+  if (count === 2) {
+    renameSync(${JSON.stringify(objectPath)}, ${JSON.stringify(heldObjectPath)});
+  }
+}
+const invocation = Bun.spawnSync([${JSON.stringify(realGit)}, ...argv], {
+  env: process.env,
+  stdin: Bun.stdin,
+  stderr: 'inherit',
+  stdout: 'inherit',
+});
+process.exit(invocation.exitCode);
+`,
+  );
+  chmodSync(wrapper, 0o755);
+  const originalPath = process.env['PATH'];
+  process.env['PATH'] = `${wrapperDirectory}:${originalPath ?? ''}`;
+  try {
+    releaseChecks?.();
+    const failure = await captureRejection(() => integration);
+    expect(failure.message).toContain('immutable submission patch cannot be applied');
+    expect(failure.message).toContain('error: failed to read src/one.ts');
+    expect(subject.store.inspect().integrations[0]).toMatchObject({
+      attemptCount: 1,
+      status: 'rework',
+    });
+  } finally {
+    process.env['PATH'] = originalPath;
+    if (existsSync(heldObjectPath)) renameSync(heldObjectPath, objectPath);
+  }
+  expect(
+    await integrateWithRecovery(
+      subject.store,
+      subject.repository,
+      { policy, submissions: [one] },
+      options('descendant-apply-infrastructure'),
+    ),
+  ).toMatchObject({ attempts: 2, status: 'integrated' });
+  subject.store.close();
+});
+
 test('the complete candidate submission set must match the durable queue before checks and publication', () => {
   const subject = fixture();
   const one = subject.submission('one', 'src/one.ts', 'export const one = 2;\n');
@@ -987,6 +1079,35 @@ test('an eligible publisher retains its exact attempt across Git ref contention'
       options('git-contention'),
     ),
   ).toMatchObject({ attempts: 1, status: 'integrated' });
+  subject.store.close();
+});
+
+test('a rejecting Git publication hook preserves the exact reservation and throws', () => {
+  const subject = fixture();
+  const { reserved } = preparePublication(subject, 'publication-hook-rejection');
+  const hookDirectory = join(subject.repository, '.git', 'fixture-hooks');
+  const hookPath = join(hookDirectory, 'reference-transaction');
+  mkdirSync(hookDirectory);
+  writeFileSync(
+    hookPath,
+    '#!/bin/sh\nif [ "$1" = "prepared" ]; then\n  echo "fixture rejected publication" >&2\n  exit 1\nfi\n',
+  );
+  chmodSync(hookPath, 0o755);
+  git(subject.repository, ['config', 'core.hooksPath', hookDirectory]);
+
+  expect(() => publishReservedIntegration(subject.store, subject.repository, reserved)).toThrow(
+    /integration refused: cannot atomically publish integration refs:[\s\S]*fixture rejected publication/,
+  );
+  expect(subject.store.inspect().integrations[0]).toMatchObject({
+    attemptCount: 1,
+    candidateCommit: reserved.candidateCommit,
+    markerRef: reserved.markerRef,
+    status: 'publishing',
+  });
+  expect(git(subject.repository, ['rev-parse', 'refs/heads/main'])).toBe(subject.base.commit);
+  expect(git(subject.repository, ['for-each-ref', '--format=%(refname)', reserved.markerRef])).toBe(
+    '',
+  );
   subject.store.close();
 });
 

@@ -662,6 +662,13 @@ export function reserveIntegrationPublication(
   });
 }
 
+/** Recognizes only Git's C-locale diagnostic for a held loose-ref lock. */
+function isLooseRefLockContention(detail: string): boolean {
+  return /^fatal: (?:prepare: )?cannot lock ref '[^']+': Unable to create '.+\.lock': File exists\./.test(
+    detail,
+  );
+}
+
 function updateRefs(repository: string, reserved: ReservedIntegrationPublication): boolean {
   const commands = [
     'start',
@@ -677,6 +684,7 @@ function updateRefs(repository: string, reserved: ReservedIntegrationPublication
     '',
   ].join('\n');
   const invocation = Bun.spawnSync(['git', '-C', repository, 'update-ref', '--stdin'], {
+    env: { ...process.env, LC_ALL: 'C' },
     stdin: new TextEncoder().encode(commands),
     stderr: 'pipe',
     stdout: 'pipe',
@@ -689,7 +697,15 @@ function updateRefs(repository: string, reserved: ReservedIntegrationPublication
     // reservation is refused` fail on `Received function did not throw; Received value: false`.
     throw new Error(`integration publication marker mismatch: ${reserved.markerRef}`);
   }
-  return false;
+  if (requireTargetRef(repository, reserved.targetRef) !== reserved.baseCommit) return false;
+  const detail = invocation.stderr.toString('utf8').trim();
+  if (isLooseRefLockContention(detail)) return false;
+  // Proof: treating every failed update with an absent marker and unchanged target as contention
+  // made `a rejecting Git publication hook preserves the exact reservation and throws` return
+  // `publication-contended`; `Received function did not throw`.
+  throw new Error(
+    `integration refused: cannot atomically publish integration refs: ${detail || `git exited ${String(invocation.exitCode)}`}`,
+  );
 }
 
 function assertReservationMatches(

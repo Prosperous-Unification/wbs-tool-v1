@@ -398,6 +398,17 @@ function withTemporaryIndex<T>(repository: string, operation: (index: string) =>
   }
 }
 
+/** Recognizes only Git's C-locale diagnostics for semantic patch non-applicability. */
+function isPatchNonApplicability(detail: string): boolean {
+  const diagnostics = detail.split('\n').map((line) => line.trim());
+  return (
+    diagnostics.length > 0 &&
+    diagnostics.every((line) =>
+      /^error: (?:patch failed: .+|.+: patch does not apply|.+: does not match index)$/.test(line),
+    )
+  );
+}
+
 function applyPatch(
   repository: string,
   index: string,
@@ -417,7 +428,12 @@ function applyPatch(
       '-',
     ],
     {
-      env: { ...process.env, GIT_INDEX_FILE: index, GIT_OPTIONAL_LOCKS: '0' },
+      env: {
+        ...process.env,
+        GIT_INDEX_FILE: index,
+        GIT_OPTIONAL_LOCKS: '0',
+        LC_ALL: 'C',
+      },
       stdin: patch,
       stderr: 'pipe',
       stdout: 'pipe',
@@ -425,9 +441,10 @@ function applyPatch(
   );
   if (invocation.exitCode === 0) return;
   const detail = invocation.stderr.toString('utf8').trim();
-  // Only a patch already authenticated against its submitted base, replayed on a proven
-  // descendant, can turn Git's documented non-applicability exit into a modeled conflict.
-  if (conflictIsModeled && invocation.exitCode === 1) {
+  // Proof: broadening this predicate to every descendant `git apply` exit 1 made `an object read
+  // failure inside descendant patch replay stays recoverable` resolve terminal;
+  // `fixture promise resolved unexpectedly`.
+  if (conflictIsModeled && invocation.exitCode === 1 && isPatchNonApplicability(detail)) {
     throw new IntegrationPatchConflictError(detail || 'git exited 1');
   }
   throw new Error(
