@@ -2574,3 +2574,34 @@ agent-scalable-llm-wiki --strict --json` — exit 0; one valid change and no iss
 
 The correction does not update refs or lifecycle state. Task 5.2 still owns the atomic authority and
 target-ref recheck before publication; Task 5.3 still owns trusted-policy activation.
+
+### Slice 5.1 review correction — complete contract registry
+
+The second independent review found that contract validation visited only trusted policy rules. A
+packet could therefore produce `contract.unmapped`, which no rule visited, and compose successfully
+without any consumer. Composition now resolves every produced contract id against the trusted
+contract-rule registry before evaluating joins. The policy decoder already rejects a registered
+contract with an empty consumer list, so consumer-free contracts cannot be represented by omission
+or by an empty rule.
+
+The production-path test `every produced contract must resolve in the trusted contract registry`
+was written first. With the lookup absent it failed on `Received function did not throw` and printed
+an unchecked candidate carrying `contract.unmapped` without a consumer obligation. The lookup was
+then added; removing it again is that same observed fault, recorded by its adjacent `Proof:` comment.
+
+- `bun test tools/tool-wiki/src/admission/integration.test.ts` — exit 0; 15 pass, 0 fail and 58
+  assertions in 3.39 seconds.
+- `bun test tools/tool-wiki/src/admission/*.test.ts` — exit 0; 89 pass, 0 fail and 345 assertions in
+  26.11 seconds.
+- `NX_DAEMON=false bunx nx lint tool-wiki --skip-nx-cache` — exit 0 with the explicitly inactive
+  external activation report; this is not enforce-mode certification.
+- `NX_DAEMON=false bunx nx typecheck tool-wiki --skip-nx-cache` — exit 0; forced Tool Wiki build.
+- `bunx prettier --check tools/tool-wiki/src/admission/integrate.ts
+tools/tool-wiki/src/admission/integration.test.ts` and `git diff --check` — exit 0.
+- The exact 12m59s Tool Wiki suite was not rerun for this correction: the change is one local
+  fail-closed registry guard plus its integration test, the complete admission source suite passed,
+  and the immediately preceding implementation generation passed all 445 Tool Wiki tests. This is
+  an explicit skip, not a current full-suite claim.
+
+Source commit: `6b5c6ccd` (`fix(tool-wiki): reject unmapped contracts`). The correction does not
+publish refs or transition authority lifecycle state.
