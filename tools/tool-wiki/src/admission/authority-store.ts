@@ -3,7 +3,7 @@ import { isAbsolute, join, normalize, resolve } from 'node:path';
 
 import { Database } from 'bun:sqlite';
 
-export const AUTHORITY_SCHEMA_VERSION = 'wbs-wiki-authority.v1' as const;
+export const AUTHORITY_SCHEMA_VERSION = 'wbs-wiki-authority.v2' as const;
 
 export type PathAccess = 'read' | 'write';
 
@@ -20,16 +20,51 @@ export interface GroupClaim {
 
 export type AuthorityClaim = PathClaim | GroupClaim;
 
-export interface ClaimOwner {
+export type GenerationStatus =
+  'working' | 'investigating' | 'submitted' | 'integrated' | 'rejected' | 'abandoned' | 'released';
+
+export interface SubmissionIdentity {
+  readonly patchIdentity: string;
+  readonly candidateDiffIdentity: string;
+  readonly contentIdentity: string;
+}
+
+export interface AuthorityGeneration {
   readonly sessionId: string;
   readonly worktreePath: string;
   readonly generation: number;
   readonly claims: readonly AuthorityClaim[];
+  readonly status: GenerationStatus;
+  readonly heartbeatAt: number;
+  readonly statusAt: number;
+  readonly submission?: SubmissionIdentity;
 }
 
 export interface AuthorityState {
   readonly nextGeneration: number;
-  readonly owners: readonly ClaimOwner[];
+  readonly generations: readonly AuthorityGeneration[];
+}
+
+/**
+ * Trusted epoch-millisecond source configured with the adapter, never supplied by a claimant.
+ *
+ * Wall clocks are not claimed monotonic across processes; persisted regressions are refused.
+ */
+export interface AuthorityClock {
+  read(): number;
+}
+
+function assertAuthorityClock(clock: unknown): asserts clock is AuthorityClock {
+  // Proof: before this boundary, `{clock:{}}` constructed live memory and SQLite stores; their
+  // malformed-clock adapter tests observed that neither constructor threw.
+  if (
+    typeof clock !== 'object' ||
+    clock === null ||
+    !('read' in clock) ||
+    typeof clock.read !== 'function'
+  ) {
+    throw new Error('invalid authority clock adapter');
+  }
 }
 
 /**
@@ -54,6 +89,7 @@ export interface AuthorityTransaction {
  */
 export interface AuthorityStore {
   transact<T>(operation: (transaction: AuthorityTransaction) => T): T;
+  readClock(): number;
 }
 
 function copyClaim(claim: AuthorityClaim): AuthorityClaim {
@@ -65,11 +101,15 @@ function copyClaim(claim: AuthorityClaim): AuthorityClaim {
 function copyState(state: AuthorityState): AuthorityState {
   return {
     nextGeneration: state.nextGeneration,
-    owners: state.owners.map((owner) => ({
-      claims: owner.claims.map(copyClaim),
-      generation: owner.generation,
-      sessionId: owner.sessionId,
-      worktreePath: owner.worktreePath,
+    generations: state.generations.map((generation) => ({
+      claims: generation.claims.map(copyClaim),
+      generation: generation.generation,
+      heartbeatAt: generation.heartbeatAt,
+      sessionId: generation.sessionId,
+      status: generation.status,
+      statusAt: generation.statusAt,
+      submission: generation.submission === undefined ? undefined : { ...generation.submission },
+      worktreePath: generation.worktreePath,
     })),
   };
 }
@@ -86,28 +126,87 @@ function assertSynchronous(value: unknown): void {
   }
 }
 
+const SHA256 = /^[0-9a-f]{64}$/;
+const HOLDING_STATUSES: ReadonlySet<GenerationStatus> = new Set([
+  'working',
+  'investigating',
+  'submitted',
+]);
+
+/** Refuses a persisted or requested submission identity outside the exact SHA-256 contract. */
+export function assertSubmissionIdentity(submission: SubmissionIdentity): void {
+  // Proof: weakening the SHA-256 matcher to accept every string let `not-sha256` publish; the
+  // malformed-submission production test observed that `submitGeneration` did not throw for each
+  // of patch, candidate-diff and content identity.
+  if (!SHA256.test(submission.patchIdentity)) throw new Error('invalid patch identity');
+  if (!SHA256.test(submission.candidateDiffIdentity)) {
+    throw new Error('invalid candidate diff identity');
+  }
+  if (!SHA256.test(submission.contentIdentity)) throw new Error('invalid content identity');
+}
+
+/** Refuses a time value that cannot be represented identically by memory and SQLite. */
+export function assertAuthorityTimestamp(timestamp: number): void {
+  // Proof: bypassing this boundary made -1 reach the later regression diagnostic rather than the
+  // canonical timestamp boundary; the production heartbeat test lost its exact refusal.
+  if (!Number.isSafeInteger(timestamp) || timestamp < 0) {
+    throw new Error(`invalid authority clock timestamp: ${String(timestamp)}`);
+  }
+}
+
 function assertMemoryState(state: AuthorityState): void {
   if (!Number.isSafeInteger(state.nextGeneration) || state.nextGeneration < 1) {
     throw new Error('invalid memory authority next generation');
   }
-  const sessions = new Set<string>();
+  const activeSessions = new Set<string>();
   const generations = new Set<number>();
   let highestGeneration = 0;
-  for (const owner of state.owners) {
-    assertAuthoritySessionId(owner.sessionId);
-    assertAuthorityWorktreePath(owner.worktreePath);
-    if (sessions.has(owner.sessionId))
-      throw new Error(`duplicate authority session: ${owner.sessionId}`);
-    if (!Number.isSafeInteger(owner.generation) || owner.generation < 1) {
-      throw new Error(`invalid authority generation for session ${owner.sessionId}`);
+  for (const record of state.generations) {
+    assertAuthoritySessionId(record.sessionId);
+    assertAuthorityWorktreePath(record.worktreePath);
+    if (!Number.isSafeInteger(record.generation) || record.generation < 1) {
+      throw new Error(`invalid authority generation for session ${record.sessionId}`);
     }
-    if (generations.has(owner.generation)) {
-      throw new Error(`duplicate authority generation: ${String(owner.generation)}`);
+    if (generations.has(record.generation)) {
+      throw new Error(`duplicate authority generation: ${String(record.generation)}`);
     }
-    sessions.add(owner.sessionId);
-    generations.add(owner.generation);
-    highestGeneration = Math.max(highestGeneration, owner.generation);
-    for (const claim of owner.claims) {
+    generations.add(record.generation);
+    highestGeneration = Math.max(highestGeneration, record.generation);
+    assertGenerationStatus(record.status);
+    assertAuthorityTimestamp(record.heartbeatAt);
+    assertAuthorityTimestamp(record.statusAt);
+    // Proof: removing this ordering check let status time 999 follow heartbeat 1000; the malformed-
+    // lifecycle test observed that `MemoryAuthorityStore` constructed successfully.
+    if (record.statusAt < record.heartbeatAt) {
+      throw new Error(`authority generation status predates heartbeat: ${record.sessionId}`);
+    }
+    if (HOLDING_STATUSES.has(record.status)) {
+      // Proof: removing this check let two live generations for session-a construct; the malformed-
+      // lifecycle test observed that `MemoryAuthorityStore` did not throw.
+      if (activeSessions.has(record.sessionId)) {
+        throw new Error(`duplicate active authority session: ${record.sessionId}`);
+      }
+      activeSessions.add(record.sessionId);
+      // Proof: removing this terminal-state check let an integrated generation retain its write
+      // claim; the malformed-lifecycle test observed that the memory authority did not throw.
+    } else if (record.claims.length !== 0) {
+      throw new Error(`terminal authority generation retains claims: ${record.sessionId}`);
+    }
+    if (record.submission !== undefined) assertSubmissionIdentity(record.submission);
+    const requiresSubmission = record.status === 'submitted' || record.status === 'integrated';
+    const forbidsSubmission =
+      record.status === 'working' ||
+      record.status === 'investigating' ||
+      record.status === 'released';
+    // Proof: bypassing each half separately let either a `submitted` record omit identities or a
+    // `released` record retain them; the malformed-lifecycle test observed successful construction.
+    if (
+      (requiresSubmission && record.submission === undefined) ||
+      (forbidsSubmission && record.submission !== undefined)
+    ) {
+      throw new Error(`authority generation submission does not match status: ${record.sessionId}`);
+    }
+    for (const claim of record.claims) {
       if (claim.kind === 'path') {
         assertAuthorityClaimPath(claim.identity);
         assertAuthorityPathAccess(claim.access);
@@ -126,10 +225,16 @@ function assertMemoryState(state: AuthorityState): void {
 /** In-memory adapter with the same commit-or-rollback callback semantics as SQLite. */
 export class MemoryAuthorityStore implements AuthorityStore {
   #state: AuthorityState;
+  readonly #clock: AuthorityClock;
 
-  constructor(initial: AuthorityState = { nextGeneration: 1, owners: [] }) {
+  constructor(
+    initial: AuthorityState = { generations: [], nextGeneration: 1 },
+    clock: AuthorityClock = { read: () => Date.now() },
+  ) {
     assertMemoryState(initial);
+    assertAuthorityClock(clock);
     this.#state = copyState(initial);
+    this.#clock = clock;
   }
 
   transact<T>(operation: (transaction: AuthorityTransaction) => T): T {
@@ -150,6 +255,10 @@ export class MemoryAuthorityStore implements AuthorityStore {
   inspect(): AuthorityState {
     return copyState(this.#state);
   }
+
+  readClock(): number {
+    return this.#clock.read();
+  }
 }
 
 const SCHEMA = [
@@ -158,10 +267,19 @@ const SCHEMA = [
     schema_version TEXT NOT NULL,
     next_generation INTEGER NOT NULL CHECK (next_generation >= 1)
   ) STRICT`,
-  `CREATE TABLE authority_owner (
-    session_id TEXT PRIMARY KEY,
+  `CREATE TABLE authority_generation (
+    session_id TEXT NOT NULL,
     worktree_path TEXT NOT NULL,
-    generation INTEGER NOT NULL UNIQUE CHECK (generation >= 1)
+    generation INTEGER NOT NULL UNIQUE CHECK (generation >= 1),
+    status TEXT NOT NULL CHECK (status IN ('working', 'investigating', 'submitted', 'integrated', 'rejected', 'abandoned', 'released')),
+    heartbeat_at INTEGER NOT NULL CHECK (heartbeat_at >= 0),
+    status_at INTEGER NOT NULL CHECK (status_at >= heartbeat_at),
+    patch_identity TEXT,
+    candidate_diff_identity TEXT,
+    content_identity TEXT,
+    PRIMARY KEY (session_id, generation),
+    CHECK ((patch_identity IS NULL AND candidate_diff_identity IS NULL AND content_identity IS NULL) OR (patch_identity IS NOT NULL AND candidate_diff_identity IS NOT NULL AND content_identity IS NOT NULL)),
+    CHECK ((status IN ('submitted', 'integrated') AND patch_identity IS NOT NULL) OR (status IN ('working', 'investigating', 'released') AND patch_identity IS NULL) OR (status IN ('rejected', 'abandoned')))
   ) STRICT`,
   `CREATE TABLE authority_claim (
     session_id TEXT NOT NULL,
@@ -170,7 +288,7 @@ const SCHEMA = [
     access TEXT CHECK (access IN ('read', 'write')),
     identity TEXT NOT NULL,
     PRIMARY KEY (session_id, kind, identity),
-    FOREIGN KEY (session_id) REFERENCES authority_owner(session_id) ON DELETE CASCADE,
+    FOREIGN KEY (session_id, generation) REFERENCES authority_generation(session_id, generation) ON DELETE CASCADE,
     CHECK ((kind = 'path' AND access IS NOT NULL) OR (kind = 'group' AND access IS NULL))
   ) STRICT`,
 ] as const;
@@ -183,11 +301,13 @@ const MAX_BUSY_DELAY_MS = 50;
 export interface AuthorityStoreOptions {
   readonly maxBusyAttempts?: number;
   readonly busyDelayMilliseconds?: number;
+  readonly clock?: unknown;
 }
 
 interface RequiredAuthorityStoreOptions {
   readonly maxBusyAttempts: number;
   readonly busyDelayMilliseconds: number;
+  readonly clock: AuthorityClock;
 }
 
 interface SchemaRow {
@@ -201,10 +321,16 @@ interface MetaRow {
   readonly nextGeneration: number;
 }
 
-interface OwnerRow {
+interface GenerationRow {
   readonly sessionId: string;
   readonly worktreePath: string;
   readonly generation: number;
+  readonly status: string;
+  readonly heartbeatAt: number;
+  readonly statusAt: number;
+  readonly patchIdentity: string | null;
+  readonly candidateDiffIdentity: string | null;
+  readonly contentIdentity: string | null;
 }
 
 interface ClaimRow {
@@ -213,6 +339,32 @@ interface ClaimRow {
   readonly kind: string;
   readonly access: string | null;
   readonly identity: string;
+}
+
+function assertGenerationStatus(status: string): asserts status is GenerationStatus {
+  if (
+    status === 'working' ||
+    status === 'investigating' ||
+    status === 'submitted' ||
+    status === 'integrated' ||
+    status === 'rejected' ||
+    status === 'abandoned' ||
+    status === 'released'
+  ) {
+    return;
+  }
+  // Proof: before this runtime boundary, a memory record with status `unknown` constructed
+  // successfully; the malformed-lifecycle test observed that the constructor did not throw.
+  throw new Error(`invalid authority generation status: ${status}`);
+}
+
+function decodeGenerationStatus(status: string): GenerationStatus {
+  try {
+    assertGenerationStatus(status);
+  } catch (cause) {
+    throw new Error(`authority database generation status is invalid: ${status}`, { cause });
+  }
+  return status;
 }
 
 /** The authority exhausted its configured attempts to take SQLite's write lock. */
@@ -302,6 +454,9 @@ export function assertAuthorityPathAccess(access: string): asserts access is Pat
 function requiredOptions(options: AuthorityStoreOptions): RequiredAuthorityStoreOptions {
   const maxBusyAttempts = options.maxBusyAttempts ?? DEFAULT_BUSY_ATTEMPTS;
   const busyDelayMilliseconds = options.busyDelayMilliseconds ?? DEFAULT_BUSY_DELAY_MS;
+  let clock = options.clock;
+  if (clock === undefined) clock = { read: () => Date.now() };
+  assertAuthorityClock(clock);
   // Proof: before these ceilings, attempts 1001 constructed a live store; the finite-budget test
   // observed that the constructor did not throw.
   if (
@@ -320,7 +475,11 @@ function requiredOptions(options: AuthorityStoreOptions): RequiredAuthorityStore
   ) {
     throw new Error(`invalid authority busy delay: ${String(busyDelayMilliseconds)}`);
   }
-  return { busyDelayMilliseconds, maxBusyAttempts };
+  return {
+    busyDelayMilliseconds,
+    clock,
+    maxBusyAttempts,
+  };
 }
 
 function runGitCommonDirectory(worktreePath: string): string {
@@ -363,6 +522,8 @@ function normalizedSql(sql: string): string {
 
 function assertSchema(database: Database): void {
   const quick = database.query<{ quick_check: string }, []>('PRAGMA quick_check').get();
+  // Proof: persisted unknown status, regressed status time and integrated-without-submission faults
+  // each made the SQLite lifecycle test observe this production open refuse as corrupt.
   if (quick?.quick_check !== 'ok') {
     throw new Error(`authority database corrupt: quick_check=${quick?.quick_check ?? 'missing'}`);
   }
@@ -540,9 +701,13 @@ function readSqliteState(database: Database): AuthorityState {
   if (meta?.schemaVersion !== AUTHORITY_SCHEMA_VERSION) {
     throw new Error('authority database version is incompatible');
   }
-  const owners = database
-    .query<OwnerRow, []>(
-      'SELECT session_id AS sessionId, worktree_path AS worktreePath, generation FROM authority_owner ORDER BY session_id',
+  const generations = database
+    .query<GenerationRow, []>(
+      `SELECT session_id AS sessionId, worktree_path AS worktreePath, generation, status,
+              heartbeat_at AS heartbeatAt, status_at AS statusAt,
+              patch_identity AS patchIdentity, candidate_diff_identity AS candidateDiffIdentity,
+              content_identity AS contentIdentity
+       FROM authority_generation ORDER BY generation`,
     )
     .all();
   const claims = database
@@ -552,26 +717,54 @@ function readSqliteState(database: Database): AuthorityState {
     .all();
   const state: AuthorityState = {
     nextGeneration: meta.nextGeneration,
-    owners: owners.map((owner) => {
+    generations: generations.map((record) => {
       try {
-        assertAuthoritySessionId(owner.sessionId);
+        assertAuthoritySessionId(record.sessionId);
       } catch (cause) {
-        throw new Error(`authority database owner session is invalid: ${owner.sessionId}`, {
+        throw new Error(`authority database generation session is invalid: ${record.sessionId}`, {
           cause,
         });
       }
       try {
-        assertAuthorityWorktreePath(owner.worktreePath);
+        assertAuthorityWorktreePath(record.worktreePath);
       } catch (cause) {
-        throw new Error(`authority database owner worktree is invalid: ${owner.worktreePath}`, {
-          cause,
-        });
+        throw new Error(
+          `authority database generation worktree is invalid: ${record.worktreePath}`,
+          {
+            cause,
+          },
+        );
       }
+      const submission =
+        record.patchIdentity === null &&
+        record.candidateDiffIdentity === null &&
+        record.contentIdentity === null
+          ? undefined
+          : record.patchIdentity !== null &&
+              record.candidateDiffIdentity !== null &&
+              record.contentIdentity !== null
+            ? {
+                candidateDiffIdentity: record.candidateDiffIdentity,
+                contentIdentity: record.contentIdentity,
+                patchIdentity: record.patchIdentity,
+              }
+            : (() => {
+                throw new Error(
+                  `authority database generation has a partial submission: ${record.sessionId}/${String(record.generation)}`,
+                );
+              })();
       return {
-        ...owner,
+        generation: record.generation,
+        heartbeatAt: record.heartbeatAt,
+        sessionId: record.sessionId,
+        status: decodeGenerationStatus(record.status),
+        statusAt: record.statusAt,
+        submission,
+        worktreePath: record.worktreePath,
         claims: claims
           .filter(
-            (claim) => claim.sessionId === owner.sessionId && claim.generation === owner.generation,
+            (claim) =>
+              claim.sessionId === record.sessionId && claim.generation === record.generation,
           )
           .map((claim): AuthorityClaim => {
             if (claim.kind === 'group' && claim.access === null) {
@@ -603,7 +796,10 @@ function readSqliteState(database: Database): AuthorityState {
     }),
   };
   assertMemoryState(state);
-  if (claims.length !== state.owners.reduce((count, owner) => count + owner.claims.length, 0)) {
+  if (
+    claims.length !==
+    state.generations.reduce((count, generation) => count + generation.claims.length, 0)
+  ) {
     throw new Error('authority database contains a claim without its exact owner generation');
   }
   return state;
@@ -612,22 +808,48 @@ function readSqliteState(database: Database): AuthorityState {
 function writeSqliteState(database: Database, state: AuthorityState): void {
   assertMemoryState(state);
   database.run('DELETE FROM authority_claim');
-  database.run('DELETE FROM authority_owner');
+  database.run('DELETE FROM authority_generation');
   database
     .query<never, [number]>('UPDATE authority_meta SET next_generation = ? WHERE singleton = 1')
     .run(state.nextGeneration);
-  const insertOwner = database.query<never, [string, string, number]>(
-    'INSERT INTO authority_owner(session_id, worktree_path, generation) VALUES (?, ?, ?)',
+  const insertGeneration = database.query<
+    never,
+    [
+      string,
+      string,
+      number,
+      GenerationStatus,
+      number,
+      number,
+      string | null,
+      string | null,
+      string | null,
+    ]
+  >(
+    `INSERT INTO authority_generation(
+       session_id, worktree_path, generation, status, heartbeat_at, status_at,
+       patch_identity, candidate_diff_identity, content_identity
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const insertClaim = database.query<never, [string, number, string, string | null, string]>(
     'INSERT INTO authority_claim(session_id, generation, kind, access, identity) VALUES (?, ?, ?, ?, ?)',
   );
-  for (const owner of state.owners) {
-    insertOwner.run(owner.sessionId, owner.worktreePath, owner.generation);
-    for (const claim of owner.claims) {
+  for (const generation of state.generations) {
+    insertGeneration.run(
+      generation.sessionId,
+      generation.worktreePath,
+      generation.generation,
+      generation.status,
+      generation.heartbeatAt,
+      generation.statusAt,
+      generation.submission?.patchIdentity ?? null,
+      generation.submission?.candidateDiffIdentity ?? null,
+      generation.submission?.contentIdentity ?? null,
+    );
+    for (const claim of generation.claims) {
       insertClaim.run(
-        owner.sessionId,
-        owner.generation,
+        generation.sessionId,
+        generation.generation,
         claim.kind,
         claim.kind === 'path' ? claim.access : null,
         claim.identity,
@@ -706,6 +928,10 @@ class SqliteAuthorityStore implements AuthorityStore {
 
   close(): void {
     this.#database.close();
+  }
+
+  readClock(): number {
+    return this.#options.clock.read();
   }
 }
 

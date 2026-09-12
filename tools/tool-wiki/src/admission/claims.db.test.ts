@@ -226,8 +226,8 @@ test('two Bun processes atomically refuse overlap and both admit disjoint work',
   const afterOverlap = openAuthorityStore(fixture.root);
   const overlapState = afterOverlap.inspect();
   afterOverlap.close();
-  expect(overlapState.owners).toHaveLength(1);
-  expect(overlapState.owners[0]?.claims).toHaveLength(2);
+  expect(overlapState.generations).toHaveLength(1);
+  expect(overlapState.generations[0]?.claims).toHaveLength(2);
 
   const disjoint = await Promise.all([
     observation(
@@ -337,10 +337,12 @@ test('two process expansions preserve the refused owner and commit the disjoint 
   const store = openAuthorityStore(fixture.root);
   const state = store.inspect();
   store.close();
-  expect(state.owners.find(({ sessionId }) => sessionId === 'session-a')?.claims).toEqual([
+  expect(state.generations.find(({ sessionId }) => sessionId === 'session-a')?.claims).toEqual([
     { access: 'write', identity: 'docs', kind: 'path' },
   ]);
-  expect(state.owners.find(({ sessionId }) => sessionId === 'session-c')?.claims).toContainEqual({
+  expect(
+    state.generations.find(({ sessionId }) => sessionId === 'session-c')?.claims,
+  ).toContainEqual({
     access: 'write',
     identity: 'apps/disjoint',
     kind: 'path',
@@ -381,9 +383,9 @@ test('refuses an added schema object and an unknown state version', () => {
     const database = new Database(databasePath);
     if (fault === 'extra-table') database.run('CREATE TABLE foreign_state(id INTEGER) STRICT');
     else if (fault === 'extra-index')
-      database.run('CREATE INDEX foreign_index ON authority_owner(worktree_path)');
+      database.run('CREATE INDEX foreign_index ON authority_generation(worktree_path)');
     else if (fault === 'extra-view')
-      database.run('CREATE VIEW foreign_view AS SELECT session_id FROM authority_owner');
+      database.run('CREATE VIEW foreign_view AS SELECT session_id FROM authority_generation');
     else database.run("UPDATE authority_meta SET schema_version = 'unknown.v99'");
     database.close();
 
@@ -449,15 +451,15 @@ test('refuses relational corruption before treating an orphan claim as unowned',
 test('refuses malformed persisted owner and claim identities before overlap decisions', () => {
   const faults = [
     {
-      message: 'authority database owner session is invalid: bad/session',
+      message: 'authority database generation session is invalid: bad/session',
       mutations: [
         "UPDATE authority_claim SET session_id = 'bad/session'",
-        "UPDATE authority_owner SET session_id = 'bad/session'",
+        "UPDATE authority_generation SET session_id = 'bad/session'",
       ],
     },
     {
-      message: 'authority database owner worktree is invalid: relative',
-      mutations: ["UPDATE authority_owner SET worktree_path = 'relative'"],
+      message: 'authority database generation worktree is invalid: relative',
+      mutations: ["UPDATE authority_generation SET worktree_path = 'relative'"],
     },
     {
       message: 'authority database path claim is invalid: libs/./contracts',
@@ -508,7 +510,7 @@ test('opens one valid snapshot while another store commits between state queries
     [
       process.execPath,
       '--eval',
-      `import { Database } from 'bun:sqlite'; import { existsSync, writeFileSync } from 'node:fs'; while (!existsSync(process.argv[2])) Bun.sleepSync(1); const db = new Database(process.argv[1]); db.run('PRAGMA foreign_keys = ON'); db.run('PRAGMA busy_timeout = 5000'); db.run('BEGIN IMMEDIATE'); db.query('UPDATE authority_meta SET next_generation = ? WHERE singleton = 1').run(2); db.query('INSERT INTO authority_owner(session_id, worktree_path, generation) VALUES (?, ?, ?)').run('session-snapshot', process.argv[7], 1); db.query('INSERT INTO authority_claim(session_id, generation, kind, access, identity) VALUES (?, ?, ?, ?, ?)').run('session-snapshot', 1, 'path', 'write', 'apps/snapshot'); writeFileSync(process.argv[3], 'prepared'); while (!existsSync(process.argv[4])) Bun.sleepSync(1); writeFileSync(process.argv[5], 'committing'); db.run('COMMIT'); db.close(); writeFileSync(process.argv[6], 'done');`,
+      `import { Database } from 'bun:sqlite'; import { existsSync, writeFileSync } from 'node:fs'; while (!existsSync(process.argv[2])) Bun.sleepSync(1); const db = new Database(process.argv[1]); db.run('PRAGMA foreign_keys = ON'); db.run('PRAGMA busy_timeout = 5000'); db.run('BEGIN IMMEDIATE'); db.query('UPDATE authority_meta SET next_generation = ? WHERE singleton = 1').run(2); db.query("INSERT INTO authority_generation(session_id, worktree_path, generation, status, heartbeat_at, status_at) VALUES (?, ?, ?, 'working', 1000, 1000)").run('session-snapshot', process.argv[7], 1); db.query('INSERT INTO authority_claim(session_id, generation, kind, access, identity) VALUES (?, ?, ?, ?, ?)').run('session-snapshot', 1, 'path', 'write', 'apps/snapshot'); writeFileSync(process.argv[3], 'prepared'); while (!existsSync(process.argv[4])) Bun.sleepSync(1); writeFileSync(process.argv[5], 'committing'); db.run('COMMIT'); db.close(); writeFileSync(process.argv[6], 'done');`,
       databasePath,
       writerStart,
       writerPrepared,
@@ -524,7 +526,7 @@ test('opens one valid snapshot while another store commits between state queries
   const originalQuery: PropertyDescriptor = queryDescriptor;
   let interleaved = false;
   function queryAcrossCommit(this: Database, sql: string) {
-    if (!interleaved && sql.includes('FROM authority_owner ORDER BY session_id')) {
+    if (!interleaved && sql.includes('FROM authority_generation ORDER BY generation')) {
       interleaved = true;
       writeFileSync(writerStart, 'start');
       waitForFiles([writerPrepared]);
@@ -568,10 +570,14 @@ test('opens one valid snapshot while another store commits between state queries
   expect(writerStderr).toBe('');
   expect(interleaved).toBeTrue();
   const final = openAuthorityStore(fixture.root);
-  expect(final.inspect().owners).toContainEqual({
+  expect(final.inspect().generations).toContainEqual({
     claims: [{ access: 'write', identity: 'apps/snapshot', kind: 'path' }],
     generation: 1,
+    heartbeatAt: 1000,
     sessionId: 'session-snapshot',
+    status: 'working',
+    statusAt: 1000,
+    submission: undefined,
     worktreePath: fixture.worktreeB,
   });
   final.close();
@@ -635,7 +641,7 @@ test('retries the complete transaction until a rollback-journal reader releases 
     [
       process.execPath,
       '--eval',
-      `import { Database } from 'bun:sqlite'; import { writeFileSync } from 'node:fs'; const db = new Database(process.argv[1]); db.run('PRAGMA busy_timeout = 0'); db.run('BEGIN'); db.query('SELECT count(*) FROM authority_owner').get(); writeFileSync(process.argv[2], 'ready'); Bun.sleepSync(40); db.run('ROLLBACK'); db.close();`,
+      `import { Database } from 'bun:sqlite'; import { writeFileSync } from 'node:fs'; const db = new Database(process.argv[1]); db.run('PRAGMA busy_timeout = 0'); db.run('BEGIN'); db.query('SELECT count(*) FROM authority_generation').get(); writeFileSync(process.argv[2], 'ready'); Bun.sleepSync(40); db.run('ROLLBACK'); db.close();`,
       databasePath,
       readerReady,
     ],
@@ -648,7 +654,7 @@ test('retries the complete transaction until a rollback-journal reader releases 
     sessionId: 'session-reader',
   });
   expect(await reader.exited).toBe(0);
-  expect(store.inspect().owners).toHaveLength(1);
+  expect(store.inspect().generations).toHaveLength(1);
   store.close();
 });
 
@@ -662,7 +668,7 @@ test('bounds commit contention by attempts and delay without retaining a partial
   const reader = new Database(databasePath);
   reader.run('PRAGMA busy_timeout = 0');
   reader.run('BEGIN');
-  reader.query('SELECT count(*) FROM authority_owner').get();
+  reader.query('SELECT count(*) FROM authority_generation').get();
   let callbackAttempts = 0;
   const started = performance.now();
 

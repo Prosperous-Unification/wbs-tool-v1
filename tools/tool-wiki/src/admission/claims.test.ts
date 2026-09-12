@@ -9,7 +9,7 @@ const owner = (sessionId: string, worktreePath = `/worktrees/${sessionId}`) => (
 });
 
 test('acquires every requested claim with one generation', () => {
-  const store = new MemoryAuthorityStore();
+  const store = new MemoryAuthorityStore(undefined, { read: () => 1_000 });
 
   expect(
     acquireClaims(store, {
@@ -23,10 +23,14 @@ test('acquires every requested claim with one generation', () => {
   ).toEqual({ generation: 1, sessionId: 'session-a' });
   expect(store.inspect()).toEqual({
     nextGeneration: 2,
-    owners: [
+    generations: [
       {
         generation: 1,
+        heartbeatAt: 1_000,
         sessionId: 'session-a',
+        status: 'working',
+        statusAt: 1_000,
+        submission: undefined,
         worktreePath: '/worktrees/session-a',
         claims: [
           { access: 'read', kind: 'path', identity: 'apps/be-01/src' },
@@ -63,7 +67,7 @@ test('refuses the complete request when one path or group conflicts', () => {
       conflictGroups: ['root-schema'],
     }),
   ).toThrow('conflict-group claim belongs to session session-a: root-schema');
-  expect(store.inspect().owners).toHaveLength(1);
+  expect(store.inspect().generations).toHaveLength(1);
   expect(store.inspect().nextGeneration).toBe(2);
 });
 
@@ -83,7 +87,7 @@ test('permits disjoint writers and overlapping readers', () => {
     conflictGroups: [],
   });
 
-  expect(store.inspect().owners.map(({ sessionId }) => sessionId)).toEqual([
+  expect(store.inspect().generations.map(({ sessionId }) => sessionId)).toEqual([
     'session-a',
     'session-b',
   ]);
@@ -113,7 +117,7 @@ test('refuses reused sessions and malformed identities without mutation', () => 
       }),
     ).toThrow('invalid canonical claim path');
   }
-  expect(store.inspect().owners).toHaveLength(1);
+  expect(store.inspect().generations).toHaveLength(1);
 });
 
 test('expands under the same owner and generation or changes nothing', () => {
@@ -150,7 +154,7 @@ test('expands under the same owner and generation or changes nothing', () => {
     }),
   ).toThrow('path claim overlaps session session-b: libs');
 
-  const session = store.inspect().owners.find(({ sessionId }) => sessionId === 'session-a');
+  const session = store.inspect().generations.find(({ sessionId }) => sessionId === 'session-a');
   expect(session?.claims).toEqual([
     { access: 'write', kind: 'path', identity: 'apps/fe-01' },
     { access: 'read', kind: 'path', identity: 'docs' },
@@ -193,7 +197,7 @@ test('upgrades a read atomically and refuses a wrong token distinctly', () => {
       conflictGroups: [],
     }),
   ).toThrow('session does not exist: absent');
-  expect(store.inspect().owners[0]?.claims).toEqual([
+  expect(store.inspect().generations[0]?.claims).toEqual([
     { access: 'read', kind: 'path', identity: 'docs' },
   ]);
 
@@ -208,7 +212,7 @@ test('upgrades a read atomically and refuses a wrong token distinctly', () => {
     paths: [{ access: 'write', path: 'docs' }],
     conflictGroups: [],
   });
-  expect(upgradeStore.inspect().owners[0]?.claims).toEqual([
+  expect(upgradeStore.inspect().generations[0]?.claims).toEqual([
     { access: 'write', kind: 'path', identity: 'docs' },
   ]);
 });
@@ -224,7 +228,7 @@ test('rejects noncanonical worktree identities before reserving a session', () =
       }),
     ).toThrow('invalid canonical worktree path');
   }
-  expect(store.inspect().owners).toEqual([]);
+  expect(store.inspect().generations).toEqual([]);
 });
 
 test('rejects a session identity outside the strict authority alphabet', () => {
@@ -243,11 +247,14 @@ test('rejects a session identity outside the strict authority alphabet', () => {
       conflictGroups: ['bad/group'],
     }),
   ).toThrow('invalid conflict group: bad/group');
-  expect(store.inspect().owners).toEqual([]);
+  expect(store.inspect().generations).toEqual([]);
 });
 
 test('fails closed before overflowing the persisted generation counter', () => {
-  const store = new MemoryAuthorityStore({ nextGeneration: Number.MAX_SAFE_INTEGER, owners: [] });
+  const store = new MemoryAuthorityStore({
+    generations: [],
+    nextGeneration: Number.MAX_SAFE_INTEGER,
+  });
   expect(() =>
     acquireClaims(store, {
       owner: owner('session-a'),
@@ -255,7 +262,10 @@ test('fails closed before overflowing the persisted generation counter', () => {
       conflictGroups: [],
     }),
   ).toThrow('authority generation exhausted');
-  expect(store.inspect()).toEqual({ nextGeneration: Number.MAX_SAFE_INTEGER, owners: [] });
+  expect(store.inspect()).toEqual({
+    generations: [],
+    nextGeneration: Number.MAX_SAFE_INTEGER,
+  });
 });
 
 test('rejects a state whose next generation can collide with an existing owner', () => {
@@ -263,11 +273,14 @@ test('rejects a state whose next generation can collide with an existing owner',
     () =>
       new MemoryAuthorityStore({
         nextGeneration: 1,
-        owners: [
+        generations: [
           {
             claims: [],
             generation: 1,
+            heartbeatAt: 1_000,
             sessionId: 'session-a',
+            status: 'working',
+            statusAt: 1_000,
             worktreePath: '/worktrees/session-a',
           },
         ],
@@ -279,9 +292,9 @@ test('refuses an asynchronous transaction callback before committing its pending
   const store = new MemoryAuthorityStore();
   expect(() =>
     store.transact((transaction) => {
-      transaction.writeState({ nextGeneration: 2, owners: [] });
+      transaction.writeState({ generations: [], nextGeneration: 2 });
       return Promise.resolve();
     }),
   ).toThrow('authority transaction callback must be synchronous');
-  expect(store.inspect()).toEqual({ nextGeneration: 1, owners: [] });
+  expect(store.inspect()).toEqual({ generations: [], nextGeneration: 1 });
 });

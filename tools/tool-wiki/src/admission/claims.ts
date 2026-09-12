@@ -1,8 +1,8 @@
 import type {
   AuthorityClaim,
+  AuthorityGeneration,
   AuthorityState,
   AuthorityStore,
-  ClaimOwner,
   PathAccess,
   PathClaim,
 } from './authority-store';
@@ -11,6 +11,7 @@ import {
   assertAuthorityConflictGroup,
   assertAuthorityPathAccess,
   assertAuthoritySessionId,
+  assertAuthorityTimestamp,
   assertAuthorityWorktreePath,
 } from './authority-store';
 
@@ -90,33 +91,40 @@ function pathClaimsConflict(requested: PathClaim, held: PathClaim): boolean {
   );
 }
 
-function assertAvailable(claims: readonly AuthorityClaim[], owners: readonly ClaimOwner[]): void {
+function assertAvailable(
+  claims: readonly AuthorityClaim[],
+  generations: readonly AuthorityGeneration[],
+): void {
   for (const claim of claims) {
-    for (const owner of owners) {
+    for (const generation of generations) {
       if (claim.kind === 'group') {
         // Proof: bypassing this comparison let both spawned worktrees acquire `root-schema`;
         // the conflict-group test observed 2 winners instead of 1.
         if (
-          owner.claims.some((held) => held.kind === 'group' && held.identity === claim.identity)
+          generation.claims.some(
+            (held) => held.kind === 'group' && held.identity === claim.identity,
+          )
         ) {
           throw new Error(
-            `conflict-group claim belongs to session ${owner.sessionId}: ${claim.identity}`,
+            `conflict-group claim belongs to session ${generation.sessionId}: ${claim.identity}`,
           );
         }
         continue;
       }
-      if (owner.claims.some((held) => held.kind === 'path' && pathClaimsConflict(claim, held))) {
-        throw new Error(`path claim overlaps session ${owner.sessionId}: ${claim.identity}`);
+      if (
+        generation.claims.some((held) => held.kind === 'path' && pathClaimsConflict(claim, held))
+      ) {
+        throw new Error(`path claim overlaps session ${generation.sessionId}: ${claim.identity}`);
       }
     }
   }
 }
 
-function nextState(state: AuthorityState, owner: ClaimOwner): AuthorityState {
+function nextState(state: AuthorityState, generation: AuthorityGeneration): AuthorityState {
   return {
-    nextGeneration: owner.generation + 1,
-    owners: [...state.owners, owner].sort((left, right) =>
-      compareText(left.sessionId, right.sessionId),
+    nextGeneration: generation.generation + 1,
+    generations: [...state.generations, generation].sort(
+      (left, right) => left.generation - right.generation,
     ),
   };
 }
@@ -134,9 +142,19 @@ export function acquireClaims(store: AuthorityStore, request: ClaimRequest): Cla
   // retain its first disjoint claim; the test observed 2 stored owners instead of 1.
   return store.transact((transaction) => {
     const state = transaction.readState();
+    const acquiredAt = store.readClock();
+    assertAuthorityTimestamp(acquiredAt);
     // Proof: removing this guard reached the adapter's duplicate-state failure instead; the
     // acquire test expected the public `session already exists: session-a` refusal.
-    if (state.owners.some((owner) => owner.sessionId === request.owner.sessionId)) {
+    if (
+      state.generations.some(
+        (generation) =>
+          generation.sessionId === request.owner.sessionId &&
+          (generation.status === 'working' ||
+            generation.status === 'investigating' ||
+            generation.status === 'submitted'),
+      )
+    ) {
       throw new Error(`session already exists: ${request.owner.sessionId}`);
     }
     // Proof: removing the bound attempted to persist `MAX_SAFE_INTEGER + 1`; the overflow test
@@ -149,13 +167,23 @@ export function acquireClaims(store: AuthorityStore, request: ClaimRequest): Cla
     }
     // Proof: removing this whole-set check let both spawned worktrees acquire overlapping
     // `libs/contracts` claims; the two-process test observed 2 winners instead of 1.
-    assertAvailable(claims, state.owners);
+    const latestTimestamp = state.generations.reduce(
+      (latest, generation) => Math.max(latest, generation.statusAt),
+      0,
+    );
+    // Proof: removing this comparison let timestamp 1009 acquire after terminal timestamp 1010;
+    // the lifecycle acquisition test observed generation 2 instead of a clock refusal.
+    if (acquiredAt < latestTimestamp) throw new Error('authority clock regressed');
+    assertAvailable(claims, state.generations);
     const token = { generation: state.nextGeneration, sessionId: request.owner.sessionId };
     transaction.writeState(
       nextState(state, {
         claims,
         generation: token.generation,
+        heartbeatAt: acquiredAt,
         sessionId: token.sessionId,
+        status: 'working',
+        statusAt: acquiredAt,
         worktreePath: request.owner.worktreePath,
       }),
     );
@@ -187,24 +215,39 @@ export function expandClaims(store: AuthorityStore, request: ExpansionRequest): 
   const additions = normalizeClaims(request.paths, request.conflictGroups);
   return store.transact((transaction) => {
     const state = transaction.readState();
-    const owner = state.owners.find(({ sessionId }) => sessionId === request.token.sessionId);
+    const generation = state.generations.find(
+      ({ generation, sessionId }) =>
+        sessionId === request.token.sessionId && generation === request.token.generation,
+    );
     // Proof: substituting an empty owner for an absent session let token `absent/1` return
     // successfully; the wrong-token test observed that `expandClaims` did not throw.
-    if (owner === undefined) throw new Error(`session does not exist: ${request.token.sessionId}`);
+    if (generation === undefined) {
+      if (state.generations.some(({ sessionId }) => sessionId === request.token.sessionId)) {
+        throw new Error(`generation mismatch for session ${request.token.sessionId}`);
+      }
+      throw new Error(`session does not exist: ${request.token.sessionId}`);
+    }
     // Proof: removing this fence let generation 99 expand session-a; the wrong-token test
     // observed that `expandClaims` did not throw.
-    if (owner.generation !== request.token.generation) {
-      throw new Error(`generation mismatch for session ${request.token.sessionId}`);
+    // Proof: admitting `submitted` here let a frozen generation add `apps/fe-01`; the submitted-
+    // lifecycle test observed that `expandClaims` returned successfully instead of refusing.
+    if (generation.status !== 'working') {
+      throw new Error(`generation is not working: ${request.token.sessionId}`);
     }
-    const others = state.owners.filter(({ sessionId }) => sessionId !== request.token.sessionId);
+    const others = state.generations.filter(
+      ({ generation }) => generation !== request.token.generation,
+    );
     // Proof: removing the expansion check let the conflicting spawned writer report `ok: true`;
     // the two-process expansion test expected the whole expansion to be refused.
     assertAvailable(additions, others);
-    const expanded: ClaimOwner = { ...owner, claims: mergeClaims(owner.claims, additions) };
+    const expanded: AuthorityGeneration = {
+      ...generation,
+      claims: mergeClaims(generation.claims, additions),
+    };
     transaction.writeState({
       nextGeneration: state.nextGeneration,
-      owners: state.owners.map((candidate) =>
-        candidate.sessionId === request.token.sessionId ? expanded : candidate,
+      generations: state.generations.map((candidate) =>
+        candidate.generation === request.token.generation ? expanded : candidate,
       ),
     });
     return request.token;

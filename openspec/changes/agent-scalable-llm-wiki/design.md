@@ -197,6 +197,9 @@ records. The authority opens the database fail-closed with integrity/schema chec
 bounded busy behavior. State access is through `AuthorityStore`, with a memory fixture for
 deterministic state-machine tests and real SQLite multi-process tests for atomic claims.
 This is infra storage, not the product's SQLite source or its deployment migrations.
+The unactivated claim-only schema from slice 4.1 is deliberately superseded by exact authority
+schema v2 in slice 4.2: retained lifecycle generations, timestamps and submission identities are
+one atomic contract, and an existing v1 database is refused rather than migrated or defaulted.
 
 `acquire(packet)` normalizes all canonical paths and conflict groups, rejects ancestor/child
 overlap with current owners and either records all claims with one new generation or none.
@@ -205,11 +208,16 @@ dependencies, consumed/produced interfaces, invariants/checks and evidence requi
 Conflict-group claims make shared schema/root configuration ownership explicit. Missing or
 invalid state never means unclaimed. Heartbeat expiration only permits fencing/investigation.
 
-States are `working -> submitted -> integrated` or `working/submitted -> rejected/abandoned`.
+States are `working -> submitted -> integrated`, `working -> investigating`, or
+`working/investigating/submitted -> rejected/abandoned`; only unpublished `working` or
+`investigating` work can become `released`.
 Submission stores an immutable patch, candidate diff and content identities; it fences further
 publication under that generation. Claims remain until integration or explicit terminal
 rejection/abandonment. Release is idempotent for the exact session/generation, never for a
 successor. Resumed stale writers cannot submit or integrate. Retry reacquires a new generation.
+Lifecycle time is canonical epoch milliseconds read from the trusted store adapter, never a
+claimant field. Wall clocks are not described as cross-process monotonic; a value behind retained
+authority history is a modeled clock-regression refusal.
 Admission compares additions/deletions and both rename sides against owned paths, then checks
 read dependencies on the actual combined candidate. Failure preserves other sessions' work.
 
