@@ -207,7 +207,7 @@ describe('durable dev poller', () => {
       mkdir(freshInterrupted, { recursive: true }),
       writeFile(staleSingleFile, 'a candidate the loader wrote before 2026-09-07'),
     ]);
-    const staleTime = new Date(Date.now() - 9 * 24 * 60 * 60 * 1_000);
+    const staleTime = new Date(Date.now() - 25 * 60 * 60 * 1_000);
     await Promise.all([
       utimes(staleInstalled, staleTime, staleTime),
       utimes(staleInterrupted, staleTime, staleTime),
@@ -244,7 +244,7 @@ describe('durable dev poller', () => {
       mkdir(freshCandidate, { recursive: true }),
       writeFile(fakeBun, '#!/usr/bin/env bash\necho 1.2.20\n'),
     ]);
-    const staleTime = new Date(Date.now() - 9 * 24 * 60 * 60 * 1_000);
+    const staleTime = new Date(Date.now() - 25 * 60 * 60 * 1_000);
     await utimes(staleCandidate, staleTime, staleTime);
     await chmod(fakeBun, 0o755);
 
@@ -591,6 +591,7 @@ for required in apps/be-01/Dockerfile bin/publish-release.sh deploy/solver-super
 done
 [ "$(git -C "$target_root" rev-parse HEAD)" = "$2" ] || { echo 'wrong target HEAD' >&2; exit 43; }
 [ -z "$(git -C "$target_root" status --porcelain)" ] || { echo 'target tree is dirty' >&2; exit 44; }
+[ ! -e "$target_root/.git/objects/info/alternates" ] || { echo 'target objects still borrow source repository' >&2; exit 46; }
 if [ -e "$target_root/node_modules" ] || [ -L "$target_root/node_modules" ]; then
   echo 'target tree borrows an install' >&2; exit 45
 fi
@@ -609,6 +610,8 @@ printf '%s\n' "$target_root" > "$POLL_TARGET_PROBE"
     // of tools/libs/root configs — `missing target file: apps/be-01/Dockerfile`;
     // `cd "$SRC"` restored before the exec — `wrong cwd: <the source checkout>`;
     // the guard's `rm -rf` of its scratch removed — `target tree is dirty`;
+    // restoring `git clone --shared` — `target objects still borrow source
+    // repository`, because source gc could then invalidate the candidate;
     // the pre-TASK-376 `ln -s "$SRC/node_modules"` restored, with or without
     // the `.git/info/exclude` line that used to hide it — `target tree borrows
     // an install` (watched 2026-09-10, both variants). It reaches that check

@@ -99,6 +99,7 @@ describe('the production solver binding runtime', () => {
     );
 
     expect(invocations.map(({ argv }) => argv[0])).toEqual([
+      BUN,
       `${SOURCE_REPOSITORY}/bin/with-heavy-lock.sh`,
       BUN,
       BUN,
@@ -108,7 +109,8 @@ describe('the production solver binding runtime', () => {
       SOLVER_SUPERVISOR_BUN,
       'git',
     ]);
-    expect(invocations[0]?.argv).toEqual([
+    expect(invocations[0]?.argv).toEqual([BUN, 'install', '--frozen-lockfile']);
+    expect(invocations[1]?.argv).toEqual([
       `${SOURCE_REPOSITORY}/bin/with-heavy-lock.sh`,
       '--',
       'env',
@@ -118,31 +120,31 @@ describe('the production solver binding runtime', () => {
       `${ROOT}/tools/tool-dagger/src/main.ts`,
       'be',
     ]);
-    expect(invocations[0]?.env).toEqual({
+    expect(invocations[1]?.env).toEqual({
       REGISTRY_PASS: 'protected-value',
       HEAVY_LOCK_WAIT_SECONDS: '900',
       WBS_CLEAN_TREE_REPOSITORY: SOURCE_REPOSITORY,
     });
     expect(invocations.flatMap(({ argv }) => argv)).not.toContain('protected-value');
-    expect(invocations[1]?.argv).toContain(`--blue-image=${BLUE}`);
-    expect(invocations[1]?.argv).toContain(`--green-image=${GREEN}`);
-    expect(invocations[1]?.argv).toContain(`--dev-solver-image=${DEV}`);
-    expect(invocations[2]?.argv).toEqual([BUN, 'x', 'nx', 'run', 'tool-remote-scripts:build']);
-    expect(invocations[3]?.argv).toContain('--execute');
-    expect(invocations[4]?.argv).toEqual([
+    expect(invocations[2]?.argv).toContain(`--blue-image=${BLUE}`);
+    expect(invocations[2]?.argv).toContain(`--green-image=${GREEN}`);
+    expect(invocations[2]?.argv).toContain(`--dev-solver-image=${DEV}`);
+    expect(invocations[3]?.argv).toEqual([BUN, 'x', 'nx', 'run', 'tool-remote-scripts:build']);
+    expect(invocations[4]?.argv).toContain('--execute');
+    expect(invocations[5]?.argv).toEqual([
       'systemctl',
       '--user',
       'is-active',
       '--quiet',
       'wbs-solver-supervisor.service',
     ]);
-    expect(invocations[5]?.argv).toEqual([
+    expect(invocations[6]?.argv).toEqual([
       'test',
       '-S',
       '/run/user/1000/wbs-solver/supervisor.sock',
     ]);
-    expect(invocations[6]?.argv).toContain('--preflight=dev');
-    expect(invocations[7]?.argv).toEqual([
+    expect(invocations[7]?.argv).toContain('--preflight=dev');
+    expect(invocations[8]?.argv).toEqual([
       'git',
       '-C',
       SOURCE_REPOSITORY,
@@ -244,7 +246,8 @@ describe('the production solver binding runtime', () => {
     );
 
     await runtime.dependencies.publish(SHA, 'protected-value');
-    expect(invocations[0]?.env).toEqual({
+    expect(invocations[0]?.argv).toEqual([BUN, 'install', '--frozen-lockfile']);
+    expect(invocations[1]?.env).toEqual({
       REGISTRY_PASS: 'protected-value',
       HEAVY_LOCK_WAIT_SECONDS: '900',
     });
@@ -269,8 +272,12 @@ describe('the production solver binding runtime', () => {
           reads += 1;
           return Promise.resolve(bytes('{}'));
         },
-        command: () =>
-          Promise.resolve({ exitCode: 75, stderr: 'heavy work lock remained held after 900s' }),
+        command: (invocation) =>
+          Promise.resolve(
+            invocation.argv[0] === BUN
+              ? { exitCode: 0, stderr: '' }
+              : { exitCode: 75, stderr: 'heavy work lock remained held after 900s' },
+          ),
         query: () => Promise.reject(new Error('publish must not query')),
         writeAtomic: () => Promise.resolve(),
         withLock: (_path, action) => action(),
@@ -281,5 +288,37 @@ describe('the production solver binding runtime', () => {
       /solver image publish failed \(exit 75\).*remained held after 900s/,
     );
     expect(reads).toBe(0);
+  });
+
+  // Proof: failing the exact-lock install keeps the heavy publisher and its
+  // protected credential path untouched.
+  it('refuses a target lock whose dependencies cannot be installed', async () => {
+    const invocations: SolverBindingRuntimeInvocation[] = [];
+    const runtime = createTargetSolverBindingRuntime(
+      {
+        root: ROOT,
+        bunPath: BUN,
+        sourceRepository: SOURCE_REPOSITORY,
+        sourceSha: SHA,
+        compatibilityIdentity: IDENTITY,
+      },
+      {
+        exists: () => Promise.resolve(false),
+        isDirectory: () => Promise.resolve(true),
+        read: () => Promise.reject(new Error('failed install must not read host inputs')),
+        command: (invocation) => {
+          invocations.push(invocation);
+          return Promise.resolve({ exitCode: 1, stderr: 'lockfile had no matching package' });
+        },
+        query: () => Promise.reject(new Error('failed install must not query')),
+        writeAtomic: () => Promise.resolve(),
+        withLock: (_path, action) => action(),
+      },
+    );
+
+    expect(await rejection(runtime.dependencies.publish(SHA, 'protected-value'))).toMatch(
+      /solver candidate dependency install failed.*lockfile had no matching package/,
+    );
+    expect(invocations.map(({ argv }) => argv)).toEqual([[BUN, 'install', '--frozen-lockfile']]);
   });
 });

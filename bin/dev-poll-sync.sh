@@ -27,7 +27,7 @@ mkdir -p "$BIN"
 # the durable host while leaving recent targets available for diagnosis. The
 # pattern also retires the single-file `sync.<sha>.ts` candidates written
 # before 2026-09-07 and their interrupted `.XXXXXXXX` siblings.
-find "$BIN" -mindepth 1 -maxdepth 1 -name 'sync.*' -mtime +7 -exec rm -rf -- {} +
+find "$BIN" -mindepth 1 -maxdepth 1 -name 'sync.*' -mmin +1440 -exec rm -rf -- {} +
 
 # Reclaiming commit-derived snapshots does not depend on the interpreter. Keep
 # it ahead of these refusals so a broken or interrupted managed-Bun handoff
@@ -42,7 +42,10 @@ if [ "$("$BUN" --version)" != "$EXPECTED_BUN_VERSION" ]; then
 fi
 
 # The candidate is the target's complete committed tree, checked out detached
-# at the exact SHA from a clone that shares the checkout's objects. Two things
+# at the exact SHA from a local clone. A local clone hard-links loose and pack
+# objects instead of using an alternates file: source `git gc` may unlink its
+# names, but the candidate's links keep those objects alive for its bounded
+# 24-hour recovery window. Two things
 # need the whole tree rather than the deployer's module graph alone:
 #
 # - The deployer reaches the deploy contract through the `@wbs/*` tsconfig
@@ -69,7 +72,7 @@ cleanup_candidate() {
 }
 trap cleanup_candidate EXIT HUP INT TERM
 CANDIDATE_NEXT=$(mktemp -d "$BIN/sync.${SHA}.XXXXXXXX")
-git clone --quiet --shared --no-checkout "$SRC" "$CANDIDATE_NEXT"
+git clone --quiet --local --no-checkout "$SRC" "$CANDIDATE_NEXT"
 git -C "$CANDIDATE_NEXT" checkout --quiet --detach "$SHA"
 # NO INSTALL IS LINKED IN, AND THAT IS THE CONTRACT (TASK-376).
 #

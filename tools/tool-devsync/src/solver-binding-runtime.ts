@@ -210,12 +210,22 @@ export function createTargetSolverBindingRuntime(
         ))
           ? {}
           : { WBS_CLEAN_TREE_REPOSITORY: sourceRepository };
+        // The recovery candidate owns an install resolved from its own
+        // bun.lock. It is retained and pruned with that candidate, so neither
+        // a changed target lock nor source-checkout install can cross the
+        // target revision boundary.
+        await run('solver candidate dependency install', [
+          target.bunPath,
+          'install',
+          '--frozen-lockfile',
+        ]);
         await run(
           'solver image publish',
           [
-            // The target is an exported, install-free candidate tree. The
+            // The target is a detached, target-lock-installed candidate. The
             // durable lock wrapper belongs to the live checkout; the build
-            // entrypoint below remains pinned to the target candidate.
+            // entrypoint and dependency resolution remain pinned to the
+            // candidate revision.
             join(sourceRepository, 'bin/with-heavy-lock.sh'),
             '--',
             'env',
