@@ -21,10 +21,11 @@ nothing protected it from a _takeover_.
 ## What Changes
 
 - **A takeover waits.** While a card is open, a different trigger takes its place only after the
-  pointer has rested on it for `TAKEOVER_MS` (100ms). Arriving on the open card drops the pending
-  takeover; so does leaving the trigger. With no card open, a trigger opens its card at once.
+  pointer has rested on it for `TAKEOVER_MS` — 50ms, Dany's figure after watching 100 in Chrome on
+  2026-09-12 (_"maybe reduce it to 50ms?"_). Arriving on the open card drops the pending takeover;
+  so does leaving the trigger. With no card open, a trigger opens its card at once.
 - **One rule for every card kind** — Dany: _"same for links, deps"_ — because one rule is the
-  simple rule he asked for, and 100ms is under what reads as lag when running down a column.
+  simple rule he asked for, and 50ms is well under what reads as lag when running down a column.
 - **The store names its writes**: `arriveOn(cell)` for the pointer's arrival, `arriveOnCard()`
   (was `cancelHold`) for the pointer landing on the open card, `leave(cell)` for the same-cell
   clear the three leave handlers wrote functionally, and `updateHovered` for the refresh remap

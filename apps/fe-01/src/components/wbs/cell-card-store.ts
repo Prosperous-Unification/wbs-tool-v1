@@ -174,14 +174,17 @@ export const REACH_FOR_THE_CARD_MS = 180;
  * How long the pointer rests on another cell's trigger before its card takes
  * an open card's place, in milliseconds.
  *
- * 100ms. The path from the notes marker to its preview's nearest corner runs
- * ~26px through the Depends cell beside it — at a flick that is 13ms, at a
- * deliberate 300px/s it is ~90ms, and Dany's first figure (_"like 50ms i think
- * is fine"_) covers the flick and not the deliberate hand. Running down a
- * column of markers shows each card 100ms after landing, which is under what
- * a reader sees as lag. One constant, judged in Chrome.
+ * 50ms, Dany's figure. 100 shipped first, on the arithmetic that the path from
+ * the notes marker to its preview's nearest corner runs ~26px through the
+ * Depends cell beside it — 13ms at a flick, ~90ms at a deliberate 300px/s — and
+ * he asked for it halved the day after, having watched it (_"maybe reduce it
+ * to 50ms?"_, 2026-09-12): a card that waits 100ms under a hand that has
+ * stopped is a card that hesitates. The flick is still covered, and a slow
+ * hand that dwells on a live cell gets that cell's card, which is what dwelling
+ * asks for. Running down a column of markers shows each card 50ms after
+ * landing. One constant, judged in Chrome.
  */
-export const TAKEOVER_MS = 100;
+export const TAKEOVER_MS = 50;
 
 export function createCellCards(): CellCards {
   let hovered: string | null = null;
