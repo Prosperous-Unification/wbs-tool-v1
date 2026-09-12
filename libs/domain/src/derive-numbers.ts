@@ -1,8 +1,7 @@
+import { siblingGroupsOf, type TreePlacement } from './tree-order';
+
 /** The placement facts a work item is numbered from. */
-export interface WorkItemPlacement {
-  id: string;
-  parentId: string | null;
-  position: number;
+export interface WorkItemPlacement extends TreePlacement {
   frozenNumber: string | null;
 }
 
@@ -37,126 +36,82 @@ function labelOf(number: string, isRoot: boolean): string {
 }
 
 /**
- * A label that sorts strictly before `upper`, used when a work item is added
- * above the first frozen anchor in its group.
- *
- * It walks to the first non-zero digit and steps it down, so `010` yields `005`.
- * A group whose first anchor is all zeros has nothing below it, and that throws
- * rather than returning something that sorts equal.
- */
-function below(upper: string): string {
-  for (let i = 0; i < upper.length; i++) {
-    const digit = upper.charCodeAt(i) - 48;
-    if (digit > 0) return `${upper.slice(0, i)}${String(digit - 1)}5`;
-  }
-  throw new Error(`no label sorts before ${upper}`);
-}
-
-/**
- * A label strictly between two others, for a work item inserted between frozen
- * anchors that leave no natural label free.
- *
- * Digit by digit: where the two differ by more than one, take the middle digit;
- * where they are adjacent, keep the lower and append, which is why `010` and
- * `011` yield `0105`. This is the same trick as the numbering scheme itself, so
- * the space between any two numbers is never exhausted.
- */
-function between(lower: string, upper: string): string {
-  let prefix = '';
-  for (let i = 0; ; i++) {
-    const low = i < lower.length ? lower.charCodeAt(i) - 48 : -1;
-    const high = i < upper.length ? upper.charCodeAt(i) - 48 : 10;
-    if (low === high) {
-      prefix += String(low);
-      continue;
-    }
-    if (high - low > 1) return prefix + String(Math.floor((low + high) / 2));
-    // Adjacent digits do not mean no room: between `010` and `020` the tail of
-    // the lower number still has `011` free. Stepping its last digit is tried
-    // first and kept only if it still sorts below the ceiling; between `010` and
-    // `011` it does not, and appending is the only way down.
-    const stepped = stepLastDigit(lower);
-    if (stepped < upper) return stepped;
-    const appended = `${lower}5`;
-    if (appended < upper) return appended;
-    // Neither fits. This happens when two frozen anchors sit at different widths
-    // — `010` beside `0100` — and nothing digit-shaped sorts between them.
-    // Throwing beats returning a number that would sort into the wrong place:
-    // that number would look deliberate and could reach an exported ticket.
-    throw new Error(`no label sorts between ${lower} and ${upper}`);
-  }
-}
-
-/** `010` becomes `011`; `019`, having no room in its last digit, becomes `0195`. */
-function stepLastDigit(label: string): string {
-  const last = label.charCodeAt(label.length - 1) - 48;
-  if (last >= 9) return `${label}5`;
-  return `${label.slice(0, -1)}${String(last + 1)}`;
-}
-
-/**
  * Every work item's number, keyed by id.
  *
  * Pure, and given the whole project at once, because a number is a fact about a
  * work item's place among its siblings rather than about the work item. It reads
- * only `parentId` and `position` and never a number it previously produced, so a
- * wrong number is repaired by running this again — which is what makes deleting
- * a work item safe to follow with a plain re-derivation.
+ * only `parentId`, `position` and `frozenNumber` and never a number it
+ * previously produced, so a wrong number is repaired by running this again —
+ * which is what makes deleting a work item safe to follow with a plain
+ * re-derivation.
  *
- * A `frozenNumber` is reported verbatim. It still takes part in ordering through
- * its last segment, so an unfrozen sibling inserted beside it lands in the right
- * place, but the number itself is never rebuilt.
+ * **A `frozenNumber` is reported verbatim, and the unfrozen siblings step
+ * around it** (ADR 0023). Each group's natural labels are computed from its
+ * size; the unfrozen work items take them in position order, skipping any label
+ * a frozen sibling already holds as its last segment. Nothing is fitted
+ * between* frozen labels any more — the old walk built `0105` to sit between
+ * `010` and `011`, which kept a byte-wise sort equal to tree order but only
+ * while frozen labels ascended along position, and a frozen work item may move
+ * now. {@link treeOrder} is that order's spelling instead, and a number in a
+ * group where a frozen work item has moved no longer says where its row sits.
+ *
+ * **What survives is that no two siblings share a label**, and it survives by
+ * counting rather than by searching: a group of *n* has exactly *n* natural
+ * labels, its frozen work items hold at most *n* distinct labels between them,
+ * and they consume a natural only when one of theirs *is* a natural — so the
+ * free naturals never number fewer than the unfrozen work items.
+ *
+ * @throws if a work item is not reachable from any root — an orphan, or a
+ * parent cycle. Returning the reachable ones would hand back a project silently
+ * missing rows, and a cycle would not even return.
  */
 export function deriveNumbers(placements: readonly WorkItemPlacement[]): Map<string, string> {
-  const childrenOf = new Map<string | null, WorkItemPlacement[]>();
-  for (const placement of placements) {
-    const group = childrenOf.get(placement.parentId) ?? [];
-    group.push(placement);
-    childrenOf.set(placement.parentId, group);
-  }
-  for (const group of childrenOf.values()) group.sort((a, b) => a.position - b.position);
+  const groups = siblingGroupsOf(placements);
 
   const numbers = new Map<string, string>();
   const numberGroup = (parentId: string | null, parentNumber: string | null): void => {
-    const group = childrenOf.get(parentId) ?? [];
+    const group = groups.get(parentId) ?? [];
     const isRoot = parentNumber === null;
-    const natural = labelsFor(group.length, isRoot);
-    const frozenLabels = group.map((placement) =>
-      placement.frozenNumber === null ? null : labelOf(placement.frozenNumber, isRoot),
+    const held = new Set(
+      group.flatMap((each) =>
+        each.frozenNumber === null ? [] : [labelOf(each.frozenNumber, isRoot)],
+      ),
     );
+    const free = labelsFor(group.length, isRoot).filter((label) => !held.has(label));
 
-    let nextNatural = 0;
-    let previous: string | null = null;
-    group.forEach((placement, i) => {
-      const label = frozenLabels[i] ?? claimLabel();
-      // A stored number is reported exactly as it was written down, never
-      // rebuilt from the current parent. Rebuilding is how a frozen `010.1.1`
-      // became `010.1` when its parent was promoted — colliding with a frozen
-      // sibling and pointing one exported ticket number at two work items.
-      // The label still drives ordering among siblings; only the reported
-      // number differs.
-      const number = placement.frozenNumber ?? (isRoot ? label : `${parentNumber}.${label}`);
-      previous = label;
+    let claimed = 0;
+    for (const placement of group) {
+      let number: string;
+      if (placement.frozenNumber === null) {
+        // `.at` rather than `[]`, for the reason `external-system.ts` records:
+        // this project's tsconfig has no `noUncheckedIndexedAccess`, so a
+        // bracket index is typed as always present and the guard below reads as
+        // dead code to both the compiler and `no-unnecessary-condition` — which
+        // is what it reported, here, on the first draft of this line.
+        const label = free.at(claimed);
+        // Unreachable by the counting argument in this function's JSDoc, and a
+        // throw rather than a fallback because a label this code could not
+        // produce becomes the string `undefined` on somebody's exported ticket.
+        //
+        // Proof: `labelsFor` made to return `labels.slice(1)`, so a group is one
+        // label short — `numbers roots in tens` failed on `error: a sibling
+        // group of 3 ran out of labels`, which is this line; watched
+        // 2026-09-11, then restored.
+        if (label === undefined) {
+          throw new Error(`a sibling group of ${String(group.length)} ran out of labels`);
+        }
+        claimed += 1;
+        number = parentNumber === null ? label : `${parentNumber}.${label}`;
+      } else {
+        // A stored number is reported exactly as it was written down, never
+        // rebuilt from the current parent. Rebuilding is how a frozen `010.1.1`
+        // became `010.1` when its parent was promoted — colliding with a frozen
+        // sibling and pointing one exported ticket number at two work items.
+        number = placement.frozenNumber;
+      }
       numbers.set(placement.id, number);
       numberGroup(placement.id, number);
-
-      function claimLabel(): string {
-        // The next frozen anchor is the ceiling: whatever this work item takes
-        // has to sort below a number that has already left the tool.
-        const ceiling = frozenLabels.slice(i + 1).find((l) => l !== null) ?? null;
-        while (nextNatural < natural.length) {
-          const candidate = natural[nextNatural] ?? '';
-          if (ceiling !== null && candidate >= ceiling) break;
-          nextNatural++;
-          if (previous === null || candidate > previous) return candidate;
-        }
-        if (previous === null && ceiling !== null) return below(ceiling);
-        if (previous !== null && ceiling !== null) return between(previous, ceiling);
-        // No ceiling and every natural label used or too low: extend the last
-        // one, which always sorts after it.
-        return `${previous ?? natural.at(0) ?? '010'}5`;
-      }
-    });
+    }
   };
   numberGroup(null, null);
 

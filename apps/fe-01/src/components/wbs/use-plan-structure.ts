@@ -492,23 +492,12 @@ export function usePlanStructure({
 }
 
 /**
- * The one sentence a frozen row's refusal says, however the move was asked for.
- *
- * Named rather than reached for through {@link REFUSAL_MESSAGES}: that record is
- * `Partial`, so every read of it is a `string | undefined` the keyboard path
- * would have to invent a fallback for — and two spellings of one refusal is how
- * a drag and a keystroke come to disagree about the same rule.
- */
-export const FROZEN_REFUSAL = 'That row’s number is frozen. Unfreeze it before moving it.';
-
-/**
  * What a refused drop says out loud.
  *
  * `unchanged` is absent deliberately: dropping a row back where it was is not a
  * mistake anyone needs telling about, and a message for it would fire constantly.
  */
 export const REFUSAL_MESSAGES: Partial<Record<DropRefusal, string>> = {
-  frozen: FROZEN_REFUSAL,
   cycle: 'A row cannot be moved inside itself.',
   not_found: 'That row is no longer here — the table has been refreshed.',
 };

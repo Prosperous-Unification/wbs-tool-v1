@@ -1,5 +1,6 @@
 import {
   addWorkdays,
+  CalendarRangeError,
   deadlineOffsetOf,
   deadlineOffsetsOf,
   type DependencyReach,
@@ -27,6 +28,7 @@ import {
   workdaysBetween,
 } from '@wbs/domain';
 import { MEASURE_METRICS, SOLVER_OBJECTIVES, type SolverObjectiveName } from '@wbs/domain';
+import { byTreeOrder, treeOrder } from '@wbs/domain';
 import {
   haveSameSliceOrder,
   type Schedule,
@@ -36,6 +38,7 @@ import {
   type Slice,
   sliceKey,
 } from '@wbs/domain';
+import { arrangeBySchedule as arrangeSiblingsBySchedule } from '@wbs/domain/arrange-siblings';
 import type { ScheduleInput } from '@wbs/domain/canonical-schedule-input';
 
 import type { ActualStore, StoredActual } from '../ports/actual-store';
@@ -366,6 +369,40 @@ interface CanonicalScheduleParts {
  * prevents a restarted solve from rebuilding a different hash than the plan
  * read that enqueued it.
  */
+/**
+ * Which schedule a project is **drawn by**: Fast, or the ready optimized
+ * variant the project selects.
+ *
+ * One rule, two callers with different answers to the same middle case. The
+ * plan read draws Fast while a selected variant is still solving — the cue
+ * beside it says so, and a chart that emptied itself for three seconds would be
+ * worse. `arrangeBySchedule` refuses there instead, because an arrangement is a
+ * write that leaves no mark saying which engine decided it, and a reader who
+ * chose `pri` would find their rows in Fast's order with nothing on screen
+ * admitting it.
+ *
+ * `awaitingSolve` is what separates them, so neither caller re-derives the
+ * three conditions and they cannot drift apart.
+ */
+function selectedSchedule(
+  project: Project,
+  fast: Schedule,
+  optimization: OptimizedScheduleRead | null,
+): { schedule: Schedule; displayed: 'fast' | SolverObjectiveName; awaitingSolve: boolean } {
+  const optimizedSelected = project.optimizationEnabled && project.scheduleEngine === 'optimized';
+  if (!optimizedSelected || optimization === null) {
+    return { schedule: fast, displayed: 'fast', awaitingSolve: false };
+  }
+  if (optimization.variants[project.scheduleObjective].state !== 'ready') {
+    return { schedule: fast, displayed: 'fast', awaitingSolve: true };
+  }
+  const ready = optimization.schedules[project.scheduleObjective];
+  if (ready === null) {
+    throw new Error('optimized plan reader reported ready without a schedule');
+  }
+  return { schedule: ready, displayed: project.scheduleObjective, awaitingSolve: false };
+}
+
 function canonicalScheduleParts(
   project: Project,
   rows: readonly LabelledWorkItem[],
@@ -532,7 +569,7 @@ export interface IdentifiedSlice extends ScheduledSlice {
 }
 
 /** Why a project has no dates, when it has none. `null` is the ordinary case. */
-export type ScheduleError = 'cycle' | null;
+export type ScheduleError = 'calendar_range' | 'cycle' | null;
 
 export type DeleteStrategy = 'cascade' | 'promote';
 
@@ -541,7 +578,19 @@ export type WorkItemRefusal =
   | 'forbidden'
   | 'strategy_required'
   | 'cycle'
-  | 'frozen'
+  /**
+   * `arrangeBySchedule` on a project whose selected engine is `optimized` and
+   * whose displayed variant has not settled.
+   *
+   * A refusal rather than a fall back to Fast: the rows would be put in the
+   * order of a schedule the reader did not pick, and — unlike a *drawn* Fast
+   * baseline, which the cue marks as Fast — an arrangement leaves no mark
+   * behind saying which engine decided it. ADR 0022's reasoning, applied to a
+   * write.
+   */
+  | 'schedule_not_ready'
+  /** The selected engine's adapter is not installed in this deployment. */
+  | 'engine_unavailable'
   | 'rolled_up'
   /**
    * A parallelism written on a row that has children.
@@ -1586,6 +1635,16 @@ export class WorkItemService {
         optimized = selected;
       }
       const planned = optimized ?? fast;
+      // `selectedSchedule` states the same rule this block applies, and is what
+      // `arrangeBySchedule` asks so a press can never arrange by a schedule the
+      // chart is not drawing. Kept as an assertion rather than replacing the
+      // lines above: this read builds `optimized` on its way to `displayed` and
+      // the optimization payload, and rewriting it to call the helper would
+      // move four more decisions for no gain.
+      const selected = selectedSchedule(project, fast, optimizationRead);
+      if (selected.schedule !== planned) {
+        throw new Error('the plan read and `selectedSchedule` disagree about the drawn schedule');
+      }
       if (optimizationRead !== null) {
         const displayed = optimized === null ? 'fast' : project.scheduleObjective;
         optimization = {
@@ -1605,6 +1664,19 @@ export class WorkItemService {
           // drew nothing at all.
           ...comparedWithFast(fast, optimizationRead),
         };
+      }
+      // Scheduling uses dimensionless workday offsets and may remain valid
+      // beyond the finite calendar ECMAScript can represent. Name that state
+      // before any row calls `datesOf`, which would otherwise surface a 500.
+      // Proof: remove this preflight and the mounted controller case
+      // `models a plan beyond the calendar range without partial dates` fails
+      // on the unhandled invalid-Date projection.
+      if (project.startDate !== null) {
+        let projectFinish = 0;
+        for (const placed of planned.workItems.values()) {
+          if (placed.earliestFinish > projectFinish) projectFinish = placed.earliestFinish;
+        }
+        addWorkdays(project.startDate, lastWorkdayOf(0, projectFinish));
       }
       timing = planned.workItems;
       waitingForPerson = planned.waitingForPerson;
@@ -1630,8 +1702,9 @@ export class WorkItemService {
       // exception in this block — a stack overflow on a pathological tree, a
       // future mistake in `slicesOf` — into "your dependencies run in a
       // circle", which is a lie told confidently. R5: unknown is not OK.
-      if (!(err instanceof ScheduleCycleError)) throw err;
-      scheduleError = 'cycle';
+      if (err instanceof ScheduleCycleError) scheduleError = 'cycle';
+      else if (err instanceof CalendarRangeError) scheduleError = 'calendar_range';
+      else throw err;
     }
     const waitingFor = new Map<string, string[]>();
     for (const found of edges) {
@@ -1709,7 +1782,13 @@ export class WorkItemService {
           scheduleError !== null,
         ),
       }))
-      .sort((a, b) => (a.number < b.number ? -1 : a.number > b.number ? 1 : 0));
+      // **Tree order, not the number string** (ADR 0023). The two agreed for as
+      // long as a frozen work item could not move — `deriveNumbers` built
+      // labels so a byte-wise sort equalled this walk — and a frozen number is
+      // a name now, so a row frozen `030` and dragged to the top is drawn at
+      // the top. Sorting by the label would draw it third, where its old name
+      // says it used to be.
+      .sort(byTreeOrder(treeOrder(rows)));
     return {
       workItems,
       seq,
@@ -2067,10 +2146,13 @@ export class WorkItemService {
     if (!context.ok) return context;
     const { workItem, rows } = context.value;
 
-    // A frozen number has left the tool — it is in someone's ticket. Moving the
-    // row would either break that reference or quietly stop it meaning what it
-    // said, so the freeze has to be lifted deliberately first.
-    if (workItem.frozenNumber !== null) return { ok: false, reason: 'frozen' };
+    // A frozen work item moves like any other since ADR 0023. The refusal that
+    // stood here read "a frozen number has left the tool — it is in someone's
+    // ticket", which is true and is why the *number* travels with the row
+    // unchanged; it was never a reason the row could not be somewhere else.
+    // What the refusal actually protected was `deriveNumbers`' anchor walk,
+    // which needed frozen labels to ascend along position — and that walk is
+    // gone.
 
     // Same reason as in `create`: a parent outside this project detaches the row
     // from every root here.
@@ -2612,6 +2694,101 @@ export class WorkItemService {
       // restored parent is part of the undo. The ends of the edges that left
       // are not, for the reason given in the cascade branch above.
       touched: promoted.map((each) => each.id),
+      before: rows,
+    });
+    return { ok: true, value: null };
+  }
+
+  /**
+   * Puts every sibling group in the order its bars start — one press of
+   * `Arrange by schedule`, as one act.
+   *
+   * **Computed here, inside the write, from the schedule the chart is drawing.**
+   * The alternative a client could build — a batch of `moveWorkItem` steps — is
+   * capped at 200, orders from a read that may already be stale, and makes every
+   * `afterId` in it a second implementation of the arrangement. ADR 0023.
+   *
+   * **A project on the optimized engine whose variant is still solving is
+   * refused**, never quietly arranged by Fast: the read draws Fast there and the
+   * cue beside it says so, but an arrangement leaves no mark saying which engine
+   * decided it. {@link selectedSchedule} holds both halves of that rule.
+   *
+   * A project already in schedule order writes nothing, journals nothing and
+   * announces nothing — {@link freeze}'s precedent for a write that pinned
+   * nothing, and what keeps a second press off the undo stack.
+   */
+  async arrangeBySchedule(projectId: string, actorId: string): Promise<WorkItemOutcome<null>> {
+    const project = await this.opts.projects.findById(projectId);
+    if (project === null) return { ok: false, reason: 'not_found' };
+    if (!canEdit(project, actorId)) return { ok: false, reason: 'forbidden' };
+
+    const rows = await this.opts.workItems.listByProject(projectId);
+    const stored = await this.opts.estimates.listByProject(projectId);
+    const edges = await this.opts.dependencies.listByProject(projectId);
+    const assigned = await this.opts.directory.assignmentsOf(rows.map((row) => row.id));
+    const steps = await this.opts.projects.stepsOf(projectId);
+    const slotsOf = await this.opts.capacity.slotsFor(projectId);
+    const canonical = canonicalScheduleParts(
+      project,
+      rows,
+      stored,
+      edges,
+      assigned,
+      steps,
+      slotsOf,
+    );
+
+    let selected;
+    try {
+      const read = this.opts.scheduler.read({
+        projectId: project.id,
+        input: canonical.input,
+        engine: project.scheduleEngine,
+        objective: project.scheduleObjective,
+        enabled: project.optimizationEnabled,
+        mode: 'live',
+      });
+      if (read.kind === 'engine_unavailable') return { ok: false, reason: 'engine_unavailable' };
+      selected = selectedSchedule(project, read.fast, read.optimization);
+    } catch (err) {
+      // Only the modeled failure, for the plan read's reason exactly: an
+      // unqualified catch would turn any future mistake in `slicesOf` into
+      // "your dependencies run in a circle", which is a lie told confidently.
+      if (!(err instanceof ScheduleCycleError)) throw err;
+      return { ok: false, reason: 'cycle' };
+    }
+    if (selected.awaitingSolve) return { ok: false, reason: 'schedule_not_ready' };
+
+    const arrangement = arrangeSiblingsBySchedule(rows, selected.schedule.workItems);
+    // Nothing to arrange. Not an error and not a write: the project already
+    // reads in the order it is drawn in.
+    if (arrangement.placements.length === 0) return { ok: true, value: null };
+
+    const before = new Map(rows.map((row) => [row.id, row]));
+    const stamp = this.clock.stampFor(actorId);
+    await this.opts.workItems.setPositions(arrangement.placements, arrangement.moved, stamp);
+    await this.announceTree(projectId);
+    await this.record(projectId, stamp, 'arrange', 'arrange the plan by schedule', {
+      forward: {
+        do: 'set_positions',
+        placements: [...arrangement.placements],
+        moved: [...arrangement.moved],
+      },
+      // The positions as they were, for exactly the work items this arrangement
+      // writes — never re-derived later from an `afterId`, which goes stale the
+      // moment somebody adds a sibling between the press and the undo.
+      inverse: {
+        do: 'set_positions',
+        placements: arrangement.placements.map((placed) => {
+          const was = before.get(placed.id);
+          // `arrangeBySchedule` only ever names rows it was given, so this is a
+          // broken caller rather than a row to guess a position for.
+          if (was === undefined) throw new Error(`arranged an unknown work item ${placed.id}`);
+          return { id: was.id, parentId: was.parentId, position: was.position };
+        }),
+        moved: [...arrangement.moved],
+      },
+      touched: [...arrangement.moved],
       before: rows,
     });
     return { ok: true, value: null };
@@ -3640,6 +3817,8 @@ export class WorkItemService {
           command.afterId,
           stamp,
         );
+      case 'set_positions':
+        return this.applySetPositions(projectId, command.placements, command.moved, stamp);
       case 'set_frozen': {
         const rows = await this.opts.workItems.listByProject(projectId);
         const gone = command.updates.find((each) => !rows.some((row) => row.id === each.id));
@@ -3683,9 +3862,6 @@ export class WorkItemService {
     const rows = await this.opts.workItems.listByProject(projectId);
     const moving = rows.find((row) => row.id === id);
     if (moving === undefined) return { ok: false, detail: 'the work item is no longer there.' };
-    if (moving.frozenNumber !== null) {
-      return { ok: false, detail: 'that work item has been frozen since, so it cannot move.' };
-    }
     if (parentId !== null && !rows.some((row) => row.id === parentId)) {
       return { ok: false, detail: 'the work item it sat under has been deleted since then.' };
     }
@@ -3698,6 +3874,39 @@ export class WorkItemService {
     }
     const placed = placeAfter(group, afterId);
     await this.opts.workItems.move(id, parentId, placed.position, placed.renumbered, stamp);
+    return { ok: true, detail: null };
+  }
+
+  /**
+   * Re-applies an arrangement, forwards for a redo and backwards for an undo.
+   *
+   * Two guards, and between them they are what `applyMove`'s three are for. A
+   * work item the entry names may have been deleted since; and one may have
+   * been **moved to another parent** since, in which case writing its stored
+   * position would put it at a place in a group it does not belong to, silently
+   * — the arrangement was about the group it was in when the press happened.
+   *
+   * There is no frozen guard, and that is ADR 0023 rather than an omission: a
+   * frozen work item moves like any other, so freezing a row between the press
+   * and the undo takes nothing away.
+   */
+  private async applySetPositions(
+    projectId: string,
+    placements: readonly Reparented[],
+    moved: readonly string[],
+    stamp: WriteStamp,
+  ): Promise<ApplyOutcome> {
+    const rows = await this.opts.workItems.listByProject(projectId);
+    const parentOf = new Map(rows.map((row) => [row.id, row.parentId]));
+    for (const placed of placements) {
+      if (!parentOf.has(placed.id)) {
+        return { ok: false, detail: 'the work item is no longer there.' };
+      }
+      if (parentOf.get(placed.id) !== placed.parentId) {
+        return { ok: false, detail: 'a work item this arrangement placed has moved since then.' };
+      }
+    }
+    await this.opts.workItems.setPositions(placements, moved, stamp);
     return { ok: true, detail: null };
   }
 

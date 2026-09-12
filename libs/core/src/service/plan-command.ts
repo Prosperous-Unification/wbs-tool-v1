@@ -61,6 +61,7 @@ export type PlanCommand =
   | ({ kind: 'setAssignee'; stepId: string; personId: string | null; personRef?: string } & Target)
   | ({ kind: 'addDependency'; predecessorId?: string; predecessorRef?: string } & Target)
   | ({ kind: 'removeDependency'; predecessorId?: string; predecessorRef?: string } & Target)
+  | { kind: 'arrangeBySchedule' }
   | { kind: 'freezeProject' }
   | { kind: 'unfreezeProject' }
   | ({ kind: 'unfreezeWorkItem' } & Target)
@@ -159,6 +160,7 @@ const EVERY_KIND = {
   createService: true,
   patchService: true,
   deleteService: true,
+  arrangeBySchedule: true,
 } satisfies Record<PlanCommandKind, true>;
 
 /**

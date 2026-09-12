@@ -766,6 +766,32 @@ export class WorkItemRepository implements WorkItemStore {
     });
   }
 
+  async setPositions(
+    placements: readonly Repositioned[],
+    moved: readonly string[],
+    stamp: WriteStamp,
+  ): Promise<void> {
+    await this.gate.enter(async () => {
+      await Promise.resolve();
+      if (placements.length === 0) return;
+      const bumping = new Set(moved);
+      this.db.transaction((tx) => {
+        for (const placed of placements) {
+          tx.update(workItem)
+            .set({
+              position: placed.position,
+              // Only the rows whose place in their group changed. The rest are
+              // respaced storage detail, exactly as in `move`.
+              ...(bumping.has(placed.id) ? { revision: bumpedWorkItem } : {}),
+              ...auditOnUpdate(stamp),
+            })
+            .where(eq(workItem.id, placed.id))
+            .run();
+        }
+      });
+    });
+  }
+
   /**
    * Freezes every number in one statement, not one per row.
    *

@@ -551,10 +551,12 @@ describe('dragging a row', () => {
     expect(numbersOnScreen()).toEqual(['010', '020', '030']);
   });
 
-  itDom('refuses to drag a frozen row and says why', async () => {
-    // This test used to fire a `drop` with no `dragstart` before it, so `dropOn`
-    // returned on its null check and the frozen rule was never reached. Deleting
-    // that rule left it passing. Both reviewers found it; it drags for real now.
+  itDom('drags a frozen row like any other, and keeps its number', async () => {
+    // The inverse of the case that stood here until ADR 0023, and the one that
+    // had to drag for real: an earlier version fired a `drop` with no
+    // `dragstart`, so `dropOn` returned on its null check and the frozen rule
+    // was never reached — deleting that rule left it passing. Both reviewers
+    // found it. It still drags for real; what changed is the answer.
     const api = await threeRoots();
     takeFreezeAction('Freeze numbering');
     await waitFor(() => {
@@ -566,16 +568,19 @@ describe('dragging a row', () => {
       return Promise.resolve();
     };
 
-    // The handle stays, and says why it will not help.
+    // The handle carries no refusal now, and says what it is for.
     const handle = screen.getByLabelText('Reorder 030');
-    expect(handle.getAttribute('data-fact')).toContain('unfreeze');
-    expect(handle.getAttribute('aria-disabled')).toBe('true');
+    expect(handle.getAttribute('data-fact')).toBeNull();
+    expect(handle.getAttribute('aria-disabled')).toBeNull();
+    expect(handle.getAttribute('data-hint')).toContain('Drag');
 
     withHeight(rowFor('010'), 0, 40);
     dragOnto('030', '010', 20);
 
-    expect(moved).toEqual([]);
-    expect(screen.getByRole('alert').textContent).toContain('frozen');
+    await waitFor(() => {
+      expect(moved).toHaveLength(1);
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   itDom('refuses a drop inside the dragged row’s own subtree, with the reason', async () => {
@@ -633,7 +638,11 @@ describe('the drag handle as assistive technology meets it', () => {
     expect(handle).toHaveProperty('draggable', true);
   });
 
-  itDom('says on itself why a frozen row will not move', async () => {
+  itDom('offers a frozen row the same grip as any other', async () => {
+    // Until ADR 0023 this asserted `aria-disabled="true"` and a `data-fact`
+    // reading "Frozen — unfreeze this row before moving it". be-01 refused the
+    // move then, and a handle that looked usable and was not would have been
+    // the worse half of that. Neither is true now.
     await threeRoots();
     takeFreezeAction('Freeze numbering');
     await waitFor(() => {
@@ -642,8 +651,9 @@ describe('the drag handle as assistive technology meets it', () => {
 
     const handle = screen.getByLabelText('Reorder 020');
 
-    expect(handle.getAttribute('aria-disabled')).toBe('true');
-    expect(handle.getAttribute('data-fact')).toBe('Frozen — unfreeze this row before moving it');
+    expect(handle.getAttribute('aria-disabled')).toBeNull();
+    expect(handle.getAttribute('data-fact')).toBeNull();
+    expect(handle.getAttribute('data-hint')).toBe('Drag to move this row');
   });
 });
 

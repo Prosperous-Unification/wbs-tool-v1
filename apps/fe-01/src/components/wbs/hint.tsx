@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import { type AnchorRect, HoverCard } from '@/components/wbs/hover-card';
+import { type AnchorRect, type DiagonalAnchor, HoverCard } from '@/components/wbs/hover-card';
 
 /**
  * The attribute a control carries its **tool hint** in, in place of a `title`.
@@ -103,25 +103,40 @@ const HINTED = `[${FACT_ATTRIBUTE}],[${HINT_ATTRIBUTE}]`;
 /** The id of the one card this layer draws, so a hinted control can point at it. */
 const HINT_CARD_ID = 'hint-card';
 
+/**
+ * Where a mark's card is placed from, **as the card's own prop**.
+ *
+ * A union of one key each rather than two optionals, because the two are two
+ * placements of one card and a reading carrying both is a state {@link
+ * HoverCard} has no answer for. Spread straight into the card, so nothing has to
+ * stay in step with anything: the measurement decides the placement.
+ */
+type HintPlacement = { anchor: AnchorRect } | { diagonal: DiagonalAnchor };
+
 /** What the layer is showing or waiting to show. */
 interface OpenHint {
   words: string;
-  anchor: AnchorRect;
+  /**
+   * Where the card stands: **diagonally** past its cell and row for a mark
+   * inside the plan's own scrolling frame, and under the mark for one outside
+   * it.
+   *
+   * Dany, 2026-09-11: *"implement 'diagonal' pop-up for ALL columns including
+   * PRIO, not before, deadline, end, slack; ALL of them, must have same look and
+   * feel"*. A card over a cell's mark covers the rows below it and a plan is
+   * read down a column — so every card inside the frame clears both its column
+   * and its row, exactly as the cards that open from a cell have since
+   * `cards-open-diagonally`.
+   *
+   * A card under a **toolbar** control covers nothing but the header, and a row
+   * of small buttons whose cards jumped left and right would be worse for it —
+   * so the frame is what decides, not the layer.
+   */
+  placement: HintPlacement;
   /** The mark the words belong to, held so `aria-describedby` can be taken off it again. */
   node: HTMLElement;
   /** Whether these words wait — true for a tool hint, false for a project fact. */
   waits: boolean;
-  /**
-   * Whether the card stands **beside** the mark rather than under it — true for
-   * a mark inside the plan's own scrolling frame.
-   *
-   * Dany, 2026-09-10: *"include ALL columns in the scheme"*. A card under a
-   * cell's mark covers the rows below it, and a plan is read down a column. A
-   * card under a **toolbar** control covers nothing but the header, and a row of
-   * small buttons whose cards jumped left and right would be worse for it — so
-   * the frame is what decides, not the layer.
-   */
-  aside: boolean;
 }
 
 /** Where the ring is drawn, in viewport coordinates. */
@@ -269,6 +284,52 @@ export function HintLayer(): React.JSX.Element {
   const [ring, setRing] = useState<RingAt | null>(null);
 
   useEffect(() => {
+    /**
+     * Where this mark's card stands, measured **now**.
+     *
+     * Inside the plan's frame it stands diagonally, and the two axes clear two
+     * different boxes: the mark's **cell** horizontally and its **row**
+     * vertically. Not the mark itself — a fact's mark is often a word or a glyph
+     * inside a much wider cell, Slack's being four characters in a 56px column,
+     * and a card placed against the glyph stands in the middle of the lane it
+     * was meant to leave alone. Where the mark is in the frame but in no cell —
+     * a `<th>`'s hint, a facet box in the frame's own padding — the mark is its
+     * own column and its own row, which is the same promise about a smaller box.
+     *
+     * Outside the frame the card opens under its mark, unchanged: the toolbar's
+     * own cards cover nothing but the header.
+     *
+     * The frame is intersected with the window because a `position: fixed` card
+     * is clipped by neither, so the clamp {@link diagonalPlacement} applies is
+     * the whole of what keeps the card inside the plan. `HoverCard`'s in-cell
+     * branch measures the same intersection.
+     */
+    const placementOf = (node: Element): HintPlacement => {
+      const box = node.getBoundingClientRect();
+      const port = node.closest('[data-table-frame]')?.getBoundingClientRect();
+      if (port === undefined) {
+        return { anchor: { left: box.left, right: box.right, top: box.top, bottom: box.bottom } };
+      }
+      const cell = node.closest('td,th')?.getBoundingClientRect();
+      const row = node.closest('tr')?.getBoundingClientRect();
+      return {
+        diagonal: {
+          clear: {
+            left: cell?.left ?? box.left,
+            right: cell?.right ?? box.right,
+            top: row?.top ?? box.top,
+            bottom: row?.bottom ?? box.bottom,
+          },
+          frame: {
+            left: Math.max(0, port.left),
+            right: Math.min(window.innerWidth, port.right),
+            top: Math.max(0, port.top),
+            bottom: Math.min(window.innerHeight, port.bottom),
+          },
+        },
+      };
+    };
+
     /** The hinted mark an event happened inside, and the words it carries. */
     const hintAt = (target: EventTarget | null): OpenHint | null => {
       if (!(target instanceof Element)) return null;
@@ -283,16 +344,14 @@ export function HintLayer(): React.JSX.Element {
       // reason is only there while it is off, say — and is not a fault: the
       // attribute is written from a value that may be absent. No card.
       if (words === null || words === '') return null;
-      const box = node.getBoundingClientRect();
       return {
         words,
-        anchor: { left: box.left, right: box.right, top: box.top, bottom: box.bottom },
+        placement: placementOf(node),
         // Narrowed rather than cast: an `SVGElement` is an `HTMLElement` for
         // everything used here — `setAttribute`, `removeAttribute` — but the
         // two do not share a type, so the state holds the wider one.
         node: node as HTMLElement,
         waits: fact === null,
-        aside: node.closest('[data-table-frame]') !== null,
       };
     };
 
@@ -372,15 +431,11 @@ export function HintLayer(): React.JSX.Element {
       opening = setTimeout(() => {
         opening = null;
         stopWaiting();
-        // Measured **now** and not when the pointer arrived. Three seconds is
+        // Measured **now** and not when the pointer arrived. Two seconds is
         // long enough for the table under a resting pointer to have settled,
-        // scrolled or grown a row, and a card placed from a rectangle that old
-        // is a card beside where its control used to be.
-        const box = at.node.getBoundingClientRect();
-        setOpen({
-          ...at,
-          anchor: { left: box.left, right: box.right, top: box.top, bottom: box.bottom },
-        });
+        // scrolled or grown a row, and a card placed from rectangles that old is
+        // a card beside where its control used to be.
+        setOpen({ ...at, placement: placementOf(at.node) });
       }, TOOL_HINT_WAIT_MS);
     };
 
@@ -561,7 +616,7 @@ export function HintLayer(): React.JSX.Element {
     <>
       {ring === null ? null : <WaitRing at={ring} />}
       {open === null ? null : (
-        <HoverCard id={HINT_CARD_ID} anchor={open.anchor} compact opensAside={open.aside}>
+        <HoverCard id={HINT_CARD_ID} {...open.placement} compact>
           {/*
             `pre-line`, so a mark whose words are **several** — the schedule
             cue's, which carries a block per schedule, one comparing the two

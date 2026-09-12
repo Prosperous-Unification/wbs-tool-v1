@@ -1609,8 +1609,15 @@ describe('hovering a dependency lights the rows it names', () => {
       act(() => {
         document.dispatchEvent(new MouseEvent('pointermove', { clientX: 500, clientY: 500 }));
       });
-      expect(screen.queryByRole('tooltip')).toBeNull();
+      // The lights go at once — they are the bridge's own reading — and the
+      // **card** goes after the reach a hand is given, because it hangs
+      // diagonally off its cell and every path to it is briefly outside
+      // ({@link REACH_FOR_THE_CARD_MS}).
       expect(litNumbers()).toEqual([]);
+      expect(screen.queryByRole('tooltip')).not.toBeNull();
+      await waitFor(() => {
+        expect(screen.queryByRole('tooltip')).toBeNull();
+      });
     },
   );
 

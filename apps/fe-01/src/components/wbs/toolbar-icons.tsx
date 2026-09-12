@@ -31,6 +31,25 @@ const ICON: SVGProps<SVGSVGElement> = {
 };
 
 /**
+ * `Arrange by schedule`'s icon: three bars stepping down and to the right.
+ *
+ * A staircase rather than a sort glyph (`↓≡`, `⇅`), and the difference is the
+ * whole point: this control does not sort a column, it puts the rows in the
+ * order the bars beside them start. The shape is the chart's, shrunk — a reader
+ * who has the Gantt panel open has already seen it.
+ *
+ * Drawn rather than named, for `KeyboardIcon`'s reason below: a codepoint
+ * renders differently on every platform and identically nowhere.
+ */
+export function ArrangeIcon(): React.JSX.Element {
+  return (
+    <svg {...ICON}>
+      <path d="M3 6h8M8 12h9M13 18h8" />
+    </svg>
+  );
+}
+
+/**
  * The cheat-sheet control's icon: a keyboard, drawn.
  *
  * It replaces `⌨` (U+2328), which macOS has no colour presentation for and

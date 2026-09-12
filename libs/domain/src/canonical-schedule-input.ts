@@ -140,6 +140,7 @@ const sortedPairs = <V>(map: ReadonlyMap<string, V>): [string, V][] =>
  * | `rows[].parentId` | 23 / 1 | a leaf reparented under the edge's successor |
  * | `rows[].position` | 23 / 1 | position swapped between two tied leaves |
  * | `rows[].frozenNumber` | 22 / 2 | two frozen numbers that contradict position |
+ * |   ↳ since ADR 0023 | — | **deliberately stricter**: hashed, moves no placement |
  * | `rows[].priority` | 23 / 1 | a parent's as-written priority |
  * | `edges[].predecessorId` | 23 / 1 | an edge redirected from a different predecessor |
  * | `edges[].successorId` | 23 / 1 | an edge redirected to a different successor |

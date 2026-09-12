@@ -1,3 +1,5 @@
+import { useRef } from 'react';
+
 import { useCardOpenOn } from '../cell-card-store';
 import { CellInput } from '../cell-input';
 import { cellKey } from '../editable-grid';
@@ -8,6 +10,7 @@ import { MATCH_TINT } from '../plan-cell-props';
 import { useFilterReading } from '../plan-cell-reading-context';
 import type { PlanLive } from '../plan-live';
 import { hierarchyIndentFor, numberIndentFor } from '../table-frame';
+import { WrittenNotesPanel } from '../written-notes-panel';
 import { column } from './column';
 
 /** Builds the name column family against the stable live cell contract. */
@@ -38,6 +41,8 @@ export function createNameColumn({ live }: { live: PlanLive }) {
       // eslint-disable-next-line react-hooks/rules-of-hooks
       const { matched } = useFilterReading();
       const nameCell = cellKey(row.original.id, 'name');
+      // eslint-disable-next-line react-hooks/rules-of-hooks -- as above.
+      const nameBox = useRef<HTMLTextAreaElement | HTMLInputElement | null>(null);
       const hovered = cardOpen;
       return (
         <span
@@ -66,13 +71,11 @@ export function createNameColumn({ live }: { live: PlanLive }) {
           // note taller than the preview once the pointer is on it` on the
           // card being gone. Watched, 2026-08-09.
           onMouseLeave={() => {
-            // The same-cell guard every surface clears with: a leave fires
-            // after the enter of whatever the pointer moved on to, so an
-            // unconditional clear would close the card the next cell had
-            // just opened.
-            live.current.cellCards.updateHovered((current) =>
-              current === nameCell ? null : current,
-            );
+            // **Held for a moment rather than closed** — see
+            // {@link REACH_FOR_THE_CARD_MS}. The card hangs diagonally off this
+            // cell, so the hand going to it leaves this subtree on the way and
+            // an immediate clear loses the card under the reaching hand.
+            live.current.cellCards.holdHovered(nameCell);
           }}
           style={{
             position: 'relative',
@@ -143,6 +146,10 @@ export function createNameColumn({ live }: { live: PlanLive }) {
             // render rather than only the first, which the id check already
             // tolerated.
             onAttach={(element) => {
+              // Held for {@link WrittenNotesPanel}, which listens to this box
+              // rather than being told about it — see its own note on why the
+              // words do not live up here.
+              nameBox.current = element;
               // The Name column only: any other column is a cell this one
               // has no business focusing, and it is landed on from the
               // committed DOM by the effect after a refresh.
@@ -212,7 +219,16 @@ export function createNameColumn({ live }: { live: PlanLive }) {
               aria-label={`Notes on ${row.original.number}`}
               data-notes-marker={row.original.id}
               onMouseEnter={() => {
-                live.current.cellCards.updateHovered(() => nameCell);
+                live.current.cellCards.arriveOn(nameCell);
+              }}
+              // **And the marker's leave is what dismisses it**, held for the
+              // length of a reach in case the hand is going to the card. Dany,
+              // 2026-09-10: _"i need it to go away when i move my mouse away
+              // from the preview icon and not directly into the preview"_ — the
+              // cell's own leave is too late for that, the cell being the width
+              // of the plan's widest column.
+              onMouseLeave={() => {
+                live.current.cellCards.holdHovered(nameCell);
               }}
               // At 15px the glyph reads as clickable, and a click that
               // did nothing would eat the caret aimed at the name under
@@ -253,8 +269,27 @@ export function createNameColumn({ live }: { live: PlanLive }) {
               name={row.original.name}
               notes={row.original.notes}
               number={row.original.number}
+              // Arriving on the card is the one thing that keeps it — the hand
+              // got there. Leaving it is the cell's own `mouseleave`, which
+              // holds and then closes.
+              onPointerArrives={() => {
+                live.current.cellCards.arriveOnCard();
+              }}
             />
           )}
+          {
+            // **The same rendering, beside the box that is being written in.**
+            // Dany, 2026-09-10: _"when you click on title cell and note field
+            // expands - the right half of the row is a md preview which is same
+            // as in the on-hover md preview"_. One component
+            // ({@link RenderedNotes}) rather than a second copy: two would
+            // drift the first time a mapping is added to either.
+            //
+            // Live from the box's own text and not from the row — the box is
+            // uncontrolled, so `row.original` is the last **save** and the
+            // panel is meant to answer the keystroke.
+            <WrittenNotesPanel number={row.original.number} box={nameBox} />
+          }
         </span>
       );
     },

@@ -5,6 +5,8 @@ import { HoverCard } from './hover-card';
 import { InlineMarkdown, LinkFollowable } from './inline-markdown';
 
 export interface HoverPreviewProps {
+  /** Told when the pointer arrives on the card — see {@link HoverCardProps.onPointerArrives}. */
+  onPointerArrives?: () => void;
   /**
    * The work item's name, shown as the heading — its own source, never composed
    * into a larger markdown document. See {@link HoverPreview}.
@@ -100,14 +102,18 @@ const noteHeadings: Components = {
   a: LinkFollowable,
 };
 
-export function HoverPreview({ name, notes, number }: HoverPreviewProps) {
+/**
+ * The rendered notes themselves — the name as a heading, the notes as markdown.
+ *
+ * Lifted out of {@link HoverPreview} on 2026-09-10 so that the panel beside the
+ * open editor can be the **same** rendering rather than a second one. Dany:
+ * _"the right half of the row is a md preview which is same as in the on-hover
+ * md preview"_ — same means one component, or the two drift the first time a
+ * mapping is added to either.
+ */
+export function RenderedNotes({ name, notes }: { name: string; notes: string }) {
   return (
-    // The one card in the table that scrolls, and so the one that takes the
-    // pointer: ten lines of notes are taller than any box that may hang over
-    // the rows below, and content nobody can scroll to is content the clamp on
-    // the cell has hidden twice over. {@link HoverCard} carries the placement,
-    // and the reason every other card refuses the mouse.
-    <HoverCard label={`Notes for ${number}, rendered`} scrolls leavesItsRowClear>
+    <>
       {/*
         Sized here rather than left to the browser's default `h1`, which is
         `2em` and would put a name across three lines of a 420px popover.
@@ -116,6 +122,19 @@ export function HoverPreview({ name, notes, number }: HoverPreviewProps) {
         <InlineMarkdown linksFollowable>{name}</InlineMarkdown>
       </h1>
       <Markdown components={noteHeadings}>{notes}</Markdown>
+    </>
+  );
+}
+
+export function HoverPreview({ name, notes, number, onPointerArrives }: HoverPreviewProps) {
+  return (
+    // The one card in the table that scrolls, and so the one that takes the
+    // pointer: ten lines of notes are taller than any box that may hang over
+    // the rows below, and content nobody can scroll to is content the clamp on
+    // the cell has hidden twice over. {@link HoverCard} carries the placement,
+    // and the reason every other card refuses the mouse.
+    <HoverCard label={`Notes for ${number}, rendered`} scrolls onPointerArrives={onPointerArrives}>
+      <RenderedNotes name={name} notes={notes} />
     </HoverCard>
   );
 }

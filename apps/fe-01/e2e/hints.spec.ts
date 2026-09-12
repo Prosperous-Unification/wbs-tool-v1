@@ -1,4 +1,4 @@
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Locator, type Page, test } from '@playwright/test';
 
 import { createProject } from './create-project';
 
@@ -35,6 +35,111 @@ async function aPlan(page: Page): Promise<void> {
   await createProject(page);
   await expect(page.getByRole('button', { name: 'Add work item' })).toBeVisible();
 }
+
+/**
+ * A plan with a start date and one work item, which is what a **cell's** card
+ * needs to exist at all.
+ *
+ * The date is not decoration: `readings.startDate === null` disables the Not
+ * before and Deadline inputs (`noCalendar`), and Chromium dispatches no pointer
+ * event on a disabled form control — it retargets to the nearest enabled
+ * ancestor, where `closest` looks **up** and never finds the input's own mark.
+ * Measured while writing this file: without the date, `Not before` opened no
+ * card at all.
+ */
+async function aPlanWithARow(page: Page): Promise<void> {
+  await aPlan(page);
+  await page.getByLabel('Project start date').fill('2026-06-01');
+  await page.getByLabel('Project start date').blur();
+  await page.getByRole('button', { name: 'Add work item' }).click();
+  await expect(page.getByLabel('Name of 010')).toBeVisible();
+  // Deadline is contextual — a plan with no deadline in it does not draw the
+  // column — so the sweep below asks for it by name, the way `deadline.spec.ts`
+  // does. Waited for by the header rather than by the menu closing: the check
+  // is a write and the column arrives with the answer.
+  await page.getByText('Columns', { exact: true }).click();
+  await page.getByRole('checkbox', { name: 'Deadline', exact: true }).check();
+  await expect(page.locator('thead th[data-column="deadline"]')).toHaveCount(1);
+  await page.getByText('Columns', { exact: true }).click();
+}
+
+const rowOf = (page: Page, number: string): Locator =>
+  page.locator('tbody tr').filter({ has: page.getByLabel(`Name of ${number}`) });
+
+/** The box a locator occupies, refused rather than defaulted when it has none. */
+async function boxOf(
+  locator: Locator,
+  what: string,
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  const box = await locator.boundingBox();
+  if (box === null) throw new Error(`${what} has no box`);
+  return box;
+}
+
+/**
+ * The columns Dany named, and the mark in each whose card is measured.
+ *
+ * **Named one by one rather than swept off `td [data-fact]`**, for the reason
+ * `tool-hints-wait` wrote down twice: a locator that says "the first mark of
+ * this kind" is not about any particular mark, and a fresh row carries several.
+ * A claim about the Slack column has to say Slack.
+ *
+ * `waits` is the split `tool-hints-wait` made, not a property of the placement:
+ * Prio's words on an unprioritised row are about what the column is *for*, so
+ * they are a `data-hint` and take two seconds. The other four are this row's own
+ * facts and open at once.
+ */
+const DIAGONAL_COLUMNS: readonly {
+  what: string;
+  column: string;
+  markOf: (row: Locator) => Locator;
+  waits: boolean;
+}[] = [
+  {
+    // The reorder grip, which is the leftmost column and a pinned one: its
+    // card stands over the plan rather than over the chrome to its left.
+    what: 'Reorder',
+    column: 'drag',
+    markOf: (row) => row.getByRole('button', { name: 'Reorder 010' }),
+    waits: true,
+  },
+  {
+    what: 'Prio',
+    column: 'priority',
+    markOf: (row) => row.getByLabel('Priority for 010'),
+    waits: true,
+  },
+  {
+    what: 'Not before',
+    column: 'not-before',
+    markOf: (row) => row.getByLabel('Earliest start for 010'),
+    waits: false,
+  },
+  {
+    what: 'Deadline',
+    column: 'deadline',
+    markOf: (row) => row.getByLabel('Work item deadline for 010'),
+    waits: false,
+  },
+  {
+    what: 'People at once',
+    column: 'in-parallel',
+    markOf: (row) => row.getByLabel('People at once for 010'),
+    waits: true,
+  },
+  {
+    what: 'End',
+    column: 'finish',
+    markOf: (row) => row.locator('td[data-column="finish"] [data-fact]'),
+    waits: false,
+  },
+  {
+    what: 'Slack',
+    column: 'float',
+    markOf: (row) => row.locator('td[data-column="float"] [data-fact]'),
+    waits: false,
+  },
+];
 
 test.describe('hints are the page’s own', () => {
   test('no control anywhere on the plan carries a native tooltip', async ({ page }) => {
@@ -347,50 +452,144 @@ test.describe('hints are the page’s own', () => {
     await expect(card).toHaveText(/Keyboard shortcuts/);
   });
 
-  test('a cell’s fact stands beside its mark, not over the rows below', async ({ page }) => {
-    // Dany, 2026-09-10: *"i want to have most useful on-hover pop-up for ALL
-    // cells/columns as i asked previously - include ALL columns in the scheme"*.
-    // The hint layer is what most columns' pop-up **is** — `data-hint` and
-    // `data-fact` marks on the drag grip, the row number, Deadline, Finish,
-    // Float, In parallel, Not before, Service and the estimate cells — and a
-    // card under one of those covers the rows below it, which is the context a
-    // plan is read for.
+  test('every column’s pop-up stands diagonally: past its cell and past its row', async ({
+    page,
+  }) => {
+    // Dany, 2026-09-11: *"implement 'diagonal' pop-up for ALL columns including
+    // PRIO, not before, deadline, end, slack; ALL of them, must have same look
+    // and feel"*. The cards that open from a **cell** have been diagonal since
+    // `cards-open-diagonally`; the columns swept here have no such card — the
+    // hint layer is their pop-up, and it stood beside the mark with the tops
+    // aligned, which left the column clear and the row covered.
     //
-    // A toolbar control's card still opens under it (`a toolbar control waits
-    // two seconds` asserts exactly that), and the frame is what tells the two
-    // apart: {@link OpenHint.aside}.
+    // Both axes are asserted per column, because they are two different
+    // measurements against two different boxes: the **cell** is what the pointer
+    // runs down, and the **row** is the context the reader keeps.
     //
-    // Proof: `aside` fixed to `false`, so a cell's card opens under its mark
-    // like the toolbar's — this failed on `the card is not beside its mark ·
-    // Expected: >= 0 · Received: -18.078125`, the card overlapping the mark's
-    // own column by 18px. Watched in Chromium, 2026-09-10.
-    await aPlan(page);
-    await page.getByRole('button', { name: 'Add work item' }).click();
-    const mark = page.locator('td[data-column="finish"] [data-fact="No estimate yet"]');
-    await expect(mark).toBeVisible();
-    await mark.hover();
-
+    // Proof, twice, both in Chromium on 2026-09-11:
+    //
+    // - The placement taken back to the aside one — `top` aligned with
+    //   `clear.top` instead of standing past `clear.bottom`, which is exactly
+    //   what shipped yesterday — failed on `Reorder: the card covers its own row
+    //   · Expected: >= -0.5 · Received: -26.1875`, a whole row of overlap.
+    // - The layer handed `{ anchor }` for an in-frame mark too, which is the
+    //   placement before either change: `Reorder: the card stands over its own
+    //   column · Expected: >= -0.5 · Received: -12`.
+    await aPlanWithARow(page);
+    const row = rowOf(page, '010');
     const card = page.getByRole('tooltip');
-    await expect(card).toBeVisible({ timeout: 400 });
-    const gap = await page.evaluate(() => {
-      const at = document.querySelector('td[data-column="finish"] [data-fact]');
-      const tip = document.querySelector('[role="tooltip"]');
-      if (at === null || tip === null) throw new Error('the mark or its card is missing');
-      const a = at.getBoundingClientRect();
-      const b = tip.getBoundingClientRect();
-      // Positive on either side: the card clear of the mark's right edge, or
-      // clear of its left. Negative means the two overlap horizontally, which
-      // is a card standing over the mark's own column.
-      return {
-        gap: Math.max(b.left - a.right, a.left - b.right),
-        area: b.width > 0 && b.height > 0,
-      };
-    });
+    const frame = await boxOf(page.locator('[data-table-frame]'), 'the scrolling frame');
 
-    // Its size first, for R5 #16's reason: a card of no area is clear of
-    // everything and says nothing about placement.
-    expect(gap.area, 'the card has no area').toBe(true);
-    expect(gap.gap, 'the card is not beside its mark').toBeGreaterThanOrEqual(0);
+    for (const each of DIAGONAL_COLUMNS) {
+      // Away first, and read **once**: `toHaveCount(0)` retries for thirty
+      // seconds and would be satisfied by the previous column's card closing
+      // whenever it got round to it (R5, `tool-hints-wait`).
+      await page.mouse.move(0, 0);
+      expect(await card.count(), `${each.what}: a card was still open`).toBe(0);
+
+      const mark = each.markOf(row);
+      await expect(mark, `${each.what}: no mark to hover`).toBeVisible();
+      await mark.hover();
+      await expect(card, `${each.what}: no card opened`).toBeVisible({
+        timeout: each.waits ? 3500 : 400,
+      });
+
+      const open = await boxOf(card, `${each.what}'s card`);
+      const cell = await boxOf(
+        row.locator(`td[data-column="${each.column}"]`),
+        `${each.what}'s cell`,
+      );
+      const band = await boxOf(row, `${each.what}'s row`);
+
+      // Its area first, for R5 #16's reason: a card of no area is clear of
+      // everything and says nothing about placement.
+      expect(open.width > 0 && open.height > 0, `${each.what}: the card has no area`).toBe(true);
+
+      // Positive on either side: the card clear of the cell's right edge or
+      // clear of its left, and clear below the row or clear above it. Negative
+      // is an overlap, which is the fault in each axis. The placement abuts
+      // exactly — no gap on either axis, so that a hint card and an in-cell
+      // card stand in the same corner — so the tolerance is for the fraction of
+      // a pixel a layout lands on, not for a lane.
+      expect(
+        Math.max(open.x - (cell.x + cell.width), cell.x - (open.x + open.width)),
+        `${each.what}: the card stands over its own column`,
+      ).toBeGreaterThanOrEqual(-0.5);
+      expect(
+        Math.max(open.y - (band.y + band.height), band.y - (open.y + open.height)),
+        `${each.what}: the card covers its own row`,
+      ).toBeGreaterThanOrEqual(-0.5);
+
+      // And inside the plan, which is what clamping to the frame rather than to
+      // the window is for: Slack and End stand within a card's width of the
+      // frame's right edge, so their cards open to the **left**.
+      expect(open.x, `${each.what}: the card starts left of the frame`).toBeGreaterThanOrEqual(
+        frame.x - 1,
+      );
+      expect(
+        open.x + open.width,
+        `${each.what}: the card runs off the right of the frame`,
+      ).toBeLessThanOrEqual(frame.x + frame.width + 1);
+    }
+  });
+
+  test('a card reads in the table’s own type, wherever it is drawn', async ({ page }) => {
+    // The other half of Dany's _"must have same look and feel"_, 2026-09-11,
+    // and the half no placement can see. A card that opens from a **cell** is a
+    // child of that cell and inherits the grid's 13px over a 1.4 line; a
+    // portalled one — the hint layer's, which is what most of these columns
+    // answer with — is a child of `<body>`, outside the `font-sans` on `<main>`
+    // and outside `[data-grid]` both, and came out in the user agent's own
+    // `Times / 16px / normal`. Two typefaces and three points of size for one
+    // pop-up, shipped since the hint layer was written.
+    //
+    // Measured against the **cell's** computed type rather than against
+    // literals, because the claim is that the card reads like the table it
+    // explains, and because the table's own size is asserted where it is set
+    // (`e2e/layout.spec.ts`, `[data-grid] tbody`).
+    //
+    // Proof: `[role='tooltip']`'s block deleted from `styles.css`, this failed
+    // on `the portalled card's type · Expected: "sans-serif / 13px / 18.2px" ·
+    // Received: "Times / 16px / normal"`. Watched in Chromium, 2026-09-11.
+    await aPlanWithARow(page);
+    const row = rowOf(page, '010');
+    // Notes, so the Name cell has a preview to open — the in-cell card this is
+    // measured against.
+    await page.getByLabel('Name of 010').fill('Row 010\n\nNotes with **markdown** in them.');
+    await page.getByLabel('Name of 010').blur();
+
+    const typeOf = (): Promise<{ card: string; cell: string; parent: string }> =>
+      page.evaluate(() => {
+        const card = document.querySelector('[role="tooltip"]');
+        const cell = document.querySelector('td[data-column="float"]');
+        if (!(card instanceof HTMLElement)) throw new Error('no card is open');
+        if (!(cell instanceof HTMLElement)) throw new Error('the plan draws no Slack cell');
+        const read = (node: HTMLElement): string => {
+          const style = getComputedStyle(node);
+          return `${style.fontFamily} / ${style.fontSize} / ${style.lineHeight}`;
+        };
+        return {
+          card: read(card),
+          cell: read(cell),
+          parent: card.parentElement?.tagName ?? 'none',
+        };
+      });
+
+    await row.locator('td[data-column="float"] [data-fact]').hover();
+    await expect(page.getByRole('tooltip')).toBeVisible({ timeout: 400 });
+    const hint = await typeOf();
+    // The precondition that makes the claim about a **portalled** card: one
+    // rendered inside its cell would inherit the type whatever this rule said,
+    // and the assertion below would be true of the wrong thing.
+    expect(hint.parent, 'the hint card is not portalled out of the table').toBe('BODY');
+    expect(hint.card, "the portalled card's type").toBe(hint.cell);
+
+    await page.mouse.move(0, 0);
+    await page.getByLabel('Notes on 010').hover();
+    await expect(page.getByRole('tooltip')).toBeVisible({ timeout: 1500 });
+    const preview = await typeOf();
+    expect(preview.parent, 'the notes preview is no longer a child of its cell').not.toBe('BODY');
+    expect(preview.card, "the in-cell card's type").toBe(preview.cell);
   });
 
   test('a project fact answers at once and never rings', async ({ page }) => {

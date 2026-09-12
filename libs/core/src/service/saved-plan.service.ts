@@ -1,4 +1,5 @@
 import {
+  CalendarRangeError,
   canonicalisePlanInput,
   diffPlans,
   normalisePlanInputForward,
@@ -39,6 +40,19 @@ import type { SavedPlanQuota, SavedPlanQuotaRefusal } from './saved-plan-quota';
 import { bodyBytesRefusal, DEFAULT_SAVED_PLAN_QUOTA, holdingRefusal } from './saved-plan-quota';
 import { scheduleInputOfCaptured } from './saved-plan-schedule';
 import { buildScheduleBody, serialiseScheduleBody } from './saved-plan-schedule-body';
+
+const representableScheduleBody = (
+  planned: Schedule,
+  startDate: Parameters<typeof buildScheduleBody>[1],
+  algorithmId: string,
+): ReturnType<typeof buildScheduleBody> | null => {
+  try {
+    return buildScheduleBody(planned, startDate, algorithmId);
+  } catch (failure) {
+    if (failure instanceof CalendarRangeError) return null;
+    throw failure;
+  }
+};
 
 /**
  * Why a saved plan has no schedule body.
@@ -429,11 +443,16 @@ export class SavedPlanService {
     // The captured project's own start date, not today's — `scheduleWrite`'s
     // rule, for the same reason: re-rendering against a start that has since
     // moved would restate the plan.
-    const built = buildScheduleBody(
+    const built = representableScheduleBody(
       attempt.schedule.planned,
       attempt.reads.project.startDate,
       attempt.schedule.algorithmId,
     );
+    // Proof: return the builder call directly and `maps a calendar-range plan
+    // to infeasible` throws instead of returning a comparison side.
+    if (built === null) {
+      return { input, schedule: { present: false, absentReason: 'infeasible' } };
+    }
     return {
       input,
       schedule: {
@@ -960,11 +979,14 @@ async function scheduleWrite(
   }
   // The captured project's own start date, not today's: re-rendering the dates
   // against a start that has since moved would restate the plan.
-  const built = buildScheduleBody(
+  const built = representableScheduleBody(
     attempt.schedule.planned,
     attempt.reads.project.startDate,
     attempt.schedule.algorithmId,
   );
+  // A dimensionless schedule can be valid while its saved calendar body is
+  // not representable. Save the input and name the absent schedule, as cycles do.
+  if (built === null) return { present: false, absentReason: 'infeasible' };
   return {
     present: true,
     body: await bodyWrite(digest, serialiseScheduleBody(built), built.version),

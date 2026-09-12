@@ -1,4 +1,10 @@
-import { deriveNumbers, type EffectiveTeams, effectiveTeamsOf } from '@wbs/domain';
+import {
+  byTreeOrder,
+  deriveNumbers,
+  type EffectiveTeams,
+  effectiveTeamsOf,
+  treeOrder,
+} from '@wbs/domain';
 
 import type { Assignment, DirectoryUsageRows } from '../ports/directory-store';
 import type { LabelledWorkItem } from '../ports/work-item-store';
@@ -105,7 +111,7 @@ function byStepOn(assignments: readonly Assignment[], workItemId: string): Recor
  * The usage assembled from `rows`, keeping only the work items `effectsOf`
  * found something to say about.
  *
- * Sorted — projects by name, work items by their derived number — because a
+ * Sorted — projects by name, work items by tree order (ADR 0023) — because a
  * confirmation that lists the same impact in a different order each time reads
  * as a different answer.
  *
@@ -126,8 +132,13 @@ function usageFrom(
     treeOf.set(row.projectId, [...(treeOf.get(row.projectId) ?? []), row]);
   }
   const numbers = new Map<string, string>();
+  // Places beside numbers, and per tree for the same reason: since ADR 0023 a
+  // number is a name rather than a place, so the order below is the walk's
+  // rather than the label's.
+  const places = new Map<string, number>();
   for (const tree of treeOf.values()) {
     for (const [id, number] of deriveNumbers(tree)) numbers.set(id, number);
+    for (const [id, place] of treeOrder(tree)) places.set(id, place);
   }
   const byProject = new Map<string, UsedWorkItem[]>();
   for (const row of rows.workItems) {
@@ -147,7 +158,7 @@ function usageFrom(
     .map((each) => ({
       id: each.id,
       name: each.name,
-      workItems: (byProject.get(each.id) ?? []).sort((a, b) => (a.number < b.number ? -1 : 1)),
+      workItems: (byProject.get(each.id) ?? []).sort(byTreeOrder(places)),
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
   return { projects, members: rows.members.map((each) => ({ id: each.id, name: each.name })) };

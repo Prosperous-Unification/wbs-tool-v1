@@ -71,10 +71,9 @@ export function FoldedStepCard({
 }: FoldedStepCardProps) {
   const estimated = points.some((each) => each.days.trim() !== '');
   return (
-    // `opensSideways` for the reason every informative card in this table has
-    // it since 2026-09-10: under the cell it covers the rows below, and a plan
-    // is read down a column. See {@link sidewaysPlacement} for the side.
-    <HoverCard id={id} opensSideways>
+    // Placed diagonally — past this cell and past this row — like every other
+    // card a plan cell opens. {@link sidewaysPlacement} picks the side.
+    <HoverCard id={id}>
       <div style={{ fontWeight: 600 }}>
         {stepName} for {number}
       </div>

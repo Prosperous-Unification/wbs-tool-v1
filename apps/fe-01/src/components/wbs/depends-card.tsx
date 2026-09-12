@@ -45,7 +45,7 @@ const containsPoint = (point: { x: number; y: number }, box: PointerRect): boole
  * and its lines until 2026-09-09. That shape belonged to a card standing under
  * its cell: the pointer had to cross a gap the card did not fill, so the region
  * that held the card had to be the rectangle spanning both. Since
- * the card opens **beside** its cell ({@link HoverCardProps.opensSideways})
+ * the card opens **beside** its cell ({@link sidewaysPlacement})
  * there is no gap — the card's left edge is inside its `<td>` (measured 419
  * against a cell ending at 423, Chromium 2026-09-09) — and a bounding box is
  * now actively wrong: it fills the whole rectangle *below* the owner as well,
@@ -244,7 +244,7 @@ export function DependsCard({
     // or a chip's `mouseenter` that landed inside the card's passive padding
     // (no Depends on cell but this card's own is under it now), and the
     // corridor's bounding box (see {@link dependencyPointerRegion}).
-    <HoverCard label={`What ${number} waits for`} opensSideways>
+    <HoverCard label={`What ${number} waits for`}>
       {entries.map((entry) => (
         <div
           key={entry.id}
