@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { encodeOptimizedResult } from '@wbs/contracts/solver/optimized-result';
+import { schedule } from '@wbs/domain';
 import type { ScheduleInput } from '@wbs/domain/canonical-schedule-input';
 import { afterEach, describe, expect, it } from 'bun:test';
 
@@ -11,10 +11,14 @@ import { DrizzleEventLogStore } from '../repository/event-log';
 import { OPEN } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { reserveSolverSlot } from '../repository/optimization-admission';
-import { DRAIN_RECONCILE_INTERVAL_MS } from '../repository/optimization-drain';
+import {
+  beginOptimizationDrain,
+  DRAIN_RECONCILE_INTERVAL_MS,
+  releaseSolverSlot,
+} from '../repository/optimization-drain';
 import { allocateGeneration, readGeneration } from '../repository/optimization-generation';
 import { enqueueSolverRequest } from '../repository/optimization-queue';
-import { readOptimizedPair } from '../repository/optimized-schedule-cache';
+import { readOptimizedPair, storeOptimizedOutcome } from '../repository/optimized-schedule-cache';
 import { scheduleInputHash } from '../repository/schedule-input-hash';
 import { eventLog, optimizedScheduleCache, solverQueue, solverSlot } from '../repository/schema';
 import {
@@ -856,7 +860,7 @@ describe('OptimizationCoordinator read', () => {
     expect(calls).toHaveLength(2);
   });
 
-  it('reports an admission-closed miss idle beside a ready incomplete result', async () => {
+  it('reports an admission-closed miss idle beside a ready incomplete result', () => {
     const { path, db } = database();
     seedProject(path);
     const calls: ReservedSpawnRequest[] = [];
@@ -874,54 +878,85 @@ describe('OptimizationCoordinator read', () => {
       }),
       runSolverChildLifecycle,
     );
-
-    expect(instance.read({ projectId: 'p-1', objective: 'pri', input: INPUT })).toBeNull();
-    await instance.drain();
-    const pair = readOptimizedPair(db, {
+    const inputHash = scheduleInputHash(INPUT);
+    const generation = allocateGeneration(db, 'p-1', CONTRACT, inputHash, 2);
+    const admission = reserveSolverSlot(db, {
       projectId: 'p-1',
-      inputHash: scheduleInputHash(INPUT),
       contractVersion: CONTRACT,
+      generation,
+      objective: 'pri',
       budgetMs: BUDGET,
+      ownerId: 'blue',
+      attemptToken: 'incomplete-pri',
+      now: 3,
     });
-    if (pair.pri.kind !== 'ok') throw new Error('broken fixture: Pri did not settle ready');
-    const incomplete = JSON.stringify(
-      encodeOptimizedResult({
-        ...pair.pri.result,
-        objectiveValues: {
-          ...pair.pri.result.objectiveValues,
-          movement: {
-            ...pair.pri.result.objectiveValues.movement,
-            stageValue: null,
-            bound: null,
-            status: 'unknown',
+    if (admission.kind !== 'reserved') throw new Error('broken fixture: Pri was not admitted');
+    const claim = {
+      projectId: 'p-1',
+      contractVersion: CONTRACT,
+      generation,
+      objective: 'pri' as const,
+      budgetMs: BUDGET,
+      ownerId: 'blue',
+      attemptToken: admission.attemptToken,
+    };
+    expect(
+      storeOptimizedOutcome(db, {
+        claim,
+        inputHash,
+        admittedCancelEpoch: admission.admittedCancelEpoch,
+        outcome: {
+          kind: 'ok',
+          result: {
+            publication: 'solver',
+            schedule: schedule(
+              INPUT.rows,
+              INPUT.edges,
+              INPUT.slices,
+              INPUT.notBefore,
+              INPUT.poolSizes,
+            ),
+            objectiveValues: {
+              makespan: { value: 96, stageValue: 96, bound: 96, status: 'optimal' },
+              priority: { value: 0, stageValue: 0, bound: 0, status: 'optimal' },
+              movement: { value: 0, stageValue: null, bound: null, status: 'unknown' },
+            },
           },
         },
+        now: 4,
       }),
-    );
-    const raw = openDatabase(path);
-    try {
-      raw.run("UPDATE optimized_schedule_cache SET result_json = ? WHERE objective = 'pri'", [
-        incomplete,
-      ]);
-      raw.run("DELETE FROM optimized_schedule_cache WHERE objective = 'time'");
-      raw.run(
-        "UPDATE optimization_generation SET admission_state = 'draining' WHERE project_id = 'p-1'",
-      );
-    } finally {
-      raw.close();
-    }
-
+    ).toBe('stored');
+    expect(releaseSolverSlot(db, claim).released).toBe(true);
     expect(
-      instance.readPlan({ projectId: 'p-1', objective: 'pri', input: INPUT, enabled: true })
-        .variants,
-    ).toEqual({
+      enqueueSolverRequest(db, {
+        projectId: 'p-1',
+        contractVersion: CONTRACT,
+        generation,
+        objective: 'time',
+        budgetMs: BUDGET,
+        enqueuedAt: 4,
+      }),
+    ).toEqual({ kind: 'queued' });
+    expect(db.select().from(solverQueue).all()).toHaveLength(1);
+
+    expect(beginOptimizationDrain(db, 'p-1', { at: 5, by: 'u-1' }, CONTRACT)).toBe(0);
+    expect(db.select().from(solverQueue).all()).toEqual([]);
+
+    const plan = instance.readPlan({
+      projectId: 'p-1',
+      objective: 'pri',
+      input: INPUT,
+      enabled: true,
+    });
+    expect(plan.generation).toBe(generation);
+    expect(plan.variants).toEqual({
       pri: { state: 'ready', proof: 'incomplete' },
       time: { state: 'idle' },
     });
-    expect(calls).toHaveLength(2);
-    // Proof: reopening admission makes Time live and changes this exact
-    // production read to `pending`, so the mixed shape is pinned to the closed
-    // admission path rather than manufactured at the UI boundary.
+    expect(calls).toHaveLength(0);
+    // Proof: skipping beginOptimizationDrain leaves Time queued and the read
+    // reports it pending. The production drain both closes admission and
+    // removes that unstarted work; no direct table mutation creates the state.
   });
 
   it('stores an internal failure but retains admission when creation has no terminal proof', async () => {

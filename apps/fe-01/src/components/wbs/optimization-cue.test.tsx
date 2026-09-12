@@ -197,7 +197,7 @@ describe('the schedule cue', () => {
    * an idle miss beside the ready result while admission is closing.
    */
   itDom.each(['pending', 'retrying', 'idle'] as const)(
-    'keeps the %s marker while another variant has settled incomplete',
+    'keeps the solving marker while one variant is %s and another settled incomplete',
     (state) => {
       render(
         <Harness
