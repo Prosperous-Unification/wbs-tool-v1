@@ -6,6 +6,10 @@ sweep or scalability runner. The historical filename and branch remain stable
 navigation targets. [Design review and dispositions](2026-09-08-radical-modularity-review.md)
 explain the revisions to the original proposal at `a095fff8`.
 
+Amended 2026-09-13 by [precedents and extraction](2026-09-13-tool-wiki-precedents-and-extraction.md):
+Drift anchors for prose that explains code, range-level evidence and sparse reconciliation
+for the ledger, and the extraction trigger for the tool.
+
 ## Intent
 
 The repository needs to increase useful model-assisted work without requiring

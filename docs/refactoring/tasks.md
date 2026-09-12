@@ -119,6 +119,8 @@ Nothing below has an owning task in the external queue (`backlog/tasks/task-NNN 
       indexes, finite trusted evidence, full-tree lint, shared-Git admission and multi-model
       trials at 1/2/4/8 workers. Capture baselines before policy rollout; reconcile stable
       module identities across namespacing. Experimental benefit remains unestablished.
+      Precedents, Drift anchors and the extraction trigger:
+      [plan](../plans/2026-09-13-tool-wiki-precedents-and-extraction.md).
 
 ## R1–R9 archival closeout
 

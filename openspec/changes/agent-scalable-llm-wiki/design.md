@@ -6,6 +6,10 @@ Inspection at `339708fa` found the design and glossary, but no `tool-wiki`, admi
 authority, ledger or experiment implementation. Preparation is not baseline collection,
 review certification or scalability evidence.
 
+[Precedents and extraction](../../../docs/plans/2026-09-13-tool-wiki-precedents-and-extraction.md)
+(2026-09-13) amends this design before slice 1.1: range-level evidence and sparse
+reconciliation (its Part 2) and the day-one extraction constraints (its 3.2).
+
 [ADR 0020](../../../docs/adr/0020-module-identities-and-finite-evidence.md) governs stable
 identities and finite evidence. [ADR 0021](../../../docs/adr/0021-shared-git-admission-authority.md)
 governs admission authority and trust. Their rationale is not repeated here.
