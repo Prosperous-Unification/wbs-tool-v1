@@ -45,15 +45,34 @@ free_port() {
 # Serves a port until `stop_listener` is called, and prints the port. This is
 # the fault the preflight is about, injected for real: a socket in LISTEN on a
 # port the dev stack wants.
-listener_pid=''
+#
+# The pid goes to a file rather than a variable. This helper is called as
+# `held=$(start_listener ...)`, which is a subshell: a `listener_pid=$!` inside
+# it is invisible to the caller, `stop_listener` then killed nothing, and 59
+# bun processes from earlier runs of this suite were still holding ephemeral
+# ports when it was found on 2026-09-12.
+#
+# `$cwd` is which checkout the listener belongs to, which is what `--kill` reads
+# to decide whether the process is ours to end.
 start_listener() {
-  local dir=$1 waited=0
+  local dir=$1 cwd=${2:-$repo_root} waited=0
+  # The SIGTERM leaves a trace, because a port that ends up free says nothing
+  # about which signal freed it: with the SIGTERM deleted, the escalation five
+  # seconds later frees the port just the same and every outcome here is
+  # identical. This file is the only thing that separates the two.
   cat >"$dir/listener.ts" <<'TS'
+const termFile = String(process.env['PORT_FILE']) + '.term';
+process.on('SIGTERM', async () => {
+  await Bun.write(termFile, 'term');
+  process.exit(0);
+});
 const server = Bun.serve({ port: 0, fetch: () => new Response('busy') });
 await Bun.write(String(process.env['PORT_FILE']), String(server.port));
 TS
-  PORT_FILE="$dir/port" bun "$dir/listener.ts" >"$dir/listener.log" 2>&1 &
-  listener_pid=$!
+  (cd "$cwd" && PORT_FILE="$dir/port" exec bun "$dir/listener.ts" \
+    >"$dir/listener.log" 2>&1) &
+  printf '%s\n' "$!" >"$dir/pid"
+  printf '%s\n' "$!" >>"$live_pids"
   # Bounded, then give up loudly: a silent wait here would turn "the listener
   # never came up" into "the port was free", which is the answer under test.
   while [[ ! -s "$dir/port" ]]; do
@@ -68,10 +87,32 @@ TS
 }
 
 stop_listener() {
-  [[ -n $listener_pid ]] || return 0
-  kill "$listener_pid" 2>/dev/null || :
-  wait "$listener_pid" 2>/dev/null || :
-  listener_pid=''
+  local dir=$1 pid
+  [[ -s "$dir/pid" ]] || return 0
+  pid=$(cat "$dir/pid")
+  kill "$pid" 2>/dev/null || :
+  rm -f "$dir/pid"
+}
+
+# Nothing this suite starts outlives it, including after a case fails part-way.
+live_pids=$(mktemp)
+cleanup_listeners() {
+  local pid
+  while read -r pid; do
+    [[ -n $pid ]] && kill -9 "$pid" 2>/dev/null
+  done <"$live_pids"
+  rm -f "$live_pids"
+}
+trap cleanup_listeners EXIT
+
+# Whether a port answers, asked here rather than through the script whose
+# answer is under test.
+probe() {
+  if (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; then echo served; else echo free; fi
+}
+
+alive() {
+  if kill -0 "$1" 2>/dev/null; then echo yes; else echo no; fi
 }
 
 check() {
@@ -191,7 +232,7 @@ check 'the refusal names the port' 'yes' \
   "$(grep -q "$held" "$tmp/stderr" && echo yes || echo no)"
 check 'the refusal names the tier' 'yes' \
   "$(grep -q 'fe-01' "$tmp/stderr" && echo yes || echo no)"
-stop_listener
+stop_listener "$tmp"
 rm -rf "$tmp"
 
 # 10. The same run, with that one port free, reaches nx.
@@ -214,7 +255,7 @@ check 'dev-ports refuses a served port' '1' "$refused"
 accepted=0
 bash "$ports_sh" "fe-01:$(free_port)" >"$tmp/stdout" 2>"$tmp/stderr" || accepted=$?
 check 'dev-ports accepts a free port' '0' "$accepted"
-stop_listener
+stop_listener "$tmp"
 rm -rf "$tmp"
 
 # 12. Resolution reads the port each tier is configured to bind, and says so
@@ -265,7 +306,7 @@ PORT="$held" bash "$ports_sh" --apps-dir "$tmp/apps" \
 check 'the check path refuses an unreadable .env' '1' "$refused"
 check 'no port is probed once resolution refuses' 'yes' \
   "$(grep -q 'already being served' "$tmp/stderr" && echo no || echo yes)"
-stop_listener
+stop_listener "$tmp"
 chmod 600 "$tmp/apps/be-01/.env"
 rm -rf "$tmp"
 
@@ -298,6 +339,91 @@ for tier in be-01 gw-01 mcp-01 fe-01; do
   fi
   check "$tier is checked or named as unconfigured" 'yes' "$accounted"
 done
+rm -rf "$tmp"
+
+# 16. `--kill` frees a port held by a process belonging to this checkout.
+tmp=$(mktemp -d)
+held=$(start_listener "$tmp")
+victim=$(cat "$tmp/pid")
+check 'the port is served before the kill' 'served' "$(probe "$held")"
+killed=0
+WBS_DEV_PORTS="fe-01:$held" bash "$ports_sh" --kill \
+  >"$tmp/stdout" 2>"$tmp/stderr" || killed=$?
+check 'killing a held port exits 0' '0' "$killed"
+check 'the port is free after the kill' 'free' "$(probe "$held")"
+check 'the holder is gone' 'no' "$(alive "$victim")"
+check 'the holder was asked to stop, not shot' 'yes' \
+  "$([[ -f "$tmp/port.term" ]] && echo yes || echo no)"
+stop_listener "$tmp"
+rm -rf "$tmp"
+
+# 17. A holder that is not this checkout's is reported and left alone. The
+#     ports are shared with every other program on the machine; 3300 belonging
+#     to something else is not permission to shoot it.
+tmp=$(mktemp -d)
+held=$(start_listener "$tmp" "$tmp")
+stranger=$(cat "$tmp/pid")
+refused=0
+WBS_DEV_PORTS="fe-01:$held" bash "$ports_sh" --kill \
+  >"$tmp/stdout" 2>"$tmp/stderr" || refused=$?
+check 'a foreign holder is refused' '1' "$refused"
+check 'a foreign holder is still alive' 'yes' "$(alive "$stranger")"
+check 'a foreign holder is still serving' 'served' "$(probe "$held")"
+check 'the refusal names the directory it came from' 'yes' \
+  "$(grep -q "$tmp" "$tmp/stderr" && echo yes || echo no)"
+stop_listener "$tmp"
+rm -rf "$tmp"
+
+# 18. A holder that ignores SIGTERM is still freed. `kill` returning 0 says a
+#     signal was delivered, never that the socket closed.
+tmp=$(mktemp -d)
+cat >"$tmp/deaf.ts" <<'TS'
+process.on('SIGTERM', () => {});
+const server = Bun.serve({ port: 0, fetch: () => new Response('deaf') });
+await Bun.write(String(process.env['PORT_FILE']), String(server.port));
+TS
+(cd "$repo_root" && PORT_FILE="$tmp/port" exec bun "$tmp/deaf.ts" >"$tmp/log" 2>&1) &
+deaf_pid=$!
+printf '%s\n' "$deaf_pid" >>"$live_pids"
+waited=0
+while [[ ! -s "$tmp/port" ]]; do
+  waited=$((waited + 1))
+  if ((waited > 100)); then
+    printf 'the deaf listener never bound a port\n' >&2
+    exit 1
+  fi
+  sleep 0.1
+done
+held=$(cat "$tmp/port")
+killed=0
+WBS_DEV_PORTS="fe-01:$held" bash "$ports_sh" --kill \
+  >"$tmp/stdout" 2>"$tmp/stderr" || killed=$?
+check 'a holder that ignores SIGTERM still exits 0' '0' "$killed"
+check 'a holder that ignores SIGTERM is freed' 'free' "$(probe "$held")"
+kill -9 "$deaf_pid" 2>/dev/null || :
+wait "$deaf_pid" 2>/dev/null || :
+rm -rf "$tmp"
+
+# 19. Without lsof there is no cwd to read, so there is no way to tell this
+#     checkout's process from anybody else's. It refuses rather than killing
+#     whatever answers.
+tmp=$(mktemp -d)
+mkdir -p "$tmp/path"
+for tool in bash sed sort head ps kill sleep cat uname dirname pwd; do
+  if command -v "$tool" >/dev/null 2>&1; then
+    ln -s "$(command -v "$tool")" "$tmp/path/$tool"
+  fi
+done
+held=$(start_listener "$tmp")
+survivor=$(cat "$tmp/pid")
+refused=0
+PATH="$tmp/path" WBS_DEV_PORTS="fe-01:$held" bash "$ports_sh" --kill \
+  >"$tmp/stdout" 2>"$tmp/stderr" || refused=$?
+check 'no lsof is refused' '1' "$refused"
+check 'no lsof names lsof' 'yes' \
+  "$(grep -q 'lsof' "$tmp/stderr" && echo yes || echo no)"
+check 'no lsof kills nothing' 'yes' "$(alive "$survivor")"
+stop_listener "$tmp"
 rm -rf "$tmp"
 
 if [[ $failures -gt 0 ]]; then
