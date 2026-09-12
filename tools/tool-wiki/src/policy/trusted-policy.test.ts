@@ -753,45 +753,31 @@ afterEach(() => {
 });
 
 describe('trusted policy production CLI', () => {
-  test('all rollout modes run the same whole-tree checks while only changing debt disposition', () => {
-    const reports = (['observe', 'ratchet', 'enforce'] as const).map((mode) => {
+  test.each([
+    ['observe', 0, { accepted: true, debtObligationIds: ['obligation.application'] }],
+    ['ratchet', 0, { accepted: true, debtObligationIds: ['obligation.application'] }],
+    ['enforce', 1, { accepted: false, unmetObligationIds: ['obligation.application'] }],
+  ] as const)(
+    '%s rollout runs whole-tree checks with its debt disposition',
+    // Proof: the former three-invocation aggregate timed out in CI at 5030.53ms;
+    // separated production CLI cases completed in 1606.02-1633.68ms on one core.
+    (mode, exitCode, disposition) => {
       const fixture = createFixture(mode);
       const invocation = runLocal(fixture, mode);
-      return { invocation, output: outputOf(invocation) };
-    });
+      const output = outputOf(invocation);
 
-    expect(reports[0].invocation.exitCode, reports[0].output).toBe(0);
-    expect(reports[1].invocation.exitCode, reports[1].output).toBe(0);
-    expect(reports[2].invocation.exitCode, reports[2].output).toBe(1);
-    const parsed = reports.map(
-      ({ invocation }) =>
-        JSON.parse(pipeText(invocation.stdout, 'lint stdout')) as LintReportFixture,
-    );
-    expect(
-      parsed.map((report) =>
-        report.deterministicChecks.map((check: { kind: string }) => check.kind),
-      ),
-    ).toEqual([
-      ['inventory', 'classification', 'schema', 'metadata-links', 'selector-input-coverage'],
-      ['inventory', 'classification', 'schema', 'metadata-links', 'selector-input-coverage'],
-      ['inventory', 'classification', 'schema', 'metadata-links', 'selector-input-coverage'],
-    ]);
-    expect(parsed[0]).toMatchObject({
-      accepted: true,
-      certified: false,
-      debtObligationIds: ['obligation.application'],
-    });
-    expect(parsed[1]).toMatchObject({
-      accepted: true,
-      certified: false,
-      debtObligationIds: ['obligation.application'],
-    });
-    expect(parsed[2]).toMatchObject({
-      accepted: false,
-      certified: false,
-      unmetObligationIds: ['obligation.application'],
-    });
-  });
+      expect(invocation.exitCode, output).toBe(exitCode);
+      const report = JSON.parse(pipeText(invocation.stdout, 'lint stdout')) as LintReportFixture;
+      expect(report.deterministicChecks.map((check: { kind: string }) => check.kind)).toEqual([
+        'inventory',
+        'classification',
+        'schema',
+        'metadata-links',
+        'selector-input-coverage',
+      ]);
+      expect(report).toMatchObject({ certified: false, ...disposition });
+    },
+  );
 
   test('enforce refuses observe evidence even when deterministic checks pass', () => {
     const fixture = createFixture('enforce', 'observe');

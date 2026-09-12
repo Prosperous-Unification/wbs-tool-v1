@@ -931,48 +931,49 @@ describe('relationship extraction production CLI', () => {
     }
   }, 15_000);
 
-  test('refuses missing, unreadable, malformed and unresolved Nx graph output distinctly', () => {
-    const repository = createRepository();
-    const revision = commitAll(repository, 'Nx boundary');
-    const requestPath = writeRequest(repository);
-
-    const faults = [
-      { name: 'missing', action: 'process.exit(0);', expected: 'output missing' },
-      {
-        name: 'unreadable',
-        action:
-          "writeFileSync(process.argv.at(-1)?.replace('--file=', '') ?? '', '{}'); chmodSync(process.argv.at(-1)?.replace('--file=', '') ?? '', 0o000);",
-        expected: 'output unreadable',
-      },
-      {
-        name: 'malformed',
-        action: "writeFileSync(process.argv.at(-1)?.replace('--file=', '') ?? '', '{ bad');",
-        expected: 'output malformed',
-      },
-      {
-        name: 'unresolved',
-        action: "process.stderr.write('injected graph failure'); process.exit(17);",
-        expected: 'unresolved',
-      },
-    ] as const;
-    for (const fault of faults) {
+  test.each([
+    ['missing', 'process.exit(0);', 'output missing'],
+    [
+      'unreadable',
+      "writeFileSync(process.argv.at(-1)?.replace('--file=', '') ?? '', '{}'); chmodSync(process.argv.at(-1)?.replace('--file=', '') ?? '', 0o000);",
+      'output unreadable',
+    ],
+    [
+      'malformed',
+      "writeFileSync(process.argv.at(-1)?.replace('--file=', '') ?? '', '{ bad');",
+      'output malformed',
+    ],
+    [
+      'unresolved',
+      "process.stderr.write('injected graph failure'); process.exit(17);",
+      'unresolved',
+    ],
+  ] as const)(
+    'refuses %s Nx graph output distinctly',
+    // Proof: the former four-invocation aggregate timed out under one-core contention at
+    // 15050.70ms; separated cases then exposed the default bound at 5060.08-5065.31ms.
+    (name, action, expected) => {
+      const repository = createRepository();
+      const revision = commitAll(repository, 'Nx boundary');
+      const requestPath = writeRequest(repository);
       const wrapper = join(
         repository,
         '..',
-        `${repository.slice(repository.lastIndexOf('/') + 1)}-${fault.name}.ts`,
+        `${repository.slice(repository.lastIndexOf('/') + 1)}-${name}.ts`,
       );
       pathsToRemove.push(wrapper);
       writeFileSync(
         wrapper,
-        `import { chmodSync, writeFileSync } from 'node:fs';\n${fault.action}\n`,
+        `import { chmodSync, writeFileSync } from 'node:fs';\n${action}\n`,
         'utf8',
       );
       chmodSync(wrapper, 0o755);
       const failed = invoke(repository, revision, requestPath, { WBS_WIKI_NX_CLI: wrapper });
       expect(failed.exitCode).toBe(1);
-      expect(output(failed)).toContain(`Nx project graph ${fault.expected}`);
-    }
-  }, 15_000);
+      expect(output(failed)).toContain(`Nx project graph ${expected}`);
+    },
+    10_000,
+  );
 
   test('supports contained symlinks and refuses an effective intermediate-symlink escape', () => {
     const repository = createRepository();

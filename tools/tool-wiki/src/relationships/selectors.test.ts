@@ -722,60 +722,56 @@ describe('declared relationship selectors through the production CLI', () => {
     ]);
   }, 15_000);
 
-  test('extracts migration tables only from complete executable SQL statements', () => {
-    const cases = [
-      {
-        name: 'SQL string and comment',
-        migration:
-          "SELECT 'CREATE TABLE ghost';\n-- CREATE TABLE comment_ghost (`id` text);\n/* ALTER TABLE block_ghost ADD COLUMN name text; */\n",
-        expected:
-          'fact migration.work-item authority-selector mismatch: expected "ghost"; received <unresolved>',
-      },
-      {
-        name: 'unsupported trailing SQL',
-        migration: 'CREATE TABLE real (`id` text PRIMARY KEY);\ninvalid SQL after;\n',
-        expected:
-          'fact migration.work-item selector unsupported: migration statement 2 starts with INVALID',
-      },
-      {
-        name: 'invalid supported statement',
-        migration: 'CREATE TABLE real (`id` text PRIMARY KEY);\nSELECT invalid SQL after;\n',
-        expected:
-          'fact migration.work-item selector unsupported: migration statement 2 rejected by SQLite',
-      },
-      {
-        name: 'invalid create tail',
-        migration: 'CREATE TABLE real unsupported SQL;\n',
-        expected:
-          'fact migration.work-item selector unsupported: migration statement 1 rejected by SQLite',
-      },
-      {
-        name: 'embedded NUL tail',
-        migration: 'CREATE TABLE real (`id` text)\0invalid SQL;\n',
-        expected: 'fact migration.work-item selector unsupported: migration contains NUL byte',
-      },
-      {
-        name: 'invalid ALTER after absent table resolution',
-        migration:
-          'CREATE TABLE real(id text); ALTER TABLE missing ADD COLUMN c TEXT NOT NULL GARBAGE;\n',
-        expected:
-          'fact migration.work-item selector unsupported: migration statement 2 rejected by SQLite',
-      },
-    ];
-    for (const boundary of cases) {
+  test.each([
+    [
+      'SQL string and comment',
+      "SELECT 'CREATE TABLE ghost';\n-- CREATE TABLE comment_ghost (`id` text);\n/* ALTER TABLE block_ghost ADD COLUMN name text; */\n",
+      'fact migration.work-item authority-selector mismatch: expected "ghost"; received <unresolved>',
+    ],
+    [
+      'unsupported trailing SQL',
+      'CREATE TABLE real (`id` text PRIMARY KEY);\ninvalid SQL after;\n',
+      'fact migration.work-item selector unsupported: migration statement 2 starts with INVALID',
+    ],
+    [
+      'invalid supported statement',
+      'CREATE TABLE real (`id` text PRIMARY KEY);\nSELECT invalid SQL after;\n',
+      'fact migration.work-item selector unsupported: migration statement 2 rejected by SQLite',
+    ],
+    [
+      'invalid create tail',
+      'CREATE TABLE real unsupported SQL;\n',
+      'fact migration.work-item selector unsupported: migration statement 1 rejected by SQLite',
+    ],
+    [
+      'embedded NUL tail',
+      'CREATE TABLE real (`id` text)\0invalid SQL;\n',
+      'fact migration.work-item selector unsupported: migration contains NUL byte',
+    ],
+    [
+      'invalid ALTER after absent table resolution',
+      'CREATE TABLE real(id text); ALTER TABLE missing ADD COLUMN c TEXT NOT NULL GARBAGE;\n',
+      'fact migration.work-item selector unsupported: migration statement 2 rejected by SQLite',
+    ],
+  ] as const)(
+    'extracts migration tables only from complete executable SQL statements: %s',
+    // Proof: the former six-invocation aggregate timed out under one-core contention at
+    // 15009.09ms; separated production CLI cases completed in 4190.79-4436.07ms.
+    (name, migration, expected) => {
       const repository = createRepository();
-      write(repository, 'migrations/001_create_work_item/migration.sql', boundary.migration);
+      write(repository, 'migrations/001_create_work_item/migration.sql', migration);
       const fact = currentFacts(repository).find(
         (candidate) => candidate['factId'] === 'migration.work-item',
       );
       if (fact === undefined) throw new Error('migration fixture absent');
-      fact['expected'] = boundary.name === 'SQL string and comment' ? 'ghost' : 'real';
+      fact['expected'] = name === 'SQL string and comment' ? 'ghost' : 'real';
       const requestPath = writeInputs(repository, declaration([fact], []));
-      const failed = invoke(repository, commitAll(repository, boundary.name), requestPath);
+      const failed = invoke(repository, commitAll(repository, name), requestPath);
       expect(failed.exitCode).toBe(1);
-      expect(output(failed)).toContain(boundary.expected);
-    }
-  }, 15_000);
+      expect(output(failed)).toContain(expected);
+    },
+    10_000,
+  );
 
   test('retains a syntactically valid modeled ALTER statement', () => {
     const cases = [
