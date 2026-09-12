@@ -90,6 +90,7 @@ export interface IntegrationQueueRecord {
   readonly queuedAt: number;
   readonly statusAt: number;
   readonly attemptCount: number;
+  readonly attemptIdentity?: string;
   readonly submissions: readonly IntegrationQueueSubmission[];
   readonly resources: readonly IntegrationResourceRequirement[];
   readonly baseCommit?: string;
@@ -308,6 +309,7 @@ function assertMemoryState(state: AuthorityState): void {
     throw new Error('authority next generation does not follow existing generations');
   }
   const integrationIds = new Set<string>();
+  const activeSubmissionOwners = new Map<string, string>();
   for (const integration of state.integrations) {
     if (!INTEGRATION_ID.test(integration.integrationId)) {
       throw new Error(`invalid authority integration id: ${integration.integrationId}`);
@@ -367,12 +369,14 @@ function assertMemoryState(state: AuthorityState): void {
       resources.add(identity);
     }
     const hasChecked =
+      integration.attemptIdentity !== undefined &&
       integration.baseCommit !== undefined &&
       integration.candidateTree !== undefined &&
       integration.compositionIdentity !== undefined;
     const hasPublication =
       integration.candidateCommit !== undefined && integration.markerRef !== undefined;
     const checkedFieldCount = [
+      integration.attemptIdentity,
       integration.baseCommit,
       integration.candidateTree,
       integration.compositionIdentity,
@@ -381,6 +385,7 @@ function assertMemoryState(state: AuthorityState): void {
       (field) => field !== undefined,
     ).length;
     if (
+      (integration.attemptIdentity !== undefined && !SHA256.test(integration.attemptIdentity)) ||
       (integration.baseCommit !== undefined && !GIT_OBJECT.test(integration.baseCommit)) ||
       (integration.compositionIdentity !== undefined &&
         !SHA256.test(integration.compositionIdentity)) ||
@@ -398,7 +403,7 @@ function assertMemoryState(state: AuthorityState): void {
     // durable integration records` receive the later `fields do not match status` diagnostic
     // instead of the partial-publication refusal.
     if (
-      (checkedFieldCount !== 0 && checkedFieldCount !== 3) ||
+      (checkedFieldCount !== 0 && checkedFieldCount !== 4) ||
       (publicationFieldCount !== 0 && publicationFieldCount !== 2)
     ) {
       throw new Error(
@@ -447,6 +452,16 @@ function assertMemoryState(state: AuthorityState): void {
         throw new Error(
           `authority integration submission is not retained: ${integration.integrationId}`,
         );
+      }
+      if (integration.status === 'checking' || integration.status === 'publishing') {
+        const owner = `${submission.sessionId}/${String(submission.generation)}`;
+        const activeOwner = activeSubmissionOwners.get(owner);
+        // Proof: removing this persisted fence made `one checking integration fences an
+        // overlapping integration` construct two active owners for the same submitted generation.
+        if (activeOwner !== undefined && activeOwner !== integration.integrationId) {
+          throw new Error(`authority generation has competing integrations: ${owner}`);
+        }
+        activeSubmissionOwners.set(owner, integration.integrationId);
       }
     }
   }
@@ -531,6 +546,7 @@ const SCHEMA = [
     queued_at INTEGER NOT NULL CHECK (queued_at >= 0),
     status_at INTEGER NOT NULL CHECK (status_at >= queued_at),
     attempt_count INTEGER NOT NULL CHECK (attempt_count BETWEEN 0 AND 3),
+    attempt_identity TEXT,
     base_commit TEXT,
     candidate_tree TEXT,
     composition_identity TEXT,
@@ -614,6 +630,7 @@ interface IntegrationRow {
   readonly queuedAt: number;
   readonly statusAt: number;
   readonly attemptCount: number;
+  readonly attemptIdentity: string | null;
   readonly baseCommit: string | null;
   readonly candidateTree: string | null;
   readonly compositionIdentity: string | null;
@@ -975,6 +992,7 @@ function readSqliteState(database: Database): AuthorityState {
     .query<IntegrationRow, []>(
       `SELECT integration_id AS integrationId, target_ref AS targetRef, status,
               queued_at AS queuedAt, status_at AS statusAt, attempt_count AS attemptCount,
+              attempt_identity AS attemptIdentity,
               base_commit AS baseCommit, candidate_tree AS candidateTree,
               composition_identity AS compositionIdentity,
               candidate_commit AS candidateCommit, marker_ref AS markerRef,
@@ -1087,6 +1105,7 @@ function readSqliteState(database: Database): AuthorityState {
     }),
     integrations: integrations.map((record): IntegrationQueueRecord => ({
       attemptCount: record.attemptCount,
+      attemptIdentity: record.attemptIdentity ?? undefined,
       baseCommit: record.baseCommit ?? undefined,
       candidateTree: record.candidateTree ?? undefined,
       candidateCommit: record.candidateCommit ?? undefined,
@@ -1212,12 +1231,14 @@ function writeSqliteState(database: Database, state: AuthorityState): void {
       string | null,
       string | null,
       string | null,
+      string | null,
     ]
   >(
     `INSERT INTO authority_integration(
        integration_id, target_ref, status, queued_at, status_at, attempt_count,
-       base_commit, candidate_tree, composition_identity, candidate_commit, marker_ref, terminal_reason
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       attempt_identity, base_commit, candidate_tree, composition_identity, candidate_commit,
+       marker_ref, terminal_reason
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const insertIntegrationSubmission = database.query<
     never,
@@ -1239,6 +1260,7 @@ function writeSqliteState(database: Database, state: AuthorityState): void {
       integration.queuedAt,
       integration.statusAt,
       integration.attemptCount,
+      integration.attemptIdentity ?? null,
       integration.baseCommit ?? null,
       integration.candidateTree ?? null,
       integration.compositionIdentity ?? null,

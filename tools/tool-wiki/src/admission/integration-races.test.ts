@@ -31,7 +31,9 @@ import {
   type IntegrationCandidateCertifier,
   type IntegrationResourceProbe,
   publishIntegrationRefs,
+  publishReservedIntegration,
   recordIntegrationCheck,
+  recordIntegrationRework,
   reserveIntegrationPublication,
 } from './publication';
 import { submitPacket } from './submit';
@@ -412,14 +414,15 @@ test('immutable marker proves publication across a crash and later target advanc
     checked,
     commit,
     'crash',
+    queue.attemptIdentity,
   );
-  expect(publishIntegrationRefs(subject.repository, reserved)).toBe(true);
+  expect(publishIntegrationRefs(subject.store, subject.repository, reserved)).toBe(true);
   expect(() =>
     finalizeIntegrationPublication(subject.store, subject.repository, {
       ...reserved,
       candidateTree: subject.base.tree,
     }),
-  ).toThrow('published integration commit differs from the checked candidate');
+  ).toThrow('integration publication reservation changed');
   subject.advance('other.ts', 'export const other = 3;\n');
   const report = finalizeIntegrationPublication(subject.store, subject.repository, reserved);
   expect(report.commit).toBe(commit);
@@ -442,7 +445,14 @@ test('a publication reservation fences terminal lifecycle changes', () => {
     queue,
     options('fenced').commit,
   );
-  reserveIntegrationPublication(subject.store, subject.repository, checked, commit, 'fenced');
+  reserveIntegrationPublication(
+    subject.store,
+    subject.repository,
+    checked,
+    commit,
+    'fenced',
+    queue.attemptIdentity,
+  );
   expect(() => rejectGeneration(subject.store, one.token)).toThrow(
     'generation has a reserved publication',
   );
@@ -470,9 +480,10 @@ test('a mismatched publication marker after reservation is refused', () => {
     checked,
     commit,
     'marker-mismatch',
+    queue.attemptIdentity,
   );
   git(subject.repository, ['update-ref', reserved.markerRef, subject.base.commit]);
-  expect(() => publishIntegrationRefs(subject.repository, reserved)).toThrow(
+  expect(() => publishIntegrationRefs(subject.store, subject.repository, reserved)).toThrow(
     'integration publication marker mismatch',
   );
   expect(git(subject.repository, ['rev-parse', 'refs/heads/main'])).toBe(subject.base.commit);
@@ -505,6 +516,7 @@ test('a preexisting private publication marker cannot collide with a new reserva
       checked,
       commit,
       'marker-collision',
+      queue.attemptIdentity,
     ),
   ).toThrow('integration publication marker already exists');
   subject.store.close();
@@ -754,5 +766,520 @@ test('memory authority refuses partial or mismatched durable integration records
         ],
       }),
   ).toThrow('authority integration submission is not retained');
+  expect(
+    () =>
+      new MemoryAuthorityStore({
+        ...state,
+        integrations: [
+          {
+            ...queued,
+            attemptCount: 1,
+            attemptIdentity: '8'.repeat(64),
+            baseCommit: subject.base.commit,
+            candidateTree: subject.base.tree,
+            compositionIdentity: '7'.repeat(64),
+            status: 'checking',
+          },
+          {
+            ...queued,
+            attemptCount: 1,
+            attemptIdentity: '9'.repeat(64),
+            baseCommit: subject.base.commit,
+            candidateTree: subject.base.tree,
+            compositionIdentity: '6'.repeat(64),
+            integrationId: 'malformed-other',
+            status: 'checking',
+          },
+        ],
+      }),
+  ).toThrow('authority generation has competing integrations');
+  subject.store.close();
+});
+
+test('a wrong-tree or extra-parent candidate commit is refused before refs or lifecycle change', () => {
+  const subject = fixture();
+  const one = subject.submission('one', 'src/one.ts', 'export const one = 2;\n');
+  const request = { policy, submissions: [one] };
+  const candidate = composeIntegrationCandidate(subject.store, subject.repository, request);
+  enqueueIntegration(subject.store, request, options('wrong-commit'));
+  const queue = recordIntegrationCheck(subject.store, 'wrong-commit', candidate);
+  const checked = certify(candidate);
+  const unrelatedParent = git(subject.repository, ['commit-tree', subject.base.tree], {
+    stdin: 'unrelated parent\n',
+  });
+  const extraParent = git(
+    subject.repository,
+    ['commit-tree', candidate.candidateTree, '-p', subject.base.commit, '-p', unrelatedParent],
+    { stdin: 'extra parent\n' },
+  );
+  const wrongTree = git(
+    subject.repository,
+    ['commit-tree', subject.base.tree, '-p', subject.base.commit],
+    { stdin: 'wrong tree\n' },
+  );
+  const targetBefore = git(subject.repository, ['rev-parse', 'refs/heads/main']);
+
+  expect(() =>
+    reserveIntegrationPublication(
+      subject.store,
+      subject.repository,
+      checked,
+      extraParent,
+      'wrong-commit',
+      queue.attemptIdentity,
+    ),
+  ).toThrow('integration commit differs from the checked candidate');
+  expect(() =>
+    reserveIntegrationPublication(
+      subject.store,
+      subject.repository,
+      checked,
+      wrongTree,
+      'wrong-commit',
+      queue.attemptIdentity,
+    ),
+  ).toThrow('integration commit differs from the checked candidate');
+  expect(git(subject.repository, ['rev-parse', 'refs/heads/main'])).toBe(targetBefore);
+  expect(subject.store.inspect().integrations[0]?.status).toBe('checking');
+  expect(
+    git(subject.repository, ['for-each-ref', '--format=%(refname)', 'refs/wbs-wiki/publications']),
+  ).toBe('');
+
+  const publicationMarker = `refs/wbs-wiki/publications/${hashCanonical({
+    integrationId: 'wrong-commit',
+    targetRef: 'refs/heads/main',
+  })}`;
+  subject.store.transact((transaction) => {
+    const state = transaction.readState();
+    transaction.writeState({
+      ...state,
+      integrations: state.integrations.map((integration) =>
+        integration.integrationId === 'wrong-commit'
+          ? {
+              ...integration,
+              candidateCommit: wrongTree,
+              markerRef: publicationMarker,
+              status: 'publishing',
+            }
+          : integration,
+      ),
+    });
+  });
+  expect(() =>
+    publishIntegrationRefs(subject.store, subject.repository, {
+      attemptIdentity: queue.attemptIdentity,
+      baseCommit: checked.baseCommit,
+      candidateCommit: wrongTree,
+      candidateTree: checked.candidateTree,
+      compositionIdentity: checked.compositionIdentity,
+      integrationId: 'wrong-commit',
+      markerRef: publicationMarker,
+      targetRef: 'refs/heads/main',
+    }),
+  ).toThrow('integration commit differs from the checked candidate');
+  expect(git(subject.repository, ['rev-parse', 'refs/heads/main'])).toBe(targetBefore);
+  expect(subject.store.inspect().integrations[0]?.status).toBe('publishing');
+  expect(
+    git(subject.repository, ['for-each-ref', '--format=%(refname)', 'refs/wbs-wiki/publications']),
+  ).toBe('');
+  subject.store.close();
+});
+
+test('a crafted reservation cannot redirect publication or substitute its checked tree', () => {
+  const subject = fixture();
+  const one = subject.submission('one', 'src/one.ts', 'export const one = 2;\n');
+  const request = { policy, submissions: [one] };
+  const candidate = composeIntegrationCandidate(subject.store, subject.repository, request);
+  enqueueIntegration(subject.store, request, options('crafted-reservation'));
+  const queue = recordIntegrationCheck(subject.store, 'crafted-reservation', candidate);
+  const checked = certify(candidate);
+  const commit = createIntegrationCommit(
+    subject.repository,
+    checked,
+    queue,
+    options('crafted-reservation').commit,
+  );
+  const reserved = reserveIntegrationPublication(
+    subject.store,
+    subject.repository,
+    checked,
+    commit,
+    'crafted-reservation',
+    queue.attemptIdentity,
+  );
+  git(subject.repository, ['update-ref', 'refs/heads/other', subject.base.commit]);
+
+  expect(() =>
+    publishReservedIntegration(subject.store, subject.repository, {
+      ...reserved,
+      targetRef: 'refs/heads/other',
+    }),
+  ).toThrow('integration publication reservation changed');
+  expect(() =>
+    publishReservedIntegration(subject.store, subject.repository, {
+      ...reserved,
+      candidateTree: subject.base.tree,
+    }),
+  ).toThrow('integration publication reservation changed');
+  expect(() =>
+    publishReservedIntegration(subject.store, subject.repository, {
+      ...reserved,
+      attemptIdentity: '0'.repeat(64),
+    }),
+  ).toThrow('integration publication reservation changed');
+  expect(git(subject.repository, ['rev-parse', 'refs/heads/main'])).toBe(subject.base.commit);
+  expect(git(subject.repository, ['rev-parse', 'refs/heads/other'])).toBe(subject.base.commit);
+  expect(subject.store.inspect().integrations[0]?.status).toBe('publishing');
+  subject.store.close();
+});
+
+test('one checking integration fences an overlapping integration without spending its attempt', async () => {
+  const subject = fixture();
+  const one = subject.submission('one', 'src/one.ts', 'export const one = 2;\n');
+  let releaseOwner: (() => void) | undefined;
+  let announceOwner: (() => void) | undefined;
+  const ownerStarted = new Promise<void>((resolve) => {
+    announceOwner = resolve;
+  });
+  const heldOwner = new Promise<void>((resolve) => {
+    releaseOwner = resolve;
+  });
+  const owner = integrateWithRecovery(
+    subject.store,
+    subject.repository,
+    { policy, submissions: [one] },
+    options('owner', {
+      certify: async (candidate) => {
+        announceOwner?.();
+        await heldOwner;
+        return certify(candidate);
+      },
+    }),
+  );
+  await ownerStarted;
+
+  const blocked = await integrateWithRecovery(
+    subject.store,
+    subject.repository,
+    { policy, submissions: [one] },
+    options('blocked-owner'),
+  );
+  expect(blocked).toMatchObject({
+    attempts: 0,
+    blockingIntegrationIds: ['owner'],
+    reason: 'submission-reserved',
+    status: 'waiting',
+  });
+  expect(
+    subject.store
+      .inspect()
+      .integrations.find(({ integrationId }) => integrationId === 'blocked-owner')?.attemptCount,
+  ).toBe(0);
+  expect(git(subject.repository, ['rev-parse', 'refs/heads/main'])).toBe(subject.base.commit);
+  releaseOwner?.();
+  expect((await owner).status).toBe('integrated');
+  subject.store.close();
+});
+
+test('a crashed publisher fences an overlapping integration until exact recovery', async () => {
+  const subject = fixture();
+  const one = subject.submission('one', 'src/one.ts', 'export const one = 2;\n');
+  const request = { policy, submissions: [one] };
+  enqueueIntegration(subject.store, request, options('crashed-owner'));
+  const candidate = composeIntegrationCandidate(subject.store, subject.repository, request);
+  const checking = recordIntegrationCheck(subject.store, 'crashed-owner', candidate);
+  const checked = certify(candidate);
+  const commit = createIntegrationCommit(
+    subject.repository,
+    checked,
+    checking,
+    options('crashed-owner').commit,
+  );
+  const reserved = reserveIntegrationPublication(
+    subject.store,
+    subject.repository,
+    checked,
+    commit,
+    'crashed-owner',
+    checking.attemptIdentity,
+  );
+  expect(publishIntegrationRefs(subject.store, subject.repository, reserved)).toBe(true);
+
+  const blocked = await integrateWithRecovery(
+    subject.store,
+    subject.repository,
+    request,
+    options('crash-blocked'),
+  );
+  expect(blocked).toMatchObject({
+    attempts: 0,
+    blockingIntegrationIds: ['crashed-owner'],
+    reason: 'submission-reserved',
+    status: 'waiting',
+  });
+  expect(git(subject.repository, ['rev-parse', 'refs/heads/main'])).toBe(commit);
+  expect(finalizeIntegrationPublication(subject.store, subject.repository, reserved).commit).toBe(
+    commit,
+  );
+  const refused = await integrateWithRecovery(
+    subject.store,
+    subject.repository,
+    request,
+    options('crash-blocked'),
+  );
+  expect(refused).toMatchObject({
+    attempts: 0,
+    reason: 'candidate-refused',
+    status: 'terminal',
+  });
+  expect(git(subject.repository, ['rev-parse', 'refs/heads/main'])).toBe(commit);
+  expect(
+    subject.store
+      .inspect()
+      .integrations.find(({ integrationId }) => integrationId === 'crash-blocked')?.status,
+  ).toBe('terminal');
+  subject.store.close();
+});
+
+test('a restarted coordinator fences a durable checking attempt and stale certification', async () => {
+  const subject = fixture();
+  const one = subject.submission('one', 'src/one.ts', 'export const one = 2;\n');
+  let releaseStale: (() => void) | undefined;
+  let announceStale: (() => void) | undefined;
+  let releaseResume: (() => void) | undefined;
+  let announceResume: (() => void) | undefined;
+  const staleStarted = new Promise<void>((resolve) => {
+    announceStale = resolve;
+  });
+  const heldStale = new Promise<void>((resolve) => {
+    releaseStale = resolve;
+  });
+  const resumeStarted = new Promise<void>((resolve) => {
+    announceResume = resolve;
+  });
+  const heldResume = new Promise<void>((resolve) => {
+    releaseResume = resolve;
+  });
+  const stale = integrateWithRecovery(
+    subject.store,
+    subject.repository,
+    { policy, submissions: [one] },
+    options('restart', {
+      certify: async (candidate) => {
+        announceStale?.();
+        await heldStale;
+        return certify(candidate);
+      },
+    }),
+  );
+  await staleStarted;
+  const resumed = integrateWithRecovery(
+    subject.store,
+    subject.repository,
+    { policy, submissions: [one] },
+    options('restart', {
+      certify: async (candidate) => {
+        announceResume?.();
+        await heldResume;
+        return certify(candidate);
+      },
+    }),
+  );
+  await resumeStarted;
+  releaseStale?.();
+  expect(await stale).toMatchObject({ reason: 'attempt-fenced', status: 'waiting' });
+  expect(git(subject.repository, ['rev-parse', 'refs/heads/main'])).toBe(subject.base.commit);
+  expect(subject.store.inspect().integrations[0]?.attemptCount).toBe(2);
+  releaseResume?.();
+  expect(await resumed).toMatchObject({ attempts: 2, status: 'integrated' });
+  subject.store.close();
+});
+
+test('a stale attempt identity cannot reserve an equal checked candidate', () => {
+  const subject = fixture();
+  const one = subject.submission('one', 'src/one.ts', 'export const one = 2;\n');
+  const request = { policy, submissions: [one] };
+  const candidate = composeIntegrationCandidate(subject.store, subject.repository, request);
+  enqueueIntegration(subject.store, request, options('stale-reservation'));
+  const stale = recordIntegrationCheck(subject.store, 'stale-reservation', candidate);
+  subject.store.transact((transaction) => {
+    const state = transaction.readState();
+    transaction.writeState({
+      ...state,
+      integrations: state.integrations.map((integration) =>
+        integration.integrationId === 'stale-reservation'
+          ? { ...integration, attemptCount: 2, attemptIdentity: '8'.repeat(64) }
+          : integration,
+      ),
+    });
+  });
+  const checked = certify(candidate);
+  const commit = createIntegrationCommit(
+    subject.repository,
+    checked,
+    stale,
+    options('stale-reservation').commit,
+  );
+  expect(() =>
+    reserveIntegrationPublication(
+      subject.store,
+      subject.repository,
+      checked,
+      commit,
+      'stale-reservation',
+      stale.attemptIdentity,
+    ),
+  ).toThrow('integration is not checking this candidate');
+  expect(() => recordIntegrationRework(subject.store, stale)).toThrow(
+    'integration attempt changed',
+  );
+  expect(subject.store.inspect().integrations[0]).toMatchObject({
+    attemptCount: 2,
+    attemptIdentity: '8'.repeat(64),
+    status: 'checking',
+  });
+  expect(git(subject.repository, ['rev-parse', 'refs/heads/main'])).toBe(subject.base.commit);
+  subject.store.close();
+});
+
+test('held resource and certification runtime count toward the trusted queue deadline', async () => {
+  const resourceClock = { now: 1_000 };
+  const resourceSubject = fixture(resourceClock);
+  const resourceSubmission = resourceSubject.submission(
+    'resource',
+    'src/one.ts',
+    'export const one = 2;\n',
+  );
+  let announceResource: (() => void) | undefined;
+  let releaseResource: (() => void) | undefined;
+  const resourceStarted = new Promise<void>((resolve) => {
+    announceResource = resolve;
+  });
+  const resourceHold = new Promise<void>((resolve) => {
+    releaseResource = resolve;
+  });
+  const heldResource: IntegrationResourceProbe = {
+    inspect: async ({ compositionIdentity, integrationId, requirements, requirementsIdentity }) => {
+      announceResource?.();
+      await resourceHold;
+      return {
+        compositionIdentity,
+        integrationId,
+        probeIdentity: '9'.repeat(64),
+        requirementsIdentity,
+        unavailable: requirements,
+      };
+    },
+  };
+  const resourceRun = integrateWithRecovery(
+    resourceSubject.store,
+    resourceSubject.repository,
+    { policy, submissions: [resourceSubmission] },
+    {
+      ...options('resource-expiry'),
+      resourceProbe: heldResource,
+      resources: [{ identity: 'heavy', kind: 'lane' }],
+    },
+  );
+  await resourceStarted;
+  resourceClock.now += 300_000;
+  releaseResource?.();
+  const resourceExpired = await resourceRun;
+  expect(resourceExpired).toMatchObject({
+    attempts: 0,
+    queueTimeMs: 300_000,
+    reason: 'starvation',
+    status: 'terminal',
+  });
+  expect(git(resourceSubject.repository, ['rev-parse', 'refs/heads/main'])).toBe(
+    resourceSubject.base.commit,
+  );
+  resourceSubject.store.close();
+
+  const certificationClock = { now: 1_000 };
+  const certificationSubject = fixture(certificationClock);
+  const certificationSubmission = certificationSubject.submission(
+    'certification',
+    'src/one.ts',
+    'export const one = 2;\n',
+  );
+  let announceCertification: (() => void) | undefined;
+  let releaseCertification: (() => void) | undefined;
+  const certificationStarted = new Promise<void>((resolve) => {
+    announceCertification = resolve;
+  });
+  const certificationHold = new Promise<void>((resolve) => {
+    releaseCertification = resolve;
+  });
+  const certificationRun = integrateWithRecovery(
+    certificationSubject.store,
+    certificationSubject.repository,
+    { policy, submissions: [certificationSubmission] },
+    options('certification-expiry', {
+      certify: async (candidate) => {
+        announceCertification?.();
+        await certificationHold;
+        return certify(candidate);
+      },
+    }),
+  );
+  await certificationStarted;
+  certificationClock.now += 300_000;
+  releaseCertification?.();
+  const certificationExpired = await certificationRun;
+  expect(certificationExpired).toMatchObject({
+    attempts: 1,
+    queueTimeMs: 300_000,
+    reason: 'starvation',
+    status: 'terminal',
+  });
+  expect(git(certificationSubject.repository, ['rev-parse', 'refs/heads/main'])).toBe(
+    certificationSubject.base.commit,
+  );
+  certificationSubject.store.close();
+});
+
+test('the queue deadline is refreshed between failed attempts', async () => {
+  const clock = { now: 1_000 };
+  const subject = fixture(clock);
+  const one = subject.submission('one', 'src/one.ts', 'export const one = 2;\n');
+  let probes = 0;
+  const advancingProbe: IntegrationResourceProbe = {
+    inspect: ({ compositionIdentity, integrationId, requirementsIdentity }) => {
+      probes += 1;
+      if (probes === 2) clock.now = 301_001;
+      return {
+        compositionIdentity,
+        integrationId,
+        probeIdentity: '9'.repeat(64),
+        requirementsIdentity,
+        unavailable: [],
+      };
+    },
+  };
+  const report = await integrateWithRecovery(
+    subject.store,
+    subject.repository,
+    { policy, submissions: [one] },
+    {
+      ...options('between-attempts', {
+        certify: (candidate) => {
+          if (probes === 1) {
+            clock.now = 300_999;
+            return { reason: 'first attempt failed', status: 'failed' };
+          }
+          return certify(candidate);
+        },
+      }),
+      resourceProbe: advancingProbe,
+    },
+  );
+  expect(report).toMatchObject({
+    attempts: 1,
+    queueTimeMs: 300_001,
+    reason: 'starvation',
+    status: 'terminal',
+  });
+  expect(probes).toBe(2);
   subject.store.close();
 });
