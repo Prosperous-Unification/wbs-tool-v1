@@ -491,8 +491,10 @@ jobs:
     # The `pixels` aggregate waits for the slowest shard, so the run cost the
     # 21.4m and shard 2 contributed nothing for most of it. Doubling the shard
     # count does not make the suite cheaper — it makes the imbalance finer
-    # grained, so the worst shard falls toward the mean and `gate` becomes the
-    # critical path instead. Expected effect is roughly 21.4m to ~14m per run.
+    # grained, so the worst shard falls toward the mean. Five wholly post-merge
+    # runs measured the worst shard at 9.4-11.0m versus `gate` at 14.2-19.0m,
+    # making `gate` the critical path in each run; the original expected effect
+    # was roughly 21.4m to ~14m per run.
     #
     # Queue wait was checked before assuming runners were free: measured 0.0m
     # across all 24 real jobs in that sample, so the shards start immediately
@@ -535,10 +537,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Both entries and the stable aggregate below are read from this
+        # All four entries and the stable aggregate below are read from this
         # production workflow by pixels-workflow.test.ts.
-        # Proof: deleting shard 2 failed that test with expected [1, 2], got
-        # [1], before the workflow was restored.
+        # Proof: deleting shard 2 failed that test with expected [1, 2, 3, 4],
+        # got [1, 3, 4], before the workflow was restored.
         shard: [1, 2, 3, 4]
     timeout-minutes: 25
     steps:
