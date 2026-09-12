@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { encodeOptimizedResult } from '@wbs/contracts/solver/optimized-result';
 import type { ScheduleInput } from '@wbs/domain/canonical-schedule-input';
 import { afterEach, describe, expect, it } from 'bun:test';
 
@@ -56,7 +57,6 @@ const FEASIBLE_RESPONSE = `${JSON.stringify({
     movement: { value: 0, stageValue: 0, bound: 0, status: 'optimal' },
   },
 })}\n`;
-
 const dirs: string[] = [];
 
 function stream(text: string): ReadableStream<Uint8Array> {
@@ -854,6 +854,74 @@ describe('OptimizationCoordinator read', () => {
     expect(db.select().from(solverSlot).all()).toEqual([]);
     expect(instance.read({ projectId: 'p-1', objective: 'time', input: INPUT })).not.toBeNull();
     expect(calls).toHaveLength(2);
+  });
+
+  it('reports an admission-closed miss idle beside a ready incomplete result', async () => {
+    const { path, db } = database();
+    seedProject(path);
+    const calls: ReservedSpawnRequest[] = [];
+    const instance = coordinator(
+      db,
+      calls,
+      'blue',
+      () => ({
+        pid: 100 + calls.length,
+        stdout: stream(FEASIBLE_RESPONSE),
+        stderr: stream(''),
+        exited: Promise.resolve(0),
+        verdict: () => undefined,
+        kill: () => undefined,
+      }),
+      runSolverChildLifecycle,
+    );
+
+    expect(instance.read({ projectId: 'p-1', objective: 'pri', input: INPUT })).toBeNull();
+    await instance.drain();
+    const pair = readOptimizedPair(db, {
+      projectId: 'p-1',
+      inputHash: scheduleInputHash(INPUT),
+      contractVersion: CONTRACT,
+      budgetMs: BUDGET,
+    });
+    if (pair.pri.kind !== 'ok') throw new Error('broken fixture: Pri did not settle ready');
+    const incomplete = JSON.stringify(
+      encodeOptimizedResult({
+        ...pair.pri.result,
+        objectiveValues: {
+          ...pair.pri.result.objectiveValues,
+          movement: {
+            ...pair.pri.result.objectiveValues.movement,
+            stageValue: null,
+            bound: null,
+            status: 'unknown',
+          },
+        },
+      }),
+    );
+    const raw = openDatabase(path);
+    try {
+      raw.run("UPDATE optimized_schedule_cache SET result_json = ? WHERE objective = 'pri'", [
+        incomplete,
+      ]);
+      raw.run("DELETE FROM optimized_schedule_cache WHERE objective = 'time'");
+      raw.run(
+        "UPDATE optimization_generation SET admission_state = 'draining' WHERE project_id = 'p-1'",
+      );
+    } finally {
+      raw.close();
+    }
+
+    expect(
+      instance.readPlan({ projectId: 'p-1', objective: 'pri', input: INPUT, enabled: true })
+        .variants,
+    ).toEqual({
+      pri: { state: 'ready', proof: 'incomplete' },
+      time: { state: 'idle' },
+    });
+    expect(calls).toHaveLength(2);
+    // Proof: reopening admission makes Time live and changes this exact
+    // production read to `pending`, so the mixed shape is pinned to the closed
+    // admission path rather than manufactured at the UI boundary.
   });
 
   it('stores an internal failure but retains admission when creation has no terminal proof', async () => {
