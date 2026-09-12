@@ -50,6 +50,7 @@ const PROVEN_BY = new Map<string, readonly string[]>(
     'Editing: Escape': [
       'Escape saves what was typed and closes the notes editor',
       'the Done button beside the notes saves and closes the editor too',
+      'while editing, hovering the notes marker opens no second preview',
     ],
     'Editing: Enter in Prio': [
       'sends what was typed on Enter, without waiting for the cell to be left',

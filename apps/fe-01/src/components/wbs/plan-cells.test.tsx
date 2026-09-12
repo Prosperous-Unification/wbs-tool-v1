@@ -2113,6 +2113,28 @@ describe('names wrap and notes carry markdown', () => {
     expect(document.activeElement).not.toBe(box);
   });
 
+  itDom('while editing, hovering the notes marker opens no second preview', async () => {
+    // Dany, 2026-09-12: _"when i edit and see the preview - the notes icon must
+    // not trigger another preview pop-up"_. The editing card is the same card
+    // the marker opens, so the marker is inert while the box holds the focus.
+    //
+    // Proof: the `document.activeElement` guard removed from the marker's
+    // `onMouseEnter` — this failed on `expected 2 to be 1`, a second identical
+    // card opening over the editing one. Watched, 2026-09-12.
+    await oneRowWithNotes('## Risks');
+    const box = await screen.findByLabelText('Name of 010');
+    // `fireEvent.focus`, not `box.focus()`: jsdom leaves a blurred box as the
+    // active element (see the marker guard's own note), so `focus()` on it is a
+    // no-op that fires no event. The dispatched focus is what the panel and the
+    // editing ref both listen for.
+    fireEvent.focus(box);
+    await screen.findByLabelText('Notes for 010, rendered while writing');
+    expect(screen.getAllByRole('tooltip')).toHaveLength(1);
+
+    fireEvent.mouseEnter(notesMarkerOf('010'));
+    expect(screen.getAllByRole('tooltip')).toHaveLength(1);
+  });
+
   itDom('the Done button beside the notes saves and closes the editor too', async () => {
     // Dany, 2026-09-12: _"a non-intrusive neat small 'Done' button that you can
     // press to hide the editor of markdown"_. It lives in the rendered-notes

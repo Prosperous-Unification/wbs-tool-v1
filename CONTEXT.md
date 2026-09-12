@@ -628,17 +628,19 @@ preview. The export and the search read the source instead.
 _Avoid_: rich text, formatted name, markdown name
 
 **Hover preview**:
-The rendered reading of one work item, opened over its Name cell from the notes marker on
-that cell: the name as a level-one heading the application itself writes, with the name's
-own inline markdown inside it, and the notes as markdown under it. The name is never
-composed into the notes' markdown source. The only place notes render; nowhere does raw
-HTML in either field become markup.
+The rendered reading of one work item: the name as a level-one heading the application
+itself writes, with the name's own inline markdown inside it, and the notes as markdown
+under it. One card, shown two ways — opened over its Name cell from the notes marker on
+hover, and shown beside the box while it is being written in, the same size and content
+either way. The name is never composed into the notes' markdown source. The only place
+notes render; nowhere does raw HTML in either field become markup.
 _Avoid_: tooltip, popover, notes preview
 
 **Notes marker**:
-The small mark at the right edge of a Name cell whose work item has notes, and the only
-thing that opens that cell's hover preview. It says a row has notes; it is not a control —
-nothing to click, no focus, no place in the keyboard grid.
+The small mark at the right edge of a Name cell whose work item has notes, and what opens
+that cell's hover preview — except while the box is being written in, where the editing
+preview already shows it and the marker stays quiet. It says a row has notes; it is not a
+control — nothing to click, no focus, no place in the keyboard grid.
 _Avoid_: notes icon, badge, indicator, button
 
 **Hover card**:
