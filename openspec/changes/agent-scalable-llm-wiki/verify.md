@@ -2665,3 +2665,66 @@ Implementation checkpoint: `328d6278` (`feat(tool-wiki): publish integration can
 recovery`). Only Task 5.2 is newly marked complete. Task 5.3 activation remains out of scope. The
 required `bin/h2puni-gate.sh 328d6278` was unavailable, exit 70 before any gate step because the
 heavy-lock path `/home/puni1/.cache` does not exist; the host gate is not green.
+
+### Slice 5.2 Astra fix round 1 — exact attempt and publication fencing
+
+Review found four publication gaps. A caller-supplied commit was not inspected until after ref
+mutation, finalization omitted durable `candidateTree` and `targetRef` comparisons, concurrent
+integration ids could own the same submitted generation, and a durable `checking` record could not
+recover. Trusted time was also sampled before awaited probe/certification work, excluding that work
+from the five-minute policy.
+
+The correction gives each check attempt an authority-derived durable identity. `checking` and
+`publishing` are exclusive ownership states for their exact generations; a competing batch receives
+a typed waiting report with blocker ids and spends no attempt. Rework, starvation and terminal
+transitions clear the exact ownership identity. Restart atomically fences the observed checking
+attempt before retry, and every later reserve/rework transition compares its attempt identity so a
+late certifier cannot publish or clear its successor.
+
+Before reservation and again before Git mutation, the candidate commit must have the exact checked
+tree and exactly one parent, the checked base. Ref publication and finalization compare every
+reservation field with durable state, including attempt, tree and target ref. The five-minute queue
+budget explicitly includes probe and certification runtime; trusted time is refreshed after each
+await and before retry/admission transitions.
+
+| Deliberate one-at-a-time fault                          | Observed production-path failure                                                                           |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| omit the pre-reservation commit oracle                  | the extra-parent commit returned a publication reservation instead of throwing                             |
+| omit the pre-ref commit oracle                          | `publishIntegrationRefs` returned `true` for a durable wrong-tree commit                                   |
+| omit durable `targetRef` comparison                     | the crafted reservation moved `refs/heads/other` and returned integrated                                   |
+| omit durable `candidateTree` comparison                 | the crafted reservation reached the later commit diagnostic instead of the reservation refusal             |
+| omit durable attempt comparison                         | the crafted attempt-zero reservation returned integrated                                                   |
+| omit stale attempt comparison at reserve                | attempt one returned a publication reservation over durable attempt two                                    |
+| omit exact attempt comparison at rework                 | stale attempt one cleared live attempt two and returned `rework`                                           |
+| omit atomic active-owner check                          | the competing integration published and spent attempt one instead of waiting                               |
+| omit persisted active-owner invariant                   | a memory authority with two checking owners constructed successfully                                       |
+| leave durable `checking` unrecoverable                  | restart threw `integration cannot start checks from checking`                                              |
+| omit the refreshed deadline transition                  | a held unavailable resource reported waiting at 300000 ms; held certification published                    |
+| omit deadline refresh between attempts                  | attempt two published at queue time 300001 ms                                                              |
+| omit submitted-generation precheck after crash recovery | Git apply threw after the first owner finalized, leaving the queued competitor without its terminal report |
+
+Every fault failed through `integration-races.test.ts`, was restored, and has an adjacent exact
+`Proof:` comment at the production check.
+
+- `bun test tools/tool-wiki/src/admission/integration-races.test.ts` — exit 0; 20 pass, 0 fail and
+  79 assertions in 5.70 seconds.
+- `bun test tools/tool-wiki/src/admission/*.test.ts` — exit 0; 109 pass, 0 fail and 425 assertions in
+  31.34 seconds.
+- Exact target command `bun test --preload ../test/scratch/preload.ts` from `tools/tool-wiki` at
+  `8236fbe1` — exit 0; 466 pass, 0 fail and 4,697 assertions across 24 files in 787.96 seconds.
+
+Implementation checkpoint: `8236fbe1` (`fix(tool-wiki): fence integration publication attempts`).
+Task 5.2 remains complete; no later task or production activation is included.
+
+- `NX_DAEMON=false bunx nx lint tool-wiki --skip-nx-cache` — exit 0 with the explicitly inactive
+  external activation report; this is not enforce-mode certification. Nx used its sandbox
+  in-process plugin fallback.
+- `NX_DAEMON=false bunx nx typecheck tool-wiki --skip-nx-cache`,
+  `NX_DAEMON=false bunx nx format:check --all`, and `git diff --check` — exit 0. Typecheck used the
+  same Nx plugin fallback.
+- `bash bin/tool-wiki-lint.sh working . HEAD` — exit 0 with the explicitly inactive external
+  activation report. Task 5.3 still owns production activation.
+- `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate agent-scalable-llm-wiki --strict
+--json` — exit 0; one valid change and no issues.
+- `bin/h2puni-gate.sh 8236fbe1` — unavailable, exit 70 before any step because required heavy-lock
+  path `/home/puni1/.cache` does not exist; the host gate is not green.

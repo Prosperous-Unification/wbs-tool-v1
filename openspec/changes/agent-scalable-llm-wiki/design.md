@@ -246,6 +246,16 @@ crash even when the target advances again. Recovery independently verifies the m
 and parent before completing the authority lifecycle; an absent marker permits retry only from the
 reserved base, while a mismatched or preexisting marker is refused.
 
+Each checking attempt receives an authority-derived durable identity. Checking and publishing are
+the only active ownership states, and one submitted generation can have at most one such integration
+owner; competing batches wait without spending an attempt. Rework, starvation and terminal outcomes
+release that ownership explicitly. A restarted coordinator fences an exact orphaned checking attempt
+before retrying, so its late certifier cannot reserve against an equal candidate. Every reservation
+field is compared with durable state before ref mutation and again at finalization. The candidate
+commit must have exactly the checked tree and exactly one parent, the checked base. The five-minute
+queue budget includes resource-probe and certification runtime; trusted time is refreshed after each
+await and before retry/admission transitions.
+
 ### Measurement and execution adapter
 
 Pin `ExperimentManifest` before partitioning: repository/corpus/acceptance ids, fixed outcome
