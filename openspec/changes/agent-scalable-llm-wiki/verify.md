@@ -2466,3 +2466,55 @@ agent-scalable-llm-wiki --strict`, `NX_DAEMON=false ./node_modules/.bin/nx forma
 
 Only the Task 4.3 implementation and the independent root-migration test budgeting are changed by
 this review round. Integration, activation and later tasks remain untouched.
+
+## Slice 5.1 Combined-candidate integration
+
+`composeIntegrationCandidate` reads all submitted generations in one authority snapshot, recovers
+their exact authority-bound packets, and independently replays each frozen patch before composing
+the canonically ordered batch in a private temporary Git index. It never changes a writer or
+coordinator worktree, index, HEAD or ref. The unchecked result binds the exact combined tree,
+content manifest, diff, declaration set, external policy/mapping, selected checks/reviews and
+generation/status snapshot. Its explicit publication boundary says Task 5.2 must atomically
+recheck authority and the target ref.
+
+Combined validation refuses stale reads, incompatible bases, non-submitted/fenced/stale authority,
+identity substitutions, patch conflicts and contract producers whose trusted required consumers
+did not change in the same batch. Gate and relationship selector rules expand the union of packet
+checks/reviews deterministically. `certifyIntegrationCandidate` is a distinct phase: it strictly
+decodes the existing check/review receipt contracts and returns `checked` only when the complete
+receipt set binds the final candidate manifest and trusted review context. A standalone candidate's
+receipt cannot certify the combined candidate.
+
+| Deliberate one-at-a-time fault                     | Observed production-path failure                                                    |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| trust the caller's policy label                    | weakened selector bytes returned unchecked and omitted `check.trusted-gate`         |
+| omit exact patch/report replay identities          | wrong bytes reached Git apply; substituted report returned an unchecked tree        |
+| validate reads only on standalone submissions      | the combined stale-read case returned unchecked with both changed paths             |
+| omit required contract-consumer join               | the producer-only batch returned unchecked                                          |
+| skip matched gate/relationship selector rules      | selected checks missed `check.trusted-gate`                                         |
+| accept standalone evidence binding                 | failure moved to the later check-receipt candidate diagnostic                       |
+| accept skipped checks or stale review reads        | certification returned `checked` and printed the invalid receipt                    |
+| omit complete check or review receipt-set guards   | certification returned `checked` with one required receipt absent                   |
+| accept terminal generations or forged packets      | rejected work and caller-rebound packet bytes returned unchecked                    |
+| accept duplicate sessions or coordinator-as-writer | duplicate reached patch conflict; writer worktree returned unchecked as coordinator |
+
+Every fault was watched through `integration.test.ts`, restored and recorded by its adjacent
+`Proof:` comment.
+
+- `bun test tools/tool-wiki/src/admission/integration.test.ts` — exit 0; 9 pass, 0 fail and 34
+  assertions in 2.26 seconds.
+- `bun test tools/tool-wiki/src/admission/*.test.ts` — exit 0; 83 pass, 0 fail and 321 assertions
+  in 25.07 seconds.
+- Exact target command `bun test --preload ../test/scratch/preload.ts` from `tools/tool-wiki` at
+  `39b32abf` — exit 0; 440 pass, 0 fail and 4,593 assertions across 23 files in 776.43 seconds.
+- `bunx eslint tools/tool-wiki/src`, `bunx tsc --build --force tools/tool-wiki/tsconfig.json`,
+  `bunx nx format:check --all`, and `git diff --check` — exit 0.
+- `bash bin/tool-wiki-lint.sh working . HEAD` — exit 0 with the explicitly inactive external
+  activation report; this is not enforce-mode certification.
+- `bunx @fission-ai/openspec@1.3.0 validate agent-scalable-llm-wiki --strict --json` — exit 0; one
+  valid change and no issues. Optional telemetry DNS flush failed after validation.
+- `bin/h2puni-gate.sh 39b32abf` — unavailable, exit 70 before any step because
+  `/home/puni1/.cache` does not exist; the host gate is not green.
+
+Only Task 5.1 is added as complete. Task 5.2 retains atomic ref publication and lifecycle
+transition; no ref or generation was published by this slice.

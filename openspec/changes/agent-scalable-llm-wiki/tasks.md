@@ -143,7 +143,7 @@ No `verify.md` exists until implementation produces observations.
 
 ## 5. Combined integration and recovery
 
-- [ ] 5.1 Implement `admission/integrate.ts` in a coordinator worktree with immutable
+- [x] 5.1 Implement `admission/integrate.ts` in a coordinator worktree with immutable
       submission application, candidate-specific read/contract revalidation and affected
       check selection. Test `integration.test.ts`: two compatible submissions integrate as
       one checked candidate; contract-only incompatible transition fails until consumers
