@@ -1,11 +1,11 @@
 import type { SettableStatus } from '@wbs/domain/progress';
+import type { IsoDate } from '@wbs/domain/workday';
 import type * as React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { PriorityBandView, ProjectApi } from '@/lib/wbs-api';
 
 import { cellIn, focusCellAt } from './editable-grid';
-import { isoToday } from './gantt-panel';
 import { type CommitOutcome } from './live-editing';
 import { priorityTyped } from './priority-cell';
 import type { Toast } from './toasts';
@@ -210,19 +210,20 @@ export function usePlanFields({
   );
 
   /**
-   * Sets the row's status as one act, sending **the reader's calendar day** as
-   * the day it happened.
+   * Sets the row's status as one act, sending the day the caller names as the
+   * day it happened.
    *
    * Always sent, never left for be-01 to fill: be-01 has no calendar of its own
    * and would take the UTC day of the act, which after 21:00 in Kyiv is
-   * yesterday. The reader marked it done today, in their own day, and that is
-   * the day the Fact end cell fills with. `isoToday` is the same reading of the
-   * clock `useToday` keys every printed date on.
+   * yesterday. For `done` the day is the one the completion prompt confirmed
+   * — today offered, in the reader's own calendar (`isoToday`), or whatever
+   * they typed; for `unknown` the caller sends today and be-01 reads nothing
+   * from it. Answers the commit's outcome so the prompt's wiring can follow a
+   * landed mark with the `patch` a changed held day needs, and skip it after a
+   * refusal.
    */
   const setStatus = useCallback(
-    (id: string, status: SettableStatus) => {
-      void run(() => api.setStatus(id, status, isoToday(new Date())));
-    },
+    (id: string, status: SettableStatus, on: IsoDate) => run(() => api.setStatus(id, status, on)),
     [api, run],
   );
 

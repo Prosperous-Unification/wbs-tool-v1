@@ -354,6 +354,16 @@ work item is marked done holding none; otherwise typed. Where a done work item's
 whatever the estimate says.
 _Avoid_: actual end, finished at, completion date, done at
 
+**Status strip**:
+The mark at a row's left edge, before its drag handle, that says the row's status while the
+Status column is hidden: nothing for unknown, one colour for in progress, another for done.
+_Avoid_: status bar, row marker, left border, indicator, flag
+
+**Completion prompt**:
+The dialog between choosing Done in the Status cell and the write: it asks for the fact end
+with today offered, and cancelling it writes nothing.
+_Avoid_: done modal, confirmation, completion dialog, date picker
+
 **Dependency**:
 One work item waiting for another's reached slice to finish before it starts — which of
 the predecessor's slices that is comes from the project's Dependency reach. Either end may

@@ -125,8 +125,8 @@ export const DEADLINE_EFFECT_HINT =
  */
 export const STATUS_HINT =
   'Where this work item’s work has got to: unknown until somebody says, in progress while its ' +
-  'steps disagree, done when every step says so. Choosing Done marks every step and fills an ' +
-  'empty Fact end with today; Unknown takes every statement back.';
+  'steps disagree, done when every step says so. Choosing Done asks for the day it finished ' +
+  'and marks every step; Unknown takes every statement back, and the day with it.';
 
 const COLUMN_HINTS = new Map<string, string>([
   [
@@ -210,8 +210,9 @@ const COLUMN_HINTS = new Map<string, string>([
   ],
   [
     'fact-end',
-    'The day work on this item actually finished. Filled with today when you mark a row done, ' +
-      'unless you already typed one; a done row’s bar stops here whatever the estimate says.',
+    'The day work on this item actually finished. Marking a row done asks for it, with today ' +
+      'offered; taking a done row back clears it. A done row’s bar stops here whatever the ' +
+      'estimate says.',
   ],
   [
     'float',

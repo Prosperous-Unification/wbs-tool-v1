@@ -123,6 +123,15 @@
    * highlight rather than as a shade of the page.
    */
   --highlight: oklch(0.905 0.147 96);
+  /*
+   * The two statuses that are said in colour — on the status strip at a row's
+   * left edge, in the glyph of the Status cell, and (done only) as the tint
+   * across a done row. Unknown has no colour: it is the absence of a saying.
+   * Green for finished and amber for under way are the two readings nobody
+   * has to learn; neither is a shade the grid already uses for anything else.
+   */
+  --status-done: oklch(0.6 0.16 148);
+  --status-in-progress: oklch(0.72 0.15 72);
 }
 
 .dark {
@@ -148,6 +157,8 @@
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.551 0.027 264.364);
   --highlight: oklch(0.62 0.12 96);
+  --status-done: oklch(0.72 0.15 148);
+  --status-in-progress: oklch(0.8 0.14 78);
 
   /*
    * **Nothing re-points a `--grid-*` token here, and that is a rule rather than
@@ -258,6 +269,15 @@
      moved, not the decision: both surfaces take the same one, as above. */
   --grid-dep-lit: color-mix(in oklab, var(--ring) 20%, var(--background));
   --card-dep-lit: color-mix(in oklab, var(--ring) 20%, var(--popover));
+  /*
+   * The done row's tint, mixed toward `transparent` and not toward the page:
+   * it is painted as a layer **over** `--cell-bg` (see `--row-tint` below), so
+   * the band, the hover and the lights under it stay what they were and the
+   * green is the same dose on each. 12% is faint on purpose — a whole row of
+   * it, on every finished row of a finished plan, has to stay a page you can
+   * read.
+   */
+  --grid-done-tint: color-mix(in oklab, var(--status-done) 12%, transparent);
 }
 
 /*
@@ -513,6 +533,20 @@
    */
   [data-grid] {
     --cell-bg: var(--background);
+    /*
+     * The second layer every cell paints, over `--cell-bg`: the done tint on a
+     * done row and `transparent` everywhere else. A property of its own rather
+     * than a mix into `--cell-bg` because that property is *chosen* by the
+     * chain of row states below, and a done row is also banded, hovered, lit
+     * or a drop target — one layer on top says "and it is done" without a
+     * second copy of the chain. `table-frame.ts`'s `ROW_BACKGROUND` paints the
+     * same pair inline for the pinned cells.
+     */
+    --row-tint: transparent;
+  }
+
+  [data-grid] tbody tr[data-row-status='done'] {
+    --row-tint: var(--grid-done-tint);
   }
 
   /*
@@ -631,9 +665,16 @@
     vertical-align: middle;
   }
 
+  [data-grid] th {
+    background: var(--cell-bg);
+  }
+
+  [data-grid] td {
+    background: linear-gradient(var(--row-tint), var(--row-tint)), var(--cell-bg);
+  }
+
   [data-grid] th,
   [data-grid] td {
-    background: var(--cell-bg);
     /* Long enough to read as a fade, short enough that the row is lit by the
        time the pointer has stopped. */
     transition: background-color 100ms ease;
@@ -796,6 +837,29 @@
    */
   [data-grid] tbody td {
     box-shadow: inset 0 -1px 0 var(--border);
+  }
+
+  /*
+   * The **status strip**: the row's status said at its left edge, before the
+   * drag handle, whether or not the Status column is on screen. Drawn as an
+   * inset shadow on the drag cell — the same medium as every separator in
+   * this table, so it occupies no space and moves no pixel — and drawn in one
+   * declaration with the row separator above, because a second `box-shadow`
+   * rule replaces the first rather than adding to it. Unknown draws nothing:
+   * it is the absence of a saying, and a strip for it would be a colour for
+   * "nobody knows". On a drop-target row the drop rules further down win for
+   * the length of the drag; accepted (`status-at-a-glance` D2).
+   */
+  [data-grid] tbody tr[data-row-status='done'] td[data-column='drag'] {
+    box-shadow:
+      inset 3px 0 0 var(--status-done),
+      inset 0 -1px 0 var(--border);
+  }
+
+  [data-grid] tbody tr[data-row-status='in_progress'] td[data-column='drag'] {
+    box-shadow:
+      inset 3px 0 0 var(--status-in-progress),
+      inset 0 -1px 0 var(--border);
   }
 
   [data-grid] td[data-column='number'],

@@ -3356,13 +3356,19 @@ export class WorkItemService {
    * is never overwritten. `on` absent, the day is the UTC day of this act's own
    * stamp ({@link isoDateOfInstant}): one clock read, never a second `now()`.
    *
-   * `unknown` takes every statement off every leaf in scope and touches no fact:
-   * clearing a status says nobody has spoken, not that the dates were wrong.
+   * `unknown` takes every statement off every leaf in scope and, off every
+   * in-scope work item that **read done** before the act — the leaves and the
+   * row itself — takes the fact end away too: a finish that is unmarked did not
+   * happen, and the day it happened on goes with it (`status-at-a-glance`).
+   * Which rows read done is the read's own fold over the statements as they
+   * stood, never a stored flag. A typed fact end on a row that was in progress
+   * or unknown stands, as does every fact start: clearing a status says nobody
+   * has spoken, not that the planner's records were wrong.
    *
    * **One journal entry.** Two or more steps are recorded as one `batch` whose
    * inverse walks them backwards, so one undo puts every prior statement back —
    * `set_progress(before)` or `clear_progress` — and empties every fact end this
-   * act filled. One step is recorded as itself. **Nothing changing writes
+   * act filled or restores every one it cleared. One step is recorded as itself. **Nothing changing writes
    * nothing**: no row, no journal entry, no tree change, which is
    * {@link arrangeBySchedule}'s rule. The forward steps run through
    * {@link apply}, the same arm an undo replays them through, so a mark and its
@@ -3439,6 +3445,34 @@ export class WorkItemService {
             stepId: each.stepId,
             state: each.state,
           },
+        });
+      }
+      // A row taken back from done has a fact end for a finish that did not
+      // happen, so the day goes with the statements — and only off a row that
+      // **read** done. Which rows those are is the same fold the read shows in
+      // the Status column (`rollUpWorkItemStatuses` over `rollUpProgress`),
+      // computed here from the statements as they stood before this act, so
+      // the cell and this arm can never disagree about what "was done". A
+      // typed fact end on a row that was in progress or unknown is the
+      // planner's own record and stands, as does every fact start.
+      const stored = await this.opts.estimates.listByProject(workItem.projectId);
+      const recorded = await this.opts.actuals.listByProject(workItem.projectId);
+      const wasDone = rollUpWorkItemStatuses(
+        rows,
+        rollUpProgress(rows, stated, workedStepsOf(stored, recorded, stated)),
+      );
+      const rowsById = new Map(rows.map((row) => [row.id, row]));
+      for (const spokenFor of new Set([...leaves, id])) {
+        const row = rowsById.get(spokenFor);
+        if (row === undefined) throw new Error(`${spokenFor} is not a row of this project`);
+        // Proof: this guard dropped, and `unknown on a row that was not done
+        // leaves its typed fact end` fails on `Expected: "2026-09-10" /
+        // Received: null` — an in-progress row's typed day taken as if the
+        // finish it records had been unmarked; watched 2026-09-13.
+        if (wasDone.get(spokenFor) !== 'done' || row.factEnd === null) continue;
+        steps.push({
+          forward: { do: 'patch', workItemId: spokenFor, patch: { factEnd: null } },
+          inverse: { do: 'patch', workItemId: spokenFor, patch: { factEnd: row.factEnd } },
         });
       }
     }

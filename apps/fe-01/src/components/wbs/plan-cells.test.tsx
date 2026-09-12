@@ -3458,13 +3458,185 @@ describe('the status cell and the two fact cells', () => {
       .getAllByRole('option')
       .map((option) => option.textContent);
 
+  /** Picks `Done` in the cell, which opens the completion prompt rather than writing. */
+  const chooseDone = (number: string): void => {
+    fireEvent.click(statusCell(number));
+    fireEvent.click(within(statusList(number)).getByRole('option', { name: 'Done' }));
+  };
+  const completionPrompt = (number: string): HTMLElement =>
+    screen.getByRole('dialog', { name: `Mark ${number} done` });
+  const confirmCompletion = (number: string): void => {
+    fireEvent.click(within(completionPrompt(number)).getByRole('button', { name: 'Mark done' }));
+  };
+
   itDom('reads Unknown at rest and offers Unknown and Done, in that order', async () => {
     await planWithStatusColumns();
 
-    expect(statusCell('010').value).toBe('Unknown');
+    expect(statusCell('010').value).toBe('○');
+    expect(statusCell('010')).toHaveAttribute('data-status-value', 'unknown');
+    expect(statusCell('010')).toHaveAttribute('title', 'Unknown');
     expect(statusCell('010')).toHaveAttribute('data-cell', expect.stringMatching(/::status$/));
+    // The heading is the glyph with the word as its name: the Columns control
+    // and a screen reader still say `Status` over a 28px column.
+    expect(screen.getByRole('img', { name: 'Status' }).textContent).toBe('○');
     fireEvent.keyDown(statusCell('010'), { key: 'Enter' });
     expect(offeredStatuses('010')).toEqual(['Unknown', 'Done']);
+  });
+
+  itDom('every row says its status, and a done row still says done', async () => {
+    await planWithStatusColumns();
+    const row = (): HTMLElement | null => screen.getByLabelText('Name of 010').closest('tr');
+
+    // Proof: `data-row-status` dropped from `PlanRow`'s `<tr>`, and this fails on
+    // `expected null to be 'unknown'` — a row the strip has nothing to read;
+    // watched 2026-09-13.
+    expect(row()?.getAttribute('data-row-status')).toBe('unknown');
+    expect(row()?.getAttribute('data-row-done')).toBeNull();
+
+    chooseDone('010');
+    confirmCompletion('010');
+
+    await waitFor(() => {
+      expect(row()?.getAttribute('data-row-status')).toBe('done');
+    });
+    expect(row()?.getAttribute('data-row-done')).toBe('true');
+  });
+
+  itDom(
+    'choosing Done opens the completion prompt and sends nothing until it is confirmed',
+    async () => {
+      const api = await planWithStatusColumns();
+      const sent = recordCalls(api, 'setStatus', (_id, status, on) => ({ status, on }));
+
+      chooseDone('010');
+
+      const prompt = completionPrompt('010');
+      expect(within(prompt).getByLabelText<HTMLInputElement>('Finished on').value).toBe(
+        isoToday(new Date()),
+      );
+      expect(sent).toEqual([]);
+      expect(statusCell('010').value).toBe('○');
+
+      fireEvent.click(within(prompt).getByRole('button', { name: 'Cancel' }));
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog', { name: 'Mark 010 done' })).toBeNull();
+      });
+      expect(sent).toEqual([]);
+      expect(statusCell('010').value).toBe('○');
+      // Where the focus lands after the dismissal is a browser question — a
+      // jsdom click never focused the cell, so Radix has nothing to return it
+      // to; `e2e/status.spec.ts` asks it of Chromium.
+    },
+  );
+
+  itDom('the day typed into the prompt is the day sent', async () => {
+    const api = await planWithStatusColumns();
+    const sent = recordCalls(api, 'setStatus', (_id, status, on) => ({ status, on }));
+
+    chooseDone('010');
+    fireEvent.change(within(completionPrompt('010')).getByLabelText('Finished on'), {
+      target: { value: '2026-09-10' },
+    });
+    confirmCompletion('010');
+
+    await waitFor(() => {
+      expect(statusCell('010').value).toBe('✓');
+    });
+    expect(sent).toEqual([{ status: 'done', on: '2026-09-10' }]);
+    expect(screen.getByLabelText<HTMLInputElement>('Fact end of 010').value).toBe(
+      shortIsoDate('2026-09-10', new Date()),
+    );
+  });
+
+  itDom('offers a held fact end, and a change to it follows the mark as a patch', async () => {
+    showEveryColumn();
+    const api = fakeApi();
+    const strip = await api.createWorkItem('p1', { parentId: null, afterId: null, name: 'Strip' });
+    await api.patchWorkItem(strip.id, { factEnd: '2026-09-10' });
+    render(<WbsTable projectId="p1" api={api} />);
+    await screen.findByLabelText('Name of 010');
+    const order: string[] = [];
+    recordCalls(api, 'setStatus', (_id, status, on) => order.push(`setStatus ${status} ${on}`));
+    recordCalls(api, 'patchWorkItem', (_id, patch) =>
+      order.push(`patch factEnd ${String(patch.factEnd)}`),
+    );
+
+    chooseDone('010');
+    const field = within(completionPrompt('010')).getByLabelText<HTMLInputElement>('Finished on');
+    expect(field.value).toBe('2026-09-10');
+    fireEvent.change(field, { target: { value: '2026-09-11' } });
+    confirmCompletion('010');
+
+    await waitFor(() => {
+      expect(order).toEqual(['setStatus done 2026-09-11', 'patch factEnd 2026-09-11']);
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText<HTMLInputElement>('Fact end of 010').value).toBe(
+        shortIsoDate('2026-09-11', new Date()),
+      );
+    });
+  });
+
+  itDom('a held fact end confirmed unchanged is one command, not two', async () => {
+    showEveryColumn();
+    const api = fakeApi();
+    const strip = await api.createWorkItem('p1', { parentId: null, afterId: null, name: 'Strip' });
+    await api.patchWorkItem(strip.id, { factEnd: '2026-09-10' });
+    render(<WbsTable projectId="p1" api={api} />);
+    await screen.findByLabelText('Name of 010');
+    const order: string[] = [];
+    recordCalls(api, 'setStatus', (_id, status, on) => order.push(`setStatus ${status} ${on}`));
+    recordCalls(api, 'patchWorkItem', () => order.push('patch'));
+
+    chooseDone('010');
+    confirmCompletion('010');
+
+    await waitFor(() => {
+      expect(statusCell('010').value).toBe('✓');
+    });
+    expect(order).toEqual(['setStatus done 2026-09-10']);
+  });
+
+  itDom('Unknown is sent at once, with no prompt', async () => {
+    const api = await planWithStatusColumns();
+    chooseDone('010');
+    confirmCompletion('010');
+    await waitFor(() => {
+      expect(statusCell('010').value).toBe('✓');
+    });
+    const sent = recordCalls(api, 'setStatus', (_id, status) => status);
+
+    fireEvent.click(statusCell('010'));
+    fireEvent.click(within(statusList('010')).getByRole('option', { name: 'Unknown' }));
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() => {
+      expect(statusCell('010').value).toBe('○');
+    });
+    expect(sent).toEqual(['unknown']);
+  });
+
+  itDom('a parent’s prompt sends one setStatus for the parent, on the day confirmed', async () => {
+    showEveryColumn();
+    const api = fakeApi();
+    const strip = await api.createWorkItem('p1', { parentId: null, afterId: null, name: 'Strip' });
+    await api.createWorkItem('p1', { parentId: strip.id, afterId: null, name: 'Sockets' });
+    render(<WbsTable projectId="p1" api={api} />);
+    await screen.findByLabelText('Name of 010.1');
+    const sent = recordCalls(api, 'setStatus', (id, status, on) => ({ id, status, on }));
+
+    chooseDone('010');
+    fireEvent.change(within(completionPrompt('010')).getByLabelText('Finished on'), {
+      target: { value: '2026-09-12' },
+    });
+    confirmCompletion('010');
+
+    await waitFor(() => {
+      expect(statusCell('010').value).toBe('✓');
+    });
+    expect(sent).toEqual([{ id: strip.id, status: 'done', on: '2026-09-12' }]);
+    expect(statusCell('010.1').value).toBe('✓');
   });
 
   itDom(
@@ -3474,11 +3646,11 @@ describe('the status cell and the two fact cells', () => {
       const sent = recordCalls(api, 'setStatus', (_id, status, on) => ({ status, on }));
       const today = isoToday(new Date());
 
-      fireEvent.click(statusCell('010'));
-      fireEvent.click(within(statusList('010')).getByRole('option', { name: 'Done' }));
+      chooseDone('010');
+      confirmCompletion('010');
 
       await waitFor(() => {
-        expect(statusCell('010').value).toBe('Done');
+        expect(statusCell('010').value).toBe('✓');
       });
       // Proof: `use-plan-fields.ts` made to send `''` for the day — the nearest a
       // required argument can come to being dropped — and this failed before the
@@ -3505,7 +3677,8 @@ describe('the status cell and the two fact cells', () => {
     row.status = 'in_progress';
     click('Add work item');
     await waitFor(() => {
-      expect(statusCell('010').value).toBe('In progress');
+      expect(statusCell('010').value).toBe('◐');
+      expect(statusCell('010')).toHaveAttribute('title', 'In progress');
     });
 
     fireEvent.click(statusCell('010'));
