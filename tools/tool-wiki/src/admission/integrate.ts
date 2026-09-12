@@ -404,7 +404,9 @@ function isPatchNonApplicability(detail: string): boolean {
   return (
     diagnostics.length > 0 &&
     diagnostics.every((line) =>
-      /^error: (?:patch failed: .+|.+: patch does not apply|.+: does not match index)$/.test(line),
+      /^error: (?:patch failed: .+|.+: patch does not apply|.+: does not match index|.+: does not exist in index)$/.test(
+        line,
+      ),
     )
   );
 }
@@ -443,7 +445,9 @@ function applyPatch(
   const detail = invocation.stderr.toString('utf8').trim();
   // Proof: broadening this predicate to every descendant `git apply` exit 1 made `an object read
   // failure inside descendant patch replay stays recoverable` resolve terminal;
-  // `fixture promise resolved unexpectedly`.
+  // `fixture promise resolved unexpectedly`. Omitting the target-absence diagnostic made `a target
+  // deletion terminalizes the exact immutable submission` throw `src/one.ts: does not exist in
+  // index` instead of returning its permanent incompatible-submission report.
   if (conflictIsModeled && invocation.exitCode === 1 && isPatchNonApplicability(detail)) {
     throw new IntegrationPatchConflictError(detail || 'git exited 1');
   }

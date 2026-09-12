@@ -2844,3 +2844,41 @@ agent-scalable-llm-wiki --strict --json` exited 0 with one valid change and no i
 
 The complete Tool Wiki suite, browser checks, host gate and external activation were not run. Their
 older results do not certify this correction.
+
+### Slice 5.2 completion correction round 2 — deleted target conflict
+
+The scoped re-review at `5b2471299f473dfdd11854e9397b0eea08c7dab7` confirmed both preceding
+Git failure-classification findings addressed, then found one omitted positive semantic diagnostic:
+when a descendant target deletes an edited source, Git reports `error: <path>: does not exist in
+index`. The new allowlist treated that true immutable-submission conflict as infrastructure, so
+recovery threw repeatedly and retained attempt zero instead of recording `incompatible-submission`.
+The re-review's fresh race file passed 33 tests and 144 assertions in 10.93 seconds, but its deletion
+probe was temporary; it did not run broad suites, lint, typecheck, browser or host gates.
+
+| Deliberate one-at-a-time fault                                      | Observed production-path failure                                                                                                                               |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| omit the standalone target-absence diagnostic from the positive set | `a target deletion terminalizes the exact immutable submission` threw `error: src/one.ts: does not exist in index` instead of reporting the permanent conflict |
+
+- RED: `bun test --preload ../test/scratch/preload.ts
+src/admission/integration-races.test.ts -t "target deletion terminalizes"` from
+  `tools/tool-wiki` — exit 1; 0 pass, 1 fail, 33 filtered. The production stack ended at
+  `applyPatch`, with `integration refused: immutable submission patch cannot be applied: error:
+src/one.ts: does not exist in index`.
+- GREEN after adding only that C-locale semantic diagnostic: the same command — exit 0; 1 pass,
+  0 fail, 33 filtered and 5 assertions in 0.63 seconds. The target remained deleted, the writer's
+  immutable source remained untouched, authority recorded attempt-zero `incompatible-submission`,
+  and repeated recovery returned the same terminal report without certification.
+- Required controls: the missing-blob infrastructure case — exit 0; 1 pass and 4 assertions in
+  1.04 seconds — still surfaced recoverably; the existing conflicting-edit case — exit 0; 1 pass
+  and 5 assertions in 0.75 seconds — still terminalized.
+- Final race file: exit 0; 34 pass, 0 fail and 149 assertions in 10.96 seconds.
+- Final admission suite: exit 0; 123 pass, 0 fail and 494 assertions in 38.31 seconds.
+- Uncached `tool-wiki:lint:source`, `tool-wiki:typecheck` and `tool-wiki:lint` — exit 0. The external
+  activation report remains `{status:"inactive",certified:false}` because Task 5.3 remains outside
+  this correction.
+- The changed race source initially failed Prettier, was formatted, and is included in the final
+  `NX_DAEMON=false NX_ISOLATE_PLUGINS=false ./node_modules/.bin/nx format:check --all` restoration,
+  which exited 0. Strict OpenSpec validation exited 0 with one valid change and no issues.
+
+The complete Tool Wiki suite, browser checks, host gate and external activation were not run. Their
+older results do not certify this correction round.

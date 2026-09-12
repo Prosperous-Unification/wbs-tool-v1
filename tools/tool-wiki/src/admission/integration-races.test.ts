@@ -179,13 +179,14 @@ function fixture(clock = { now: 1_000 }) {
     return { packet, patch, report, token, worktree: canonical };
   }
 
-  function advance(path = 'other.ts', source = 'export const other = 2;\n'): string {
+  function advance(path = 'other.ts', source: string | null = 'export const other = 2;\n'): string {
     const worktree = join(
       root,
       `.advance-${String(Date.now())}-${Math.random().toString(16).slice(2)}`,
     );
     git(root, ['worktree', 'add', '--quiet', '--detach', worktree, 'refs/heads/main']);
-    writeFileSync(join(worktree, path), source);
+    if (source === null) rmSync(join(worktree, path));
+    else writeFileSync(join(worktree, path), source);
     git(worktree, ['add', path]);
     git(worktree, ['commit', '--quiet', '--message', 'advance']);
     const commit = git(worktree, ['rev-parse', 'HEAD']);
@@ -463,6 +464,47 @@ test('a conflicting target advance terminalizes the exact immutable submission',
       options('conflicting-advance', {
         certify: () => {
           throw new Error('terminal recovery reran certification');
+        },
+      }),
+    ),
+  ).toEqual(report);
+  subject.store.close();
+});
+
+test('a target deletion terminalizes the exact immutable submission', async () => {
+  const subject = fixture();
+  const one = subject.submission('one', 'src/one.ts', 'export const one = 2;\n');
+  const deleted = subject.advance('src/one.ts', null);
+
+  const report = await integrateWithRecovery(
+    subject.store,
+    subject.repository,
+    { policy, submissions: [one] },
+    options('deleted-target'),
+  );
+  expect(report).toEqual({
+    attempts: 0,
+    integrationId: 'deleted-target',
+    queueTimeMs: 0,
+    reason: 'incompatible-submission',
+    reworkCount: 0,
+    status: 'terminal',
+  });
+  expect(git(subject.repository, ['ls-tree', '--name-only', deleted, 'src/one.ts'])).toBe('');
+  expect(git(one.worktree, ['show', ':src/one.ts'])).toBe('export const one = 2;');
+  expect(subject.store.inspect().integrations[0]).toMatchObject({
+    attemptCount: 0,
+    status: 'terminal',
+    terminalReason: 'incompatible-submission',
+  });
+  expect(
+    await integrateWithRecovery(
+      subject.store,
+      subject.repository,
+      { policy, submissions: [one] },
+      options('deleted-target', {
+        certify: () => {
+          throw new Error('terminal deletion recovery reran certification');
         },
       }),
     ),
