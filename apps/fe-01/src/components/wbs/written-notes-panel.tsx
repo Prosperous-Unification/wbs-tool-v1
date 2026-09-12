@@ -111,7 +111,9 @@ export function WrittenNotesPanel({ number, box, editingRef }: WrittenNotesPanel
         }}
         style={{
           position: 'absolute',
-          top: 0,
+          // A little off the top edge rather than flush to it (Dany,
+          // 2026-09-12: _"it looks like it sticks to the top edge"_).
+          top: 4,
           // Left of the `≡` (which sits at `right: 1`), so the two share the
           // cell's top-right corner without overlapping.
           right: 24,
