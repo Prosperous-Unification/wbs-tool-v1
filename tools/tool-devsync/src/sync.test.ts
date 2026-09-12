@@ -290,6 +290,18 @@ describe('dev supervisor', () => {
     expect(message).toContain(`${'a'.repeat(40)}:libs/solver-py`);
   });
 
+  it('validates every injected solver path before constructing host dependencies', () => {
+    for (const options of [
+      { sourceRepository: 'relative/source' },
+      { runtimeRoot: '/runtime/../other' },
+      { solverConfigPath: 'relative/config.json' },
+    ]) {
+      expect(() => solverTargetDependencies(options)).toThrow(
+        /path must be absolute and normalized/,
+      );
+    }
+  });
+
   it('does not require supervisor host state for source-unrelated deploys', async () => {
     const deployedSha = 'b'.repeat(40);
     const targetSha = 'c'.repeat(40);
@@ -319,22 +331,26 @@ describe('dev supervisor', () => {
 
   it('names the materialize and install remedy when changed solver sources have no config', async () => {
     let configReads = 0;
+    const injectedConfig = '/srv/wbs/state/injected-solver-config.json';
 
     expect(
       await rejection(
-        preflightSolver('c'.repeat(40), {
-          currentSha: () => Promise.resolve('b'.repeat(40)),
-          changedPaths: () => Promise.resolve(['libs/solver-py/src/wbs_solver/solve.py']),
-          readConfig: () => {
-            configReads += 1;
-            return Promise.resolve(undefined);
+        preflightSolver(
+          'c'.repeat(40),
+          {
+            currentSha: () => Promise.resolve('b'.repeat(40)),
+            changedPaths: () => Promise.resolve(['libs/solver-py/src/wbs_solver/solve.py']),
+            readConfig: () => {
+              configReads += 1;
+              return Promise.resolve(undefined);
+            },
+            requireHost: () =>
+              Promise.reject(new Error('host check must follow config validation')),
           },
-          requireHost: () => Promise.reject(new Error('host check must follow config validation')),
-        }),
+          injectedConfig,
+        ),
       ),
-    ).toContain(
-      'materialize-solver-supervisor-config and install-solver-supervisor before deploying',
-    );
+    ).toContain(injectedConfig);
     expect(configReads).toBe(1);
   });
 

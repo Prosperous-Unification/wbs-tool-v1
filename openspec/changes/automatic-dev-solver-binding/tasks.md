@@ -18,3 +18,11 @@
       `libs/solver-py` change through a live poll tick and record image digest,
       binding source SHA, checkout SHA, served SHA, and alarm state in `verify.md`.
 - [ ] 8. Complete exact-head prod review and green CI; hand off without merge.
+- [x] 9. Bound automatic publish lock contention and checkpoint completed-state
+      repair around its retry; watched reds cover timeout and interrupted repair.
+- [x] 10. Give retained candidates source-gc-safe Git object ownership, a
+      24-hour retention bound, and an exact-target frozen dependency install;
+      watched reds restore shared alternates and stale borrowed dependencies.
+- [x] 11. Fail closed on unreadable clone/worktree metadata, validate injected
+      repository/runtime/config paths, keep config diagnostics and host calls
+      on one path, and qualify malformed object ids with repository identity.

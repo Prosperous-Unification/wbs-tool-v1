@@ -18,6 +18,8 @@ const STATE_KEYS = [
 ] as const;
 
 export interface SolverCompatibilityReader {
+  /** Stable identity included in malformed-object diagnostics. */
+  repository?: string;
   objectIdAt(sourceSha: string, path: string): Promise<string>;
 }
 
@@ -31,7 +33,9 @@ export async function solverCompatibilityIdentityAt(
   for (const path of SOLVER_COMPATIBILITY_PATHS) {
     const objectId = (await reader.objectIdAt(sourceSha, path)).trim();
     if (!GIT_OBJECT_ID.test(objectId)) {
-      throw new Error(`invalid git object id for ${sourceSha}:${path}`);
+      const repository =
+        reader.repository === undefined ? '' : ` in repository ${reader.repository}`;
+      throw new Error(`invalid git object id for ${sourceSha}:${path}${repository}`);
     }
     digest.update(path);
     digest.update('\0');
@@ -222,7 +226,14 @@ export async function resumeSolverBindingBeforeReset(
       // A prior transition does not prove current shared config or readiness.
       await dependencies.preflight(binding);
     } catch {
+      // Repair is a fresh host transition even when its immutable image is
+      // already known. Downgrade the durable phase first so a crash during
+      // install resumes the repair instead of trusting the old completion.
+      await dependencies.checkpoint({ schemaVersion: 1, ...binding, phase: 'published' });
       await installSolverBinding(binding, dependencies);
+      // Proof: solver-preparation.test.ts interrupts completed-state repair
+      // and requires retry state to remain published until preflight passes.
+      await dependencies.checkpoint({ schemaVersion: 1, ...binding, phase: 'complete' });
     }
   }
   await dependencies.reset(target.sourceSha);
