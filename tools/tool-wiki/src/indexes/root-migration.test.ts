@@ -213,7 +213,7 @@ describe('root migration production CLI', () => {
     );
   });
 
-  test('refuses malformed versions, path escape and symlink destinations', () => {
+  test('refuses an unknown root-migration schema version', () => {
     const repository = createRepository();
     const fixture = buildFixture(repository);
     fixture.map.schemaVersion = 2;
@@ -222,26 +222,26 @@ describe('root migration production CLI', () => {
       runCheck(repository, commit(repository, 'unknown version')),
       'root migration schema',
     );
+  });
 
-    const escapeRepository = createRepository();
-    const escapeFixture = buildFixture(escapeRepository);
-    escapeFixture.map.sources[0].destinationPath = '../escape.md';
-    write(
-      escapeRepository,
-      'docs/findings/root-migration.v1.json',
-      `${JSON.stringify(escapeFixture.map)}\n`,
-    );
+  test('refuses a destination path that escapes the candidate', () => {
+    const repository = createRepository();
+    const fixture = buildFixture(repository);
+    fixture.map.sources[0].destinationPath = '../escape.md';
+    write(repository, 'docs/findings/root-migration.v1.json', `${JSON.stringify(fixture.map)}\n`);
     expectRefusal(
-      runCheck(escapeRepository, commit(escapeRepository, 'escaping destination')),
+      runCheck(repository, commit(repository, 'escaping destination')),
       'root migration path escapes candidate: ../escape.md',
     );
+  });
 
-    const symlinkRepository = createRepository();
-    buildFixture(symlinkRepository);
-    rmSync(join(symlinkRepository, 'docs/findings/checks-that-cannot-fail.md'));
-    symlinkSync('current.md', join(symlinkRepository, 'docs/findings/checks-that-cannot-fail.md'));
+  test('refuses a symlink destination', () => {
+    const repository = createRepository();
+    buildFixture(repository);
+    rmSync(join(repository, 'docs/findings/checks-that-cannot-fail.md'));
+    symlinkSync('current.md', join(repository, 'docs/findings/checks-that-cannot-fail.md'));
     expectRefusal(
-      runCheck(symlinkRepository, commit(symlinkRepository, 'symlink destination')),
+      runCheck(repository, commit(repository, 'symlink destination')),
       'mapped destination is not a regular selected blob: docs/findings/checks-that-cannot-fail.md',
     );
   });
@@ -288,7 +288,7 @@ describe('root migration production CLI', () => {
     );
   });
 
-  test('refuses duplicate source identities and duplicate or missing destination anchors', () => {
+  test('refuses duplicate source identities', () => {
     const repository = createRepository();
     const fixture = buildFixture(repository);
     fixture.map.sources[1].blocks[0].sourceId = fixture.map.sources[0].blocks[0].sourceId;
@@ -297,39 +297,39 @@ describe('root migration production CLI', () => {
       runCheck(repository, commit(repository, 'duplicate source')),
       'duplicate root source id: r5.catalogue.heading',
     );
+  });
 
-    const duplicateRepository = createRepository();
-    buildFixture(duplicateRepository);
+  test('refuses duplicate destination anchors', () => {
+    const repository = createRepository();
+    buildFixture(repository);
     const destinationPath = 'docs/findings/current.md';
-    const current = readFileSync(join(duplicateRepository, destinationPath), 'utf8');
-    write(
-      duplicateRepository,
-      destinationPath,
-      `${current}\n<a id="router-findings-heading"></a>\n`,
-    );
+    const current = readFileSync(join(repository, destinationPath), 'utf8');
+    write(repository, destinationPath, `${current}\n<a id="router-findings-heading"></a>\n`);
     expectRefusal(
-      runCheck(duplicateRepository, commit(duplicateRepository, 'duplicate anchor')),
+      runCheck(repository, commit(repository, 'duplicate anchor')),
       'mapped destination anchor must occur once: docs/findings/current.md#router-findings-heading',
     );
+  });
 
-    const missingRepository = createRepository();
-    buildFixture(missingRepository);
+  test('refuses missing destination anchors', () => {
+    const repository = createRepository();
+    buildFixture(repository);
     const path = 'docs/findings/current.md';
     write(
-      missingRepository,
+      repository,
       path,
-      readFileSync(join(missingRepository, path), 'utf8').replace(
+      readFileSync(join(repository, path), 'utf8').replace(
         '<a id="router-findings-heading"></a>',
         '',
       ),
     );
     expectRefusal(
-      runCheck(missingRepository, commit(missingRepository, 'missing anchor')),
+      runCheck(repository, commit(repository, 'missing anchor')),
       'unexpected root source marker: docs/findings/current.md#router.findings.heading',
     );
   });
 
-  test('refuses duplicate source entries, locators and destination identities', () => {
+  test('refuses duplicate source entries', () => {
     const repository = createRepository();
     const fixture = buildFixture(repository);
     fixture.map.sources.push(structuredClone(fixture.map.sources[0]));
@@ -338,38 +338,33 @@ describe('root migration production CLI', () => {
       runCheck(repository, commit(repository, 'duplicate source entry')),
       'duplicate root source entry:',
     );
+  });
 
-    const locatorRepository = createRepository();
-    const locatorFixture = buildFixture(locatorRepository);
-    locatorFixture.map.sources[0].blocks[1].locator = { kind: 'heading' };
-    write(
-      locatorRepository,
-      'docs/findings/root-migration.v1.json',
-      `${JSON.stringify(locatorFixture.map)}\n`,
-    );
+  test('refuses duplicate source locators', () => {
+    const repository = createRepository();
+    const fixture = buildFixture(repository);
+    fixture.map.sources[0].blocks[1].locator = { kind: 'heading' };
+    write(repository, 'docs/findings/root-migration.v1.json', `${JSON.stringify(fixture.map)}\n`);
     expectRefusal(
-      runCheck(locatorRepository, commit(locatorRepository, 'duplicate locator')),
+      runCheck(repository, commit(repository, 'duplicate locator')),
       'duplicate historical source locator in AGENTS.md#Checks that cannot fail: heading',
     );
+  });
 
-    const destinationRepository = createRepository();
-    const destinationFixture = buildFixture(destinationRepository);
-    destinationFixture.map.sources[1].blocks[0].destinationAnchor =
-      destinationFixture.map.sources[0].blocks[0].destinationAnchor;
-    destinationFixture.map.sources[1].destinationPath =
-      destinationFixture.map.sources[0].destinationPath;
-    write(
-      destinationRepository,
-      'docs/findings/root-migration.v1.json',
-      `${JSON.stringify(destinationFixture.map)}\n`,
-    );
+  test('refuses duplicate destination identities', () => {
+    const repository = createRepository();
+    const fixture = buildFixture(repository);
+    fixture.map.sources[1].blocks[0].destinationAnchor =
+      fixture.map.sources[0].blocks[0].destinationAnchor;
+    fixture.map.sources[1].destinationPath = fixture.map.sources[0].destinationPath;
+    write(repository, 'docs/findings/root-migration.v1.json', `${JSON.stringify(fixture.map)}\n`);
     expectRefusal(
-      runCheck(destinationRepository, commit(destinationRepository, 'duplicate destination')),
+      runCheck(repository, commit(repository, 'duplicate destination')),
       'duplicate root destination: docs/findings/checks-that-cannot-fail.md#r5-catalogue-heading',
     );
   });
 
-  test('refuses incomplete maps and destination payload substitution', () => {
+  test('refuses a map that omits its historical heading', () => {
     const repository = createRepository();
     const fixture = buildFixture(repository);
     fixture.map.sources[0].blocks.shift();
@@ -378,33 +373,33 @@ describe('root migration production CLI', () => {
       runCheck(repository, commit(repository, 'omit heading')),
       'root source heading is not mapped: AGENTS.md#Checks that cannot fail',
     );
+  });
 
-    const blockRepository = createRepository();
-    const blockFixture = buildFixture(blockRepository);
-    blockFixture.map.sources[0].blocks.pop();
-    write(
-      blockRepository,
-      'docs/findings/root-migration.v1.json',
-      `${JSON.stringify(blockFixture.map)}\n`,
-    );
+  test('refuses a map that omits a historical paragraph', () => {
+    const repository = createRepository();
+    const fixture = buildFixture(repository);
+    fixture.map.sources[0].blocks.pop();
+    write(repository, 'docs/findings/root-migration.v1.json', `${JSON.stringify(fixture.map)}\n`);
     expectRefusal(
-      runCheck(blockRepository, commit(blockRepository, 'omit paragraph')),
+      runCheck(repository, commit(repository, 'omit paragraph')),
       'root source block is not mapped: AGENTS.md#Checks that cannot fail block 51',
     );
+  });
 
-    const payloadRepository = createRepository();
-    buildFixture(payloadRepository);
+  test('refuses destination payload substitution', () => {
+    const repository = createRepository();
+    buildFixture(repository);
     const destinationPath = 'docs/findings/checks-that-cannot-fail.md';
     write(
-      payloadRepository,
+      repository,
       destinationPath,
-      readFileSync(join(payloadRepository, destinationPath), 'utf8').replace(
+      readFileSync(join(repository, destinationPath), 'utf8').replace(
         'R5 exists because this failure keeps recurring',
         'R5 once existed because this failure kept recurring',
       ),
     );
     expectRefusal(
-      runCheck(payloadRepository, commit(payloadRepository, 'rewrite payload')),
+      runCheck(repository, commit(repository, 'rewrite payload')),
       'mapped destination block mismatch: docs/findings/checks-that-cannot-fail.md#r5-catalogue-001',
     );
   });
@@ -456,7 +451,7 @@ describe('root migration production CLI', () => {
     );
   });
 
-  test('refuses missing Markdown anchors and migrated headings retained at roots', () => {
+  test('refuses a missing Markdown anchor', () => {
     const repository = createRepository();
     buildFixture(repository);
     write(repository, 'LLM_README.md', '# Router\n\n[Findings](docs/findings/README.md#absent)\n');
@@ -464,20 +459,24 @@ describe('root migration production CLI', () => {
       runCheck(repository, commit(repository, 'missing linked anchor')),
       'Markdown anchor must occur once in LLM_README.md: docs/findings/README.md#absent',
     );
+  });
 
-    const agentsRepository = createRepository();
-    buildFixture(agentsRepository);
-    write(agentsRepository, 'AGENTS.md', '# Rules\n\n## Checks that cannot fail\n');
+  test('refuses a migrated incident heading retained in AGENTS', () => {
+    const repository = createRepository();
+    buildFixture(repository);
+    write(repository, 'AGENTS.md', '# Rules\n\n## Checks that cannot fail\n');
     expectRefusal(
-      runCheck(agentsRepository, commit(agentsRepository, 'retain incidents heading')),
+      runCheck(repository, commit(repository, 'retain incidents heading')),
       'AGENTS.md retains migrated incident catalogue',
     );
+  });
 
-    const routerRepository = createRepository();
-    buildFixture(routerRepository);
-    write(routerRepository, 'LLM_README.md', '# Router\n\n## Open findings\n');
+  test('refuses a migrated mutable-findings heading retained in LLM_README', () => {
+    const repository = createRepository();
+    buildFixture(repository);
+    write(repository, 'LLM_README.md', '# Router\n\n## Open findings\n');
     expectRefusal(
-      runCheck(routerRepository, commit(routerRepository, 'retain findings heading')),
+      runCheck(repository, commit(repository, 'retain findings heading')),
       'LLM_README.md retains migrated mutable findings',
     );
   });
