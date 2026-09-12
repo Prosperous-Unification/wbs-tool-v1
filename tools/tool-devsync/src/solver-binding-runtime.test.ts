@@ -17,6 +17,15 @@ const SOURCE_REPOSITORY = '/home/puni1/wbs-dev/src';
 const BUN = '/home/puni1/wbs-dev/bin/bun';
 const bytes = (value: string): Uint8Array => new TextEncoder().encode(value);
 
+async function rejection(promise: Promise<unknown>): Promise<string> {
+  try {
+    await promise;
+    return '(resolved without throwing)';
+  } catch (error) {
+    return String(error);
+  }
+}
+
 const installed = bytes(
   JSON.stringify({
     socketPath: '/run/user/1000/wbs-solver/supervisor.sock',
@@ -111,6 +120,7 @@ describe('the production solver binding runtime', () => {
     ]);
     expect(invocations[0]?.env).toEqual({
       REGISTRY_PASS: 'protected-value',
+      HEAVY_LOCK_WAIT_SECONDS: '900',
       WBS_CLEAN_TREE_REPOSITORY: SOURCE_REPOSITORY,
     });
     expect(invocations.flatMap(({ argv }) => argv)).not.toContain('protected-value');
@@ -234,6 +244,42 @@ describe('the production solver binding runtime', () => {
     );
 
     await runtime.dependencies.publish(SHA, 'protected-value');
-    expect(invocations[0]?.env).toEqual({ REGISTRY_PASS: 'protected-value' });
+    expect(invocations[0]?.env).toEqual({
+      REGISTRY_PASS: 'protected-value',
+      HEAVY_LOCK_WAIT_SECONDS: '900',
+    });
+  });
+
+  // Proof: returning the heavy-lock timeout status keeps the publish result
+  // unread and makes the bounded refusal visible to the deploy-health owner.
+  it('reports a bounded heavy-lock refusal without reading a release manifest', async () => {
+    let reads = 0;
+    const runtime = createTargetSolverBindingRuntime(
+      {
+        root: ROOT,
+        bunPath: BUN,
+        sourceRepository: SOURCE_REPOSITORY,
+        sourceSha: SHA,
+        compatibilityIdentity: IDENTITY,
+      },
+      {
+        exists: () => Promise.resolve(false),
+        isDirectory: () => Promise.resolve(true),
+        read: () => {
+          reads += 1;
+          return Promise.resolve(bytes('{}'));
+        },
+        command: () =>
+          Promise.resolve({ exitCode: 75, stderr: 'heavy work lock remained held after 900s' }),
+        query: () => Promise.reject(new Error('publish must not query')),
+        writeAtomic: () => Promise.resolve(),
+        withLock: (_path, action) => action(),
+      },
+    );
+
+    expect(await rejection(runtime.dependencies.publish(SHA, 'protected-value'))).toMatch(
+      /solver image publish failed \(exit 75\).*remained held after 900s/,
+    );
+    expect(reads).toBe(0);
   });
 });

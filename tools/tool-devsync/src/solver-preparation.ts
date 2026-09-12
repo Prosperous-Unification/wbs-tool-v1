@@ -222,7 +222,14 @@ export async function resumeSolverBindingBeforeReset(
       // A prior transition does not prove current shared config or readiness.
       await dependencies.preflight(binding);
     } catch {
+      // Repair is a fresh host transition even when its immutable image is
+      // already known. Downgrade the durable phase first so a crash during
+      // install resumes the repair instead of trusting the old completion.
+      await dependencies.checkpoint({ schemaVersion: 1, ...binding, phase: 'published' });
       await installSolverBinding(binding, dependencies);
+      // Proof: solver-preparation.test.ts interrupts completed-state repair
+      // and requires retry state to remain published until preflight passes.
+      await dependencies.checkpoint({ schemaVersion: 1, ...binding, phase: 'complete' });
     }
   }
   await dependencies.reset(target.sourceSha);

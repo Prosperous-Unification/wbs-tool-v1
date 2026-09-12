@@ -17,6 +17,12 @@ const LIVE_SOURCE_ROOT = '/home/puni1/wbs-dev/src';
 const HOST_STATE_ROOT = '/home/puni1/wbs-dev/state';
 const REGISTRY_ENV = '/home/puni1/wbs/.env';
 const PROD_DEPLOY_LOCK = '/home/puni1/wbs/state/deploy.lock';
+/**
+ * Lets an ordinary gate finish ahead of an automatic publish, then refuses.
+ * The heavy-lock wrapper still rejects a stale owner immediately and reports a
+ * live owner after this 15-minute ceiling instead of waiting without bound.
+ */
+const SOLVER_PUBLISH_LOCK_WAIT_SECONDS = '900';
 const HOST_INPUT_MAX_BYTES = 256 * 1024;
 const PROD_CONTAINER_INSPECT_FORMAT =
   '{"name":{{json .Name}},"running":{{json .State.Running}},"image":{{json .Config.Image}}}';
@@ -221,6 +227,7 @@ export function createTargetSolverBindingRuntime(
           ],
           {
             REGISTRY_PASS: registryPassword,
+            HEAVY_LOCK_WAIT_SECONDS: SOLVER_PUBLISH_LOCK_WAIT_SECONDS,
             ...cleanTreeEnvironment,
           },
         );

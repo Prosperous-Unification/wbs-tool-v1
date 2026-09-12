@@ -510,7 +510,10 @@ describe('solver binding retries', () => {
       stateBytes({ ...STATE, phase: 'complete' }),
       {
         publish: () => Promise.reject(new Error('completed binding must not publish')),
-        checkpoint: () => Promise.resolve(),
+        checkpoint: (state) => {
+          events.push(`checkpoint:${state.phase}`);
+          return Promise.resolve();
+        },
         withHostMutationLock: async (action) => {
           events.push('lock');
           await action();
@@ -539,13 +542,42 @@ describe('solver binding retries', () => {
     );
     expect(events).toEqual([
       'preflight:1',
+      'checkpoint:published',
       'lock',
       'materialize',
       'install',
       'preflight:2',
       'unlock',
+      'checkpoint:complete',
       'reset',
     ]);
+  });
+
+  // Proof: failing the repair install leaves a published checkpoint. Without
+  // that downgrade, retry would trust the stale complete record again.
+  it('checkpoints completed-state repair before retrying installation', async () => {
+    const checkpoints: SolverPreparationState[] = [];
+    expect(
+      await rejection(
+        resumeSolverBindingBeforeReset(
+          { sourceSha: SOURCE_SHA, compatibilityIdentity: IDENTITY },
+          stateBytes({ ...STATE, phase: 'complete' }),
+          {
+            publish: () => Promise.reject(new Error('completed binding must not publish')),
+            checkpoint: (state) => {
+              checkpoints.push(state);
+              return Promise.resolve();
+            },
+            withHostMutationLock: (action) => action(),
+            materialize: () => Promise.resolve(),
+            install: () => Promise.reject(new Error('injected repair interruption')),
+            preflight: () => Promise.reject(new Error('mapping overwritten')),
+            reset: () => Promise.reject(new Error('interrupted repair must not reset')),
+          },
+        ),
+      ),
+    ).toMatch(/injected repair interruption/);
+    expect(checkpoints).toEqual([{ ...STATE, phase: 'published' }]);
   });
 });
 
