@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterAll, expect, test } from 'bun:test';
 
-import { hashBytes, hashCanonical } from '../evidence/content-manifest';
+import { hashBytes, hashCanonical, serializeCanonical } from '../evidence/content-manifest';
 import { readCandidate } from '../inventory/read-candidate';
 import { MemoryAuthorityStore, openAuthorityStore } from './authority-store';
 import { acquireClaims } from './claims';
@@ -12,7 +12,10 @@ import { rejectGeneration } from './generations';
 import {
   certifyIntegrationCandidate,
   composeIntegrationCandidate,
+  decodeIntegrationPolicy,
   type IntegrationEvidence,
+  type IntegrationEvidenceVerifier,
+  type VerifiedIntegrationReceipt,
 } from './integrate';
 import { createAdmissionPacket } from './packet';
 import { packetBody, packetBodyBytes, withPacketIdentity } from './packet-codec';
@@ -115,8 +118,52 @@ function integrationFixture() {
 
 const policyBody = {
   schemaVersion: 1 as const,
-  contractRules: [{ contractId: 'contract.api', requiredConsumerInterfaceIds: ['interface.api'] }],
+  checkSpecs: [
+    'check.consumer',
+    'check.gate',
+    'check.one',
+    'check.producer',
+    'check.relationships',
+    'check.trusted-gate',
+  ].map((checkId) => ({
+    checkId,
+    command: ['bun', 'run', checkId === 'check.trusted-gate' ? 'check.gate' : checkId],
+    cwdIdentity: 'coordinator',
+    journalId: 'journal.checks',
+    resourceLane: 'lane.tool-wiki',
+    toolIdentity: '9'.repeat(64),
+  })),
+  contractRules: [
+    {
+      contractId: 'contract.api',
+      requiredConsumers: [
+        {
+          implementationSelectors: [{ kind: 'path' as const, path: 'src/consumer.ts' }],
+          interfaceId: 'interface.api',
+        },
+      ],
+    },
+  ],
   mappingIdentity: '2'.repeat(64),
+  reviewSpecs: [
+    'review.consumer',
+    'review.gate',
+    'review.one',
+    'review.producer',
+    'review.relationships',
+    'review.trusted-gate',
+  ].map((reviewId) => ({
+    executor: {
+      effort: 'high',
+      model: 'astra',
+      provider: 'fixture',
+      toolchain: 'codex',
+      version: '1',
+    },
+    journalId: 'journal.reviews',
+    reviewId,
+    trustScope: 'trusted-harness' as const,
+  })),
   selectorRules: [
     {
       checks: ['check.trusted-gate'],
@@ -139,6 +186,7 @@ function receiptsFor(candidate: {
   contentManifestIdentity: string;
   candidateDiffIdentity: string;
   declarationIdentity: string;
+  compositionIdentity: string;
   selectedChecks: readonly string[];
   selectedReviews: readonly string[];
 }): IntegrationEvidence {
@@ -147,6 +195,7 @@ function receiptsFor(candidate: {
     candidateTree: candidate.candidateTree,
     contentManifestIdentity: candidate.contentManifestIdentity,
     declarationIdentity: candidate.declarationIdentity,
+    compositionIdentity: candidate.compositionIdentity,
     mappingIdentity: policy.mappingIdentity,
     policyIdentity: policy.policyIdentity,
     selectedChecks: [...candidate.selectedChecks],
@@ -157,8 +206,10 @@ function receiptsFor(candidate: {
     checks: candidate.selectedChecks.map((checkId) => ({
       checkId,
       receipt: {
-        candidateManifest: candidate.contentManifestIdentity,
-        command: ['bun', 'run', checkId],
+        candidateManifest: candidate.compositionIdentity,
+        command:
+          policy.checkSpecs.find((specification) => specification.checkId === checkId)?.command ??
+          [],
         cwdIdentity: 'coordinator',
         elapsedMs: 1,
         endedAt: '2026-09-12T00:00:00.001Z',
@@ -185,7 +236,7 @@ function receiptsFor(candidate: {
           version: '1',
         },
         invocationId: `invocation.${reviewId}`,
-        observedReadIds: [candidate.contentManifestIdentity],
+        observedReadIds: [candidate.compositionIdentity],
         priceIdentity: {
           currency: 'USD',
           model: 'astra',
@@ -198,12 +249,71 @@ function receiptsFor(candidate: {
         receiptId: `receipt.${reviewId}`,
         receiptKind: 'review' as const,
         schemaVersion: 1 as const,
-        suppliedContextIds: [candidate.contentManifestIdentity],
-        trust: { journalId: 'journal.fixture', scope: 'trusted-harness' as const },
+        suppliedContextIds: [candidate.compositionIdentity],
+        trust: { journalId: 'journal.reviews', scope: 'trusted-harness' as const },
       },
       reviewId,
     })),
   };
+}
+
+class FixtureEvidenceVerifier implements IntegrationEvidenceVerifier {
+  readonly #entries = new Map<string, VerifiedIntegrationReceipt>();
+
+  constructor(candidate: { compositionIdentity: string }, evidence: IntegrationEvidence) {
+    for (const check of evidence.checks) {
+      const identity = hashBytes(serializeCanonical(check.receipt));
+      this.#entries.set(identity, {
+        compositionIdentity: candidate.compositionIdentity,
+        invocationId: `invocation.${check.checkId}`,
+        journalId: 'journal.checks',
+        obligationId: check.checkId,
+        receiptIdentity: identity,
+      });
+    }
+    for (const review of evidence.reviews) {
+      const identity = hashBytes(serializeCanonical(review.receipt));
+      const receipt = review.receipt;
+      if (typeof receipt !== 'object' || receipt === null || !('invocationId' in receipt)) {
+        throw new Error('fixture review invocation is absent');
+      }
+      const invocationId = Reflect.get(receipt, 'invocationId');
+      if (typeof invocationId !== 'string') throw new Error('fixture review invocation is invalid');
+      this.#entries.set(identity, {
+        compositionIdentity: candidate.compositionIdentity,
+        invocationId,
+        journalId: 'journal.reviews',
+        obligationId: review.reviewId,
+        receiptIdentity: identity,
+      });
+    }
+  }
+
+  verifyCheck(request: { receiptBytes: string }): VerifiedIntegrationReceipt {
+    return this.#verify(request.receiptBytes);
+  }
+
+  verifyReview(request: { receiptBytes: string }): VerifiedIntegrationReceipt {
+    return this.#verify(request.receiptBytes);
+  }
+
+  #verify(receiptBytes: string): VerifiedIntegrationReceipt {
+    const identity = hashBytes(receiptBytes);
+    const verification = this.#entries.get(identity);
+    if (verification === undefined) throw new Error(`unknown integration invocation: ${identity}`);
+    return verification;
+  }
+}
+
+function certify(
+  candidate: Parameters<typeof receiptsFor>[0] & Parameters<typeof certifyIntegrationCandidate>[0],
+  evidence = receiptsFor(candidate),
+) {
+  return certifyIntegrationCandidate(
+    candidate,
+    evidence,
+    new FixtureEvidenceVerifier(candidate, evidence),
+  );
 }
 
 function withReceiptField(receipt: unknown, field: string, value: unknown): unknown {
@@ -241,7 +351,7 @@ test('composes two immutable submissions into one checked candidate without muta
   expect(reversed).toEqual(composed);
   expect(composed.selectedChecks).toContain('check.relationships');
   expect(composed.selectedReviews).toContain('review.relationships');
-  const checked = certifyIntegrationCandidate(composed, receiptsFor(composed));
+  const checked = certify(composed);
   expect(checked.status).toBe('checked');
   expect(checked.candidateTree).not.toBe(subject.base.tree);
   expect(checked.submissions.map(({ sessionId }) => sessionId)).toEqual(['consumer', 'producer']);
@@ -354,14 +464,12 @@ test('reselects gate evidence and refuses standalone or mismatched receipts', ()
     'review.producer',
     'review.trusted-gate',
   ]);
-  expect(() => certifyIntegrationCandidate(composed, standaloneEvidence)).toThrow(
+  expect(() => certify(composed, standaloneEvidence)).toThrow(
     'evidence candidate binding mismatch',
   );
   const evidence = receiptsFor(composed);
   const bad = { ...evidence, contentManifestIdentity: hashBytes('standalone') };
-  expect(() => certifyIntegrationCandidate(composed, bad)).toThrow(
-    'evidence candidate binding mismatch',
-  );
+  expect(() => certify(composed, bad)).toThrow('evidence candidate binding mismatch');
   subject.store.close();
 });
 
@@ -469,18 +577,21 @@ test('certification requires the whole selected receipt set and exact review/che
     submissions: [gate],
   });
   const evidence = receiptsFor(candidate);
-  expect(() =>
-    certifyIntegrationCandidate(candidate, { ...evidence, checks: evidence.checks.slice(1) }),
-  ).toThrow('integration check receipt set is incomplete');
-  expect(() =>
-    certifyIntegrationCandidate(candidate, { ...evidence, reviews: evidence.reviews.slice(1) }),
-  ).toThrow('integration review receipt set is incomplete');
+  expect(() => certify(candidate, { ...evidence, compositionIdentity: '7'.repeat(64) })).toThrow(
+    'evidence candidate binding mismatch',
+  );
+  expect(() => certify(candidate, { ...evidence, checks: evidence.checks.slice(1) })).toThrow(
+    'integration check receipt set is incomplete',
+  );
+  expect(() => certify(candidate, { ...evidence, reviews: evidence.reviews.slice(1) })).toThrow(
+    'integration review receipt set is incomplete',
+  );
   const skipped = evidence.checks.map((entry, index) =>
     index === 0
       ? { ...entry, receipt: withReceiptField(entry.receipt, 'status', 'skipped') }
       : entry,
   );
-  expect(() => certifyIntegrationCandidate(candidate, { ...evidence, checks: skipped })).toThrow(
+  expect(() => certify(candidate, { ...evidence, checks: skipped })).toThrow(
     'integration check receipt does not certify candidate',
   );
   const staleReviews = evidence.reviews.map((entry, index) =>
@@ -491,12 +602,12 @@ test('certification requires the whole selected receipt set and exact review/che
         }
       : entry,
   );
-  expect(() =>
-    certifyIntegrationCandidate(candidate, { ...evidence, reviews: staleReviews }),
-  ).toThrow('integration review receipt does not certify candidate');
-  expect(() =>
-    certifyIntegrationCandidate({ ...candidate, candidateTree: subject.base.tree }, evidence),
-  ).toThrow('unchecked integration candidate identity mismatch');
+  expect(() => certify(candidate, { ...evidence, reviews: staleReviews })).toThrow(
+    'integration review receipt does not certify candidate',
+  );
+  expect(() => certify({ ...candidate, candidateTree: subject.base.tree }, evidence)).toThrow(
+    'unchecked integration candidate identity mismatch',
+  );
   subject.store.close();
 });
 
@@ -524,4 +635,221 @@ test('refuses a caller packet that differs from the authority-bound packet', () 
     }),
   ).toThrow('integration packet differs from authority binding');
   subject.store.close();
+});
+
+test('authenticated receipt obligations cannot be relabeled, duplicated, or envelope-rewritten', () => {
+  const subject = integrationFixture();
+  const gate = subject.submission('gate', 'gate.ts', 'export const gate = 2;\n');
+  const candidate = composeIntegrationCandidate(subject.store, subject.repository, {
+    policy,
+    submissions: [gate],
+  });
+  const evidence = receiptsFor(candidate);
+  const verifier = new FixtureEvidenceVerifier(candidate, evidence);
+  const relabeledChecks = evidence.checks.map((entry) => ({
+    ...entry,
+    receipt:
+      evidence.checks.find(({ checkId }) => checkId !== entry.checkId)?.receipt ?? entry.receipt,
+  }));
+  expect(() =>
+    certifyIntegrationCandidate(candidate, { ...evidence, checks: relabeledChecks }, verifier),
+  ).toThrow('integration verifier binding mismatch');
+  const relabeledReviews = evidence.reviews.map((entry) => ({
+    ...entry,
+    receipt:
+      evidence.reviews.find(({ reviewId }) => reviewId !== entry.reviewId)?.receipt ??
+      entry.receipt,
+  }));
+  expect(() =>
+    certifyIntegrationCandidate(candidate, { ...evidence, reviews: relabeledReviews }, verifier),
+  ).toThrow('integration verifier binding mismatch');
+  const gateReceipt = evidence.checks.find(({ checkId }) => checkId === 'check.gate')?.receipt;
+  if (gateReceipt === undefined) throw new Error('fixture gate receipt is absent');
+  const duplicate = evidence.checks.map((entry) =>
+    entry.checkId === 'check.trusted-gate' ? { ...entry, receipt: gateReceipt } : entry,
+  );
+  expect(() =>
+    certifyIntegrationCandidate(candidate, { ...evidence, checks: duplicate }, verifier),
+  ).toThrow('duplicate integration receipt identity');
+  const rewritten = evidence.checks.map((entry, index) =>
+    index === 0
+      ? { ...entry, receipt: withReceiptField(entry.receipt, 'receiptId', 'receipt.rewritten') }
+      : entry,
+  );
+  expect(() =>
+    certifyIntegrationCandidate(candidate, { ...evidence, checks: rewritten }, verifier),
+  ).toThrow('unknown integration invocation');
+  const wrongCommand = evidence.checks.map((entry, index) =>
+    index === 0
+      ? { ...entry, receipt: withReceiptField(entry.receipt, 'command', ['bun', 'run', 'other']) }
+      : entry,
+  );
+  expect(() => certify(candidate, { ...evidence, checks: wrongCommand })).toThrow(
+    'integration check receipt does not certify candidate',
+  );
+  const wrongExecutor = evidence.reviews.map((entry, index) =>
+    index === 0
+      ? {
+          ...entry,
+          receipt: withReceiptField(entry.receipt, 'executor', {
+            effort: 'low',
+            model: 'other',
+            provider: 'fixture',
+            toolchain: 'codex',
+            version: '1',
+          }),
+        }
+      : entry,
+  );
+  expect(() => certify(candidate, { ...evidence, reviews: wrongExecutor })).toThrow(
+    'integration review receipt does not certify candidate',
+  );
+  subject.store.close();
+});
+
+test('review provenance requires the externally supplied journal verifier', () => {
+  const subject = integrationFixture();
+  const gate = subject.submission('gate', 'gate.ts', 'export const gate = 2;\n');
+  const candidate = composeIntegrationCandidate(subject.store, subject.repository, {
+    policy,
+    submissions: [gate],
+  });
+  const evidence = receiptsFor(candidate);
+  const unavailable: IntegrationEvidenceVerifier = {
+    verifyCheck: () => {
+      throw new Error('trusted integration journal is unavailable');
+    },
+    verifyReview: () => {
+      throw new Error('trusted integration journal is unavailable');
+    },
+  };
+  expect(() => certifyIntegrationCandidate(candidate, evidence, unavailable)).toThrow(
+    'trusted integration journal is unavailable',
+  );
+  const relabeled = evidence.reviews.map((entry, index) =>
+    index === 0
+      ? {
+          ...entry,
+          receipt: withReceiptField(entry.receipt, 'trust', {
+            journalId: 'journal.does-not-exist',
+            scope: 'trusted-harness',
+          }),
+        }
+      : entry,
+  );
+  expect(() => certify(candidate, { ...evidence, reviews: relabeled })).toThrow(
+    'integration review receipt does not certify candidate',
+  );
+  subject.store.close();
+});
+
+test('equal trees cannot reuse evidence across policy, mapping, declaration, or generation identity', () => {
+  const subject = integrationFixture();
+  const one = subject.submission('one', 'src/producer.ts', 'export const version = 2;\n');
+  const candidate = composeIntegrationCandidate(subject.store, subject.repository, {
+    policy,
+    submissions: [one],
+  });
+  const evidence = receiptsFor(candidate);
+  const reidentify = (
+    changes: Partial<Omit<typeof candidate, 'compositionIdentity'>>,
+  ): typeof candidate => {
+    const { compositionIdentity: _identity, ...body } = { ...candidate, ...changes };
+    return { ...body, compositionIdentity: hashCanonical(body) };
+  };
+  for (const changed of [
+    reidentify({ policyIdentity: '3'.repeat(64) }),
+    reidentify({ mappingIdentity: '4'.repeat(64) }),
+    reidentify({ declarationIdentity: '5'.repeat(64) }),
+    reidentify({
+      submissions: candidate.submissions.map((submission) => ({
+        ...submission,
+        generation: submission.generation + 1,
+      })),
+    }),
+  ]) {
+    expect(changed.candidateTree).toBe(candidate.candidateTree);
+    expect(() => certify(changed, evidence)).toThrow('evidence candidate binding mismatch');
+  }
+  const changedPolicy = reidentify({ policyIdentity: '6'.repeat(64) });
+  const rewrittenEnvelope = {
+    ...evidence,
+    compositionIdentity: changedPolicy.compositionIdentity,
+    policyIdentity: changedPolicy.policyIdentity,
+  };
+  expect(() =>
+    certifyIntegrationCandidate(
+      changedPolicy,
+      rewrittenEnvelope,
+      new FixtureEvidenceVerifier(candidate, evidence),
+    ),
+  ).toThrow('integration check receipt does not certify candidate');
+  const contentOnlyReceipts = evidence.checks.map((entry) => ({
+    ...entry,
+    receipt: withReceiptField(
+      entry.receipt,
+      'candidateManifest',
+      candidate.contentManifestIdentity,
+    ),
+  }));
+  expect(() => certify(candidate, { ...evidence, checks: contentOnlyReceipts })).toThrow(
+    'integration check receipt does not certify candidate',
+  );
+  subject.store.close();
+});
+
+test('contract consumers must be distinct and change trusted implementation paths', () => {
+  const self = integrationFixture();
+  const producerConsumer = self.submission(
+    'producer',
+    'src/producer.ts',
+    'export const version = 2;\n',
+    {
+      consumedContracts: ['contract.api'],
+      consumedInterfaces: ['interface.api'],
+      producedContracts: ['contract.api'],
+    },
+  );
+  expect(() =>
+    composeIntegrationCandidate(self.store, self.repository, {
+      policy,
+      submissions: [producerConsumer],
+    }),
+  ).toThrow('required consumer is absent from integration batch');
+  self.store.close();
+
+  const unrelated = integrationFixture();
+  const producer = unrelated.submission(
+    'producer',
+    'src/producer.ts',
+    'export const version = 2;\n',
+    { producedContracts: ['contract.api'] },
+  );
+  const labelOnly = unrelated.submission('consumer', 'gate.ts', 'export const gate = 2;\n', {
+    consumedContracts: ['contract.api'],
+    consumedInterfaces: ['interface.api'],
+  });
+  expect(() =>
+    composeIntegrationCandidate(unrelated.store, unrelated.repository, {
+      policy,
+      submissions: [producer, labelOnly],
+    }),
+  ).toThrow('required consumer is absent from integration batch');
+  unrelated.store.close();
+});
+
+test('strict policy decoding rejects unknown selector kinds and malformed primitive fields', () => {
+  const globBody = {
+    ...policyBody,
+    selectorRules: [{ checks: [], kind: 'glob', path: '*.ts', reviews: [] }],
+  };
+  expect(() =>
+    decodeIntegrationPolicy({
+      ...globBody,
+      policyIdentity: hashCanonical(globBody),
+    }),
+  ).toThrow('Validation failed');
+  expect(() => decodeIntegrationPolicy({ ...policy, contractRules: 'not-an-array' })).toThrow(
+    'Validation failed',
+  );
 });

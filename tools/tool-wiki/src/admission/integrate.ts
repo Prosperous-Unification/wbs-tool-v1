@@ -2,15 +2,22 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, normalize } from 'node:path';
 
-import { parseOrThrow } from '@wbs/validation';
+import { parseOrThrow, type } from '@wbs/validation';
 
 import {
   CheckReceipt,
   type CheckReceipt as CheckReceiptValue,
+  ExecutorIdentity,
+  OpaqueId,
   ReviewReceipt,
   type ReviewReceipt as ReviewReceiptValue,
 } from '../contracts/records';
-import { compareCanonicalText, hashBytes, hashCanonical } from '../evidence/content-manifest';
+import {
+  compareCanonicalText,
+  hashBytes,
+  hashCanonical,
+  serializeCanonical,
+} from '../evidence/content-manifest';
 import type { CandidateEntry } from '../inventory/read-candidate';
 import type { AuthorityGeneration, AuthorityStore } from './authority-store';
 import { assertAdmissionPacket } from './packet';
@@ -19,33 +26,53 @@ import type { AdmissionSubmissionReport } from './submit';
 
 const Sha256 = /^[0-9a-f]{64}$/;
 const Term = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
-
-export interface IntegrationContractRule {
-  readonly contractId: string;
-  readonly requiredConsumerInterfaceIds: readonly string[];
-}
-
-export type IntegrationSelectorRule =
-  | {
-      readonly kind: 'path';
-      readonly path: string;
-      readonly checks: readonly string[];
-      readonly reviews: readonly string[];
-    }
-  | {
-      readonly kind: 'prefix';
-      readonly path: string;
-      readonly checks: readonly string[];
-      readonly reviews: readonly string[];
-    };
-
-export interface IntegrationPolicy {
-  readonly schemaVersion: 1;
-  readonly policyIdentity: string;
-  readonly mappingIdentity: string;
-  readonly contractRules: readonly IntegrationContractRule[];
-  readonly selectorRules: readonly IntegrationSelectorRule[];
-}
+const Sha256Identity = type(Sha256);
+const IntegrationPathSelectorRecord = type({
+  kind: "'path'|'prefix'",
+  path: 'string>=1',
+}).onUndeclaredKey('reject');
+const IntegrationCheckSpecRecord = type({
+  checkId: OpaqueId,
+  command: 'string[]',
+  cwdIdentity: OpaqueId,
+  journalId: OpaqueId,
+  toolIdentity: Sha256Identity,
+  resourceLane: OpaqueId,
+}).onUndeclaredKey('reject');
+const IntegrationReviewSpecRecord = type({
+  reviewId: OpaqueId,
+  journalId: OpaqueId,
+  trustScope: "'trusted-harness'|'external-verifier'",
+  executor: ExecutorIdentity,
+}).onUndeclaredKey('reject');
+const IntegrationConsumerRecord = type({
+  interfaceId: OpaqueId,
+  implementationSelectors: IntegrationPathSelectorRecord.array(),
+}).onUndeclaredKey('reject');
+const IntegrationContractRuleRecord = type({
+  contractId: OpaqueId,
+  requiredConsumers: IntegrationConsumerRecord.array(),
+}).onUndeclaredKey('reject');
+// Proof: widening this boundary to `glob` made `strict policy decoding rejects unknown selector
+// kinds and malformed primitive fields` fail on `Received function did not throw` and print it.
+const IntegrationSelectorRuleRecord = type({
+  kind: "'path'|'prefix'",
+  path: 'string>=1',
+  checks: OpaqueId.array(),
+  reviews: OpaqueId.array(),
+}).onUndeclaredKey('reject');
+const IntegrationPolicyRecord = type({
+  schemaVersion: '1',
+  policyIdentity: Sha256Identity,
+  mappingIdentity: Sha256Identity,
+  checkSpecs: IntegrationCheckSpecRecord.array(),
+  reviewSpecs: IntegrationReviewSpecRecord.array(),
+  contractRules: IntegrationContractRuleRecord.array(),
+  selectorRules: IntegrationSelectorRuleRecord.array(),
+}).onUndeclaredKey('reject');
+export type IntegrationPolicy = typeof IntegrationPolicyRecord.infer;
+export type IntegrationCheckSpec = typeof IntegrationCheckSpecRecord.infer;
+export type IntegrationReviewSpec = typeof IntegrationReviewSpecRecord.infer;
 
 export interface SubmittedCandidate {
   readonly packet: AdmissionPacket;
@@ -80,6 +107,8 @@ interface IntegrationCandidateBody {
   readonly changedPaths: readonly string[];
   readonly selectedChecks: readonly string[];
   readonly selectedReviews: readonly string[];
+  readonly selectedCheckSpecs: readonly IntegrationCheckSpec[];
+  readonly selectedReviewSpecs: readonly IntegrationReviewSpec[];
   readonly submissions: readonly IntegrationGenerationSnapshot[];
   readonly publicationBoundary: '5.2 must atomically recheck authority and target ref before publication';
 }
@@ -89,6 +118,7 @@ export interface UncheckedIntegrationCandidate extends IntegrationCandidateBody 
 }
 
 export interface IntegrationEvidence {
+  readonly compositionIdentity: string;
   readonly candidateTree: string;
   readonly contentManifestIdentity: string;
   readonly candidateDiffIdentity: string;
@@ -101,21 +131,39 @@ export interface IntegrationEvidence {
   readonly reviews: readonly { readonly reviewId: string; readonly receipt: unknown }[];
 }
 
+export interface VerifiedIntegrationReceipt {
+  readonly obligationId: string;
+  readonly receiptIdentity: string;
+  readonly compositionIdentity: string;
+  readonly journalId: string;
+  readonly invocationId: string;
+}
+
+export interface IntegrationEvidenceVerifier {
+  verifyCheck(request: {
+    readonly obligationId: string;
+    readonly receiptBytes: string;
+    readonly compositionIdentity: string;
+  }): VerifiedIntegrationReceipt;
+  verifyReview(request: {
+    readonly obligationId: string;
+    readonly receiptBytes: string;
+    readonly compositionIdentity: string;
+  }): VerifiedIntegrationReceipt;
+}
+
 export interface CheckedIntegrationCandidate extends Omit<IntegrationCandidateBody, 'status'> {
   readonly status: 'checked';
   readonly compositionIdentity: string;
   readonly evidenceIdentity: string;
   readonly checkReceipts: readonly CheckReceiptValue[];
   readonly reviewReceipts: readonly ReviewReceiptValue[];
+  readonly receiptVerifications: readonly VerifiedIntegrationReceipt[];
 }
 
 function policyBody(policy: IntegrationPolicy): Omit<IntegrationPolicy, 'policyIdentity'> {
   const { policyIdentity: _identity, ...body } = policy;
   return body;
-}
-
-function runtimeField(input: object, field: string): unknown {
-  return Reflect.get(input, field);
 }
 
 function assertFields(input: object, expected: readonly string[], subject: string): void {
@@ -161,17 +209,9 @@ function assertRelativePath(path: string): void {
   }
 }
 
-/** Strictly validates the externally selected policy and its self-authenticating bytes. */
-export function assertIntegrationPolicy(policy: IntegrationPolicy): void {
-  assertFields(
-    policy,
-    ['contractRules', 'mappingIdentity', 'policyIdentity', 'schemaVersion', 'selectorRules'],
-    'integration policy',
-  );
-  if (runtimeField(policy, 'schemaVersion') !== 1) {
-    throw new Error('invalid integration policy schema version');
-  }
-  if (!Sha256.test(policy.mappingIdentity)) throw new Error('invalid integration mapping identity');
+/** Strictly decodes the externally selected policy and authenticates its canonical bytes. */
+export function decodeIntegrationPolicy(input: unknown): IntegrationPolicy {
+  const policy = parseOrThrow(IntegrationPolicyRecord, input);
   // Proof: accepting a caller label here let a candidate substitute a policy carrying no gate
   // selectors; `refuses caller-labelled weakened policy bytes before composition` failed with
   // `Received function did not throw` and showed only `check.gate` selected.
@@ -184,17 +224,44 @@ export function assertIntegrationPolicy(policy: IntegrationPolicy): void {
   const contracts = policy.contractRules.map(({ contractId }) => contractId);
   assertTerms(contracts, 'contract rule');
   for (const rule of policy.contractRules) {
-    assertFields(rule, ['contractId', 'requiredConsumerInterfaceIds'], 'integration contract rule');
-    assertTerms(rule.requiredConsumerInterfaceIds, 'required consumer interface');
+    const consumers = rule.requiredConsumers.map(({ interfaceId }) => interfaceId);
+    assertTerms(consumers, 'required consumer interface');
+    if (consumers.length === 0)
+      throw new Error(`integration contract has no consumers: ${rule.contractId}`);
+    for (const consumer of rule.requiredConsumers) {
+      if (consumer.implementationSelectors.length === 0) {
+        throw new Error(
+          `integration consumer has no implementation selector: ${consumer.interfaceId}`,
+        );
+      }
+      const selectorIds = consumer.implementationSelectors.map(
+        (selector) => `${selector.kind}:${selector.path}`,
+      );
+      assertUnique(selectorIds, 'consumer implementation selector');
+      for (const selector of consumer.implementationSelectors) assertRelativePath(selector.path);
+    }
   }
   const selectors = policy.selectorRules.map((rule) => `${rule.kind}:${rule.path}`);
   assertUnique(selectors, 'selector rule');
   for (const rule of policy.selectorRules) {
-    assertFields(rule, ['checks', 'kind', 'path', 'reviews'], 'integration selector rule');
     assertRelativePath(rule.path);
     assertTerms(rule.checks, 'selected check');
     assertTerms(rule.reviews, 'selected review');
   }
+  assertTerms(
+    policy.checkSpecs.map(({ checkId }) => checkId),
+    'check specification',
+  );
+  for (const specification of policy.checkSpecs) {
+    if (specification.command.length === 0) {
+      throw new Error(`integration check command is empty: ${specification.checkId}`);
+    }
+  }
+  assertTerms(
+    policy.reviewSpecs.map(({ reviewId }) => reviewId),
+    'review specification',
+  );
+  return policy;
 }
 
 interface GitOutput {
@@ -391,7 +458,7 @@ export function composeIntegrationCandidate(
   coordinatorRepository: string,
   request: IntegrationRequest,
 ): UncheckedIntegrationCandidate {
-  assertIntegrationPolicy(request.policy);
+  const policy = decodeIntegrationPolicy(request.policy);
   if (request.submissions.length < 1)
     throw new Error('integration requires at least one submission');
   const coordinator = realpathSync(coordinatorRepository);
@@ -415,11 +482,11 @@ export function composeIntegrationCandidate(
       throw new Error('coordinator cannot be a source writer worktree');
     // Proof: accepting a valid but differently selected policy made `refuses duplicate, stale,
     // identity-mismatched and non-submitted inputs` fail with `Received function did not throw`.
-    if (packet.policyIdentity !== request.policy.policyIdentity)
+    if (packet.policyIdentity !== policy.policyIdentity)
       throw new Error('submission policy identity mismatch');
     // Proof: accepting a remapped packet made `refuses duplicate, stale, identity-mismatched and
     // non-submitted inputs` receive `integration packet differs from authority binding` instead.
-    if (packet.mappingIdentity !== request.policy.mappingIdentity)
+    if (packet.mappingIdentity !== policy.mappingIdentity)
       throw new Error('submission mapping identity mismatch');
     if (
       baseCommit !== undefined &&
@@ -479,23 +546,42 @@ export function composeIntegrationCandidate(
       }
     }
   }
-  const consumers = new Set(ordered.flatMap(({ packet }) => [...packet.consumedInterfaces]));
-  for (const rule of request.policy.contractRules) {
+  for (const rule of policy.contractRules) {
     const produced = ordered.some(({ packet }) =>
       packet.producedContracts.includes(rule.contractId),
     );
     // Proof: bypassing this join admitted a contract-only producer; `requires a contract consumer
     // in the same batch` failed with `Received function did not throw` and printed its unchecked tree.
-    if (
-      produced &&
-      rule.requiredConsumerInterfaceIds.some((consumer) => !consumers.has(consumer))
-    ) {
-      throw new Error(`required consumer is absent from integration batch: ${rule.contractId}`);
+    if (produced) {
+      for (const consumer of rule.requiredConsumers) {
+        const implementation = ordered.find(
+          ({ packet, report }) =>
+            !packet.producedContracts.includes(rule.contractId) &&
+            packet.consumedContracts.includes(rule.contractId) &&
+            packet.consumedInterfaces.includes(consumer.interfaceId) &&
+            // Proof: bypassing this ownership-path match let an unrelated gate-only patch pose as
+            // the consumer; `contract consumers must be distinct and change trusted implementation
+            // paths` failed on `Received function did not throw` and printed the combined candidate.
+            report.changedPaths.some((path) =>
+              consumer.implementationSelectors.some((selector) =>
+                selector.kind === 'path'
+                  ? path === selector.path
+                  : path === selector.path || path.startsWith(`${selector.path}/`),
+              ),
+            ),
+        );
+        // Proof: bypassing this implementation lookup let a producer satisfy its own required
+        // consumer; `contract consumers must be distinct and change trusted implementation paths`
+        // failed on `Received function did not throw` and printed an unchecked producer candidate.
+        if (implementation === undefined) {
+          throw new Error(`required consumer is absent from integration batch: ${rule.contractId}`);
+        }
+      }
     }
   }
   const checks = new Set(ordered.flatMap(({ packet }) => [...packet.checks]));
   const reviews = new Set(ordered.flatMap(({ packet }) => [...packet.evidenceRequirements]));
-  for (const rule of request.policy.selectorRules) {
+  for (const rule of policy.selectorRules) {
     const affected = combinedDiff.changedPaths.some((path) =>
       rule.kind === 'path'
         ? path === rule.path
@@ -507,6 +593,26 @@ export function composeIntegrationCandidate(
     for (const check of rule.checks) checks.add(check);
     for (const review of rule.reviews) reviews.add(review);
   }
+  const checkSpecs = new Map(
+    policy.checkSpecs.map((specification) => [specification.checkId, specification]),
+  );
+  const reviewSpecs = new Map(
+    policy.reviewSpecs.map((specification) => [specification.reviewId, specification]),
+  );
+  const selectedChecks = [...checks].sort(compareCanonicalText);
+  const selectedReviews = [...reviews].sort(compareCanonicalText);
+  const selectedCheckSpecs = selectedChecks.map((checkId) => {
+    const specification = checkSpecs.get(checkId);
+    if (specification === undefined)
+      throw new Error(`integration check specification is absent: ${checkId}`);
+    return specification;
+  });
+  const selectedReviewSpecs = selectedReviews.map((reviewId) => {
+    const specification = reviewSpecs.get(reviewId);
+    if (specification === undefined)
+      throw new Error(`integration review specification is absent: ${reviewId}`);
+    return specification;
+  });
   const body: IntegrationCandidateBody = {
     baseCommit,
     baseTree,
@@ -526,12 +632,14 @@ export function composeIntegrationCandidate(
         sessionId: packet.sessionId,
       })),
     ),
-    mappingIdentity: request.policy.mappingIdentity,
-    policyIdentity: request.policy.policyIdentity,
+    mappingIdentity: policy.mappingIdentity,
+    policyIdentity: policy.policyIdentity,
     publicationBoundary: '5.2 must atomically recheck authority and target ref before publication',
     schemaVersion: 1,
-    selectedChecks: [...checks].sort(compareCanonicalText),
-    selectedReviews: [...reviews].sort(compareCanonicalText),
+    selectedCheckSpecs,
+    selectedChecks,
+    selectedReviewSpecs,
+    selectedReviews,
     status: 'unchecked',
     submissions: snapshots.sort((left, right) =>
       compareCanonicalText(left.sessionId, right.sessionId),
@@ -548,6 +656,7 @@ function sameStrings(left: readonly string[], right: readonly string[]): boolean
 export function certifyIntegrationCandidate(
   candidate: UncheckedIntegrationCandidate,
   evidence: IntegrationEvidence,
+  verifier: IntegrationEvidenceVerifier,
 ): CheckedIntegrationCandidate {
   // Proof: bypassing this self-authentication moved a tampered candidate to the later evidence
   // diagnostic; `certification requires the whole selected receipt set and exact review/check
@@ -561,6 +670,7 @@ export function certifyIntegrationCandidate(
       'candidateDiffIdentity',
       'candidateTree',
       'checks',
+      'compositionIdentity',
       'contentManifestIdentity',
       'declarationIdentity',
       'mappingIdentity',
@@ -572,6 +682,7 @@ export function certifyIntegrationCandidate(
     'integration evidence',
   );
   const bindingMatches =
+    evidence.compositionIdentity === candidate.compositionIdentity &&
     evidence.candidateTree === candidate.candidateTree &&
     evidence.contentManifestIdentity === candidate.contentManifestIdentity &&
     evidence.candidateDiffIdentity === candidate.candidateDiffIdentity &&
@@ -580,27 +691,91 @@ export function certifyIntegrationCandidate(
     evidence.mappingIdentity === candidate.mappingIdentity &&
     sameStrings(evidence.selectedChecks, candidate.selectedChecks) &&
     sameStrings(evidence.selectedReviews, candidate.selectedReviews);
-  // Proof: accepting a standalone manifest here let its successful receipts certify the combined
-  // tree; `reselects gate evidence and refuses standalone or mismatched receipts` instead failed
-  // later with `integration check receipt does not certify candidate: check.producer`.
+  // Proof: bypassing the composition binding let evidence carrying another composition identity
+  // certify this candidate; `certification requires the whole selected receipt set and exact
+  // review/check bindings` failed on `Received function did not throw` with a checked candidate.
   if (!bindingMatches) throw new Error('evidence candidate binding mismatch');
+  const checkSpecs = new Map(
+    candidate.selectedCheckSpecs.map((specification) => [specification.checkId, specification]),
+  );
+  const reviewSpecs = new Map(
+    candidate.selectedReviewSpecs.map((specification) => [specification.reviewId, specification]),
+  );
+  const receiptIdentities = new Set<string>();
+  const verifications: VerifiedIntegrationReceipt[] = [];
+  const authenticate = (
+    kind: 'check' | 'review',
+    obligationId: string,
+    receipt: CheckReceiptValue | ReviewReceiptValue,
+    expectedJournalId: string,
+    expectedInvocationId?: string,
+  ): void => {
+    const receiptBytes = serializeCanonical(receipt);
+    const receiptIdentity = hashBytes(receiptBytes);
+    // Proof: bypassing this set let the same receipt reach a second obligation;
+    // `authenticated receipt obligations cannot be relabeled, duplicated, or envelope-rewritten`
+    // received `integration verifier binding mismatch` instead of the duplicate-identity refusal.
+    if (receiptIdentities.has(receiptIdentity)) {
+      throw new Error(`duplicate integration receipt identity: ${receiptIdentity}`);
+    }
+    receiptIdentities.add(receiptIdentity);
+    const request = {
+      compositionIdentity: candidate.compositionIdentity,
+      obligationId,
+      receiptBytes,
+    };
+    const verification =
+      kind === 'check' ? verifier.verifyCheck(request) : verifier.verifyReview(request);
+    assertFields(
+      verification,
+      ['compositionIdentity', 'invocationId', 'journalId', 'obligationId', 'receiptIdentity'],
+      'integration receipt verification',
+    );
+    // Proof: bypassing this comparison let a receipt registered for another obligation pass;
+    // `authenticated receipt obligations cannot be relabeled, duplicated, or envelope-rewritten`
+    // failed on `Received function did not throw` and printed a checked candidate.
+    if (
+      verification.obligationId !== obligationId ||
+      verification.receiptIdentity !== receiptIdentity ||
+      verification.compositionIdentity !== candidate.compositionIdentity ||
+      verification.journalId !== expectedJournalId ||
+      !Term.test(verification.invocationId)
+    ) {
+      throw new Error(`integration verifier binding mismatch: ${obligationId}`);
+    }
+    if (expectedInvocationId !== undefined && verification.invocationId !== expectedInvocationId) {
+      throw new Error(`integration verifier invocation mismatch: ${obligationId}`);
+    }
+    verifications.push(verification);
+  };
   const checks = new Map<string, CheckReceiptValue>();
   for (const entry of evidence.checks) {
     assertFields(entry, ['checkId', 'receipt'], 'integration check evidence');
     if (checks.has(entry.checkId))
       throw new Error(`duplicate integration check receipt: ${entry.checkId}`);
     const receipt = parseOrThrow(CheckReceipt, entry.receipt);
-    // Proof: omitting candidateManifest/status checks let a standalone or skipped check satisfy
-    // the final manifest; `certification requires the whole selected receipt set and exact
-    // review/check bindings` failed with `Received function did not throw` and printed `skipped`.
+    const specification = checkSpecs.get(entry.checkId);
+    if (specification === undefined)
+      throw new Error(`unauthorized integration check: ${entry.checkId}`);
+    // Proof: comparing candidateManifest to content alone let a content-only receipt certify the
+    // full composition; `equal trees cannot reuse evidence across policy, mapping, declaration,
+    // or generation identity` failed on `Received function did not throw` with a checked candidate.
+    // Bypassing the command comparison let a differently executed receipt satisfy the
+    // selected spec; `authenticated receipt obligations cannot be relabeled, duplicated, or
+    // envelope-rewritten` failed on `Received function did not throw` and printed it as checked.
     if (
-      receipt.candidateManifest !== candidate.contentManifestIdentity ||
+      receipt.candidateManifest !== candidate.compositionIdentity ||
       receipt.status !== 'passed' ||
       receipt.exitCode !== 0 ||
-      receipt.skips.length !== 0
+      receipt.skips.length !== 0 ||
+      !sameStrings(receipt.command, specification.command) ||
+      receipt.cwdIdentity !== specification.cwdIdentity ||
+      receipt.toolIdentity !== specification.toolIdentity ||
+      receipt.resourceLane !== specification.resourceLane
     ) {
       throw new Error(`integration check receipt does not certify candidate: ${entry.checkId}`);
     }
+    authenticate('check', entry.checkId, receipt, specification.journalId);
     checks.set(entry.checkId, receipt);
   }
   const reviews = new Map<string, ReviewReceiptValue>();
@@ -609,16 +784,25 @@ export function certifyIntegrationCandidate(
     if (reviews.has(entry.reviewId))
       throw new Error(`duplicate integration review receipt: ${entry.reviewId}`);
     const receipt = parseOrThrow(ReviewReceipt, entry.receipt);
-    // Proof: omitting the observed/supplied manifest binding let a review of the standalone tree
-    // certify the combined tree; `certification requires the whole selected receipt set and exact
-    // review/check bindings` failed with `Received function did not throw` and printed stale reads.
+    const specification = reviewSpecs.get(entry.reviewId);
+    if (specification === undefined)
+      throw new Error(`unauthorized integration review: ${entry.reviewId}`);
+    // Proof: bypassing the journal comparison let a nonexistent caller-labelled journal satisfy
+    // `review provenance requires the externally supplied journal verifier`; it failed on
+    // `Received function did not throw` and printed the receipt as checked. Bypassing the executor
+    // comparison let an unauthorized reviewer satisfy the selected
+    // spec; `authenticated receipt obligations cannot be relabeled, duplicated, or
+    // envelope-rewritten` failed on `Received function did not throw` and printed it as checked.
     if (
-      !receipt.suppliedContextIds.includes(candidate.contentManifestIdentity) ||
-      !receipt.observedReadIds.includes(candidate.contentManifestIdentity) ||
-      receipt.trust.scope === 'local-cooperative'
+      !receipt.suppliedContextIds.includes(candidate.compositionIdentity) ||
+      !receipt.observedReadIds.includes(candidate.compositionIdentity) ||
+      receipt.trust.scope !== specification.trustScope ||
+      receipt.trust.journalId !== specification.journalId ||
+      hashCanonical(receipt.executor) !== hashCanonical(specification.executor)
     ) {
       throw new Error(`integration review receipt does not certify candidate: ${entry.reviewId}`);
     }
+    authenticate('review', entry.reviewId, receipt, specification.journalId, receipt.invocationId);
     reviews.set(entry.reviewId, receipt);
   }
   // Proof: bypassing completeness made `certification requires the whole selected receipt set and
@@ -639,6 +823,9 @@ export function certifyIntegrationCandidate(
       .map(([, receipt]) => receipt),
     compositionIdentity: candidate.compositionIdentity,
     evidenceIdentity: hashCanonical(evidence),
+    receiptVerifications: verifications.sort((left, right) =>
+      compareCanonicalText(left.obligationId, right.obligationId),
+    ),
     reviewReceipts: [...reviews.entries()]
       .sort(([left], [right]) => compareCanonicalText(left, right))
       .map(([, receipt]) => receipt),
