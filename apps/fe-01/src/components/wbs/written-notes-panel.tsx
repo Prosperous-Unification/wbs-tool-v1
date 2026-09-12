@@ -1,35 +1,45 @@
 import { type RefObject, useEffect, useState } from 'react';
 
-import { RenderedNotes } from './hover-preview';
+import { HoverPreview } from './hover-preview';
 import { splitNameCell } from './name-notes';
 
 /**
- * The rendered notes, beside the Name box while somebody is writing in it.
+ * The rendered notes shown beside the Name box while somebody is writing in it —
+ * the **same card** the marker shows on hover ({@link HoverPreview}), driven by
+ * the box's live text instead of the row's last save.
  *
  * Dany, 2026-09-10: *"when you click on title cell and note field expands - the
  * right half of the row is a md preview which is same as in the on-hover md
- * preview"*. A note is written in markdown and read as markdown, and the cell
- * that holds it shows the source — so the rendering has to be somewhere, and
- * beside the box is where the room is.
- *
- * **Not a card.** It has no `role="tooltip"`, takes no pointer and never moves:
- * a reader typing has their hands on the keyboard, and a box that fought the
- * caret for the mouse would be a second thing to dismiss. It stands where the
- * hover preview stands — past the cell, level with the box — and is as tall as
- * the box it explains.
+ * preview"*; and 2026-09-12: *"the preview during editing and the pop-up that
+ * will be shown on hover must be identical (in size, content)"*. It was a
+ * hand-rolled panel until then, with its own width (`min(1000px, 55vw)`) and no
+ * clamp, so on a wide or far-right Name cell it ran off the screen and took its
+ * Done button with it. Rendering {@link HoverPreview} instead hands the
+ * placement to {@link HoverCard}, which measures the room beside the cell and
+ * clamps to it — the two cards are now one component and cannot drift in size,
+ * content, or where they stop.
  *
  * The words come from the box rather than from the row for the reason
  * {@link CellInput} is uncontrolled: `row.original` holds the last save, and a
  * preview a keystroke behind is a preview of the wrong document.
+ *
+ * Only one of this and the hover preview is ever mounted: the marker's hover is
+ * suppressed while this cell's box is focused (`plan-columns/name.tsx`), so the
+ * `≡` cannot open a second, identical pop-up over this one. This panel keeps
+ * {@link WrittenNotesPanelProps.editingRef} in step with the box's focus so the
+ * marker knows when to stay quiet, off the same events it shows from — a ref,
+ * so nothing above re-renders, and event-driven rather than
+ * `document.activeElement`, which jsdom does not move on a dispatched blur.
  */
-export function WrittenNotesPanel({
-  number,
-  box,
-}: {
+export interface WrittenNotesPanelProps {
   number: string;
   /** The Name box this panel renders, held by the cell that owns both. */
   box: RefObject<HTMLTextAreaElement | HTMLInputElement | null>;
-}) {
+  /** Set true while the box is being written in, for the marker's guard. */
+  editingRef: RefObject<boolean>;
+}
+
+export function WrittenNotesPanel({ number, box, editingRef }: WrittenNotesPanelProps) {
   /**
    * What the box holds while it is being written in, or null while it is not.
    *
@@ -50,9 +60,11 @@ export function WrittenNotesPanel({
     const node = box.current;
     if (node === null) return undefined;
     const show = (): void => {
+      editingRef.current = true;
       setWritten(node.value);
     };
     const hide = (): void => {
+      editingRef.current = false;
       setWritten(null);
     };
     node.addEventListener('focus', show);
@@ -63,105 +75,20 @@ export function WrittenNotesPanel({
       node.removeEventListener('input', show);
       node.removeEventListener('blur', hide);
     };
-  }, [box]);
+  }, [box, editingRef]);
 
   if (written === null) return null;
   const { name, notes } = splitNameCell(written);
   if (notes.trim() === '') return null;
   return (
-    <div
-      aria-label={`Notes for ${number}, rendered while writing`}
-      data-written-notes={number}
-      style={{
-        position: 'absolute',
-        // Past the cell and level with the box: the same diagonal every card in
-        // this table takes, minus the row offset — this one explains the box
-        // that is open, so it stands beside it rather than under the row.
-        left: '100%',
-        top: 0,
-        // **The right half of the row**, which is what was asked for — a fixed
-        // share of the window rather than the words' own width, so the panel is
-        // the same shape from one row to the next and a two-line note does not
-        // give the reader a 170px box. Shrink-to-fit would do exactly that: it
-        // measures the 4px between `left: 100%` and the cell's own right edge.
-        width: 'min(1000px, 55vw)',
-        maxHeight: '100%',
-        overflowY: 'auto',
-        boxSizing: 'border-box',
-        zIndex: 20,
-        background: 'var(--popover)',
-        color: 'var(--popover-foreground)',
-        border: '1px solid var(--border)',
-        borderRadius: 'var(--radius-md)',
-        marginLeft: 6,
-        textAlign: 'left',
-        overflowWrap: 'break-word',
-        fontWeight: 400,
-        // The caret's, not this panel's: a reader dragging a selection in the
-        // box must not have it end here, and a click through to the row behind
-        // is what every card in this table already allows. The Done button
-        // below is the one exception, and opts back in by itself.
-        pointerEvents: 'none',
-        // A column, so the words scroll inside a box the button can stay pinned
-        // to: with the scroll on this element the button would scroll away with
-        // the first paragraph.
-        display: 'flex',
-        flexDirection: 'column',
-      }}
-    >
-      <div style={{ overflowY: 'auto', minHeight: 0, padding: '6px 10px' }}>
-        <RenderedNotes name={name} notes={notes} />
-      </div>
-      {/*
-        **Done.** Dany, 2026-09-12: _"a non-intrusive neat small 'Done' button
-        that you can press to hide the editor of markdown"_. It does what Escape
-        does — leaves the box, which is the save — and it is answered on the
-        press rather than the click because the press is what would have moved
-        the focus off the box anyway: `preventDefault` keeps the focus where it
-        is for the one instant the blur needs to be this handler's own doing,
-        and the panel (this button with it) is gone before any click could land.
-
-        Pointer-only, on purpose. A Tab to it would blur the box and take the
-        panel — and the button — away under the focus, so it is out of the tab
-        order and Escape is the keyboard's way. The `aria-label` names the row
-        for the same reason every card here does: a plan is forty rows.
-      */}
-      <button
-        type="button"
-        tabIndex={-1}
-        aria-label={`Done writing notes for ${number}`}
-        // Proof: the `box.current?.blur()` removed — `the Done button beside
-        // the notes saves and closes the editor too` (`plan-cells.test.tsx`)
-        // failed on `expected '## Risks' to be '## Risks\n\n- one more'`.
-        // Watched, 2026-09-12.
-        onMouseDown={(pressed) => {
-          pressed.preventDefault();
-          box.current?.blur();
-        }}
-        style={{
-          position: 'absolute',
-          top: 4,
-          right: 6,
-          // The one thing in this panel that takes the pointer.
-          // Proof: this left to the panel's `none` — `e2e/hover-cards.spec.ts`'s
-          // `Done is the thing under the pointer, and closes the editor` failed
-          // on `Done is not what the pointer lands on · Expected: "Done writing
-          // notes for 010" · Received: "TD"`, the hit test answering the cell
-          // behind. jsdom cannot see this. Watched in Chromium, 2026-09-12.
-          pointerEvents: 'auto',
-          font: 'inherit',
-          fontSize: 11,
-          lineHeight: 1.2,
-          padding: '1px 7px',
-          color: 'var(--muted-foreground)',
-          background: 'var(--popover)',
-          border: '1px solid var(--border)',
-          borderRadius: 'var(--radius-md)',
-          cursor: 'pointer',
-        }}
-      >
-        Done
-      </button>
-    </div>
+    <HoverPreview
+      name={name}
+      notes={notes}
+      number={number}
+      // The one thing editing adds to the hover card: a press that ends the
+      // edit. Blurring the box is the save (`plan-columns/name.tsx`), and it
+      // takes this panel away with it.
+      onDone={() => box.current?.blur()}
+    />
   );
 }

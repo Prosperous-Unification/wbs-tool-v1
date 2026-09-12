@@ -1137,49 +1137,83 @@ test.describe('the Name cell answers from its marker alone', () => {
     expect(await dependsCard.count(), 'the rested-on cell opened no card').toBe(1);
   });
 
-  test('the open editor shows the same rendering beside it', async ({ page }) => {
-    // Dany, 2026-09-10: _"when you click on title cell and note field expands -
-    // the right half of the row is a md preview which is same as in the on-hover
-    // md preview"_. Same means the same component — {@link RenderedNotes} — so
-    // that a mapping added to one is in both.
+  test('the editing preview is the same card as the hover preview, and stays on screen', async ({
+    page,
+  }) => {
+    // Dany, 2026-09-12: _"the preview during editing and the pop-up that will be
+    // shown on hover must be identical (in size, content)"_ — and _"it also
+    // overflows the screen which is an issue on it's own"_. They are one
+    // component ({@link HoverPreview}) now, placed and clamped by the same
+    // {@link HoverCard}: this measures both from the **same saved text** (no
+    // unsent keystrokes) and asserts they come out the same size, and that the
+    // editing one does not run off the right edge.
     //
-    // Proof: the panel's `focus`/`input` listeners never attached — this failed
-    // on `expect(locator).toBeVisible() · waiting for getByLabel('Notes for 010,
-    // rendered while writing')`. Watched in Chromium, 2026-09-10.
-    //
-    // The words are the **panel's** state and not the cell's, which is not a
-    // detail: held one level up they re-render the cell on every keystroke, and
-    // `a chord waits for the blur's patch that is still out` went red on a
-    // re-render inside the blur putting the old text back in the box.
+    // Proof: the editing preview back to its hand-rolled `min(1000px, 55vw)`
+    // panel — this failed on the width no longer matching the hover card's, and
+    // on a wide Name cell it also failed the on-screen check. Watched in
+    // Chromium, 2026-09-12.
     const name = page.getByLabel('Name of 010');
     await name.fill('Row 010\n\nNotes with **bold** and a list:\n\n- one\n- two\n- three');
     await name.blur();
     await page.mouse.move(0, 0);
 
+    // Editing: the same rendering, from the box's own text.
     await name.click();
-    const panel = page.getByLabel('Notes for 010, rendered while writing');
-    await expect(panel).toBeVisible();
-    // The rendering, not the source: the box beside it holds the markdown.
-    await expect(panel.locator('strong')).toHaveText('bold');
-    await expect(panel.locator('li')).toHaveCount(3);
+    const writing = page.getByLabel('Notes for 010, rendered while writing');
+    await expect(writing).toBeVisible();
+    await expect(writing.locator('strong')).toHaveText('bold');
+    await expect(writing.locator('li')).toHaveCount(3);
+    const editBox = await boxOf(writing, 'the editing preview');
 
-    // Beside the box and taking the row's right half — the same diagonal the
-    // hover preview takes, minus the row offset, because this one explains the
-    // box that is open rather than the row it belongs to.
-    const cell = await boxOf(
-      page.locator('tbody tr').filter({ has: name }).locator('td[data-column="name"]'),
-      'the Name cell',
-    );
-    const box = await boxOf(panel, 'the writing panel');
-    expect(box.x, 'the panel covers the cell it explains').toBeGreaterThanOrEqual(
-      cell.x + cell.width - 5,
-    );
-    expect(box.width, 'the panel is not the row’s right half').toBeGreaterThan(400);
+    // On screen — the overflow Dany reported. HoverCard clamps to the room
+    // beside the cell, so the right edge is inside the window.
+    const viewport = page.viewportSize();
+    if (viewport === null) throw new Error('the page has no viewport size');
+    expect(
+      Math.round(editBox.x + editBox.width),
+      'the editing preview runs off the right of the screen',
+    ).toBeLessThanOrEqual(viewport.width);
 
-    // And it goes when the box is left, which is what says it belongs to the
-    // writing rather than to the row.
+    // Close the editor, then the marker's hover card, from the same saved text.
+    await name.press('Escape');
+    await expect(writing).toHaveCount(0);
+    await page.getByLabel('Notes on 010').hover();
+    const hovering = page.getByRole('tooltip', { name: 'Notes for 010, rendered' });
+    await expect(hovering).toBeVisible();
+    const hoverBox = await boxOf(hovering, 'the hover preview');
+
+    // Identical in size: one card, one placement, one text.
+    expect(
+      Math.abs(hoverBox.width - editBox.width),
+      'the two previews differ in width',
+    ).toBeLessThanOrEqual(2);
+    expect(
+      Math.abs(hoverBox.height - editBox.height),
+      'the two previews differ in height',
+    ).toBeLessThanOrEqual(2);
+  });
+
+  test('while editing, the notes marker opens no second preview', async ({ page }) => {
+    // Dany, 2026-09-12: _"when i edit and see the preview - the notes icon must
+    // not trigger another preview pop-up"_. The editing card is the same card
+    // the marker would open, so the marker is inert while the box is focused.
+    //
+    // Proof: the `document.activeElement` guard removed from the marker's
+    // `onMouseEnter` — this failed on `two previews open while editing ·
+    // Expected: 1 · Received: 2`. Watched in Chromium, 2026-09-12.
+    const name = page.getByLabel('Name of 010');
+    await name.fill('Row 010\n\nA note worth reading.');
     await name.blur();
-    await expect(panel).toHaveCount(0);
+    await page.mouse.move(0, 0);
+
+    await name.click();
+    await expect(page.getByLabel('Notes for 010, rendered while writing')).toBeVisible();
+    expect(await page.locator('[role="tooltip"]').count(), 'the editor opened no preview').toBe(1);
+
+    await page.getByLabel('Notes on 010').hover();
+    expect(await page.locator('[role="tooltip"]').count(), 'two previews open while editing').toBe(
+      1,
+    );
   });
 
   test('a link in the notes is followable, and drawn like the name’s', async ({ page }) => {
