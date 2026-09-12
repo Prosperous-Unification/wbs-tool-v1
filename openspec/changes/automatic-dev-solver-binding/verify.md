@@ -243,6 +243,38 @@ task-private dependency tree was reused after validation. The post-gate sample
 was `/dev/shm` 59%, `/tmp` 69%, below the 85% hard alert. No live host mutation
 ran in this slice.
 
+## Resource lifecycle hardening
+
+At 2026-09-12T20:00:44Z h2puni retained 108 `sync.*` candidates using
+540,649,861 bytes and 87,757 inodes. The source install had 95,159 inodes; a
+fresh `bun install --frozen-lockfile` for exact main used 854,324,235 apparent
+bytes and 71,469 inodes and installed 1,258 packages in 1.83 seconds. The first
+full project run against the previously borrowed install failed three pin
+checks: React 18.3.1 was installed while the target expected 19.2.8, and the
+target's two TypeScript contracts were also older. The exact-target frozen
+install made the same project pass.
+
+At `4380b2b7`, candidates use local object links with no alternates pointer, so
+source gc cannot remove the object names they retain, and candidates older than
+24 hours are pruned. Only a solver-affecting target installs dependencies, in
+its own candidate from its own lock, immediately before publish. Restoring the
+old loader/runtime produced 6 failures across the focused poller/runtime pair;
+the implementation passed 21/21. The complete `tool-devsync` project passed
+127/127 plus lint, typecheck, changed-file Prettier, and ShellCheck.
+
+At `b03ea9bc`, the repository/config boundary controls first passed 84 and
+failed 7 with 1 setup error against previous production code. After the
+implementation, the same four focused files passed 96/96. The complete
+`tool-devsync` and `tool-dagger` project suites, lint, and typecheck passed;
+changed-file Prettier passed and OpenSpec 1.3.0 validated this change strictly.
+The real filesystem test accepts clone directories and worktree `.git` files,
+returns false only for absence, and observes EACCES for unreadable metadata.
+
+Completed-state repair deliberately retains the small pure runtime factory at
+both `readState` and `prepare` call sites. It validates and derives paths but
+owns no resources; caching it would introduce cross-target lifecycle state
+without removing a host mutation or duplicated authority.
+
 ## Live solver-affecting transition
 
 At 2026-09-08T04:09:46Z, before attempt 1, dev was still at
