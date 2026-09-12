@@ -10,6 +10,9 @@
  */
 const CONFLICTS = new Set([
   'cycle',
+  // Arranging a plan whose selected optimized variant has not settled. The same
+  // request lands once the solve does, which is the family's own definition.
+  'schedule_not_ready',
   'frozen',
   'rolled_up',
   'ancestor',

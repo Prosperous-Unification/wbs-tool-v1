@@ -167,6 +167,35 @@ only cancel that is not a write is the card's own arrival.
 the cell's own `mouseleave` already fires when the pointer leaves the card for anywhere outside
 the cell, so nothing could be seen to break with it gone.
 
+## The departure that kept the card, 2026-09-11
+
+Dany, the morning after the slice above merged: _"notes md preview pop-up does not go away if i
+move cursor away, but then move it up or down to other table elements"_ — and the rule he wants:
+_"this must be a simple rule - cursor away from notes icon & the preview pop-up for N ms => remove
+the preview"_.
+
+The table above was right and the sentence under it was the fault: _"every write cancels it"_.
+Reproduced first in the running app with dispatched `mouseout`/`mouseover` pairs: marker → Depends
+cell → away, 40ms apart, left the preview open (`1`) and five more rows of Depends cells left it
+open still; marker → Depends cell and **resting** there closed it (`0`). The Depends cell of a row
+with no dependencies opens no card and still writes `updateHovered((current) => current ===
+dependsCell ? null : current)` on its `mouseleave` — the same-cell guard every leave carries — and
+`updateHovered` began with `stopHolding()`. A write that changed nothing cancelled the hold the
+marker's leave had started, and with `hovered` still the Name cell nothing was left to close it.
+
+The marker is the Name cell's **right edge**, so "away" is through that cell more often than not.
+Both browser checks for the rule walked elsewhere: `goes when the pointer leaves the marker for
+anywhere but the card` walks 120px **left**, into the name box, and `is still there after a flick`
+ends at `(2, 2)`. Neither crosses a cell that writes, so neither could see this. R5's "assert in
+the window the fault lives in", with the window a direction.
+
+The fix names the two kinds of write: `arriveOn(cell)` cancels the hold and is what every enter and
+focus handler calls; `updateHovered` revises the reading and leaves the hold alone. The negative is
+`stopHolding()` put back at the top of `updateHovered`, watched three ways: `cell-card-store.test.ts`
+on `expected 'a:name' to be null` and `expected "vi.fn()" to be called 1 times, but got 0 times`, and
+the new `goes when the hand leaves the marker through the cell beside it` in Chromium on `the preview
+stayed after the hand left · Expected: 0 · Received: 1` — at the first read, before the walk down.
+
 ## The state that had to move down a level
 
 `WrittenNotesPanel` first held its text in the Name **cell**. Two suites caught it:

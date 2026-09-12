@@ -37,7 +37,7 @@ import {
 } from './remembered-layout';
 import { type FrameLayoutState } from './table-frame';
 import { teamsOnThePlan } from './teams-panel';
-import { CollapseIcon, ExpandIcon, KeyboardIcon } from './toolbar-icons';
+import { ArrangeIcon, CollapseIcon, ExpandIcon, KeyboardIcon } from './toolbar-icons';
 import type { TreeNarrowing } from './tree-search';
 import {
   type FacetCriteria,
@@ -529,6 +529,8 @@ export function SavedViews({
  */
 export function PlanToolbar({
   criteria,
+  scheduleError,
+  arrangeBySchedule,
   freezeMenuOpen,
   setFreezeMenuOpen,
   busy,
@@ -612,6 +614,10 @@ export function PlanToolbar({
   hiddenColumnIds: string[];
   frameState: FrameLayoutState;
   people: PersonView[];
+  /** `cycle` when the plan has no schedule at all, which is what the control says. */
+  scheduleError: 'cycle' | null;
+  /** Issues the arrangement and says it landed; built where the toast stack is. */
+  arrangeBySchedule: () => void;
   chartRead: ChartRead;
   estimateMethod: 'pert' | 'optimistic' | 'realistic' | 'pessimistic';
   commitQuery: (projectId: string, query: string) => void;
@@ -650,6 +656,15 @@ export function PlanToolbar({
   startDate: string | null;
   chooseEstimateMethod: (method: 'pert' | 'optimistic' | 'realistic' | 'pessimistic') => void;
 }) {
+  // Selected optimized and still drawn by Fast — solving, failed or infeasible,
+  // which are one state to a reader waiting for the schedule they picked. The
+  // same three conditions be-01 refuses `schedule_not_ready` on.
+  const awaitingSchedule =
+    chartRead.optimization !== undefined &&
+    chartRead.optimization.enabled &&
+    chartRead.optimization.engine === 'optimized' &&
+    chartRead.optimization.displayed === 'fast';
+
   const exportMenu = useClosedByPointerOutside();
   const [query, setQuery] = useState(criteria.query);
   const deferredQuery = useDeferredValue(query);
@@ -781,6 +796,51 @@ export function PlanToolbar({
         }}
       >
         <ExpandIcon />
+      </Button>
+      {/*
+        Whether the project picked the optimized engine and is still being drawn
+        by Fast — solving, failed or infeasible, which are one state to a reader
+        waiting for their own schedule. The same three conditions be-01 refuses
+        `schedule_not_ready` on, read off the payload the chart is already
+        holding rather than asked for again.
+      */}
+      {/*
+        One press puts every sibling group in the order its bars start — the
+        third control that acts on the tree's shape, after the two that open and
+        close it.
+
+        **An icon, and its name is the thing that does not change** (D1 of
+        `plan-toolbar-controls`): `Arrange by schedule` is what every test and
+        every screen reader finds, and the staircase is what the bar spends
+        width on. Dany asked for "an icon" and "a small column for now" on
+        2026-09-10, which is the narrowest control this bar can carry.
+
+        **Two states swap the hint for a fact and disable it**, because in both
+        of them be-01 would refuse and the reason is about *this plan* rather
+        than about the tool. A cycle has no schedule to arrange by; a project on
+        the optimized engine that is still drawing Fast has not got the one it
+        picked yet, and arranging by Fast there would leave the rows in an order
+        the reader did not choose with nothing on screen admitting it (ADR
+        0023).
+      */}
+      <Button
+        variant="outline"
+        size="square"
+        type="button"
+        disabled={busy || scheduleError === 'cycle' || awaitingSchedule}
+        aria-label="Arrange by schedule"
+        {...(scheduleError === 'cycle'
+          ? {
+              'data-fact':
+                'The plan has a dependency cycle, so there is no schedule to arrange by.',
+            }
+          : awaitingSchedule
+            ? { 'data-fact': 'Optimizing… arrange once the schedule settles.' }
+            : { 'data-hint': 'Put every sibling in the order its bar starts' })}
+        {...busyAffordance(busy)}
+        onClick={arrangeBySchedule}
+      >
+        <ArrangeIcon />
       </Button>
       {/*
         The schedule as something to look at, under the plan. `aria-pressed`

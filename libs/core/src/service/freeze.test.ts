@@ -36,6 +36,13 @@ async function numbered(): Promise<Record<string, string>> {
   return Object.fromEntries(tree.workItems.map((w) => [w.name, w.number]));
 }
 
+/** Name and number in the order the project reads, which is what a move changes. */
+async function inOrder(): Promise<[string, string][]> {
+  const tree = await service.tree(projectId);
+  if (tree === null) throw new Error('project vanished');
+  return tree.workItems.map((w) => [w.name, w.number]);
+}
+
 async function storedNumbers(): Promise<(string | null)[]> {
   const rows = await workItems.listByProject(projectId);
   return rows.sort((a, b) => a.position - b.position).map((w) => w.frozenNumber);
@@ -59,7 +66,10 @@ describe('freezing', () => {
 
     await add('Survey', strip);
 
-    expect(await numbered()).toEqual({ Strip: '010', Survey: '011', Cable: '020' });
+    // `030` where this read `011` until ADR 0023: the newcomer takes the first
+    // natural label its two frozen siblings leave free, instead of one fitted
+    // between them so that a byte-wise sort still equalled tree order.
+    expect(await numbered()).toEqual({ Strip: '010', Survey: '030', Cable: '020' });
     expect(await storedNumbers()).toEqual(['010', null, '020']);
   });
 
@@ -71,7 +81,9 @@ describe('freezing', () => {
 
     await service.freeze(projectId, OWNER);
 
-    expect(await storedNumbers()).toEqual(['010', '011', '020']);
+    // `030`, per the case above; the neighbours are still not rewritten, which
+    // is what this case is about.
+    expect(await storedNumbers()).toEqual(['010', '030', '020']);
   });
 
   it('unfreezing the project clears every stored number', async () => {
@@ -95,21 +107,36 @@ describe('freezing', () => {
   });
 });
 
-describe('a frozen work item cannot move', () => {
-  it('refuses the move and writes no position', async () => {
-    // The number has left the tool — it is in someone's ticket. Moving the row
-    // would either break that reference or silently stop meaning what it said.
+describe('a frozen work item moves, and keeps the number that left the tool', () => {
+  /**
+   * The inverse of the case that stood here until ADR 0023, kept rather than
+   * deleted so the suite still names the behaviour in whichever direction it
+   * runs. It refused with `frozen` and asserted the row had not moved.
+   *
+   * The reason given then — "the number has left the tool, it is in someone's
+   * ticket" — is exactly why the number is reported verbatim below. It was
+   * never a reason the *work* could not be somewhere else, and what the refusal
+   * really protected was `deriveNumbers`' anchor walk.
+   */
+  it('moves a frozen work item and reports its number unchanged', async () => {
     const strip = await add('Strip');
     const cable = await add('Cable', strip);
     await service.freeze(projectId, OWNER);
 
     const outcome = await service.move(cable, OWNER, { parentId: null, afterId: null });
 
-    expect(outcome).toEqual({ ok: false, reason: 'frozen' });
-    expect(await numbered()).toEqual({ Strip: '010', Cable: '020' });
+    expect(outcome.ok).toBe(true);
+    // Both halves in one assertion, which is why it reads the order rather than
+    // a record: `Cable` is now the first row, and it still reads `020`. The
+    // numbers no longer descend down the page, and that is the cost ADR 0023
+    // names out loud rather than the bug it looks like.
+    expect(await inOrder()).toEqual([
+      ['Cable', '020'],
+      ['Strip', '010'],
+    ]);
   });
 
-  it('allows the move once it is unfrozen', async () => {
+  it('gives an unfrozen mover the first label its frozen sibling leaves free', async () => {
     const strip = await add('Strip');
     const cable = await add('Cable', strip);
     await service.freeze(projectId, OWNER);
@@ -118,7 +145,14 @@ describe('a frozen work item cannot move', () => {
     const outcome = await service.move(cable, OWNER, { parentId: null, afterId: null });
 
     expect(outcome.ok).toBe(true);
-    expect(await numbered()).toEqual({ Cable: '005', Strip: '010' });
+    // `020`, where this answered `005` until ADR 0023 — a label fitted *below*
+    // the frozen anchor so a byte-wise sort still equalled tree order. Nothing
+    // sorts by the label now, so `Cable` simply takes the first natural that
+    // `Strip` does not hold.
+    expect(await inOrder()).toEqual([
+      ['Cable', '020'],
+      ['Strip', '010'],
+    ]);
   });
 });
 

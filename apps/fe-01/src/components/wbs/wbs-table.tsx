@@ -959,6 +959,19 @@ export function WbsTable({
     workItemTypes,
     services,
   });
+  /**
+   * `Arrange by schedule`, built here because the toast stack lives here.
+   *
+   * One sentence on the way out and nothing else: `run` already turns a refusal
+   * into its own toast and rereads the plan, and the whole tree comes back in
+   * schedule order because be-01 wrote the positions.
+   */
+  const arrangeBySchedule = useCallback(() => {
+    void run(() => api.arrangeBySchedule(projectId)).then((landed) => {
+      if (landed === 'landed') pushToast({ kind: 'info', text: 'Arranged by schedule.' });
+    });
+  }, [api, projectId, pushToast, run]);
+
   const { siblingsOf, addWorkItem } = useAddWorkItem({
     flat,
     projectId,
@@ -1726,6 +1739,8 @@ export function WbsTable({
       run={run}
       api={api}
       projectId={projectId}
+      scheduleError={scheduleError}
+      arrangeBySchedule={arrangeBySchedule}
       addWorkItem={addWorkItem}
       filtering={filtering}
       setExpanded={setExpanded}

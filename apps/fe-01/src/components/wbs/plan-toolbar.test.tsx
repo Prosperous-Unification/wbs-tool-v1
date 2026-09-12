@@ -38,6 +38,22 @@ vi.mock('./table-frame', async (importOriginal) => {
 });
 
 /** What the toast stack is saying, newest first. */
+/** The names down the first column, in the order the table draws them. */
+const namesOnScreen = (): string[] =>
+  screen
+    .getAllByRole('row')
+    .slice(1)
+    .map((tr) => {
+      const input = tr.querySelector('[data-name-input]');
+      // Thrown rather than defaulted: a row without a name cell means the
+      // markup changed, and an empty string here would quietly pass an
+      // ordering assertion that is no longer looking at anything.
+      if (!(input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement)) {
+        throw new Error('a row has no name cell');
+      }
+      return input.value;
+    });
+
 const toastTexts = (): string[] =>
   [...document.querySelectorAll('[data-toast-text]')].map((node) => node.textContent);
 
@@ -206,6 +222,62 @@ describe('the plan toolbar’s controls', () => {
 
     await waitFor(() => {
       expect(api.stackCalls).toEqual(['undo']);
+    });
+  });
+
+  itDom('offers Arrange by schedule as a drawn icon, and issues the one command', async () => {
+    const api = await threeRoots();
+    const asked: string[] = [];
+    api.arrangeBySchedule = (projectId: string) => {
+      asked.push(projectId);
+      return Promise.resolve();
+    };
+
+    const arrange = screen.getByRole('button', { name: 'Arrange by schedule' });
+    // An icon, like the pair beside it: the name is what does not change, and
+    // the bar spends its width on the drawing rather than on eighteen
+    // characters of label.
+    expect(arrange.textContent).toBe('');
+    expect(arrange.querySelector('svg')).not.toBeNull();
+    expect(arrange.getAttribute('data-hint')).toBe('Put every sibling in the order its bar starts');
+    expect(arrange.getAttribute('data-fact')).toBeNull();
+
+    fireEvent.click(arrange);
+
+    await waitFor(() => {
+      expect(asked).toEqual(['p1']);
+    });
+    // One sentence on the way out; `run` owns the refusal half.
+    await waitFor(() => {
+      expect(toastTexts()).toContain('Arranged by schedule.');
+    });
+  });
+
+  itDom('puts the rows in the order their bars start', async () => {
+    // The end-to-end claim, through the fake's own schedule: `Strip` is made to
+    // wait for `Paint`, so `Paint` and `Sand` start on day zero and `Strip`
+    // does not. The two that tie keep the order they already read in.
+    const api = await threeRoots();
+    const before = await api.tree('p1');
+    const idOf = (number: string): string => {
+      const found = before.workItems.find((row) => row.number === number);
+      if (found === undefined) throw new Error(`no row numbered ${number}`);
+      return found.id;
+    };
+    // An estimate first: this fake gives an unestimated row a duration of zero
+    // — the real engine assumes two workdays — so a predecessor with no
+    // estimate moves nothing.
+    await api.setEstimate(idOf('030'), 'step-dev', {
+      optimistic: 1,
+      realistic: 2,
+      pessimistic: 3,
+    });
+    await api.addDependency(idOf('010'), idOf('030'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Arrange by schedule' }));
+
+    await waitFor(() => {
+      expect(namesOnScreen()).toEqual(['Sand', 'Paint', 'Strip']);
     });
   });
 

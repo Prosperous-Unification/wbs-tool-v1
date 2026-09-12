@@ -42,5 +42,11 @@ path. That movement is measured against the live population and announced before
 it is not discovered by a user. Projects with no tie are byte-identical before and after,
 because with distinct positions the labels come off `position` alone.
 
+Two things have moved since, both in the same direction. The resolution is no longer imposed
+only by `listByProject`'s `ORDER BY`: `siblingGroupsOf` sorts on `id` explicitly, so a caller
+holding rows in any other order gets the same project (ADR 0023). And a changed sibling group
+is respaced to `10, 20, 30…` by an arrangement, which retires whatever ties it held — a
+repair where it happens rather than a migration, which is what this decision declined.
+
 Reversing this is cheap: the order is one clause and one index, no stored value changes shape.
 That is why it is an ADR about a tolerated defect rather than a migration.

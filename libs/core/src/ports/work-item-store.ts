@@ -552,6 +552,26 @@ export interface WorkItemStore {
     stamp: WriteStamp,
   ): Promise<void>;
   /**
+   * Rewrites the positions of whole sibling groups, in one transaction, and
+   * bumps the revision of **only** the work items named in `moved`.
+   *
+   * One call rather than a `move` per work item, for the reason
+   * {@link setFrozenNumbers} is one call: a project half arranged is a project
+   * where some rows are in schedule order and some are not, and nobody reading
+   * it could tell which. It also keeps a press to one journal entry and one
+   * broadcast.
+   *
+   * The split between `placements` and `moved` is `move`'s own, and it matters
+   * for the same reason: a respaced sibling that kept its place must not gain a
+   * revision, or a peer's pending undo of something else on that row is refused
+   * by an arrangement that did not touch it.
+   */
+  setPositions(
+    placements: readonly Repositioned[],
+    moved: readonly string[],
+    stamp: WriteStamp,
+  ): Promise<void>;
+  /**
    * Writes or clears stored numbers. `null` returns a work item to deriving.
    *
    * A freeze is one call rather than a write per work item: a project half

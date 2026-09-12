@@ -219,7 +219,7 @@ export function createNameColumn({ live }: { live: PlanLive }) {
               aria-label={`Notes on ${row.original.number}`}
               data-notes-marker={row.original.id}
               onMouseEnter={() => {
-                live.current.cellCards.updateHovered(() => nameCell);
+                live.current.cellCards.arriveOn(nameCell);
               }}
               // **And the marker's leave is what dismisses it**, held for the
               // length of a reach in case the hand is going to the card. Dany,
@@ -273,7 +273,7 @@ export function createNameColumn({ live }: { live: PlanLive }) {
               // got there. Leaving it is the cell's own `mouseleave`, which
               // holds and then closes.
               onPointerArrives={() => {
-                live.current.cellCards.cancelHold();
+                live.current.cellCards.arriveOnCard();
               }}
             />
           )}

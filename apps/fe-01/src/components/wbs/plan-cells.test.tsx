@@ -2072,9 +2072,19 @@ describe('names wrap and notes carry markdown', () => {
     await screen.findByRole('tooltip');
     fireEvent.mouseEnter(notesMarkerOf('020'));
 
-    const open = screen.getAllByRole('tooltip');
-    expect(open).toHaveLength(1);
-    expect(open[0]?.getAttribute('aria-label')).toBe('Notes for 020, rendered');
+    // The second card is a **takeover** (`card-takeover-delay`): with 010's
+    // card open, 020's marker gets the card only once the pointer has rested
+    // on it for {@link TAKEOVER_MS}. Until then the one card open is still
+    // 010's — never two, never none.
+    const waiting = screen.getAllByRole('tooltip');
+    expect(waiting).toHaveLength(1);
+    expect(waiting[0]?.getAttribute('aria-label')).toBe('Notes for 010, rendered');
+    await waitFor(() => {
+      expect(screen.getByRole('tooltip').getAttribute('aria-label')).toBe(
+        'Notes for 020, rendered',
+      );
+    });
+    expect(screen.getAllByRole('tooltip')).toHaveLength(1);
 
     fireEvent.mouseLeave(notesMarkerOf('010'));
 

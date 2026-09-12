@@ -466,37 +466,6 @@ describe('canonicalScheduleInput', () => {
     });
 
     /**
-     * `frozenNumber`, and it takes **two** anchors — which is a fact about
-     * `deriveNumbers` rather than about this test, measured rather than
-     * reasoned.
-     *
-     * The obvious case is one anchor: freeze `x` at `005` and expect it to jump
-     * ahead of `y`'s natural `010`. It does not, and the schedule comes back
-     * byte-identical. `deriveNumbers` **repairs the group around the anchor**:
-     * `claimLabel` has to put the earlier-positioned `y` below `005`, so
-     * `below('005')` gives it `0045` and the pair reads `y=0045, x=005` — the
-     * same relative order as the unfrozen `y=010, x=020`. A single frozen
-     * number can therefore never reorder siblings; it only renames them.
-     *
-     * Two anchors that contradict `position` cannot be repaired, because
-     * neither may be rebuilt: `x` at position 20 frozen `005` and `y` at
-     * position 10 frozen `010` come back exactly as written, and `x` now sorts
-     * first. That is the mutation below. Both probed directly against
-     * `deriveNumbers` on h2puni before the case was written.
-     */
-    it('two frozen numbers that contradict position — moves a placement, so the canonical bytes must move', () => {
-      const mutated: ScheduleInput = {
-        ...TIED,
-        rows: [
-          { id: 'x', parentId: null, position: 20, frozenNumber: '005', priority: null },
-          { id: 'y', parentId: null, position: 10, frozenNumber: '010', priority: null },
-        ],
-      };
-      expect(canonicalScheduleInput(mutated)).not.toBe(canonicalScheduleInput(TIED));
-      expect(run(mutated)).not.toEqual(run(TIED));
-    });
-
-    /**
      * The seventh argument, and it is no longer declared-pending.
      *
      * The case used to sit below among the deliberately-stricter mutations,
@@ -563,6 +532,35 @@ describe('canonicalScheduleInput', () => {
   });
 
   describe('mutations the canonical form is deliberately stricter about than today’s engine', () => {
+    /**
+     * `frozenNumber`, which since ADR 0023 cannot move a placement at all.
+     *
+     * It could until then, and this case sat above among the mutations that
+     * do. Two anchors contradicting `position` — `x` at position 20 frozen
+     * `005`, `y` at position 10 frozen `010` — come back exactly as written,
+     * so `x` read first, and `goesFirst`'s third rule handed it the tie. That
+     * rule asks {@link treeOrder} now, which reads `position`; a frozen number
+     * is a name, and the two plans below schedule identically.
+     *
+     * It stays in the canonical form regardless, and this is the safe
+     * direction to be wrong in: a field hashed that no longer moves a
+     * placement costs a re-solve, while a field left out of the key serves a
+     * stale schedule against an edit it cannot see. It is also still an input
+     * to what a reader *sees* — `deriveNumbers` reports it verbatim, and two
+     * plans differing only here are different plans on screen.
+     */
+    it('two frozen numbers that contradict position, which no longer reorder anything', () => {
+      const mutated: ScheduleInput = {
+        ...TIED,
+        rows: [
+          { id: 'x', parentId: null, position: 20, frozenNumber: '005', priority: null },
+          { id: 'y', parentId: null, position: 10, frozenNumber: '010', priority: null },
+        ],
+      };
+      expect(run(mutated)).toEqual(run(TIED));
+      expect(canonicalScheduleInput(mutated)).not.toBe(canonicalScheduleInput(TIED));
+    });
+
     /**
      * The as-written priority on a parent that binds no leaf. Every leaf
      * carries its own priority, so `priorityByLeaf` never reaches `p` and the

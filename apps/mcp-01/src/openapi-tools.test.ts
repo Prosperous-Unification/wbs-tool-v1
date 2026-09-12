@@ -266,7 +266,14 @@ describe('toolsFromDocument, on the generated document', () => {
     // command kind cannot arrive in be-01 without a model being told about it —
     // which is precisely what this red is, arriving from a change gated on
     // `-p be-01`.
-    expect(list.items.anyOf).toHaveLength(36);
+    //
+    // **36 to 37 with `arrange-by-schedule`**: `arrangeBySchedule`, and this
+    // pin caught it exactly as its paragraph above promises — the change was
+    // run against `domain`, `core`, `contracts`, `store-sqlite`, `store-memory`
+    // and `be-01`, and `mcp-01` was the project that noticed. Its `describe`
+    // reads "Put every sibling group in the order its bars start.", which is
+    // what the loop below is checking is there to read.
+    expect(list.items.anyOf).toHaveLength(37);
     for (const variant of list.items.anyOf) {
       expect(variant.description.length).toBeGreaterThan(10);
       expect(typeof variant.properties.kind.const).toBe('string');

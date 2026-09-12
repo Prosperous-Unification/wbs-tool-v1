@@ -110,10 +110,17 @@ describe('planMove', () => {
     });
   });
 
-  it('refuses to move a frozen row', () => {
+  it('plans a frozen row’s move like any other', () => {
+    // The inverse of the case that stood here until ADR 0023, kept rather than
+    // deleted: it expected `{ ok: false, reason: 'frozen' }`, pre-empting a
+    // refusal be-01 no longer makes.
     const frozen = TREE.map((r) => (r.id === 'paint' ? row('paint', '030', null, true) : r));
 
-    expect(planMove(frozen, 'paint', 'strip', 'into')).toEqual({ ok: false, reason: 'frozen' });
+    expect(planMove(frozen, 'paint', 'strip', 'into')).toEqual({
+      ok: true,
+      parentId: 'strip',
+      afterId: 'lights',
+    });
   });
 
   it('refuses a drop onto the row being dragged', () => {
