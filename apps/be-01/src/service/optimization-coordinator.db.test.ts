@@ -902,7 +902,7 @@ describe('OptimizationCoordinator read', () => {
     try {
       raw.run(
         "UPDATE optimized_schedule_cache SET result_json = ? WHERE objective = 'pri'",
-        incomplete,
+        [incomplete],
       );
       raw.run("DELETE FROM optimized_schedule_cache WHERE objective = 'time'");
       raw.run(
