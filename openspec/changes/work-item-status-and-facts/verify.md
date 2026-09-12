@@ -5,19 +5,20 @@ measurements below are this machine's (macOS, UTC+3, Chromium via Playwright); C
 
 ## Commands
 
-| Command                                                                                                      | Result                                                                 |
-| ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| `bunx nx run-many -t typecheck -p domain core contracts store-sqlite store-memory conformance be-01 mcp-01`  | pass                                                                   |
-| `bunx nx run fe-01:typecheck`                                                                                | pass                                                                   |
-| `bunx nx run-many -t test -p domain contracts`                                                               | pass                                                                   |
-| `bunx nx run core:test`                                                                                      | pass — 418 (after the rename the boundary lint sorted one import)      |
-| `bunx nx run store-sqlite:test`                                                                              | pass — 0 fail, nine ledgers extended both ways                         |
-| `bunx nx run-many -t test -p mcp-01 be-01`                                                                   | pass after the two identity oracles lifted `factStart`/`factEnd`       |
-| `bunx nx run-many -t lint -p domain core contracts store-sqlite store-memory conformance be-01 mcp-01 fe-01` | one finding, `type` → `interface` in the new controller test; fixed    |
-| `bunx nx format:check --all`                                                                                 | pass                                                                   |
-| `OPENSPEC_TELEMETRY=0 bunx openspec validate --all --json`                                                   | 80 passed, 0 failed                                                    |
-| `bunx vitest run` (fe-01, whole suite, under load)                                                           | 16 failed — see below; every one re-run alone is green or pre-existing |
-| `E2E_PORT_SHIFT=1900 bunx playwright test … apps/fe-01/e2e/status.spec.ts`                                   | **1 passed** (run 3, Saturday: the bar stops in Friday's cell)         |
+| Command                                                                                                      | Result                                                                                     |
+| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| `bunx nx run-many -t typecheck -p domain core contracts store-sqlite store-memory conformance be-01 mcp-01`  | pass                                                                                       |
+| `bunx nx run fe-01:typecheck`                                                                                | pass                                                                                       |
+| `bunx nx run-many -t test -p domain contracts`                                                               | pass                                                                                       |
+| `bunx nx run core:test`                                                                                      | pass — 418 (after the rename the boundary lint sorted one import)                          |
+| `bunx nx run store-sqlite:test`                                                                              | pass — 0 fail, nine ledgers extended both ways                                             |
+| `bunx nx run-many -t test -p mcp-01 be-01`                                                                   | pass after the two identity oracles lifted `factStart`/`factEnd`                           |
+| `bunx nx run-many -t lint -p domain core contracts store-sqlite store-memory conformance be-01 mcp-01 fe-01` | one finding, `type` → `interface` in the new controller test; fixed                        |
+| `bunx nx format:check --all`                                                                                 | pass                                                                                       |
+| `OPENSPEC_TELEMETRY=0 bunx openspec validate --all --json`                                                   | 80 passed, 0 failed                                                                        |
+| `bunx vitest run` (fe-01, whole suite, under load)                                                           | 16 failed — see below; every one re-run alone is green or pre-existing                     |
+| `E2E_PORT_SHIFT=1900 bunx playwright test … apps/fe-01/e2e/status.spec.ts`                                   | **1 passed** (run 3, Saturday: the bar stops in Friday's cell)                             |
+| CI `pixels` on `1fef2e54`                                                                                    | shard 1/4 red on `deadline.spec.ts`'s export pin (`Starts` → `Status`); moved, rerun below |
 
 ### The fe-01 results that were not green on first run, and why
 
