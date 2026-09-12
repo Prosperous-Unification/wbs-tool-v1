@@ -2137,19 +2137,19 @@ describe('names wrap and notes carry markdown', () => {
 
   itDom('the Done button beside the notes saves and closes the editor too', async () => {
     // Dany, 2026-09-12: _"a non-intrusive neat small 'Done' button that you can
-    // press to hide the editor of markdown"_. It lives in the rendered-notes
-    // panel — the one thing there that takes the pointer — and does what Escape
-    // does. A press, not a click: the press is what would have moved the focus
+    // press to hide the editor of markdown"_, and then _"move the done btn to be
+    // near the note icon"_ — so it stands in the cell beside the `≡`, not in the
+    // card. A press, not a click: the press is what would have moved the focus
     // off the box anyway, so it is answered where it lands.
     //
     // Proof: the button's `blur()` removed — this failed on `expected '## Risks'
     // to be '## Risks\n\n- one more'`. Watched, 2026-09-12.
     const api = await oneRowWithNotes('## Risks');
     const box = await screen.findByLabelText('Name of 010');
-    box.focus();
+    fireEvent.focus(box);
     fireEvent.input(box, { target: { value: 'Strip\n## Risks\n\n- one more' } });
-    const panel = await screen.findByLabelText('Notes for 010, rendered while writing');
-    const done = within(panel).getByRole('button', { name: 'Done writing notes for 010' });
+    await screen.findByLabelText('Notes for 010, rendered while writing');
+    const done = screen.getByRole('button', { name: 'Done writing notes for 010' });
     fireEvent.mouseDown(done);
     await waitFor(() => {
       expect(api.rows[0]?.notes).toBe('## Risks\n\n- one more');
