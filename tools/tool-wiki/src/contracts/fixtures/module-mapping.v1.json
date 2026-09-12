@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "mappingId": "modules.baseline.v1",
+  "mappingVersion": "baseline-layout-v1",
+  "sourceRevision": "7851161bf96312750d07b933ca5d42b75ce575c7",
+  "modules": [
+    {
+      "moduleId": "module.domain.schedule",
+      "name": "Schedule domain",
+      "memberships": [
+        { "kind": "directory-prefix", "prefix": "libs/domain/src", "exclusions": [] }
+      ],
+      "predecessorModuleIds": [],
+      "indexPath": "libs/domain/README.md",
+      "externalConsumers": {
+        "kind": "declared",
+        "memberships": [{ "kind": "directory-prefix", "prefix": "apps", "exclusions": [] }]
+      }
+    }
+  ]
+}

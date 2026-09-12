@@ -6,7 +6,7 @@ No `verify.md` exists until implementation produces observations.
 
 ## 1. Baseline, contracts and finite inventory
 
-- [ ] 1.1 Pin the untouched baseline revision, exact Git tuples, candidate inventory and
+- [x] 1.1 Pin the untouched baseline revision, exact Git tuples, candidate inventory and
       fixed benchmark outcome/acceptance corpus under `docs/experiment-evidence/`; initialize
       the `tools/tool-wiki` project and schema fixtures under `src/contracts/`. Implement
       strict decoders for candidates, entries, policies, five independent granularity
@@ -18,7 +18,7 @@ No `verify.md` exists until implementation produces observations.
       deliberate errors in both source and a test must fail
       `bunx nx typecheck tool-wiki --skip-nx-cache`.
       Do not clean root docs before baseline identities are retained.
-- [ ] 1.2 Implement `inventory/read-candidate.ts` with immutable committed/staged selection
+- [x] 1.2 Implement `inventory/read-candidate.ts` with immutable committed/staged selection
       and explicit diagnostic working mode, using `git ls-tree -r -z`/index-tree snapshots.
       Test `inventory/read-candidate.test.ts` through `cli.test.ts` in temporary Git repos:
       additions, deletion, rename sides, modes, symlink blobs, new untracked files and index
@@ -26,13 +26,13 @@ No `verify.md` exists until implementation produces observations.
       candidate addition, or read HEAD when staged differs; assert complete tuple/selection
       mismatch on the actual selected candidate. Required absence/unreadability/malformed
       state cases must fail distinctly; no zero-entry fallback.
-- [ ] 1.3 Implement `inventory/classify-entries.ts` and evidence schema routing for ordinary
+- [x] 1.3 Implement `inventory/classify-entries.ts` and evidence schema routing for ordinary
       content versus the two reserved evidence roots. Test `classification.test.ts` includes
       source/test/config/script/migration/fixture/generated/vendor/placeholder/document/
       OpenSpec/binary/symlink cases plus declared Gitlink boundaries. Negative: hide source,
       an executable mode, unknown schema or unenveloped prose under evidence and observe
       CLI classification failure; schema-wrapped opaque transcript is the positive control.
-- [ ] 1.4 Implement `evidence/content-manifest.ts` canonical serialization and finite
+- [x] 1.4 Implement `evidence/content-manifest.ts` canonical serialization and finite
       artifact validation. Test `content-manifest.test.ts` and `artifacts.test.ts`: evidence
       bytes change while content manifest stays fixed and validation terminates; source bytes
       change and content identity/currency changes. Negative: include evidence bytes in the
@@ -41,34 +41,34 @@ No `verify.md` exists until implementation produces observations.
 
 ## 2. Relationships, indexes and the pilot
 
-- [ ] 2.1 Implement `relationships/typescript.ts` and `relationships/nx.ts` against the
+- [x] 2.1 Implement `relationships/typescript.ts` and `relationships/nx.ts` against the
       installed compiler/configuration and actual project graph. Publish exact import,
       reverse-edge, target and resolved public-declaration selectors with extractor identity.
       Test `relationships.test.ts` on re-exported/transitive types and nested Nx projects;
       negative: alter a re-exported type behind an unchanged barrel and observe structural
       evidence become stale, then restore. An unchanged internal caller with the same edge
       must not stale provider topology; a new importer must stale it.
-- [ ] 2.2 Implement `relationships/declarations.ts` and typed fact selectors for scripts,
+- [x] 2.2 Implement `relationships/declarations.ts` and typed fact selectors for scripts,
       CI/hooks, Docker/generated artifacts, ports/env, tables/migrations, HTTP contracts,
       vendored locks and external consumers. Test `selectors.test.ts` through CLI extraction;
       negative: forge a selector/edge or change a current port/route/table/target and observe
       named mismatch. Explicitly historical selectors resolve against their historical base;
       unsupported relationships remain named unresolved, never silently certified.
-- [ ] 2.3 Implement `indexes/read-indexes.ts` and `indexes/check-indexes.ts`, versioned
+- [x] 2.3 Implement `indexes/read-indexes.ts` and `indexes/check-indexes.ts`, versioned
       metadata, exact bidirectional membership and Markdown path/case/anchor checks. Test
       `indexes.test.ts` in a fixture tree: nested projects, grouped test/vendor sets and frozen
       archive proposals. Negative: delete/add an indexed child, wrong-case link, missing
       anchor, invalid metadata, path escape or ambiguous membership declaration; each fails
       the CLI at its own assertion. Links contain no globs. More than forty direct entries
       reports review debt with no automatic file move.
-- [ ] 2.4 Pin pilot boundaries and exclusions in reviewed `docs/wiki-policy/policy.json`
+- [x] 2.4 Pin pilot boundaries and exclusions in reviewed `docs/wiki-policy/policy.json`
       and stable ids/path/predecessor mappings in `modules.json`. Use representative domain,
       application, adapter, infra, docs and archive boundaries that exist at the pinned base;
       freeze their exact paths in the manifest before work. Add corresponding READMEs and
       correct pilot knowledge in its proper owner. Test: membership, external-consumer
       declaration and applicable-check references pass `tool-wiki:lint` in observe mode;
       remove an index membership and watch it fail. Label pilot coverage explicitly.
-- [ ] 2.5 Record the complete root source-to-destination map, then move current findings
+- [x] 2.5 Record the complete root source-to-destination map, then move current findings
       into `docs/findings/` and the R5 catalogue into `checks-that-cannot-fail.md`, preserving
       stable incident ids and observed proof text. Keep rules and gate obligations in AGENTS;
       keep orientation/gate/router in LLM_README. Test `root-migration.test.ts` asserts all
@@ -78,7 +78,7 @@ No `verify.md` exists until implementation produces observations.
 
 ## 3. Review provenance, currency and trusted lint
 
-- [ ] 3.1 Implement `review/invoker.ts`, `review/protocol.ts` and invocation journal ports
+- [x] 3.1 Implement `review/invoker.ts`, `review/protocol.ts` and invocation journal ports
       with the structured process-harness adapter. Test `protocol.test.ts` and
       `invocation-provenance.test.ts`: invocation registered before launch, actual model/
       provider/effort/tools/usage receipt retained, raw response identity/retention checked,
@@ -87,21 +87,21 @@ No `verify.md` exists until implementation produces observations.
       yes; production receipt validation must fail. Missing required telemetry is unverified.
       Provision trusted harness/CI receipts separately; a local cooperative transcript alone
       cannot satisfy externally enforced provenance.
-- [ ] 3.2 Implement `evidence/currency.ts` and `policy/obligations.ts` with independent
+- [x] 3.2 Implement `evidence/currency.ts` and `policy/obligations.ts` with independent
       content/structural/semantic/topology inputs. Test `currency.test.ts`: content-only child
       edit leaves ancestor navigation current; public or semantic selector edit stales its
       consumers; new reverse/index edge stales matching relationship judgment. Negative:
       change behavior with identical types and observe the required consumer/conformance
       check fail; delete impact classification and observe expanded-review refusal. A
       writer-declared implementation-only label cannot waive behavior checks.
-- [ ] 3.3 Implement `review/audit.ts`, deterministic seed/risk sampling and separate
+- [x] 3.3 Implement `review/audit.ts`, deterministic seed/risk sampling and separate
       file/directory/project/docs obligations, correction closure and fresh post-correction
       review. Test `audit.test.ts`: repeat seed gives exact same stratified sample, missing
       review stays named, disagreement triggers adjudication/fresh shard review. Negative:
       submit sampled evidence as exhaustive, close a finding without source/check evidence,
       or reuse pre-correction review; enforce must name the unmet obligation. Record
       model/context overlap and full review/read costs.
-- [ ] 3.4 Implement `policy/trust.ts` and CLI observe/ratchet/enforce with externally
+- [x] 3.4 Implement `policy/trust.ts` and CLI observe/ratchet/enforce with externally
       selected policy/validator binding. Test `trusted-policy.test.ts` using independent
       candidate and trusted-policy fixtures: every mode performs whole-tree deterministic
       checks; ratchet prevents adopted regressions; enforce rejects missing obligations.
@@ -109,7 +109,7 @@ No `verify.md` exists until implementation produces observations.
       observe for enforced work or edits an exemption; the unchanged trusted verifier must
       refuse. Separately reviewed compatible activations retain old/new identities and
       reselect affected checks. Never let candidate flags choose CI trust.
-- [ ] 3.5 Wire `tool-wiki:lint` into `bin/h2puni-gate.sh`, CI and whole-tree lefthook with
+- [x] 3.5 Wire `tool-wiki:lint` into `bin/h2puni-gate.sh`, CI and whole-tree lefthook with
       explicit working/staged/committed modes, complete inputs and caching disabled. Test
       `gate-entrypoints.test.ts` executes real command paths in fixture candidates, including
       deletion with an unchanged reverse link and working untracked content. Negative:
@@ -119,7 +119,7 @@ No `verify.md` exists until implementation produces observations.
 
 ## 4. Claim authority and fenced submission
 
-- [ ] 4.1 Implement `admission/authority-store.ts` and `admission/claims.ts` using the
+- [x] 4.1 Implement `admission/authority-store.ts` and `admission/claims.ts` using the
       canonical common-Git SQLite authority, strict state schema, transactions and bounded
       contention. Test `claims.test.ts` in memory and `claims.db.test.ts` across two spawned
       Bun processes/worktrees: all claims acquired or none, parent/child overlap, conflict
@@ -127,13 +127,13 @@ No `verify.md` exists until implementation produces observations.
       and observe partial ownership/interleaving; remove overlap detection and observe both
       writers acquire the same boundary. Absence on initial creation is modeled; unreadable,
       corrupt or incompatible existing state throws.
-- [ ] 4.2 Implement `admission/generations.ts` and state transitions. Test
+- [x] 4.2 Implement `admission/generations.ts` and state transitions. Test
       `generations.test.ts`: heartbeat expiry fences/investigates; submitted state retains
       claims; exact-generation release is idempotent; rejection/abandonment allows a new
       generation. Negative: resume old writer after successor acquisition, wrong-generation
       release, or second publication after submit; observe refusal preserving successor and
       immutable submission identities. Do not claim expired heartbeat stopped a process.
-- [ ] 4.3 Implement `admission/packet.ts` and `admission/submit.ts`: pin base/policy/mapping,
+- [x] 4.3 Implement `admission/packet.ts` and `admission/submit.ts`: pin base/policy/mapping,
       objective/outcome, owned/read sets, contracts/invariants/checks; normalize paths without
       symlink escape; freeze patch and candidate identities. Test `submit.test.ts` in real
       fixture worktrees. Negative: out-of-packet rename destination, unowned addition/deletion,
@@ -143,13 +143,13 @@ No `verify.md` exists until implementation produces observations.
 
 ## 5. Combined integration and recovery
 
-- [ ] 5.1 Implement `admission/integrate.ts` in a coordinator worktree with immutable
+- [x] 5.1 Implement `admission/integrate.ts` in a coordinator worktree with immutable
       submission application, candidate-specific read/contract revalidation and affected
       check selection. Test `integration.test.ts`: two compatible submissions integrate as
       one checked candidate; contract-only incompatible transition fails until consumers
       join the same batch. Negative: reuse scoped evidence after a gate/relationship change
       and observe reselection/refusal; final candidate manifest must match every receipt.
-- [ ] 5.2 Add final generation/base recheck with compare-and-swap Git ref update, bounded
+- [x] 5.2 Add final generation/base recheck with compare-and-swap Git ref update, bounded
       retry and exact-submission recovery. Test `integration-races.test.ts`: advance target
       branch while checks are held, then release; old candidate cannot publish. Negative:
       omit ref/base check or use mutable writer patch and observe the wrong-candidate oracle
@@ -173,6 +173,9 @@ No `verify.md` exists until implementation produces observations.
       independent of assignment grouping. Negative: replace a path at equal count or merge
       groups to omit a review and observe coverage fail. Final mapping/index adoption waits
       for `repo-namespacing`; historical packets resolve their pinned pre-move mapping.
+      The strict census/freezer/verifier tooling is implemented; this remains unchecked because
+      operator-selected launch inputs, the operational freeze, and final namespacing adoption are
+      intentionally pending.
 - [ ] 6.2 Execute cold/informed reviews through the provisioned harness, collect all raw
       responses/usage, resolve owned documentation corrections, and route behavior/architecture
       findings to separate changes. Perform fresh post-correction file/directory/project/docs

@@ -189,6 +189,62 @@ else
   pass 'the wait default stops at the lock and never enters the steps environment'
 fi
 
+# 8. A rejected candidate cannot become the checkout the next invocation trusts.
+git -C "$repo" checkout -q main
+status=0
+run_gate "$repo" "$lock" "$sha_a" false 2>"$scratch/rejected-stderr" || status=$?
+expect_status 1 "$status" 'a rejected candidate preserves its command status'
+expect_equal main "$(git -C "$repo" symbolic-ref --short HEAD)" 'a rejected gate restores the pre-gate branch'
+expect_equal "$sha_b" "$(git -C "$repo" rev-parse HEAD)" 'a rejected gate restores the pre-gate commit'
+status=0
+run_gate "$repo" "$lock" "$sha_a" bash -c 'test "$(git rev-parse HEAD)" = "$1"' gate-second "$sha_a" || status=$?
+expect_status 0 "$status" 'a second gate starts from restored trusted checkout state'
+
+git -C "$repo" checkout -q --detach "$sha_b"
+status=0
+run_gate "$repo" "$lock" "$sha_a" false 2>/dev/null || status=$?
+expect_status 1 "$status" 'a rejected candidate from detached state preserves its status'
+if git -C "$repo" symbolic-ref -q HEAD >/dev/null; then
+  fail 'a rejected gate changed the original detached checkout into a branch'
+else
+  pass 'a rejected gate preserves detached checkout shape'
+fi
+expect_equal "$sha_b" "$(git -C "$repo" rev-parse HEAD)" 'a rejected gate restores detached commit'
+
+# 9. A branch may move independently while the gate runs. Recovery must not overwrite that
+# newer ref or silently restore different bytes: it leaves the exact saved commit detached and
+# reports that the original symbolic state could not be reconstructed.
+git -C "$repo" checkout -q main
+status=0
+run_gate "$repo" "$lock" "$sha_a" bash -c 'git update-ref refs/heads/main "$1"; exit 1' \
+  gate-move "$sha_a" 2>"$scratch/ref-move-failure" || status=$?
+expect_status 74 "$status" 'a concurrently moved original branch is a loud restore failure'
+expect_equal "$sha_a" "$(git -C "$repo" rev-parse refs/heads/main)" 'restore does not overwrite the concurrently moved branch'
+expect_equal "$sha_b" "$(git -C "$repo" rev-parse HEAD)" 'restore preserves the exact saved commit after a branch move'
+if git -C "$repo" symbolic-ref -q HEAD >/dev/null; then
+  fail 'a moved branch left the checkout attached to different bytes'
+else
+  pass 'a moved branch leaves the saved commit recoverable in detached state'
+fi
+if grep -q 'original branch moved during gate' "$scratch/ref-move-failure"; then
+  pass 'concurrent ref movement names the failed symbolic restore'
+else
+  fail 'concurrent ref movement did not name the failed symbolic restore'
+fi
+
+# 10. Restore is required state recovery, so losing its ref must replace the candidate failure.
+git -C "$repo" update-ref refs/heads/main "$sha_b"
+git -C "$repo" checkout -q main
+status=0
+run_gate "$repo" "$lock" "$sha_a" bash -c 'git branch -D main >/dev/null; exit 1' \
+  2>"$scratch/restore-failure" || status=$?
+expect_status 74 "$status" 'a failed checkout restore is loud'
+if grep -q 'failed to restore pre-gate checkout' "$scratch/restore-failure"; then
+  pass 'restore failure names the lost safety recovery'
+else
+  fail 'restore failure did not name the lost safety recovery'
+fi
+
 if ((failures)); then
   printf '\n%d failing case(s)\n' "$failures" >&2
   exit 1

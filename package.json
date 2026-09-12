@@ -10,7 +10,7 @@
     "test": "nx run-many -t test",
     "test:unit": "nx run-many -t test:unit",
     "test:queued": "bin/with-heavy-lock.sh -- nx run-many -t test",
-    "lint": "nx run-many -t lint",
+    "lint": "nx run-many -t lint --exclude=tool-wiki && nx run tool-wiki:lint:source",
     "format": "nx format:write",
     "format:check": "nx format:check",
     "typecheck": "nx run-many -t typecheck",

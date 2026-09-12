@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "outDir": "../../dist/out-tsc", "types": ["bun-types"] },
+  "include": ["src/**/*.test.ts", "src/**/*.spec.ts"]
+}

@@ -1,4 +1,4 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
 
 import { describe, expect, it } from 'bun:test';
 import {
@@ -7,6 +7,7 @@ import {
   type ProjectGraph,
 } from 'nx/src/devkit-exports';
 import { filterUsingGlobPatterns, getTargetInputs } from 'nx/src/hasher/task-hasher';
+import ts from 'typescript';
 
 import { readProjects } from '../workspace-projects.mjs';
 
@@ -186,13 +187,72 @@ describe('every typecheck target compiles files', () => {
  * tool-devsync:test  [existing outputs match the cache, left as is]`, and with
  * it restored the same edit ran the suite.
  */
+function outsidePathLiterals(source: string): string[] {
+  const syntax = ts.createSourceFile('outside-read.ts', source, ts.ScriptTarget.Latest, true);
+  const found: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isStringLiteral(node) && /^(?:\.\.\/){3,}[A-Za-z0-9_./-]*$/.test(node.text)) {
+      const parent = node.parent;
+      // Proof: the raw-quote scan reported Tool Wiki fixture literals as real reads of
+      // `tools/outside` and `tools/provider/src/index`; syntax selection removed only those two,
+      // while the production gate still failed on the real undeclared h2puni steps-script read.
+      const isSymlinkTarget =
+        ts.isCallExpression(parent) &&
+        /(?:^|\.)symlinkSync$/.test(parent.expression.getText(syntax));
+      let ancestor = parent;
+      let isExpectedFixture = false;
+      while (!ts.isSourceFile(ancestor)) {
+        if (
+          ts.isCallExpression(ancestor) &&
+          ts.isPropertyAccessExpression(ancestor.expression) &&
+          ['toEqual', 'toStrictEqual'].includes(ancestor.expression.name.text) &&
+          ancestor.arguments.some((argument) => isInertExpectedLiteral(node, argument))
+        ) {
+          isExpectedFixture = true;
+          break;
+        }
+        ancestor = ancestor.parent;
+      }
+      // Unclassified matching paths stay fail-closed. In particular, a literal alias and
+      // namespace-qualified fs/path calls are still real dependencies even though their
+      // immediate AST parents do not identify the eventual reader.
+      if (!isSymlinkTarget && !isExpectedFixture) found.push(node.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(syntax);
+  return found;
+}
+
+/** Whether a path reaches an expected value only through inert literal containers. */
+function isInertExpectedLiteral(literal: ts.StringLiteral, expected: ts.Expression): boolean {
+  let child: ts.Node = literal;
+  while (child !== expected) {
+    const parent = child.parent;
+    if (
+      ts.isParenthesizedExpression(parent) ||
+      ts.isArrayLiteralExpression(parent) ||
+      ts.isObjectLiteralExpression(parent) ||
+      ts.isAsExpression(parent) ||
+      ts.isSatisfiesExpression(parent) ||
+      ts.isTypeAssertionExpression(parent) ||
+      (ts.isPropertyAssignment(parent) && parent.initializer === child)
+    ) {
+      child = parent;
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
 /** Workspace-relative paths a `*.test.ts` reads from outside its own project. */
 async function outsideReads(projectDir: string): Promise<string[]> {
   const found = new Set<string>();
   const glob = new Bun.Glob('src/**/*.test.ts');
   for await (const relative of glob.scan({ cwd: new URL(`${projectDir}/`, WORKSPACE).pathname })) {
     const source = await readFile(new URL(`${projectDir}/${relative}`, WORKSPACE), 'utf8');
-    for (const [, up] of source.matchAll(/'((?:\.\.\/){3,}[A-Za-z0-9_./-]*)'/g)) {
+    for (const up of outsidePathLiterals(source)) {
       // Resolved against the file, then made workspace-relative. An empty
       // result is the workspace root itself or above it — a path being built,
       // not a file being read, and too broad to ask any target to declare.
@@ -206,6 +266,137 @@ async function outsideReads(projectDir: string): Promise<string[]> {
   }
   return [...found].sort();
 }
+
+describe('outside-read syntax', () => {
+  it('distinguishes real workspace reads from fixture-relative strings', () => {
+    const source = `
+      const actual = new URL('../../../bin/real.sh', import.meta.url);
+      const joined = join(import.meta.dir, '../../../docs/real.md');
+      const direct = readFile('../../../config/real.json');
+      expect(readFile('../../../config/asserted.json')).toEqual('contents');
+      const fixture = "import x from '../../../provider/src/index'";
+      symlinkSync('../../../outside', fixtureRoot);
+      expect(value).toEqual({ specifier: '../../../provider/src/index' });
+    `;
+
+    // Proof: treating the whole matcher call as fixture syntax lost the reader-side literal;
+    // the test received the other three reads with `../../../config/asserted.json` absent.
+    expect(outsidePathLiterals(source)).toEqual([
+      '../../../bin/real.sh',
+      '../../../docs/real.md',
+      '../../../config/real.json',
+      '../../../config/asserted.json',
+    ]);
+  });
+
+  it('finds a literal alias used by a real URL read through outsideReads', async () => {
+    const probe = new URL(
+      `tools/tool-devsync/src/outside-read-alias-${crypto.randomUUID()}.probe.test.ts`,
+      WORKSPACE,
+    );
+    const before = await outsideReads('tools/tool-devsync');
+    try {
+      await writeFile(
+        probe,
+        `
+          import { readFileSync } from 'node:fs';
+          const externalPath = '../../../AGENTS.md';
+          export const externalContents = readFileSync(
+            new URL(externalPath, import.meta.url),
+            'utf8',
+          );
+        `,
+      );
+      const loaded = (await import(probe.href)) as { externalContents: string };
+      expect(loaded.externalContents).toContain('# Agent rules');
+
+      const after = await outsideReads('tools/tool-devsync');
+      // Proof: the immediate-parent whitelist returned `[]` here after this exact generated
+      // suite successfully read AGENTS.md through the aliased literal.
+      expect(after.filter((read) => !before.includes(read))).toEqual(['AGENTS.md']);
+    } finally {
+      await rm(probe);
+    }
+  });
+
+  it('finds namespace reader and path calls through outsideReads', async () => {
+    const probe = new URL(
+      `tools/tool-devsync/src/outside-read-namespace-${crypto.randomUUID()}.probe.test.ts`,
+      WORKSPACE,
+    );
+    const before = await outsideReads('tools/tool-devsync');
+    try {
+      await writeFile(
+        probe,
+        `
+          import * as fs from 'node:fs';
+          import * as path from 'node:path';
+          export const readAgentRules = () => fs.readFileSync('../../../AGENTS.md', 'utf8');
+          export const index = fs.readFileSync(
+            path.join(import.meta.dir, '../../../LLM_README.md'),
+            'utf8',
+          );
+        `,
+      );
+      const agentRules = await readFile(new URL('AGENTS.md', WORKSPACE), 'utf8');
+      const loaded = (await import(probe.href)) as { index: string };
+      expect(agentRules).toContain('# Agent rules');
+      expect(loaded.index.length).toBeGreaterThan(0);
+
+      const after = await outsideReads('tools/tool-devsync');
+      // Proof: the immediate-parent whitelist returned `[]` here instead of these two paths
+      // after the namespace path call successfully loaded LLM_README.md.
+      expect(after.filter((read) => !before.includes(read))).toEqual([
+        'AGENTS.md',
+        'LLM_README.md',
+      ]);
+    } finally {
+      await rm(probe);
+    }
+  });
+
+  it('finds a real outside read inside a matcher expected argument', async () => {
+    const identity = crypto.randomUUID();
+    const relative = `../../../bin/outside-read-expected-${identity}.txt`;
+    const sentinel = new URL(`bin/outside-read-expected-${identity}.txt`, WORKSPACE);
+    const probe = new URL(
+      `tools/tool-devsync/src/outside-read-expected-${identity}.probe.test.ts`,
+      WORKSPACE,
+    );
+    const before = await outsideReads('tools/tool-devsync');
+    try {
+      await writeFile(sentinel, 'outside-read-expected\n');
+      await writeFile(
+        probe,
+        `
+          import { readFileSync } from 'node:fs';
+          function expect(actual: string) {
+            return {
+              toEqual(expected: string) {
+                if (actual !== expected) throw new Error('unequal');
+              },
+            };
+          }
+          export let measured = '';
+          expect('outside-read-expected\\n').toEqual(
+            (measured = readFileSync(new URL('${relative}', import.meta.url), 'utf8')),
+          );
+        `,
+      );
+      const loaded = (await import(probe.href)) as { measured: string };
+      expect(loaded.measured).toBe('outside-read-expected\n');
+
+      const after = await outsideReads('tools/tool-devsync');
+      // Proof: excluding every matcher expected argument returned `[]` here after the generated
+      // suite successfully read its UUID-named sentinel in that exact argument.
+      expect(after.filter((read) => !before.includes(read))).toEqual([
+        `bin/outside-read-expected-${identity}.txt`,
+      ]);
+    } finally {
+      await Promise.all([rm(probe, { force: true }), rm(sentinel, { force: true })]);
+    }
+  });
+});
 
 /** Whether Nx hashes `read` through the target's declared dependency inputs. */
 function dependencyInputCovers(
@@ -239,7 +430,18 @@ describe('every cached target declares what it reads', () => {
     ) as NxJsonConfiguration;
     const shared = nxJson.namedInputs?.['sharedGlobals'];
     expect(shared).toBeDefined();
-    const projectGraph = await createProjectGraphAsync({ exitOnError: true });
+    const inheritedDaemon = process.env['NX_DAEMON'];
+    process.env['NX_DAEMON'] = 'false';
+    let projectGraph: ProjectGraph;
+    try {
+      // Proof: without this self-contained daemon selection, the direct production test timed out
+      // at both 5,000ms and 15,000ms while Nx waited on its unavailable daemon; the identical
+      // graph build completed in-process in 783ms with NX_DAEMON=false.
+      projectGraph = await createProjectGraphAsync({ exitOnError: true });
+    } finally {
+      if (inheritedDaemon === undefined) delete process.env['NX_DAEMON'];
+      else process.env['NX_DAEMON'] = inheritedDaemon;
+    }
 
     const undeclared: string[] = [];
     for (const { dir, config } of await projectsOnDisk()) {

@@ -180,6 +180,14 @@ own admission. Policy/validator updates are separate reviewed activations that r
 checks. Local command flags cannot impersonate CI trust. The same deterministic engine is
 called by Nx, `bin/h2puni-gate.sh`, CI and whole-tree pre-commit with explicit input mode.
 
+GitHub admission additionally requires an externally administered ruleset or required-workflow
+rule that requires the base-owned `trusted-wiki` check. A workflow read from push or merge-group
+candidate bytes cannot establish its own immutability: merge-group execution in `ci.yml` is
+therefore explicitly diagnostic/non-certifying, and default-branch push is a post-admission audit
+using the externally selected launcher. The trusted PR workflow uses `pull_request_target` only to
+load the default-branch launcher and exact candidate bytes; it has read-only permissions, persists
+no checkout credentials, and executes no candidate-controlled program.
+
 ### Claim authority and state machine
 
 Resolve the common Git directory through `git rev-parse --git-common-dir`, canonicalize it,
@@ -189,6 +197,14 @@ records. The authority opens the database fail-closed with integrity/schema chec
 bounded busy behavior. State access is through `AuthorityStore`, with a memory fixture for
 deterministic state-machine tests and real SQLite multi-process tests for atomic claims.
 This is infra storage, not the product's SQLite source or its deployment migrations.
+The unactivated claim-only schema from slice 4.1 is deliberately superseded by exact authority
+schema v2 in slice 4.2: retained lifecycle generations, timestamps and submission identities are
+one atomic contract. Slice 4.3 supersedes that unactivated schema with v3, which retains the exact
+canonical admission-packet body bytes and their identity beside the generation. Authority reads
+strictly decode those bytes and recompute their identity and owner bindings; packet creation,
+legitimate read expansion and submission update or compare that binding inside the same authority
+transaction as the claims and lifecycle state. Existing v1 or v2 databases are refused rather
+than migrated or defaulted.
 
 `acquire(packet)` normalizes all canonical paths and conflict groups, rejects ancestor/child
 overlap with current owners and either records all claims with one new generation or none.
@@ -197,11 +213,16 @@ dependencies, consumed/produced interfaces, invariants/checks and evidence requi
 Conflict-group claims make shared schema/root configuration ownership explicit. Missing or
 invalid state never means unclaimed. Heartbeat expiration only permits fencing/investigation.
 
-States are `working -> submitted -> integrated` or `working/submitted -> rejected/abandoned`.
+States are `working -> submitted -> integrated`, `working -> investigating`, or
+`working/investigating/submitted -> rejected/abandoned`; only unpublished `working` or
+`investigating` work can become `released`.
 Submission stores an immutable patch, candidate diff and content identities; it fences further
 publication under that generation. Claims remain until integration or explicit terminal
 rejection/abandonment. Release is idempotent for the exact session/generation, never for a
 successor. Resumed stale writers cannot submit or integrate. Retry reacquires a new generation.
+Lifecycle time is canonical epoch milliseconds read from the trusted store adapter, never a
+claimant field. Wall clocks are not described as cross-process monotonic; a value behind retained
+authority history is a modeled clock-regression refusal.
 Admission compares additions/deletions and both rename sides against owned paths, then checks
 read dependencies on the actual combined candidate. Failure preserves other sessions' work.
 
@@ -211,6 +232,42 @@ reselect checks even after scoped success. Recheck authority generations and bra
 atomically updating the integration ref; if it moved, rebuild/revalidate the candidate. Failed
 integration records rework, preserves submissions and has bounded retry. Reports say detected/
 refused out-of-packet publication; preventing every editing-time write needs another executor.
+
+Slice 5.2 supersedes the unactivated v3 authority with strict v4 durable integration records.
+Existing v3 files are intentionally refused rather than assigned an empty queue: that default
+could erase an in-flight publication fact. The initial fixed policy admits at most four submissions
+per batch, reports starvation at five trusted-clock minutes and terminates after three certification/
+CAS attempts; these are experiment assumptions, not universal limits. Resource-lane and port
+prerequisites remain typed, trusted-probe inputs separate from file claims and bind the exact
+candidate composition. Publication reserves exact submitted generations, then atomically CAS-updates
+the target ref and creates `refs/wbs-wiki/publications/<integration-identity>`. That immutable marker
+is retained with the durable record: it proves a successful Git transaction across a coordinator
+crash even when the target advances again. Recovery independently verifies the marker's commit tree
+and parent before completing the authority lifecycle; an absent marker permits retry only from the
+reserved base, while a mismatched or preexisting marker is refused.
+
+Each checking attempt receives an authority-derived durable identity. Checking and publishing are
+the only active ownership states, and one submitted generation can have at most one such integration
+owner; competing batches wait without spending an attempt. Rework, starvation and terminal outcomes
+release that ownership explicitly. A restarted coordinator fences an exact orphaned checking attempt
+before retrying, so its late certifier cannot reserve against an equal candidate. Every reservation
+field is compared with durable state before ref mutation and again at finalization. The candidate
+commit must have exactly the checked tree and exactly one parent, the checked base. The five-minute
+queue budget includes resource-probe and certification runtime; trusted time is refreshed after each
+await and before retry/admission transitions.
+
+The checked candidate's canonical submission set is the exact set of session, generation, packet and
+patch identities held by the queue; both check start and publication reservation compare all four
+fields. Publication recovery uses a one-shot authority transaction backed by SQLite's OS-managed
+`BEGIN IMMEDIATE` lock. Lock acquisition may retry, but the synchronous callback containing Git I/O
+never replays; a blocked commit retries only `COMMIT`. Process death releases the OS lock, while the
+durable publishing record and immutable marker remain the recovery evidence. Reservation validation,
+marker inspection, the Git ref transaction and the resulting published/rework/terminal decision all
+remain inside that serialized region. A marker proves publication before the queue deadline is
+considered, even when recovery happens later. Without a marker, trusted time is refreshed immediately
+before CAS; an expired queue terminalizes without touching refs. Git contention with the target still
+at the reserved base retains the exact publishing owner and reports `publication-contended` without
+spending an attempt; only an observed target move permits serialized rework.
 
 ### Measurement and execution adapter
 
