@@ -11,28 +11,14 @@ import {
   assertAuthorityTimestamp,
   assertSubmissionIdentity,
 } from './authority-store';
-import type { ClaimToken } from './claims';
+import { authorityClaimsMatch, type ClaimToken } from './claims';
 
 export type { SubmissionIdentity } from './authority-store';
 
 export interface ExpectedSubmissionAuthority {
   readonly worktreePath: string;
   readonly claims: readonly AuthorityClaim[];
-}
-
-function claimsMatch(
-  actual: readonly AuthorityClaim[],
-  expected: readonly AuthorityClaim[],
-): boolean {
-  if (actual.length !== expected.length) return false;
-  return actual.every((claim, index) => {
-    const counterpart = expected[index];
-    if (claim.kind !== counterpart.kind) return false;
-    if (claim.identity !== counterpart.identity) return false;
-    return (
-      claim.kind === 'group' || (counterpart.kind === 'path' && claim.access === counterpart.access)
-    );
-  });
+  readonly packetIdentity: string;
 }
 
 function latestTimestamp(state: AuthorityState): number {
@@ -198,9 +184,14 @@ export function submitGenerationMatching(
     if (
       expected !== undefined &&
       (generation.worktreePath !== expected.worktreePath ||
-        !claimsMatch(generation.claims, expected.claims))
+        !authorityClaimsMatch(generation.claims, expected.claims))
     ) {
       throw new Error(`generation authority differs from admission packet: ${token.sessionId}`);
+    }
+    // Proof: omitting this authenticated binding comparison let independently rehashed policy and
+    // checks submit under the same generation; the production binding matrix received success.
+    if (expected !== undefined && generation.packet?.packetIdentity !== expected.packetIdentity) {
+      throw new Error(`packet binding differs from authority: ${token.sessionId}`);
     }
     transaction.writeState(
       replaceGeneration(state, {

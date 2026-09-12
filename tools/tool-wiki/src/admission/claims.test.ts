@@ -108,7 +108,7 @@ test('refuses reused sessions and malformed identities without mutation', () => 
       conflictGroups: [],
     }),
   ).toThrow('session already exists: session-a');
-  for (const path of ['', '/root', 'a//b', 'a/./b', 'a/../b', 'a\\b', 'a\u0000b']) {
+  for (const path of ['', '/root', 'a//b', 'a/./b', 'a/../b', 'a\\b', 'a\u0000b', '\ud800']) {
     expect(() =>
       acquireClaims(store, {
         owner: owner(`bad-${String(path.length)}`),

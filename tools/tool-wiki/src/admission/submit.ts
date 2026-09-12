@@ -5,7 +5,7 @@ import { type CandidateEntry, readCandidate } from '../inventory/read-candidate'
 import type { AuthorityStore, SubmissionIdentity } from './authority-store';
 import { type ClaimToken } from './claims';
 import { submitGenerationMatching } from './generations';
-import { type AdmissionPacket, assertAdmissionPacket, packetAuthorityClaims } from './packet';
+import { type AdmissionPacket, packetAuthorityClaims, validatePacketAgainstBase } from './packet';
 
 const ObjectIdentity = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 
@@ -146,16 +146,9 @@ export function submitPacket(
   repository: string,
   selection: SubmissionSelection,
 ): AdmissionSubmissionReport {
-  assertAdmissionPacket(packet);
-  if (repository !== packet.worktreePath) {
-    throw new Error('publication refused: repository differs from packet worktree');
-  }
-  const base = readCandidate(repository, { kind: 'committed', revision: packet.base.commit });
-  if (base.selection.kind !== 'committed' || base.selection.tree !== packet.base.tree) {
-    throw new Error('publication refused: packet base identity changed');
-  }
+  const baseEntries = [...validatePacketAgainstBase(repository, packet).values()];
   const candidate = resolveSelection(repository, packet, selection);
-  const differences = changedEntries(base.entries, candidate.entries);
+  const differences = changedEntries(baseEntries, candidate.entries);
   const candidateByPath = entryMap(candidate.entries);
   for (const dependency of packet.readDependencies) {
     // Proof: bypassing this exact tuple comparison let owned `src/read.ts` change after scoped
@@ -204,6 +197,7 @@ export function submitPacket(
   const token: ClaimToken = { generation: packet.generation, sessionId: packet.sessionId };
   submitGenerationMatching(store, token, submission, {
     claims: packetAuthorityClaims(packet),
+    packetIdentity: packet.packetIdentity,
     worktreePath: packet.worktreePath,
   });
   return {

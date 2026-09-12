@@ -1,6 +1,8 @@
+import { compareCanonicalText } from '../evidence/content-manifest';
 import type {
   AuthorityClaim,
   AuthorityGeneration,
+  AuthorityPacketBinding,
   AuthorityState,
   AuthorityStore,
   PathAccess,
@@ -40,14 +42,48 @@ export interface ExpansionRequest {
   readonly conflictGroups: readonly string[];
 }
 
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
+export interface PacketAuthorityExpectation {
+  readonly claims: readonly AuthorityClaim[];
+  readonly packet?: AuthorityPacketBinding;
+  readonly token: ClaimToken;
+  readonly worktreePath: string;
+}
+
+export interface BoundPacketExpansion extends PacketAuthorityExpectation {
+  readonly additions: readonly ClaimIdentity[];
+  readonly nextPacket: AuthorityPacketBinding;
 }
 
 function compareClaim(left: AuthorityClaim, right: AuthorityClaim): number {
-  const identityOrder = compareText(left.identity, right.identity);
+  // Proof: restoring JavaScript code-unit order put U+10000 before U+E000 while packet order did
+  // the reverse; the acquire/create production test refused identical claim sets as different.
+  const identityOrder = compareCanonicalText(left.identity, right.identity);
   if (identityOrder !== 0) return identityOrder;
-  return compareText(left.kind, right.kind);
+  return compareCanonicalText(left.kind, right.kind);
+}
+
+export function authorityClaimsMatch(
+  actual: readonly AuthorityClaim[],
+  expected: readonly AuthorityClaim[],
+): boolean {
+  if (actual.length !== expected.length) return false;
+  return actual.every((claim, index) => {
+    const counterpart = expected[index];
+    if (claim.kind !== counterpart.kind || claim.identity !== counterpart.identity) return false;
+    return (
+      claim.kind === 'group' || (counterpart.kind === 'path' && claim.access === counterpart.access)
+    );
+  });
+}
+
+function packetBindingsMatch(
+  actual: AuthorityPacketBinding | undefined,
+  expected: AuthorityPacketBinding | undefined,
+): boolean {
+  return (
+    actual?.packetIdentity === expected?.packetIdentity &&
+    actual?.packetBytes === expected?.packetBytes
+  );
 }
 
 function normalizeClaims(
@@ -246,6 +282,102 @@ export function expandClaims(store: AuthorityStore, request: ExpansionRequest): 
     };
     transaction.writeState({
       nextGeneration: state.nextGeneration,
+      generations: state.generations.map((candidate) =>
+        candidate.generation === request.token.generation ? expanded : candidate,
+      ),
+    });
+    return request.token;
+  });
+}
+
+function workingGeneration(state: AuthorityState, token: ClaimToken): AuthorityGeneration {
+  const generation = state.generations.find(
+    (candidate) =>
+      candidate.sessionId === token.sessionId && candidate.generation === token.generation,
+  );
+  if (generation?.status !== 'working') {
+    throw new Error(`generation is not working: ${token.sessionId}`);
+  }
+  return generation;
+}
+
+function assertPacketAuthority(
+  generation: AuthorityGeneration,
+  expectation: PacketAuthorityExpectation,
+): void {
+  if (
+    generation.worktreePath !== expectation.worktreePath ||
+    !authorityClaimsMatch(generation.claims, expectation.claims)
+  ) {
+    throw new Error(
+      `generation authority differs from admission packet: ${expectation.token.sessionId}`,
+    );
+  }
+  // Proof: omitting this exact binding comparison let a rehashed `check.forged` packet expand
+  // reads; the production expansion test received a new packet instead of refusal.
+  if (!packetBindingsMatch(generation.packet, expectation.packet)) {
+    throw new Error(`packet binding differs from authority: ${expectation.token.sessionId}`);
+  }
+}
+
+/** Binds one exact canonical packet to an unbound working generation. */
+export function bindAdmissionPacket(
+  store: AuthorityStore,
+  expectation: PacketAuthorityExpectation & { readonly nextPacket: AuthorityPacketBinding },
+): ClaimToken {
+  return store.transact((transaction) => {
+    const state = transaction.readState();
+    const generation = workingGeneration(state, expectation.token);
+    if (
+      generation.worktreePath !== expectation.worktreePath ||
+      !authorityClaimsMatch(generation.claims, expectation.claims)
+    ) {
+      throw new Error(
+        `generation authority differs from admission packet: ${expectation.token.sessionId}`,
+      );
+    }
+    if (generation.packet !== undefined) {
+      // Proof: accepting a different binding here let a second `check.forged` packet replace the
+      // admitted packet; the production bind-once test received the forged packet.
+      if (!packetBindingsMatch(generation.packet, expectation.nextPacket)) {
+        throw new Error(`packet binding differs from authority: ${expectation.token.sessionId}`);
+      }
+      return expectation.token;
+    }
+    const bound = { ...generation, packet: { ...expectation.nextPacket } };
+    transaction.writeState({
+      ...state,
+      generations: state.generations.map((candidate) =>
+        candidate.generation === expectation.token.generation ? bound : candidate,
+      ),
+    });
+    return expectation.token;
+  });
+}
+
+/** Atomically expands read claims and replaces their authenticated packet binding. */
+export function expandBoundPacketClaims(
+  store: AuthorityStore,
+  request: BoundPacketExpansion,
+): ClaimToken {
+  const additions = normalizeClaims(request.additions, []);
+  return store.transact((transaction) => {
+    const state = transaction.readState();
+    const generation = workingGeneration(state, request.token);
+    assertPacketAuthority(generation, request);
+    const others = state.generations.filter(
+      ({ generation: identity }) => identity !== request.token.generation,
+    );
+    assertAvailable(additions, others);
+    const expanded = {
+      ...generation,
+      claims: mergeClaims(generation.claims, additions),
+      // Proof: retaining the old binding while adding reads left authority at `1297b6...` while
+      // the returned packet was `1e6531...`; the production expansion assertion observed both.
+      packet: { ...request.nextPacket },
+    };
+    transaction.writeState({
+      ...state,
       generations: state.generations.map((candidate) =>
         candidate.generation === request.token.generation ? expanded : candidate,
       ),

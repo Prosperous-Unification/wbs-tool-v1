@@ -1,9 +1,26 @@
 import { existsSync, lstatSync, mkdirSync, realpathSync, rmdirSync } from 'node:fs';
-import { isAbsolute, join, normalize, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 
 import { Database } from 'bun:sqlite';
 
-export const AUTHORITY_SCHEMA_VERSION = 'wbs-wiki-authority.v2' as const;
+import {
+  assertAuthorityClaimPath,
+  assertAuthorityConflictGroup,
+  assertAuthorityPathAccess,
+  assertAuthoritySessionId,
+  assertAuthorityWorktreePath,
+} from './authority-identities';
+import { decodeAdmissionPacketBody } from './packet-codec';
+
+export {
+  assertAuthorityClaimPath,
+  assertAuthorityConflictGroup,
+  assertAuthorityPathAccess,
+  assertAuthoritySessionId,
+  assertAuthorityWorktreePath,
+} from './authority-identities';
+
+export const AUTHORITY_SCHEMA_VERSION = 'wbs-wiki-authority.v3' as const;
 
 export type PathAccess = 'read' | 'write';
 
@@ -29,6 +46,11 @@ export interface SubmissionIdentity {
   readonly contentIdentity: string;
 }
 
+export interface AuthorityPacketBinding {
+  readonly packetIdentity: string;
+  readonly packetBytes: string;
+}
+
 export interface AuthorityGeneration {
   readonly sessionId: string;
   readonly worktreePath: string;
@@ -37,6 +59,7 @@ export interface AuthorityGeneration {
   readonly status: GenerationStatus;
   readonly heartbeatAt: number;
   readonly statusAt: number;
+  readonly packet?: AuthorityPacketBinding;
   readonly submission?: SubmissionIdentity;
 }
 
@@ -105,6 +128,7 @@ function copyState(state: AuthorityState): AuthorityState {
       claims: generation.claims.map(copyClaim),
       generation: generation.generation,
       heartbeatAt: generation.heartbeatAt,
+      packet: generation.packet === undefined ? undefined : { ...generation.packet },
       sessionId: generation.sessionId,
       status: generation.status,
       statusAt: generation.statusAt,
@@ -193,6 +217,23 @@ function assertMemoryState(state: AuthorityState): void {
       throw new Error(`terminal authority generation retains claims: ${record.sessionId}`);
     }
     if (record.submission !== undefined) assertSubmissionIdentity(record.submission);
+    if (record.packet !== undefined) {
+      // Proof: omitting strict packet recovery let a persisted, independently rehashed
+      // `extraWrites` field open as trusted authority; the production open test received a store.
+      const packet = decodeAdmissionPacketBody(
+        record.packet.packetIdentity,
+        record.packet.packetBytes,
+      );
+      // Proof: omitting this owner comparison let persisted packet bytes name `session-other`;
+      // the production open test received a store instead of the mismatched-owner refusal.
+      if (
+        packet.sessionId !== record.sessionId ||
+        packet.generation !== record.generation ||
+        packet.worktreePath !== record.worktreePath
+      ) {
+        throw new Error(`authority packet binding has a different owner: ${record.sessionId}`);
+      }
+    }
     const requiresSubmission = record.status === 'submitted' || record.status === 'integrated';
     const forbidsSubmission =
       record.status === 'working' ||
@@ -277,8 +318,11 @@ const SCHEMA = [
     patch_identity TEXT,
     candidate_diff_identity TEXT,
     content_identity TEXT,
+    packet_identity TEXT,
+    packet_bytes TEXT,
     PRIMARY KEY (session_id, generation),
     CHECK ((patch_identity IS NULL AND candidate_diff_identity IS NULL AND content_identity IS NULL) OR (patch_identity IS NOT NULL AND candidate_diff_identity IS NOT NULL AND content_identity IS NOT NULL)),
+    CHECK ((packet_identity IS NULL AND packet_bytes IS NULL) OR (packet_identity IS NOT NULL AND packet_bytes IS NOT NULL)),
     CHECK ((status IN ('submitted', 'integrated') AND patch_identity IS NOT NULL) OR (status IN ('working', 'investigating', 'released') AND patch_identity IS NULL) OR (status IN ('rejected', 'abandoned')))
   ) STRICT`,
   `CREATE TABLE authority_claim (
@@ -331,6 +375,8 @@ interface GenerationRow {
   readonly patchIdentity: string | null;
   readonly candidateDiffIdentity: string | null;
   readonly contentIdentity: string | null;
+  readonly packetIdentity: string | null;
+  readonly packetBytes: string | null;
 }
 
 interface ClaimRow {
@@ -394,61 +440,6 @@ function isBusy(error: unknown): boolean {
     current = current.cause;
   }
   return false;
-}
-
-const SESSION = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
-const GROUP = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
-
-function containsControl(text: string): boolean {
-  for (const character of text) {
-    const code = character.codePointAt(0);
-    if (code !== undefined && (code < 32 || code === 127)) return true;
-  }
-  return false;
-}
-
-/** Refuses a session identity that cannot be persisted as one authority owner. */
-export function assertAuthoritySessionId(sessionId: string): void {
-  if (!SESSION.test(sessionId)) throw new Error(`invalid session id: ${sessionId}`);
-}
-
-/** Refuses a worktree identity that is not already absolute and lexically canonical. */
-export function assertAuthorityWorktreePath(worktreePath: string): void {
-  if (
-    !isAbsolute(worktreePath) ||
-    normalize(worktreePath) !== worktreePath ||
-    containsControl(worktreePath) ||
-    worktreePath.includes('\\')
-  ) {
-    throw new Error(`invalid canonical worktree path: ${worktreePath}`);
-  }
-}
-
-/** Refuses a repository-relative path identity that would require normalization. */
-export function assertAuthorityClaimPath(path: string): void {
-  const segments = path.split('/');
-  if (
-    path.length === 0 ||
-    path.startsWith('/') ||
-    path.endsWith('/') ||
-    path.includes('\\') ||
-    containsControl(path) ||
-    segments.some((segment) => segment.length === 0 || segment === '.' || segment === '..')
-  ) {
-    throw new Error(`invalid canonical claim path: ${path}`);
-  }
-}
-
-/** Refuses a conflict group that is not a finite authority identity. */
-export function assertAuthorityConflictGroup(identity: string): void {
-  if (!GROUP.test(identity)) throw new Error(`invalid conflict group: ${identity}`);
-}
-
-/** Refuses a runtime path access outside the closed read/write domain. */
-export function assertAuthorityPathAccess(access: string): asserts access is PathAccess {
-  if (access !== 'read' && access !== 'write') {
-    throw new Error(`invalid path access: ${access}`);
-  }
 }
 
 function requiredOptions(options: AuthorityStoreOptions): RequiredAuthorityStoreOptions {
@@ -706,7 +697,8 @@ function readSqliteState(database: Database): AuthorityState {
       `SELECT session_id AS sessionId, worktree_path AS worktreePath, generation, status,
               heartbeat_at AS heartbeatAt, status_at AS statusAt,
               patch_identity AS patchIdentity, candidate_diff_identity AS candidateDiffIdentity,
-              content_identity AS contentIdentity
+              content_identity AS contentIdentity, packet_identity AS packetIdentity,
+              packet_bytes AS packetBytes
        FROM authority_generation ORDER BY generation`,
     )
     .all();
@@ -753,12 +745,23 @@ function readSqliteState(database: Database): AuthorityState {
                   `authority database generation has a partial submission: ${record.sessionId}/${String(record.generation)}`,
                 );
               })();
+      const packet =
+        record.packetIdentity === null && record.packetBytes === null
+          ? undefined
+          : record.packetIdentity !== null && record.packetBytes !== null
+            ? { packetBytes: record.packetBytes, packetIdentity: record.packetIdentity }
+            : (() => {
+                throw new Error(
+                  `authority database generation has a partial packet binding: ${record.sessionId}/${String(record.generation)}`,
+                );
+              })();
       return {
         generation: record.generation,
         heartbeatAt: record.heartbeatAt,
         sessionId: record.sessionId,
         status: decodeGenerationStatus(record.status),
         statusAt: record.statusAt,
+        packet,
         submission,
         worktreePath: record.worktreePath,
         claims: claims
@@ -824,12 +827,14 @@ function writeSqliteState(database: Database, state: AuthorityState): void {
       string | null,
       string | null,
       string | null,
+      string | null,
+      string | null,
     ]
   >(
     `INSERT INTO authority_generation(
        session_id, worktree_path, generation, status, heartbeat_at, status_at,
-       patch_identity, candidate_diff_identity, content_identity
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       patch_identity, candidate_diff_identity, content_identity, packet_identity, packet_bytes
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const insertClaim = database.query<never, [string, number, string, string | null, string]>(
     'INSERT INTO authority_claim(session_id, generation, kind, access, identity) VALUES (?, ?, ?, ?, ?)',
@@ -845,6 +850,8 @@ function writeSqliteState(database: Database, state: AuthorityState): void {
       generation.submission?.patchIdentity ?? null,
       generation.submission?.candidateDiffIdentity ?? null,
       generation.submission?.contentIdentity ?? null,
+      generation.packet?.packetIdentity ?? null,
+      generation.packet?.packetBytes ?? null,
     );
     for (const claim of generation.claims) {
       insertClaim.run(

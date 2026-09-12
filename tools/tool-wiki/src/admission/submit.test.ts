@@ -10,13 +10,18 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { Database } from 'bun:sqlite';
 import { afterAll, expect, test } from 'bun:test';
 
-import { hashCanonical } from '../evidence/content-manifest';
-import { openAuthorityStore } from './authority-store';
+import { hashCanonical, serializeCanonical } from '../evidence/content-manifest';
+import {
+  MemoryAuthorityStore,
+  openAuthorityStore,
+  resolveAuthorityDatabasePath,
+} from './authority-store';
 import { acquireClaims, expandClaims } from './claims';
 import { abandonGeneration } from './generations';
-import { createAdmissionPacket, expandPacketReads } from './packet';
+import { createAdmissionPacket, decodeAdmissionPacket, expandPacketReads } from './packet';
 import { submitPacket } from './submit';
 
 const scratch: string[] = [];
@@ -47,6 +52,7 @@ function fixture() {
   writeFileSync(join(repository, 'outside.ts'), 'outside\n');
   symlinkSync('src/owned.ts', join(repository, 'owned-link'));
   symlinkSync('owned.ts', join(repository, 'src', 'owned-link'));
+  symlinkSync('AGENTS.md', join(repository, 'CLAUDE.md'));
   git(repository, ['add', '.']);
   git(repository, ['commit', '--quiet', '--message', 'base']);
   const root = realpathSync(repository);
@@ -56,6 +62,7 @@ function fixture() {
   const token = acquireClaims(store, {
     owner: { sessionId: 'session-a', worktreePath: root },
     paths: [
+      { access: 'write', path: 'owned-link' },
       { access: 'write', path: 'src' },
       { access: 'read', path: 'src/read.ts' },
     ],
@@ -72,7 +79,7 @@ function fixture() {
     mappingIdentity: '2'.repeat(64),
     objective: 'Change the owned implementation',
     outcome: 'The owned implementation is updated',
-    ownedPaths: ['src'],
+    ownedPaths: ['owned-link', 'src'],
     policyIdentity: '1'.repeat(64),
     producedContracts: ['contract.owned'],
     producedInterfaces: ['interface.owned'],
@@ -95,7 +102,7 @@ test('freezes an exact staged publication before atomically submitting its gener
     mappingIdentity: '2'.repeat(64),
     objective: 'Change the owned implementation',
     outcome: 'The owned implementation is updated',
-    ownedPaths: ['src'],
+    ownedPaths: ['owned-link', 'src'],
     policyIdentity: '1'.repeat(64),
     producedContracts: ['contract.owned'],
     producedInterfaces: ['interface.owned'],
@@ -233,28 +240,20 @@ test('read expansion adds only pinned reads and cannot upgrade packet writes', (
     'outside.ts',
   ]);
   expect(expanded.readDependencies.map(({ path }) => path)).toEqual(['outside.ts', 'src/read.ts']);
-  expect(expanded.ownedPaths).toEqual(['src']);
+  expect(expanded.ownedPaths).toEqual(['owned-link', 'src']);
+  expect(subject.store.inspect().generations[0]?.packet?.packetIdentity).toBe(
+    expanded.packetIdentity,
+  );
   expect(() =>
     expandPacketReads(subject.store, expanded, subject.repository, ['src/owned.ts']),
   ).toThrow('read expansion cannot overlap packet write claims');
-  expect(subject.store.inspect().generations[0]?.claims).toHaveLength(3);
+  expect(subject.store.inspect().generations[0]?.claims).toHaveLength(4);
   subject.store.close();
 });
 
 test('owns a symlink blob exactly but refuses claims below symlinks and gitlinks', () => {
   const subject = fixture();
-  expandClaims(subject.store, {
-    conflictGroups: [],
-    paths: [{ access: 'write', path: 'owned-link' }],
-    token: subject.token,
-  });
-  const exact = createAdmissionPacket(subject.store, subject.token, subject.repository, {
-    ...subject.packet,
-    conflictGroups: [],
-    ownedPaths: ['owned-link', 'src'],
-    readPaths: ['src/read.ts'],
-  });
-  expect(exact.ownedPaths).toContain('owned-link');
+  expect(subject.packet.ownedPaths).toContain('owned-link');
 
   expandClaims(subject.store, {
     conflictGroups: [],
@@ -317,6 +316,132 @@ test('atomically refuses submission when authority claims changed after packet c
     }),
   ).toThrow('generation authority differs from admission packet');
   expect(subject.store.inspect().generations[0]?.status).toBe('working');
+  subject.store.close();
+});
+
+test('authority packet binding refuses independently rehashed policy, checks and read tuples', () => {
+  const rebound = fixture();
+  expect(
+    createAdmissionPacket(rebound.store, rebound.token, rebound.repository, {
+      ...rebound.packet,
+      readPaths: ['src/read.ts'],
+    }).packetIdentity,
+  ).toBe(rebound.packet.packetIdentity);
+  expect(() =>
+    createAdmissionPacket(rebound.store, rebound.token, rebound.repository, {
+      ...rebound.packet,
+      checks: ['check.forged'],
+      readPaths: ['src/read.ts'],
+    }),
+  ).toThrow('packet binding differs from authority');
+  expect(rebound.store.inspect().generations[0]?.packet?.packetIdentity).toBe(
+    rebound.packet.packetIdentity,
+  );
+  rebound.store.close();
+
+  const staleExpansion = fixture();
+  const forgedExpansion = {
+    ...staleExpansion.packet,
+    checks: ['check.forged'],
+  };
+  const { packetIdentity: _expansionIdentity, ...expansionBody } = forgedExpansion;
+  const decodedExpansion = decodeAdmissionPacket({
+    ...forgedExpansion,
+    packetIdentity: hashCanonical(expansionBody),
+  });
+  const beforeExpansion = staleExpansion.store.inspect().generations[0];
+  expect(() =>
+    expandPacketReads(staleExpansion.store, decodedExpansion, staleExpansion.repository, [
+      'outside.ts',
+    ]),
+  ).toThrow('packet binding differs from authority');
+  expect(staleExpansion.store.inspect().generations[0]).toEqual(beforeExpansion);
+  staleExpansion.store.close();
+
+  for (const [label, mutate] of [
+    [
+      'policy',
+      (packet: Record<string, unknown>): void => {
+        packet['policyIdentity'] = '9'.repeat(64);
+      },
+    ],
+    [
+      'checks',
+      (packet: Record<string, unknown>): void => {
+        packet['checks'] = ['check.forged'];
+      },
+    ],
+    [
+      'read tuple',
+      (packet: Record<string, unknown>): void => {
+        const dependencies = packet['readDependencies'];
+        if (!Array.isArray(dependencies) || dependencies[0] === undefined) {
+          throw new Error('fixture read dependency absent');
+        }
+        Reflect.set(dependencies[0], 'blob', '9'.repeat(40));
+      },
+    ],
+  ] as const) {
+    const subject = fixture();
+    const forged = JSON.parse(JSON.stringify(subject.packet)) as Record<string, unknown>;
+    mutate(forged);
+    const { packetIdentity: _oldIdentity, ...body } = forged;
+    forged['packetIdentity'] = hashCanonical(body);
+    expect(() =>
+      submitPacket(subject.store, decodeAdmissionPacket(forged), subject.repository, {
+        base: subject.baseCommit,
+        kind: 'staged',
+      }),
+    ).toThrow(/packet (?:binding differs|read dependency differs)/);
+    expect(subject.store.inspect().generations[0], label).toMatchObject({
+      packet: { packetIdentity: subject.packet.packetIdentity },
+      status: 'working',
+    });
+    subject.store.close();
+  }
+});
+
+test('persisted packet binding is strictly decoded before authority use', () => {
+  const subject = fixture();
+  subject.store.close();
+  const { packetIdentity: _identity, ...body } = subject.packet;
+  const packetBytes = serializeCanonical({ ...body, extraWrites: ['outside.ts'] });
+  const database = new Database(resolveAuthorityDatabasePath(subject.repository));
+  database
+    .query('UPDATE authority_generation SET packet_identity = ?, packet_bytes = ?')
+    .run(hashCanonical({ ...body, extraWrites: ['outside.ts'] }), packetBytes);
+  database.close();
+  expect(() => openAuthorityStore(subject.repository)).toThrow(
+    'undeclared admission packet field: extraWrites',
+  );
+
+  const wrongOwner = fixture();
+  wrongOwner.store.close();
+  const { packetIdentity: _ownerIdentity, ...ownerBody } = wrongOwner.packet;
+  const changedOwner = { ...ownerBody, sessionId: 'session-other' };
+  const ownerBytes = serializeCanonical(changedOwner);
+  const ownerDatabase = new Database(resolveAuthorityDatabasePath(wrongOwner.repository));
+  ownerDatabase
+    .query('UPDATE authority_generation SET packet_identity = ?, packet_bytes = ?')
+    .run(hashCanonical(changedOwner), ownerBytes);
+  ownerDatabase.close();
+  expect(() => openAuthorityStore(wrongOwner.repository)).toThrow(
+    'authority packet binding has a different owner',
+  );
+});
+
+test('stale packet read expansion leaves claims and binding unchanged', () => {
+  const subject = fixture();
+  expandClaims(subject.store, {
+    conflictGroups: [],
+    paths: [{ access: 'read', path: 'outside.ts' }],
+    token: subject.token,
+  });
+  const before = subject.store.inspect().generations[0];
+  expect(() =>
+    expandPacketReads(subject.store, subject.packet, subject.repository, ['CLAUDE.md']),
+  ).toThrow('generation authority differs from admission packet');
+  expect(subject.store.inspect().generations[0]).toEqual(before);
   subject.store.close();
 });
 
@@ -401,6 +526,54 @@ test('production CLI reports submission detection scope and rejects undeclared p
   expect(refused.stderr.toString('utf8')).toContain('editing-time writes were not prevented');
 });
 
+test('production CLI independently refuses hash-valid symlink and Gitlink descendants', () => {
+  const cli = join(import.meta.dir, '..', 'cli.ts');
+  for (const kind of ['symlink', 'gitlink'] as const) {
+    const subject = fixture();
+    let revision = subject.baseCommit;
+    const forged = JSON.parse(JSON.stringify(subject.packet)) as Record<string, unknown>;
+    if (kind === 'symlink') {
+      forged['ownedPaths'] = ['CLAUDE.md/escape'];
+    } else {
+      git(subject.repository, [
+        'update-index',
+        '--add',
+        '--cacheinfo',
+        `160000,${subject.baseCommit},vendor`,
+      ]);
+      git(subject.repository, ['commit', '--quiet', '--message', 'gitlink boundary']);
+      revision = git(subject.repository, ['rev-parse', 'HEAD']);
+      forged['base'] = {
+        commit: revision,
+        tree: git(subject.repository, ['rev-parse', 'HEAD^{tree}']),
+      };
+      forged['ownedPaths'] = ['vendor/escape'];
+    }
+    const { packetIdentity: _oldIdentity, ...body } = forged;
+    forged['packetIdentity'] = hashCanonical(body);
+    const packetPath = join(subject.repository, '.git', `${kind}-descendant.json`);
+    writeFileSync(packetPath, `${JSON.stringify(forged)}\n`);
+    subject.store.close();
+    const refusal = Bun.spawnSync(
+      [
+        process.execPath,
+        cli,
+        'submit-admission',
+        subject.repository,
+        packetPath,
+        'committed',
+        revision,
+      ],
+      { stderr: 'pipe', stdout: 'pipe' },
+    );
+    expect(refusal.exitCode, kind).toBe(1);
+    expect(refusal.stderr.toString('utf8'), kind).toContain(`packet path traverses ${kind}`);
+    const state = openAuthorityStore(subject.repository);
+    expect(state.inspect().generations[0]?.status, kind).toBe('working');
+    state.close();
+  }
+});
+
 test('refuses worktree aliases and read expansion from another real worktree', () => {
   const subject = fixture();
   const alias = `${subject.repository}-alias`;
@@ -421,6 +594,75 @@ test('refuses worktree aliases and read expansion from another real worktree', (
     'read expansion repository differs from packet worktree',
   );
   subject.store.close();
+});
+
+test('uses one UTF-8 byte order across acquire, packet, expansion, decoder and submit', () => {
+  const subject = fixture();
+  subject.store.close();
+  const store = new MemoryAuthorityStore(undefined, { read: () => 1_000 });
+  const privateUse = '\uE000.ts';
+  const supplementary = '\u{10000}.ts';
+  const privateRead = `reads/\uE000.ts`;
+  const supplementaryRead = `reads/\u{10000}.ts`;
+  mkdirSync(join(subject.repository, 'reads'));
+  writeFileSync(join(subject.repository, privateUse), 'private\n');
+  writeFileSync(join(subject.repository, supplementary), 'supplementary\n');
+  writeFileSync(join(subject.repository, privateRead), 'private read\n');
+  writeFileSync(join(subject.repository, supplementaryRead), 'supplementary read\n');
+  git(subject.repository, ['add', '--all']);
+  git(subject.repository, ['commit', '--quiet', '--message', 'unicode paths']);
+  const base = {
+    commit: git(subject.repository, ['rev-parse', 'HEAD']),
+    tree: git(subject.repository, ['rev-parse', 'HEAD^{tree}']),
+  };
+  const token = acquireClaims(store, {
+    conflictGroups: [],
+    owner: { sessionId: 'session-unicode', worktreePath: subject.repository },
+    paths: [
+      { access: 'write', path: supplementary },
+      { access: 'write', path: privateUse },
+    ],
+  });
+  const packet = createAdmissionPacket(store, token, subject.repository, {
+    base,
+    checks: ['check.typecheck'],
+    conflictGroups: [],
+    consumedContracts: [],
+    consumedInterfaces: [],
+    evidenceRequirements: ['evidence.check-receipt'],
+    invariants: ['invariant.paths'],
+    mappingIdentity: '2'.repeat(64),
+    objective: 'Change Unicode paths',
+    outcome: 'Unicode paths remain unambiguous',
+    ownedPaths: [supplementary, privateUse],
+    policyIdentity: '1'.repeat(64),
+    producedContracts: [],
+    producedInterfaces: [],
+    readPaths: [],
+  });
+  expect(packet.ownedPaths).toEqual([privateUse, supplementary]);
+  const reversed = JSON.parse(JSON.stringify(packet)) as Record<string, unknown>;
+  reversed['ownedPaths'] = [supplementary, privateUse];
+  const { packetIdentity: _identity, ...body } = reversed;
+  reversed['packetIdentity'] = hashCanonical(body);
+  expect(() => decodeAdmissionPacket(reversed)).toThrow('noncanonical owned path order');
+
+  const expanded = expandPacketReads(store, packet, subject.repository, [
+    supplementaryRead,
+    privateRead,
+  ]);
+  expect(expanded.readDependencies.map(({ path }) => path)).toEqual([
+    privateRead,
+    supplementaryRead,
+  ]);
+  writeFileSync(join(subject.repository, privateUse), 'changed\n');
+  git(subject.repository, ['add', privateUse]);
+  expect(
+    submitPacket(store, expanded, subject.repository, {
+      base: base.commit,
+      kind: 'staged',
+    }).status,
+  ).toBe('submitted');
 });
 
 test('refuses an unrelated committed candidate and an index race before authority submission', () => {

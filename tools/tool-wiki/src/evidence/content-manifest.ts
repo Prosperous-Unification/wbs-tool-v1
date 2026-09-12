@@ -12,7 +12,7 @@ import type {
 
 const Sha256Pattern = /^[0-9a-f]{64}$/;
 
-function compareCanonicalText(left: string, right: string): number {
+export function compareCanonicalText(left: string, right: string): number {
   const byteOrder = Buffer.compare(Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8'));
   if (byteOrder !== 0) return byteOrder;
   // Proof: without the code-unit tie-breaker, canonical objects containing `\ud800` and `\ud801`
