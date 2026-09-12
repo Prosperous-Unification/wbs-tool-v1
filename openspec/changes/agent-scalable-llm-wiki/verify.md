@@ -2518,3 +2518,59 @@ Every fault was watched through `integration.test.ts`, restored and recorded by 
 
 Only Task 5.1 is added as complete. Task 5.2 retains atomic ref publication and lifecycle
 transition; no ref or generation was published by this slice.
+
+### Slice 5.1 review correction — authenticated obligations and complete composition
+
+The first independent review found that a syntactically valid receipt could still be relabelled as
+another selected obligation, review provenance was accepted from its own string labels, and receipt
+manifests named content rather than the complete composition. It also found that a producer could
+claim its own consumer role, an unrelated consumer-labelled patch could satisfy the join, and the
+policy object was manually checked rather than strictly decoded.
+
+The correction makes policy-selected check/review specifications part of the immutable composition
+identity and requires an externally supplied verifier to authenticate each receipt's canonical
+bytes, obligation, composition, journal and invocation. Receipt identities cannot repeat. Check and
+review bindings independently match their selected specification. Evidence and every receipt now
+bind the full composition identity, including generations, obligation selection, policy, mapping,
+diff and declarations. Required contract consumers are distinct submissions and must change a
+trusted implementation selector. The closed ArkType policy schema rejects unknown discriminants,
+fields and malformed primitive types.
+
+| Deliberate one-at-a-time fault                    | Observed production-path failure                                                                    |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| bypass trusted verifier field comparison          | relabelled check receipt returned a checked candidate; `Received function did not throw`            |
+| bypass duplicate canonical-receipt identity set   | duplicate reached `integration verifier binding mismatch` instead of duplicate refusal              |
+| bypass selected command comparison                | differently executed check returned a checked candidate; `Received function did not throw`          |
+| bypass selected executor comparison               | unauthorized reviewer returned a checked candidate; `Received function did not throw`               |
+| bypass selected journal comparison                | nonexistent caller-labelled journal returned a checked candidate; `Received function did not throw` |
+| omit evidence `compositionIdentity` comparison    | evidence carrying another composition identity returned a checked candidate                         |
+| compare check manifest with content identity only | content-only receipt returned a checked candidate for the full composition                          |
+| bypass distinct consumer lookup                   | producer satisfied its own consumer duty and returned unchecked                                     |
+| bypass trusted consumer implementation-path match | unrelated gate-only patch satisfied the consumer duty and returned unchecked                        |
+| widen selector schema with `glob`                 | strict decoder returned and printed the unknown selector policy                                     |
+
+Every fault was run against `integration.test.ts`, failed at the named assertion, restored, and
+recorded in the adjacent `Proof:` comment.
+
+- `bun test tools/tool-wiki/src/admission/integration.test.ts` — exit 0; 14 pass, 0 fail and 57
+  assertions in 3.00 seconds.
+- `bun test tools/tool-wiki/src/admission/*.test.ts` — exit 0; 88 pass, 0 fail and 344 assertions in
+  25.86 seconds.
+- `NX_DAEMON=false bunx nx test tool-wiki --runInBand --skip-nx-cache` at `4479612c` — exit 0;
+  445 pass, 0 fail and 4,613 assertions across 23 files in 778.47 seconds (12m59s).
+- `NX_DAEMON=false bunx nx lint tool-wiki --skip-nx-cache` — exit 0 with the explicitly inactive
+  external activation report; this is not enforce-mode certification.
+- `NX_DAEMON=false bunx nx typecheck tool-wiki --skip-nx-cache` — exit 0; forced Tool Wiki build.
+- `bunx prettier --check tools/tool-wiki/src/admission/integrate.ts
+tools/tool-wiki/src/admission/integration.test.ts` and `git diff --check` — exit 0.
+- `NX_DAEMON=false bunx nx format:check --all` — exit 0 after formatting this verification entry.
+- `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate
+agent-scalable-llm-wiki --strict --json` — exit 0; one valid change and no issues.
+- The directory-form diagnostic `bun test tools/tool-wiki/src/admission` passed the 88 source tests,
+  then also discovered six emitted `dist/out-tsc` copies and failed those on unresolved workspace
+  aliases. It is not claimed; the explicit source glob above is the admission result.
+- `bin/h2puni-gate.sh 4479612c` — unavailable, exit 70 before any step because required heavy-lock
+  path `/home/puni1/.cache` does not exist; the host gate is not green.
+
+The correction does not update refs or lifecycle state. Task 5.2 still owns the atomic authority and
+target-ref recheck before publication; Task 5.3 still owns trusted-policy activation.
