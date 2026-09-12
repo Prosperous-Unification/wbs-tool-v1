@@ -18,6 +18,7 @@
         "{workspaceRoot}/bin/dev-poll-sync.sh",
         "{workspaceRoot}/bin/dev-deploy.sh",
         "{workspaceRoot}/bin/h2puni-gate.sh",
+        "{workspaceRoot}/bin/h2puni-gate-steps.sh",
         "{workspaceRoot}/deploy/dev-src/compose.yml",
         "{workspaceRoot}/apps/**/project.json",
         "{workspaceRoot}/libs/**/project.json",

@@ -7,6 +7,7 @@ import {
   type ProjectGraph,
 } from 'nx/src/devkit-exports';
 import { filterUsingGlobPatterns, getTargetInputs } from 'nx/src/hasher/task-hasher';
+import ts from 'typescript';
 
 import { readProjects } from '../workspace-projects.mjs';
 
@@ -186,13 +187,44 @@ describe('every typecheck target compiles files', () => {
  * tool-devsync:test  [existing outputs match the cache, left as is]`, and with
  * it restored the same edit ran the suite.
  */
+function outsidePathLiterals(source: string): string[] {
+  const syntax = ts.createSourceFile('outside-read.ts', source, ts.ScriptTarget.Latest, true);
+  const found: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isStringLiteral(node) && /^(?:\.\.\/){3,}[A-Za-z0-9_./-]*$/.test(node.text)) {
+      const parent = node.parent;
+      // Proof: the raw-quote scan reported Tool Wiki fixture literals as real reads of
+      // `tools/outside` and `tools/provider/src/index`; syntax selection removed only those two,
+      // while the production gate still failed on the real undeclared h2puni steps-script read.
+      if (ts.isNewExpression(parent)) {
+        const context = parent.arguments?.map((argument) => argument.getText(syntax));
+        if (parent.expression.getText(syntax) === 'URL' && context?.[1] === 'import.meta.url')
+          found.push(node.text);
+      } else if (ts.isCallExpression(parent)) {
+        const callee = parent.expression.getText(syntax);
+        const context = parent.arguments.map((argument) => argument.getText(syntax));
+        if (
+          ((callee === 'join' || callee === 'resolve') && context.includes('import.meta.dir')) ||
+          // Proof: omitting direct reader calls lost `../../../config/real.json`; the focused
+          // syntax test failed with that exact expected entry absent from the received array.
+          ['Bun.file', 'readFile', 'readFileSync'].includes(callee)
+        )
+          found.push(node.text);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(syntax);
+  return found;
+}
+
 /** Workspace-relative paths a `*.test.ts` reads from outside its own project. */
 async function outsideReads(projectDir: string): Promise<string[]> {
   const found = new Set<string>();
   const glob = new Bun.Glob('src/**/*.test.ts');
   for await (const relative of glob.scan({ cwd: new URL(`${projectDir}/`, WORKSPACE).pathname })) {
     const source = await readFile(new URL(`${projectDir}/${relative}`, WORKSPACE), 'utf8');
-    for (const [, up] of source.matchAll(/'((?:\.\.\/){3,}[A-Za-z0-9_./-]*)'/g)) {
+    for (const up of outsidePathLiterals(source)) {
       // Resolved against the file, then made workspace-relative. An empty
       // result is the workspace root itself or above it — a path being built,
       // not a file being read, and too broad to ask any target to declare.
@@ -206,6 +238,25 @@ async function outsideReads(projectDir: string): Promise<string[]> {
   }
   return [...found].sort();
 }
+
+describe('outside-read syntax', () => {
+  it('distinguishes real workspace reads from fixture-relative strings', () => {
+    const source = `
+      const actual = new URL('../../../bin/real.sh', import.meta.url);
+      const joined = join(import.meta.dir, '../../../docs/real.md');
+      const direct = readFile('../../../config/real.json');
+      const fixture = "import x from '../../../provider/src/index'";
+      symlinkSync('../../../outside', fixtureRoot);
+      expect(value).toEqual({ specifier: '../../../provider/src/index' });
+    `;
+
+    expect(outsidePathLiterals(source)).toEqual([
+      '../../../bin/real.sh',
+      '../../../docs/real.md',
+      '../../../config/real.json',
+    ]);
+  });
+});
 
 /** Whether Nx hashes `read` through the target's declared dependency inputs. */
 function dependencyInputCovers(
