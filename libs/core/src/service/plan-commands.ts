@@ -587,6 +587,17 @@ export class PlanCommandRunner {
           );
           results.push({ ...plain(), kind: command.kind });
           break;
+        case 'setStatus':
+          reasonOf(
+            await workItems.setStatus(
+              required(command.workItemId, command.workItemRef),
+              actorId,
+              command.status,
+              command.on,
+            ),
+          );
+          results.push({ ...plain(), kind: command.kind });
+          break;
         case 'setMeasure':
           reasonOf(
             await workItems.setMeasure(

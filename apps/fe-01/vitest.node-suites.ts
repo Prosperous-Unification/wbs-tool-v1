@@ -33,6 +33,7 @@ export const NODE_SUITES: readonly string[] = [
   'src/components/wbs/mention.test.ts',
   'src/components/wbs/name-notes.test.ts',
   'src/components/wbs/optimization-cue-reading.test.ts',
+  'src/components/wbs/plan-chart-input.test.ts',
   'src/components/wbs/plan-completeness.test.ts',
   'src/components/wbs/plan-render-rows.test.ts',
   'src/components/wbs/plan-viewport.test.ts',

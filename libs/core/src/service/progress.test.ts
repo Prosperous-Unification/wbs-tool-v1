@@ -1,4 +1,4 @@
-import type { WorkItemState } from '@wbs/domain';
+import type { WorkItemStatus } from '@wbs/domain';
 import { inMemoryCommandJournal } from '@wbs/store-memory/command-journal-fixture';
 import { projectRow } from '@wbs/store-memory/project-fixture';
 import { beforeEach, describe, expect, it } from 'bun:test';
@@ -10,6 +10,7 @@ import type {
   StepProgressStore,
   StoredProgress,
 } from '../index';
+import { clockOf } from '../ports/clock';
 import type { AvailableWorkItemService as WorkItemService } from '../testing/available-work-item-service';
 import { inMemoryServices } from '../testing/harness';
 import type { Days } from './roll-up';
@@ -97,10 +98,10 @@ async function shown(): Promise<Map<string, Record<string, string>>> {
 }
 
 /** The derived item state by work item name — the field nothing stores. */
-async function states(): Promise<Map<string, WorkItemState>> {
+async function states(): Promise<Map<string, WorkItemStatus>> {
   const tree = await service.tree(projectId);
   if (tree === null) throw new Error('project vanished');
-  return new Map(tree.workItems.map((w) => [w.name, w.state]));
+  return new Map(tree.workItems.map((w) => [w.name, w.status]));
 }
 
 describe('stating where the work has got to', () => {
@@ -126,9 +127,9 @@ describe('stating where the work has got to', () => {
 
     // An estimate and a recorded day are not statements about where the work
     // has got to. Absence is the third state and it is spelled by the absence of
-    // a row — never by a stored `not_started`.
+    // a row — never by a stored `unknown`.
     expect((await shown()).get('Strip')).toEqual({});
-    expect((await states()).get('Strip')).toBe('not_started');
+    expect((await states()).get('Strip')).toBe('unknown');
     expect(await progress.listByProject(projectId)).toEqual([]);
   });
 
@@ -219,7 +220,7 @@ describe('stating where the work has got to', () => {
 
     // One child finished, the other estimated and silent: the branch is under
     // way, and the per-step fold says the same because `agree` sees the second
-    // child's `not_started`.
+    // child's `unknown`.
     expect((await states()).get('Branch')).toBe('in_progress');
     expect((await shown()).get('Branch')).toEqual({ [DEV]: 'in_progress' });
 
@@ -246,7 +247,7 @@ describe('stating where the work has got to', () => {
 
     expect((await shown()).get('Branch')).toEqual({ [DEV]: 'done' });
     expect((await states()).get('Branch')).toBe('in_progress');
-    expect((await states()).get('Sand')).toBe('not_started');
+    expect((await states()).get('Sand')).toBe('unknown');
   });
 
   it('takes a statement back, and clearing what nobody said is not an error', async () => {
@@ -255,9 +256,9 @@ describe('stating where the work has got to', () => {
 
     expect(await service.clearProgress(strip, OWNER, DEV)).toEqual({ ok: true, value: null });
     // Back to the absence of a row, which is "nobody has said" — not "the work
-    // was undone", and not a stored `not_started`.
+    // was undone", and not a stored `unknown`.
     expect(await progress.listByProject(projectId)).toEqual([]);
-    expect((await states()).get('Strip')).toBe('not_started');
+    expect((await states()).get('Strip')).toBe('unknown');
 
     expect(await service.clearProgress(strip, OWNER, DEV)).toEqual({ ok: true, value: null });
     expect(await service.clearProgress(crypto.randomUUID(), OWNER, DEV)).toEqual({
@@ -312,7 +313,7 @@ describe('stating where the work has got to', () => {
     // undo leaving the plan asserting work is under way that nobody started;
     // watched 2026-08-18.
     expect(await progress.listByProject(projectId)).toEqual([]);
-    expect((await states()).get('Strip')).toBe('not_started');
+    expect((await states()).get('Strip')).toBe('unknown');
   });
 
   it('undoes a correction back to the state it replaced, and redoes it again', async () => {
@@ -393,7 +394,7 @@ describe('states through the structural commands', () => {
     // The fold, not the rows — and only the part of the fold anybody stated. The
     // branch had Dev finished and QA estimated and silent, so `done` comes up
     // and QA's silence does **not** come up as a row: the absence of a row is
-    // how silence is spelled, and writing `not_started` would be the second
+    // how silence is spelled, and writing `unknown` would be the second
     // spelling this table exists without.
     //
     // The reading survives the delete anyway, which is the claim that matters:
@@ -432,7 +433,7 @@ describe('states through the structural commands', () => {
     const copy = tree?.workItems.find((row) => row.id === copied.value.id);
     expect(copy?.estimates).toEqual({ [DEV]: days(1, 2, 3) });
     expect(copy?.progress).toEqual({});
-    expect(copy?.state).toBe('not_started');
+    expect(copy?.status).toBe('unknown');
   });
 });
 
@@ -465,3 +466,182 @@ describe('what stating progress does not do', () => {
     expect(schedules(after)).toEqual(schedules(before));
   });
 });
+
+describe('setting the row’s status as one act', () => {
+  /** Every row's fact end by name, off the same read the table draws. */
+  async function factEnds(): Promise<Map<string, string | null>> {
+    const tree = await service.tree(projectId);
+    if (tree === null) throw new Error('project vanished');
+    return new Map(tree.workItems.map((w) => [w.name, w.factEnd]));
+  }
+
+  it('marks every step of a leaf done and fills its fact end with the day given', async () => {
+    const strip = await add('Strip');
+    await service.setEstimate(strip, OWNER, DEV, days(1, 2, 3));
+
+    const outcome = await service.setStatus(strip, OWNER, 'done', '2026-09-12');
+
+    expect(outcome.ok).toBe(true);
+    // QA holds no estimate and is written anyway: the row is finished, whatever
+    // step its work was filed under, and a step left silent would keep the fold
+    // off `done` the moment somebody sized it (ADR 0024).
+    expect((await shown()).get('Strip')).toEqual({ [DEV]: 'done', [QA]: 'done' });
+    expect((await states()).get('Strip')).toBe('done');
+    expect((await factEnds()).get('Strip')).toBe('2026-09-12');
+  });
+
+  it('marks every leaf beneath a parent, skips one already done, and speaks for the parent too, as one entry', async () => {
+    const branch = await add('Branch');
+    const strip = await add('Strip', branch);
+    const sand = await add('Sand', branch);
+    const paint = await add('Paint', branch);
+    await service.setProgress(paint, OWNER, DEV, 'done');
+    await service.setProgress(paint, OWNER, QA, 'done');
+    const entriesBefore = journal.events.length;
+
+    const outcome = await service.setStatus(branch, OWNER, 'done', '2026-09-12');
+
+    expect(outcome.ok).toBe(true);
+    expect((await states()).get('Branch')).toBe('done');
+    expect(stored(await progress.listByProject(projectId)).sort(byRow)).toEqual(
+      [
+        { workItemId: paint, stepId: DEV, state: 'done' },
+        { workItemId: paint, stepId: QA, state: 'done' },
+        { workItemId: strip, stepId: DEV, state: 'done' },
+        { workItemId: strip, stepId: QA, state: 'done' },
+        { workItemId: sand, stepId: DEV, state: 'done' },
+        { workItemId: sand, stepId: QA, state: 'done' },
+      ].sort(byRow),
+    );
+    const ends = await factEnds();
+    expect([ends.get('Branch'), ends.get('Strip'), ends.get('Sand'), ends.get('Paint')]).toEqual([
+      '2026-09-12',
+      '2026-09-12',
+      '2026-09-12',
+      '2026-09-12',
+    ]);
+    // One act, one entry — nine writes and one press of Cmd+Z.
+    expect(journal.events.length - entriesBefore).toBe(1);
+  });
+
+  it('keeps a fact end somebody typed', async () => {
+    const strip = await add('Strip');
+    expect((await service.patch(strip, OWNER, { factEnd: '2026-09-10' })).ok).toBe(true);
+
+    await service.setStatus(strip, OWNER, 'done', '2026-09-12');
+
+    // Proof: the `factEnd !== null` skip deleted, and this fails on
+    // `Expected: "2026-09-10" / Received: "2026-09-12"` — the day somebody knew
+    // overwritten by the day somebody pressed; watched 2026-09-12.
+    expect((await factEnds()).get('Strip')).toBe('2026-09-10');
+  });
+
+  it('takes the UTC day of its own stamp when no day is given', async () => {
+    const lateEvening = inMemoryServices({
+      clock: clockOf({
+        now: () => Date.UTC(2026, 8, 12, 23, 30),
+        newId: () => crypto.randomUUID(),
+      }),
+    });
+    const project = projectRow({ id: crypto.randomUUID(), ownerId: OWNER, restricted: true });
+    await lateEvening.stores.projects.create(
+      project,
+      [{ id: DEV, projectId: project.id, name: 'Dev', position: 10 }],
+      { at: 1, by: OWNER },
+    );
+    const created = await lateEvening.service.create(project.id, OWNER, {
+      parentId: null,
+      afterId: null,
+      name: 'Strip',
+    });
+    if (!created.ok) throw new Error(`create failed: ${created.reason}`);
+
+    await lateEvening.service.setStatus(created.value.id, OWNER, 'done');
+
+    const tree = await lateEvening.service.tree(project.id);
+    expect(tree?.workItems.at(0)?.factEnd).toBe('2026-09-12');
+  });
+
+  it('writes nothing when nothing would change', async () => {
+    const strip = await add('Strip');
+    await service.setStatus(strip, OWNER, 'done', '2026-09-12');
+    const entriesBefore = journal.events.length;
+
+    const again = await service.setStatus(strip, OWNER, 'done', '2026-09-13');
+
+    expect(again.ok).toBe(true);
+    // Proof: the `steps.length === 0` return deleted, and this fails on
+    // `Expected: 0 / Received: 1` — an empty batch journalled, one Cmd+Z that
+    // undoes nothing at all; watched 2026-09-12.
+    expect(journal.events.length - entriesBefore).toBe(0);
+    expect((await factEnds()).get('Strip')).toBe('2026-09-12');
+  });
+
+  it('unknown takes every statement away and leaves the facts where they are', async () => {
+    const strip = await add('Strip');
+    expect((await service.patch(strip, OWNER, { factStart: '2026-09-08' })).ok).toBe(true);
+    await service.setStatus(strip, OWNER, 'done', '2026-09-12');
+
+    await service.setStatus(strip, OWNER, 'unknown');
+
+    expect((await shown()).get('Strip')).toEqual({});
+    expect((await states()).get('Strip')).toBe('unknown');
+    const row = (await service.tree(projectId))?.workItems.find((w) => w.id === strip);
+    expect([row?.factStart, row?.factEnd]).toEqual(['2026-09-08', '2026-09-12']);
+  });
+
+  it('one undo puts every statement back and empties the fact ends it filled', async () => {
+    const branch = await add('Branch');
+    const strip = await add('Strip', branch);
+    await add('Sand', branch);
+    const paint = await add('Paint', branch);
+    await service.setProgress(strip, OWNER, DEV, 'in_progress');
+    await service.setProgress(paint, OWNER, DEV, 'done');
+    await service.setProgress(paint, OWNER, QA, 'done');
+    expect((await service.patch(paint, OWNER, { factEnd: '2026-09-01' })).ok).toBe(true);
+    const before = stored(await progress.listByProject(projectId)).sort(byRow);
+
+    await service.setStatus(branch, OWNER, 'done', '2026-09-12');
+    const undone = await service.undo(projectId, OWNER);
+
+    expect(undone.ok).toBe(true);
+    // The inverse is a `batch` whose steps are reversed by convention; recording
+    // them unreversed was watched **passing** here, because every step touches
+    // its own (leaf, step) pair or its own fact end and no order of the
+    // inverses changes what they restore. What this case holds is the whole of
+    // the entry: every statement back, every filled fact end emptied, a typed
+    // one kept.
+    expect(stored(await progress.listByProject(projectId)).sort(byRow)).toEqual(before);
+    const ends = await factEnds();
+    expect([ends.get('Branch'), ends.get('Strip'), ends.get('Sand'), ends.get('Paint')]).toEqual([
+      null,
+      null,
+      null,
+      '2026-09-01',
+    ]);
+    expect((await states()).get('Branch')).toBe('in_progress');
+  });
+
+  it('a duplicate has no facts, exactly as it has no statements', async () => {
+    const strip = await add('Strip');
+    expect((await service.patch(strip, OWNER, { factStart: '2026-09-08' })).ok).toBe(true);
+    await service.setStatus(strip, OWNER, 'done', '2026-09-12');
+
+    const copied = await service.duplicate(strip, OWNER);
+    if (!copied.ok) throw new Error('duplicate failed');
+
+    const copy = (await service.tree(projectId))?.workItems.find((w) => w.id === copied.value.id);
+    // Proof: the two nulls dropped from the copy literal, and this fails on
+    // `Received: ["2026-09-08", "2026-09-12", "unknown"]` — a copy that was
+    // never worked on, carrying the days the original was; watched 2026-09-12.
+    expect([copy?.factStart, copy?.factEnd, copy?.status]).toEqual([null, null, 'unknown']);
+  });
+});
+
+/** A stable order for statement lists whose insertion order is not the claim. */
+function byRow(
+  a: { workItemId: string; stepId: string },
+  b: { workItemId: string; stepId: string },
+): number {
+  return a.workItemId.localeCompare(b.workItemId) || a.stepId.localeCompare(b.stepId);
+}

@@ -107,6 +107,12 @@ interface PlanRowProps {
   attach: (rowId: string, node: HTMLTableRowElement | null) => void;
   frozen: boolean;
   /**
+   * Whether the row's status is `done`, so the `<tr>` can say so and
+   * `styles.css` can strike the name. Pure row data off the read, like
+   * `frozen`: it changes only when the plan does, never with the pointer.
+   */
+  done: boolean;
+  /**
    * Where this row's **dependency** light is read from.
    *
    * Subscribed to rather than handed in as a boolean since 2026-09-02: it was a
@@ -176,6 +182,7 @@ function PlanRow({
   rowIndex,
   attach,
   frozen,
+  done,
   depLights,
   armed,
   drop,
@@ -203,6 +210,7 @@ function PlanRow({
       // shell's own subscription key. Nothing else in the app reads it.
       data-row-id={rowId}
       data-frozen={frozen ? 'true' : 'false'}
+      data-row-done={done ? 'true' : undefined}
       data-dep-lit={depLit ? 'true' : undefined}
       data-row-lit={lit ? 'true' : undefined}
       data-armed={armed ? 'true' : undefined}
@@ -1098,6 +1106,15 @@ export function WbsTable({
     editingDeadline,
     openDeadline,
     closeDeadline,
+    setFactStart,
+    setFactEnd,
+    setStatus,
+    editingFactStart,
+    openFactStart,
+    closeFactStart,
+    editingFactEnd,
+    openFactEnd,
+    closeFactEnd,
   } = usePlanFields({ run, api, priorityBands, pushToast, gridElement });
   const {
     setTeamOf,
@@ -1226,6 +1243,8 @@ export function WbsTable({
           dependencyPicker === null ? [] : depEntriesFor(row, dependencyPicker.typed),
         dependencyPicker,
         editingDeadline: editingDeadline === row.id,
+        editingFactEnd: editingFactEnd === row.id,
+        editingFactStart: editingFactStart === row.id,
         editingNotBefore: editingNotBefore === row.id,
         externalSystems,
         estimateReadings,
@@ -1255,6 +1274,8 @@ export function WbsTable({
     dependenciesOf,
     depPicker,
     editingDeadline,
+    editingFactEnd,
+    editingFactStart,
     editingNotBefore,
     effectiveServiceLabelOf,
     effectiveTagLabelOf,
@@ -1334,6 +1355,13 @@ export function WbsTable({
     closeNotBefore,
     openDeadline,
     closeDeadline,
+    setFactStart,
+    setFactEnd,
+    setStatus,
+    openFactStart,
+    closeFactStart,
+    openFactEnd,
+    closeFactEnd,
     setRefsEditing,
     setTeamOf,
     setTagsOf,
@@ -2340,6 +2368,7 @@ export function WbsTable({
                       rowIndex={entry.index}
                       attach={viewport.attachRow}
                       frozen={row.original.frozenNumber !== null}
+                      done={row.original.status === 'done'}
                       depLights={depLights}
                       armed={armedDelete?.rowId === row.original.id}
                       drop={dropHint?.rowId === row.original.id ? dropHint.zone : undefined}

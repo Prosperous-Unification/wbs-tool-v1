@@ -1,5 +1,5 @@
 import type { Row } from '@tanstack/react-table';
-import { workdaysBetween } from '@wbs/domain/workday';
+import { deadlineOffsetOf, workdaysBetween } from '@wbs/domain/workday';
 import type * as React from 'react';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
@@ -133,6 +133,12 @@ export function usePlanChartInput({
           earliestFinish: row.source.schedule.earliestFinish,
         },
         notBeforeOffset: notBeforeOffsetOf(startDate, row.source.startNoEarlierThan),
+        // Straight off the read, like the trio and the priority below: the fold
+        // be-01 derived, and the two facts placed on the axis the way the
+        // not-before is — a start rolling forward, an end rolling back.
+        status: row.source.status,
+        factStartOffset: notBeforeOffsetOf(startDate, row.source.factStart),
+        factEndStop: factEndStopOf(startDate, row.source.factEnd),
         // The words about that date, for the floor sentence to append where the
         // not-before is the floor that actually binds this bar. Read on **every**
         // row rather than only the floored ones: which floor binds is
@@ -273,6 +279,23 @@ export const notBeforeOffsetOf = (
   notBefore: string | null,
 ): number | null =>
   startDate === null || notBefore === null ? null : workdaysBetween(startDate, notBefore);
+
+/**
+ * Where a fact end **stops** on the workday axis: one past the last workday the
+ * work was still on, so a done bar drawn to it covers that whole day.
+ *
+ * `deadlineOffsetOf` and not `workdaysBetween`, for the deadline's own reason:
+ * an end on a Saturday means the work was last on the Friday, and
+ * `workdaysBetween` would roll it forward to the Monday and draw a bar through a
+ * weekend nobody worked. A fact end before the plan's first day stops at `0` —
+ * the work was finished before the plan began, and the bar sits on day zero.
+ * Null where there is no fact end, or no calendar to place one on.
+ */
+export const factEndStopOf = (startDate: string | null, factEnd: string | null): number | null => {
+  if (startDate === null || factEnd === null) return null;
+  const resolved = deadlineOffsetOf(startDate, factEnd);
+  return resolved.kind === 'offset' ? resolved.offset + 1 : 0;
+};
 
 /**
  * Whether the plan could be scheduled at all, as the one thing the chart and

@@ -722,7 +722,16 @@ describe('how wide the steps make the table', () => {
     // assertions under it are only why it is true.
     expect(foldedTableMinWidth([], DATED)).toBe(1035);
     expect(foldedTableMinWidth(['step-dev', 'step-qa'], DATED)).toBe(1227);
-    expect(INITIAL_HIDDEN_COLUMNS).toEqual(['refs', 'team', 'service', 'type', 'deadline']);
+    expect(INITIAL_HIDDEN_COLUMNS).toEqual([
+      'refs',
+      'team',
+      'service',
+      'type',
+      'deadline',
+      'status',
+      'fact-start',
+      'fact-end',
+    ]);
     expect(DEFAULT_COLUMN_SET).toContain('tag');
     expect(DEFAULT_COLUMN_SET).not.toContain('team');
     expect(DEFAULT_COLUMN_SET).not.toContain('service');
@@ -810,7 +819,15 @@ describe('how wide the steps make the table', () => {
     expect(INITIAL_HIDDEN_COLUMNS).toContain('refs');
     expect(DEFAULT_COLUMN_SET).not.toContain('refs');
     expect(resetHiddenColumns(false)).toEqual(INITIAL_HIDDEN_COLUMNS);
-    expect(resetHiddenColumns(true)).toEqual(['team', 'service', 'type', 'deadline']);
+    expect(resetHiddenColumns(true)).toEqual([
+      'team',
+      'service',
+      'type',
+      'deadline',
+      'status',
+      'fact-start',
+      'fact-end',
+    ]);
   });
 
   it('subtracts what the reader has hidden, a whole step included', () => {
@@ -827,9 +844,17 @@ describe('how wide the steps make the table', () => {
     // the assertion would be about a reader nobody described. `deadline` is the
     // fourth, added by `work-item-deadline` 9.1 for the same reason `type` was
     // added: 84px the folded budget at 1280 does not have.
-    expect(foldedTableMinWidth([], DATED, ['refs', 'service', 'type', 'deadline'])).toBe(
-      1035 + widthFor('team', DATED),
-    );
+    expect(
+      foldedTableMinWidth([], DATED, [
+        'refs',
+        'service',
+        'type',
+        'deadline',
+        'status',
+        'fact-start',
+        'fact-end',
+      ]),
+    ).toBe(1035 + widthFor('team', DATED));
     // A hidden step takes its folded column with it, and nothing else.
     expect(
       foldedTableMinWidth(['step-dev', 'step-qa'], DATED, [...INITIAL_HIDDEN_COLUMNS, 'step-qa']),
@@ -858,6 +883,9 @@ describe('how wide the steps make the table', () => {
       'final-total',
       'not-before',
       'deadline',
+      'status',
+      'fact-start',
+      'fact-end',
       'start',
       'finish',
       'float',

@@ -6,6 +6,7 @@ import { createDeadlineColumn } from './deadline';
 import { createDependsColumn } from './depends';
 import { createDragColumn } from './drag';
 import { createEstimatesColumns } from './estimates';
+import { createFactEndColumn, createFactStartColumn } from './fact-date';
 import { createFinalTotalColumn } from './final-total';
 import { createFinishColumn } from './finish';
 import { createFloatColumn } from './float';
@@ -17,6 +18,7 @@ import { createPriorityColumn } from './priority';
 import { createRefsColumn } from './refs';
 import { createServiceColumn } from './service';
 import { createStartColumn } from './start';
+import { createStatusColumn } from './status';
 import { createTagColumn } from './tag';
 import { createTeamColumn } from './team';
 import { createTypeColumn } from './type';
@@ -45,6 +47,9 @@ export function createPlanColumns(
       createFinalTotalColumn(),
       createNotBeforeColumn({ live }),
       createDeadlineColumn({ live }),
+      createStatusColumn({ live }),
+      createFactStartColumn({ live }),
+      createFactEndColumn({ live }),
       createStartColumn({ live }),
       createFinishColumn(),
       createFloatColumn(),

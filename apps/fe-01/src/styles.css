@@ -1531,3 +1531,17 @@
     align-items: center;
   }
 }
+
+/*
+ * A **done** row (`data-row-done`, written by `wbs-table.tsx`'s `PlanRow` off
+ * the row's status): its name reads struck through and muted, and its number
+ * with it. Ink only — this touches no `--cell-bg`, so every stripe, the pointed
+ * row's light and a dependency light paint under it exactly as they did, and
+ * the `:not()` chain above it has nothing new to exclude. What a done row looks
+ * like is a fact about the row at rest, not about where the pointer is.
+ */
+[data-grid] tbody tr[data-row-done='true'] td[data-column='name'] [data-cell],
+[data-grid] tbody tr[data-row-done='true'] [data-number] {
+  text-decoration: line-through;
+  color: var(--muted-foreground);
+}

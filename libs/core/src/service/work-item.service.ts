@@ -12,19 +12,21 @@ import {
   finalDays,
   firstWorkdayOf,
   type IsoDate,
+  isoDateOfInstant,
   isWithin,
   lastWorkdayOf,
   type MeasureMetric,
   nextWorkday,
-  NOT_STARTED,
   ORDINARY_BAND_RANK,
   parentIndexOf,
   type PertWeights,
   placeAfter,
   POSITION_STEP,
   type PriorityBand,
+  type SettableStatus,
   type Sibling,
   type StepState,
+  UNKNOWN,
   workdaysBetween,
 } from '@wbs/domain';
 import { MEASURE_METRICS, SOLVER_OBJECTIVES, type SolverObjectiveName } from '@wbs/domain';
@@ -90,7 +92,7 @@ import {
   rollUpFinals,
   rollUpMeasures,
   rollUpProgress,
-  rollUpWorkItemStates,
+  rollUpWorkItemStatuses,
   workedStepsOf,
 } from './roll-up';
 
@@ -922,6 +924,9 @@ const asSibling = (workItem: WorkItem): Sibling => ({
   position: workItem.position,
 });
 
+/** The pair a statement is keyed by, as one map key. */
+const progressKey = (workItemId: string, stepId: string): string => `${workItemId}\u0000${stepId}`;
+
 /** `rootId` and everything beneath it. */
 function subtreeOf(rows: readonly WorkItem[], rootId: string): string[] {
   const childrenOf = new Map<string | null, WorkItem[]>();
@@ -971,6 +976,13 @@ function fieldsOf(patch: WorkItemPatch): (keyof WorkItemPatch)[] {
   // entry that write had already made stale. The reason line's own red, one
   // column over.
   if (patch.deadline !== undefined) named.push('deadline');
+  // Proof: these two lines deleted, so a patch naming only a fact date journals
+  // nothing, and `puts a cleared fact end back` failed at its `expectDone` on
+  // `refused: stale_undo`: the undo reached past the unjournalled write to an
+  // entry that write had already made stale. The deadline line's own red, two
+  // columns over.
+  if (patch.factStart !== undefined) named.push('factStart');
+  if (patch.factEnd !== undefined) named.push('factEnd');
   // Proof: this line and the matching one in {@link revertTo} each deleted in
   // turn, and both `puts a replaced priority back, and leaves a priority a rename
   // did not name` and `takes a first priority away again, rather than leaving a
@@ -1056,6 +1068,11 @@ function revertTo(before: LabelledWorkItem, patch: WorkItemPatch): WorkItemPatch
   // the date. **Redo does not come through here at all** — it replays the
   // journalled `forward` patch — which is why 6.3's case presses both.
   if (patch.deadline !== undefined) out.deadline = before.deadline;
+  // The deadline's scalar rule, twice: name the field the forward named, restore
+  // the value it had, leave every other field alone. A `setStatus` fill is a
+  // `patch` step too, so its inverse is `factEnd: null` through this same line.
+  if (patch.factStart !== undefined) out.factStart = before.factStart;
+  if (patch.factEnd !== undefined) out.factEnd = before.factEnd;
   if (patch.priority !== undefined) out.priority = before.priority;
   if (patch.serviceTeamId !== undefined) out.serviceTeamId = before.serviceTeamId;
   if (patch.teamIds !== undefined) out.teamIds = before.teamIds;
@@ -1524,9 +1541,9 @@ export class WorkItemService {
     // the estimate to put it here. See `rollUpProgress`.
     const statedTotals = rollUpProgress(rows, stated, workedStepsOf(stored, recorded, stated));
     // The row's own reading, folded over its **children** rather than over its
-    // rolled-up steps — see `rollUpWorkItemStates` for why the two differ and which
+    // rolled-up steps — see `rollUpWorkItemStatuses` for why the two differ and which
     // one is true.
-    const itemStates = rollUpWorkItemStates(rows, statedTotals);
+    const itemStatuses = rollUpWorkItemStatuses(rows, statedTotals);
     // The write path refuses an edge that would close a cycle, but two clients
     // drawing conflicting edges at the same instant are each checked against the
     // graph as they read it. If one ever lands, every read of this project must
@@ -1745,7 +1762,7 @@ export class WorkItemService {
         // Where each step's work on this row has got to: its own if it is a
         // leaf, `agree` across its descendants' if it is not.
         //
-        // **A step reading `not_started` is absent from this object**, exactly
+        // **A step reading `unknown` is absent from this object**, exactly
         // as an unestimated step is absent from `estimates` — the absence of a
         // statement is how "nobody has said" is spelled everywhere in this tool,
         // including on the wire. So an empty object means nobody has said
@@ -1753,15 +1770,15 @@ export class WorkItemService {
         // spoken about.
         progress: Object.fromEntries(
           [...(statedTotals.get(row.id) ?? [])].filter(
-            (entry): entry is [string, StepState] => entry[1] !== NOT_STARTED,
+            (entry): entry is [string, StepState] => entry[1] !== UNKNOWN,
           ),
         ),
         // The row's own reading, **derived from its steps and never stored**:
-        // `done` when every step with work on it says so, `not_started` when
+        // `done` when every step with work on it says so, `unknown` when
         // none of them has said anything, and `in_progress` for every
         // disagreement in between — including the one that matters most, one
         // step finished and another silent. `@wbs/domain`'s `agree`.
-        state: itemStates.get(row.id) ?? NOT_STARTED,
+        status: itemStatuses.get(row.id) ?? UNKNOWN,
         // A parent's charged days are the **sum of its descendants' rounded
         // figures**, not its rolled-up triple put through the method once. The
         // two agreed while days were fractional and part company the moment a
@@ -1866,6 +1883,8 @@ export class WorkItemService {
       // makes a parent's deadline bind its children, and it reads the stored
       // nulls to do it.
       deadline: null,
+      factStart: null,
+      factEnd: null,
       priority,
       serviceTeamId: null,
       // Unlabelled, in the third dimension as in the other two: a new row states
@@ -2271,6 +2290,11 @@ export class WorkItemService {
         // branch nobody asked to rename.
         name: isRoot ? `${source.name}${COPY_SUFFIX}` : source.name,
         frozenNumber: null,
+        // A copy has not happened. The original's facts are a record of work
+        // that was done once; the copy is new work with no start and no end, and
+        // no statements either (`step_progress` is not copied, below). ADR 0024.
+        factStart: null,
+        factEnd: null,
         // Not the original's count. A copy is a new row that has never been
         // changed, and carrying the original's revision across would have a
         // reader's precondition on one row pass against the other.
@@ -2471,7 +2495,7 @@ export class WorkItemService {
       //
       // The **fold**, not the rows: a deleted child that is itself a parent holds
       // no rows of its own, so moving rows would move nothing and the branch's
-      // reading would go with it. `not_started` is skipped rather than written,
+      // reading would go with it. `unknown` is skipped rather than written,
       // because the absence of a row is how it is spelled everywhere.
       //
       // `statedAt` is the newest stamp in the branch, for `recordedAt`'s reason:
@@ -2504,7 +2528,7 @@ export class WorkItemService {
           workedStepsOf(storedEstimates, storedActuals, storedProgress),
         ).get(id);
         for (const [stepId, state] of branchStates ?? []) {
-          if (state === NOT_STARTED) continue;
+          if (state === UNKNOWN) continue;
           const latest = statedInside
             .filter((each) => each.stepId === stepId)
             .reduce((newest, each) => Math.max(newest, each.statedAt), 0);
@@ -3266,7 +3290,7 @@ export class WorkItemService {
         forward: { do: 'set_progress', workItemId: id, stepId, state },
         // What was said before, or that nothing was. A `clear_progress` inverse
         // is what makes undoing the first statement take the row away rather
-        // than write a `not_started` — the one value this table must never hold,
+        // than write a `unknown` — the one value this table must never hold,
         // because it is the absence of a row everywhere else.
         inverse:
           before === null
@@ -3317,6 +3341,134 @@ export class WorkItemService {
         },
       );
     }
+    return { ok: true, value: null };
+  }
+
+  /**
+   * Sets the row's **status** as one act — the row-level mark ADR 0024 gives a
+   * face to — by writing the statements the status is folded from, never a
+   * status of its own.
+   *
+   * `done` writes `done` on every step of the project for the leaf, or for
+   * every leaf beneath a parent; a step already saying so is left alone. Every
+   * work item the act speaks for — the leaves and, for a parent, the parent
+   * itself — takes `on` as its fact end when it holds none, and a typed fact end
+   * is never overwritten. `on` absent, the day is the UTC day of this act's own
+   * stamp ({@link isoDateOfInstant}): one clock read, never a second `now()`.
+   *
+   * `unknown` takes every statement off every leaf in scope and touches no fact:
+   * clearing a status says nobody has spoken, not that the dates were wrong.
+   *
+   * **One journal entry.** Two or more steps are recorded as one `batch` whose
+   * inverse walks them backwards, so one undo puts every prior statement back —
+   * `set_progress(before)` or `clear_progress` — and empties every fact end this
+   * act filled. One step is recorded as itself. **Nothing changing writes
+   * nothing**: no row, no journal entry, no tree change, which is
+   * {@link arrangeBySchedule}'s rule. The forward steps run through
+   * {@link apply}, the same arm an undo replays them through, so a mark and its
+   * redo cannot write two different things.
+   *
+   * A parent is **not** `rolled_up` here, unlike {@link setProgress}: speaking
+   * for the leaves beneath it is the point.
+   *
+   * Proof: the `steps.length === 0` return deleted and `writes nothing when
+   * nothing would change` fails on `Expected: 0 · Received: 1` journal entries —
+   * an empty batch journalled; the `factEnd !== null` skip deleted and `keeps a
+   * fact end somebody typed` fails on `Expected: "2026-09-10" / Received:
+   * "2026-09-12"`. Both watched 2026-09-12.
+   *
+   * The inverse is reversed for {@link recordCollected}'s reason and not for a
+   * fault this method can produce: every step it builds touches a different
+   * (work item, step) pair or a different work item's fact end, so no order of
+   * the inverses changes what they restore. Reversing it unreversed was
+   * watched **passing** `one undo puts every statement back` — the order is a
+   * convention here, and this paragraph is where that is said rather than a
+   * `Proof:` that names a red nobody saw.
+   */
+  async setStatus(
+    id: string,
+    actorId: string,
+    status: SettableStatus,
+    on?: IsoDate,
+  ): Promise<WorkItemOutcome<null>> {
+    const context = await this.contextFor(id, actorId);
+    if (!context.ok) return context;
+    const { rows, workItem } = context.value;
+    const stamp = this.clock.stampFor(actorId);
+    const day = on ?? isoDateOfInstant(stamp.at);
+    const hasChildren = new Set(rows.map((row) => row.parentId));
+    const leaves = subtreeOf(rows, id).filter((each) => !hasChildren.has(each));
+    const stated = await this.opts.progress.listByProject(workItem.projectId);
+    const steps: { forward: CompensatingCommand; inverse: CompensatingCommand }[] = [];
+    if (status === 'done') {
+      const statedOf = new Map(
+        stated.map((each) => [progressKey(each.workItemId, each.stepId), each.state]),
+      );
+      for (const leafId of leaves) {
+        for (const step of await this.opts.projects.stepsOf(workItem.projectId)) {
+          const before = statedOf.get(progressKey(leafId, step.id)) ?? null;
+          if (before === 'done') continue;
+          steps.push({
+            forward: { do: 'set_progress', workItemId: leafId, stepId: step.id, state: 'done' },
+            inverse:
+              before === null
+                ? { do: 'clear_progress', workItemId: leafId, stepId: step.id }
+                : { do: 'set_progress', workItemId: leafId, stepId: step.id, state: before },
+          });
+        }
+      }
+      const rowsById = new Map(rows.map((row) => [row.id, row]));
+      for (const spokenFor of new Set([...leaves, id])) {
+        const row = rowsById.get(spokenFor);
+        if (row === undefined) throw new Error(`${spokenFor} is not a row of this project`);
+        if (row.factEnd !== null) continue;
+        steps.push({
+          forward: { do: 'patch', workItemId: spokenFor, patch: { factEnd: day } },
+          inverse: { do: 'patch', workItemId: spokenFor, patch: { factEnd: null } },
+        });
+      }
+    } else {
+      const inScope = new Set(leaves);
+      for (const each of stated) {
+        if (!inScope.has(each.workItemId)) continue;
+        steps.push({
+          forward: { do: 'clear_progress', workItemId: each.workItemId, stepId: each.stepId },
+          inverse: {
+            do: 'set_progress',
+            workItemId: each.workItemId,
+            stepId: each.stepId,
+            state: each.state,
+          },
+        });
+      }
+    }
+    if (steps.length === 0) return { ok: true, value: null };
+    for (const { forward } of steps) {
+      const applied = await this.apply(workItem.projectId, forward, stamp);
+      // Every step was built from rows and steps read a moment ago in this same
+      // act, so a refusal here is the world moving underneath a write — an
+      // invariant break to report loudly, not an outcome to model.
+      if (!applied.ok) throw new Error(`setStatus could not ${forward.do}: ${applied.detail}`);
+    }
+    await this.announceTree(workItem.projectId);
+    const touched = [...new Set(steps.flatMap((each) => touchedBy(each.forward)))];
+    const [only] = steps;
+    await this.record(
+      workItem.projectId,
+      stamp,
+      'status',
+      status === 'done'
+        ? `mark ${quoteName(workItem.name)} done`
+        : `set ${quoteName(workItem.name)} back to unknown`,
+      steps.length === 1
+        ? { forward: only.forward, inverse: only.inverse, touched, before: rows }
+        : {
+            forward: { do: 'batch', steps: steps.map((each) => each.forward) },
+            inverse: { do: 'batch', steps: steps.map((each) => each.inverse).reverse() },
+            touched,
+            before: rows,
+          },
+    );
     return { ok: true, value: null };
   }
 
@@ -4286,7 +4438,7 @@ export class WorkItemService {
   /**
    * What one work item's step currently says, or null when it has said nothing.
    *
-   * Null rather than `not_started`, and every caller treats the two as one
+   * Null rather than `unknown`, and every caller treats the two as one
    * answer with two spellings only in the direction that matters: null is what
    * an undo of the first statement puts back, and it puts it back by deleting
    * the row rather than by writing a third value into the column.

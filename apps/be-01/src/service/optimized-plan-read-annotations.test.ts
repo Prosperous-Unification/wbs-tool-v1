@@ -138,6 +138,8 @@ async function leaf(
       startNoEarlierThan: null,
       startNoEarlierThanReason: null,
       deadline: null,
+      factStart: null,
+      factEnd: null,
       serviceTeamId,
       serviceId: null,
       maxParallel: 1,

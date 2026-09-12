@@ -5,7 +5,9 @@ import type { ProjectApi } from '@/lib/wbs-api';
 import { DEV, fakeProjectApi as fakeApi, QA } from '@/testing/fake-project-api';
 import { recordCalls } from '@/testing/record-calls';
 
+import { isoToday } from './gantt-panel';
 import { refusedDraftFor } from './live-editing';
+import { shortIsoDate } from './short-date';
 import type * as TableFrameModule from './table-frame';
 import { POPOVER_ROW_LAYER } from './table-frame';
 import { type SubscriptionHandlers, WbsTable } from './wbs-table';
@@ -3430,6 +3432,101 @@ describe('the links column', () => {
     expect(patches[1]).toMatchObject({ patch: { externalRefs: [{ systemId: SLACK }] } });
     await waitFor(() => {
       expect(marksOn('010')).toEqual(['slack']);
+    });
+  });
+});
+
+describe('the status cell and the two fact cells', () => {
+  /** One root row with every column shown — the three are in `INITIAL_HIDDEN_COLUMNS`. */
+  async function planWithStatusColumns() {
+    showEveryColumn();
+    const api = fakeApi();
+    render(<WbsTable projectId="p1" api={api} />);
+    click('Add work item');
+    await screen.findByLabelText('Name of 010');
+    return api;
+  }
+
+  const statusCell = (number: string): HTMLInputElement =>
+    screen.getByLabelText<HTMLInputElement>(`Status of ${number}`);
+
+  /** The cell's own list — the toolbar's native selects have options too. */
+  const statusList = (number: string): HTMLElement =>
+    screen.getByRole('listbox', { name: `Status for ${number}` });
+  const offeredStatuses = (number: string): (string | null)[] =>
+    within(statusList(number))
+      .getAllByRole('option')
+      .map((option) => option.textContent);
+
+  itDom('reads Unknown at rest and offers Unknown and Done, in that order', async () => {
+    await planWithStatusColumns();
+
+    expect(statusCell('010').value).toBe('Unknown');
+    expect(statusCell('010')).toHaveAttribute('data-cell', expect.stringMatching(/::status$/));
+    fireEvent.keyDown(statusCell('010'), { key: 'Enter' });
+    expect(offeredStatuses('010')).toEqual(['Unknown', 'Done']);
+  });
+
+  itDom(
+    'choosing Done sends the reader’s day, strikes the row and fills the fact end',
+    async () => {
+      const api = await planWithStatusColumns();
+      const sent = recordCalls(api, 'setStatus', (_id, status, on) => ({ status, on }));
+      const today = isoToday(new Date());
+
+      fireEvent.click(statusCell('010'));
+      fireEvent.click(within(statusList('010')).getByRole('option', { name: 'Done' }));
+
+      await waitFor(() => {
+        expect(statusCell('010').value).toBe('Done');
+      });
+      // Proof: `use-plan-fields.ts` made to send `''` for the day — the nearest a
+      // required argument can come to being dropped — and this failed before the
+      // assertion, on `MalformedDayError: "" is not a YYYY-MM-DD calendar day`
+      // out of the Fact end cell: a reader who pressed Done in their own day and
+      // got no day at all. Watched 2026-09-12.
+      expect(sent).toEqual([{ status: 'done', on: today }]);
+      // Proof: `data-row-done` dropped from `PlanRow`'s `<tr>`, and this fails on
+      // `expected null to be 'true'` — a done row `styles.css` has nothing to
+      // strike; watched 2026-09-12.
+      expect(
+        screen.getByLabelText('Name of 010').closest('tr')?.getAttribute('data-row-done'),
+      ).toBe('true');
+      expect(screen.getByLabelText<HTMLInputElement>('Fact end of 010').value).toBe(
+        shortIsoDate(today, new Date()),
+      );
+    },
+  );
+
+  itDom('shows In progress when the fold says so, and still offers only the two', async () => {
+    const api = await planWithStatusColumns();
+    const row = api.rows.at(0);
+    if (row === undefined) throw new Error('the plan has no row');
+    row.status = 'in_progress';
+    click('Add work item');
+    await waitFor(() => {
+      expect(statusCell('010').value).toBe('In progress');
+    });
+
+    fireEvent.click(statusCell('010'));
+    expect(offeredStatuses('010')).toEqual(['Unknown', 'Done']);
+  });
+
+  itDom('a fact start is typed through the date editor and read back as a short date', async () => {
+    const api = await planWithStatusColumns();
+    const patches = recordCalls(api, 'patchWorkItem', (_id, patch) => patch);
+    expect(screen.getByLabelText<HTMLInputElement>('Fact start of 010').value).toBe('—');
+
+    fireEvent.keyDown(screen.getByLabelText('Fact start of 010'), { key: 'Enter' });
+    typeIntoDate('Fact start of 010', '2026-09-08');
+
+    await waitFor(() => {
+      expect(patches).toEqual([{ factStart: '2026-09-08' }]);
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText<HTMLInputElement>('Fact start of 010').value).toBe(
+        shortIsoDate('2026-09-08', new Date()),
+      );
     });
   });
 });

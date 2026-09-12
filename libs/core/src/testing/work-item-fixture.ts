@@ -23,6 +23,8 @@ export function workItemRow(overrides: Partial<WorkItem> = {}): WorkItem {
     startNoEarlierThan: null,
     startNoEarlierThanReason: null,
     deadline: null,
+    factStart: null,
+    factEnd: null,
     priority: null,
     serviceTeamId: null,
     serviceId: null,
