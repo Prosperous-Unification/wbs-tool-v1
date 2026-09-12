@@ -8,6 +8,15 @@ permissions:
 
 jobs:
   lint:
+    # Skipped, not failed, while nothing has provisioned the activation: a repository
+    # with none of the three variables set has no archive to admit against, and a red
+    # check on every pull request says nothing a reader can act on. Skipped is **not**
+    # certified — required admission stays pending until an operator publishes the
+    # digest-pinned archive and sets all three (docs/runbook-tool-wiki-activation.md,
+    # "Transport and admission"). A partial configuration still runs and still dies
+    # on the `:?` guards below, so "refuses missing configuration" holds the moment
+    # anybody starts provisioning.
+    if: ${{ vars.TOOL_WIKI_ACTIVATION_ARCHIVE_URL != '' || vars.TOOL_WIKI_ACTIVATION_ARCHIVE_SHA256 != '' || vars.TOOL_WIKI_ACTIVATION_VERSION != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out trusted launcher
