@@ -80,8 +80,8 @@ export function heartbeatGeneration(store: AuthorityStore, token: ClaimToken): C
     const timestamp = readTrustedTime(store);
     assertClockProgress(state, timestamp);
     const generation = findGeneration(state, token);
-    // Proof: removing this fence let an expired generation refresh itself after it entered
-    // investigation; the expiry test observed that `heartbeatGeneration` did not throw.
+    // Proof: removing only this diagnostic guard made the production lifecycle test receive
+    // `generation is not working: session-a`, not the modeled investigation-fence diagnostic.
     if (generation.status === 'investigating') {
       throw new Error(`generation is fenced for investigation: ${token.sessionId}`);
     }
@@ -148,8 +148,8 @@ export function submitGeneration(
     if (generation.status === 'investigating') {
       throw new Error(`generation is fenced for investigation: ${token.sessionId}`);
     }
-    // Proof: bypassing this guard replaced the stored patch identity with `444...`; the second-
-    // publication test observed that the immutable submission changed instead of throwing.
+    // Proof: removing only this diagnostic guard made the production lifecycle test receive
+    // `generation is terminal: session-a`, not the modeled already-submitted diagnostic.
     if (generation.status === 'submitted') {
       throw new Error(`generation already submitted: ${token.sessionId}`);
     }

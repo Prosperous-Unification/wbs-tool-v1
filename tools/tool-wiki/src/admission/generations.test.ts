@@ -62,7 +62,9 @@ test('heartbeats use the store clock and expiry fences for investigation without
     status: 'investigating',
     statusAt: 1_150,
   });
-  expect(() => heartbeatGeneration(store, token)).toThrow('generation is fenced for investigation');
+  expect(() => heartbeatGeneration(store, token)).toThrow(
+    /^generation is fenced for investigation: session-a$/,
+  );
   expect(() => submitGeneration(store, token, submission)).toThrow(
     'generation is fenced for investigation',
   );
@@ -81,10 +83,12 @@ test('submission freezes one exact identity and keeps claims until integration',
     submission,
   });
 
-  expect(() => submitGeneration(store, token, submission)).toThrow('generation already submitted');
+  expect(() => submitGeneration(store, token, submission)).toThrow(
+    /^generation already submitted: session-a$/,
+  );
   expect(() =>
     submitGeneration(store, token, { ...submission, patchIdentity: OTHER_PATCH }),
-  ).toThrow('generation already submitted');
+  ).toThrow(/^generation already submitted: session-a$/);
   expect(() => releaseGeneration(store, token)).toThrow('submitted generation cannot be released');
   expect(() =>
     expandClaims(store, {

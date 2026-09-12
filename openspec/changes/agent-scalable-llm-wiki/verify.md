@@ -2312,3 +2312,34 @@ agent-scalable-llm-wiki --strict` — exit 0; change valid.
   path `/home/puni1/.cache` does not exist; no host-gate step ran and the host gate is not green.
 
 Only Task 4.2 is added as complete; packet submission, integration and activation remain untouched.
+
+## Slice 4.2 Review Fix Round 1
+
+The investigation-heartbeat and already-submitted guards preserve modeled lifecycle diagnostics;
+the generic status guards beneath them already prevent mutation. Their production lifecycle tests
+now pin the complete state-specific message, and each specific guard was removed alone before its
+adjacent `Proof:` comment was corrected.
+
+| Deliberate one-at-a-time fault                     | Observed production-path failure                                                                                           |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| remove only the investigating-heartbeat guard      | `Expected pattern: /^generation is fenced for investigation: session-a$/`; received `generation is not working: session-a` |
+| remove only the already-submitted submission guard | `Expected pattern: /^generation already submitted: session-a$/`; received `generation is terminal: session-a`              |
+
+Both faults still refused the operation through their generic fallback. The corrected tests and
+comments prove the intentional diagnostic distinction and no longer claim that either isolated
+removal allowed a mutation.
+
+- `bun test --preload ../test/scratch/preload.ts src/admission/generations.test.ts
+src/admission/generations.db.test.ts` from `tools/tool-wiki` — exit 0; 18 pass, 0 fail and 94
+  assertions.
+- `NX_DAEMON=false bunx nx run-many -t lint:source typecheck -p tool-wiki --skip-nx-cache
+--output-style=static` — exit 0; source lint and forced source/spec typecheck passed, cache skipped.
+- The complete 393-test Tool Wiki suite was not repeated because this review fix changes only two
+  diagnostic assertions and their evidence comments; the prior slice's full-suite result remains
+  recorded above and is not represented as fresh evidence for this round.
+- `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate
+agent-scalable-llm-wiki --strict` — exit 0; change valid.
+- `NX_DAEMON=false bunx nx format:check --all` and `git diff --check` — exit 0.
+- The host gate was not rerun: fresh `stat /home/puni1/.cache` exited 1 with `No such file or
+directory`, so the unchanged heavy-lock prerequisite remains unavailable and no host-gate result
+  is claimed for this documentation/test-fidelity round.
