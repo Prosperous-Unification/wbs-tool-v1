@@ -63,8 +63,9 @@ the UTC day of the stamp when on is absent`, `writes nothing when nothing change
 clears every statement and leaves the facts`, `one undo restores every statement and empties
 the filled fact ends`; negatives: the `steps.length === 0` return deleted (watched an empty
       batch journalled); the `factEnd === null` guard deleted (watched a typed date
-      overwritten); the inverse built unreversed (watched undo order wrong on a leaf with a
-      prior `in_progress`).
+      overwritten); the inverse built unreversed — **watched passing**: every step touches its own
+      (leaf, step) pair or its own fact end, so the reversal is `recordCollected`'s
+      convention and not a check; recorded as such in the JSDoc and `verify.md`.
 
 ## 5. The table (D5)
 
@@ -79,8 +80,8 @@ reader's day as on`.
       two `useDateCellEditor`s, readings flags — tests: `plan-cells.test.tsx` › `the status
 cell` (reads Unknown / In progress / Done, offers two, choosing Done sends setStatus with
       today), `the fact cells` (rest, edit, commit, clear).
-- [x] 5.4 `data-row-done` + `styles.css` strike — test: `plan-table.test.tsx` › `a done row is
-struck through`; negative: the attribute dropped from `PlanRow`, watched the rule not
+- [x] 5.4 `data-row-done` + `styles.css` strike — test: `plan-cells.test.tsx` › `choosing Done sends the
+reader’s day, strikes the row and fills the fact end`; negative: the attribute dropped from `PlanRow`, watched the rule not
       matching.
 
 ## 6. The chart (D6)
@@ -106,7 +107,7 @@ facts`.
 
 ## 8. Browser gate and verification
 
-- [ ] 8.1 `apps/fe-01/e2e/status.spec.ts`: show the three columns, choose Done, name struck,
+- [x] 8.1 `apps/fe-01/e2e/status.spec.ts`: show the three columns, choose Done, name struck,
       Fact end reads today, the row's bar stops inside today's axis cell and carries
       `data-done` — run on `E2E_PORT_SHIFT=1900`.
 - [ ] 8.2 Gate: `bunx nx run-many -t test lint typecheck -p domain core contracts store-sqlite
