@@ -206,9 +206,7 @@ function outsidePathLiterals(source: string): string[] {
           ts.isCallExpression(ancestor) &&
           ts.isPropertyAccessExpression(ancestor.expression) &&
           ['toEqual', 'toStrictEqual'].includes(ancestor.expression.name.text) &&
-          ancestor.arguments.some(
-            (argument) => argument.pos <= node.pos && node.end <= argument.end,
-          )
+          ancestor.arguments.some((argument) => isInertExpectedLiteral(node, argument))
         ) {
           isExpectedFixture = true;
           break;
@@ -224,6 +222,28 @@ function outsidePathLiterals(source: string): string[] {
   };
   visit(syntax);
   return found;
+}
+
+/** Whether a path reaches an expected value only through inert literal containers. */
+function isInertExpectedLiteral(literal: ts.StringLiteral, expected: ts.Expression): boolean {
+  let child: ts.Node = literal;
+  while (child !== expected) {
+    const parent = child.parent;
+    if (
+      ts.isParenthesizedExpression(parent) ||
+      ts.isArrayLiteralExpression(parent) ||
+      ts.isObjectLiteralExpression(parent) ||
+      ts.isAsExpression(parent) ||
+      ts.isSatisfiesExpression(parent) ||
+      ts.isTypeAssertionExpression(parent) ||
+      (ts.isPropertyAssignment(parent) && parent.initializer === child)
+    ) {
+      child = parent;
+      continue;
+    }
+    return false;
+  }
+  return true;
 }
 
 /** Workspace-relative paths a `*.test.ts` reads from outside its own project. */
@@ -332,6 +352,48 @@ describe('outside-read syntax', () => {
       ]);
     } finally {
       await rm(probe);
+    }
+  });
+
+  it('finds a real outside read inside a matcher expected argument', async () => {
+    const identity = crypto.randomUUID();
+    const relative = `../../../bin/outside-read-expected-${identity}.txt`;
+    const sentinel = new URL(`bin/outside-read-expected-${identity}.txt`, WORKSPACE);
+    const probe = new URL(
+      `tools/tool-devsync/src/outside-read-expected-${identity}.probe.test.ts`,
+      WORKSPACE,
+    );
+    const before = await outsideReads('tools/tool-devsync');
+    try {
+      await writeFile(sentinel, 'outside-read-expected\n');
+      await writeFile(
+        probe,
+        `
+          import { readFileSync } from 'node:fs';
+          function expect(actual: string) {
+            return {
+              toEqual(expected: string) {
+                if (actual !== expected) throw new Error('unequal');
+              },
+            };
+          }
+          export let measured = '';
+          expect('outside-read-expected\\n').toEqual(
+            (measured = readFileSync(new URL('${relative}', import.meta.url), 'utf8')),
+          );
+        `,
+      );
+      const loaded = (await import(probe.href)) as { measured: string };
+      expect(loaded.measured).toBe('outside-read-expected\n');
+
+      const after = await outsideReads('tools/tool-devsync');
+      // Proof: excluding every matcher expected argument returned `[]` here after the generated
+      // suite successfully read its UUID-named sentinel in that exact argument.
+      expect(after.filter((read) => !before.includes(read))).toEqual([
+        `bin/outside-read-expected-${identity}.txt`,
+      ]);
+    } finally {
+      await Promise.all([rm(probe, { force: true }), rm(sentinel, { force: true })]);
     }
   });
 });
