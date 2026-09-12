@@ -650,7 +650,7 @@ _Avoid_: tooltip, title attribute, hint
 
 **Takeover**:
 How an open hover card gives way to another cell's: only once the pointer has rested on the
-other trigger for a moment (100ms), so a hand crossing that trigger on its way to the open
+other trigger for a moment (50ms), so a hand crossing that trigger on its way to the open
 card keeps what it was reaching for. Arriving on the open card, or leaving the trigger, drops
 a pending takeover; with nothing open a trigger opens at once. One rule for every card.
 _Avoid_: hover intent, switch delay, debounce, grace period

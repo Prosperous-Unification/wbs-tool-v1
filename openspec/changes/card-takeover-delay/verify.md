@@ -30,6 +30,14 @@ The second browser case fails on the **card** and not on the preview: with the t
 landing, the preview still goes — to the reach the marker's leave started — so the only thing
 that fault leaves visible is the card that never opened.
 
+## The figure, judged
+
+`TAKEOVER_MS` shipped at 100 (PR #410) and is **50** since 2026-09-12: Dany watched the 100 in
+Chrome and asked for half (_"maybe reduce it to 50ms?"_). Every store case advances relative to the
+constant, so nothing was re-timed; the browser crossing (`keeps the preview while the hand crosses
+a live trigger on its way to it`) has to land its second leg inside the figure, and was re-run at
+50 before the change went up.
+
 ## The bridge's boundary, found by the re-timing
 
 The first full run of the four hold-related specs failed the Depends lane of `card-lanes` even
