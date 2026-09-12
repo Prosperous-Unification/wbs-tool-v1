@@ -1,4 +1,4 @@
-import { chmodSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { scratchSync } from '@wbs/tool-test-scratch';
@@ -535,7 +535,7 @@ describe('assertCleanTree', () => {
   let cwd: string;
 
   const git = (...args: string[]): void => {
-    const p = Bun.spawnSync(['git', ...args], { cwd: repo });
+    const p = Bun.spawnSync(['git', '-c', 'core.hooksPath=/dev/null', ...args], { cwd: repo });
     if (p.exitCode !== 0) throw new Error(`git ${args.join(' ')}: ${p.stderr.toString('utf8')}`);
   };
 
@@ -596,7 +596,7 @@ describe('assertCleanTree', () => {
     try {
       expect(() => {
         assertCleanTree(nonRepository);
-      }).toThrow(new RegExp(`git -C ${nonRepository} status --porcelain failed`));
+      }).toThrow(new RegExp(`git -C ${nonRepository} rev-parse --show-toplevel failed`));
     } finally {
       rmSync(nonRepository, { recursive: true, force: true });
     }
@@ -607,6 +607,16 @@ describe('assertCleanTree', () => {
     expect(() => {
       assertCleanTree();
     }).toThrow(/tracked\.txt/);
+  });
+
+  // Proof: without the top-level equality check, git walks upward and accepts
+  // this nested path as though it were the repository named by the caller.
+  it('refuses a directory nested under a repository', () => {
+    const nested = join(repo, 'nested');
+    mkdirSync(nested);
+    expect(() => {
+      assertCleanTree(nested);
+    }).toThrow(/not its Git top level/);
   });
 
   it('refuses on an untracked migration, which is the fail-open it closes', () => {
@@ -621,6 +631,15 @@ describe('cleanTreeRepository', () => {
   it('uses the devsync contract variable and otherwise keeps the ordinary cwd default', () => {
     expect(cleanTreeRepository({ WBS_CLEAN_TREE_REPOSITORY: '/real/source' })).toBe('/real/source');
     expect(cleanTreeRepository({})).toBe('.');
+  });
+
+  it('refuses relative and unnormalized compatibility overrides', () => {
+    expect(() => cleanTreeRepository({ WBS_CLEAN_TREE_REPOSITORY: 'relative/repo' })).toThrow(
+      /absolute normalized/,
+    );
+    expect(() => cleanTreeRepository({ WBS_CLEAN_TREE_REPOSITORY: '/repo/../other' })).toThrow(
+      /absolute normalized/,
+    );
   });
 });
 

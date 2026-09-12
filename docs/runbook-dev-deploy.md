@@ -170,13 +170,14 @@ version file move together; changing a literal in the loader is neither necessar
 
 Puni1's existing every-minute crontab continues to run `/home/puni1/wbs-dev/bin/poll.sh`. Each tick
 fetches `origin/main`, resolves that named remote ref rather than the process-global `FETCH_HEAD`,
-reads the candidate loader from that exact commit with `git show`, creates a shared detached clone
+reads the candidate loader from that exact commit with `git show`, creates a local detached clone
 at the exact target commit under `bin/`, atomically renames the
 completed candidate, and runs it from that clone with the managed interpreter. Its HEAD must equal
 the requested full SHA and its tracked tree must be clean. The candidate contains the complete
 target build context, including Dockerfiles, publisher, supervisor installer, lockfile, `tools/`,
-`libs/`, and root configs rather than `sync.ts` alone. It carries no `node_modules` at all — not the
-pinned checkout's by link, not anyone's — which is the TASK-376 contract below.
+`libs/`, and root configs rather than `sync.ts` alone. The local clone owns object links rather than
+an alternates pointer into the live source repository, so source `git gc` cannot invalidate a
+retained candidate. Candidates older than 24 hours are pruned before interpreter checks.
 
 The full clone matters twice: the deployer reaches the deploy contract through the `@wbs/*`
 tsconfig paths, and a solver-affecting tick must give Dagger the target revision's build context.
@@ -190,7 +191,7 @@ checkout's. The target tool still performs every solver, restart, recreate, and 
 check, while the outer poll lock and `/health` commit proof remain intact. Do not recover with a raw
 `git reset`; that bypasses the checks whose refusal is the reason the checkout did not move.
 
-**The candidate has no `node_modules`, and a tick that refuses with `the deployer's import graph does
+**The candidate initially has no `node_modules`, and a tick that refuses with `the deployer's import graph does
 not resolve inside the extracted candidate` means someone gave `sync.ts` a third-party import.**
 Until 2026-09-08 the loader linked the pinned checkout's install into the candidate; that install
 belongs to whatever commit the checkout last reset to, so it can never hold a package the target just
@@ -219,11 +220,17 @@ have: the publisher imports `@dagger.io/dagger` and reads its manifest at
 `node_modules`: Bun's default auto-install resolved the static import silently from its global cache,
 and the manifest read then failed on `ENOENT … node_modules/@dagger.io/dagger/package.json` — before
 `with-heavy-lock.sh` ran anything, so nothing was published, installed or reset. That is the
-fail-closed refusal an unrelated tick never meets; a solver-affecting target cannot be deployed by the
-poller until the candidate is given an install of its own (`bun install --frozen-lockfile` from its
-own lockfile, after the guard and before the deployer), which is an open decision, not a symlink to
-restore. The materializer, installer and supervisor bundle need no install: each bundles with
-`--reject-unresolved` from the clone alone.
+fail-closed refusal an unrelated tick never meets. A solver-affecting target now runs `bun install
+--frozen-lockfile` in its own candidate immediately before publication. The resulting install is
+owned and pruned with that candidate; it never borrows the live checkout and therefore follows a
+changed target `bun.lock`. The materializer, installer and supervisor bundle then resolve from that
+same exact-target install.
+
+`WBS_CLEAN_TREE_REPOSITORY` is the narrow compatibility contract for an exported legacy tree that
+has no Git metadata of its own. When set, it must be an absolute normalized path to the repository
+top level; subdirectories are refused rather than letting Git discover an ambient parent. Normal
+detached candidates and worktrees leave it unset and guard their own tree. Missing Git metadata is
+the only fallback condition; unreadable metadata fails closed.
 
 Dev has **no edge password**. It was removed 2026-08-06: it was a second login on top of the
 app's own, and a browser that had cached a wrong credential for the realm could not be talked

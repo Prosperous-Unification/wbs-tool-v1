@@ -1,5 +1,6 @@
 import { readFileSync, statfsSync } from 'node:fs';
 import { availableParallelism, loadavg } from 'node:os';
+import { isAbsolute, resolve } from 'node:path';
 
 import type { BuildArg, Platform } from '@dagger.io/dagger';
 import { connect } from '@dagger.io/dagger';
@@ -459,9 +460,9 @@ export function requireRegistryPassword(env: NodeJS.ProcessEnv): string {
  * `publishAll` snapshots `client.host().directory('.')` while `publish-all`
  * labels the result with `WBS_SHA`. Ordinary callers build from the repository
  * itself, so the default `.` preserves the original clean-tree guard. The
- * legacy dev recovery loader builds from an immutable archive extracted for
- * that SHA; only that compatibility path supplies the real source repository
- * explicitly because its archive has no `.git`.
+ * dev recovery normally builds from a detached candidate and guards that
+ * candidate directly. Only a legacy exported tree without Git metadata may
+ * supply its backing repository through the compatibility environment.
  * A dirty backing repository is not acceptable, and the gap is not cosmetic:
  * `tool-deploy`'s migration gate (tools/tool-deploy/src/migrations.ts) reads
  * the migration set *from git* at that sha, so an uncommitted migration is
@@ -484,10 +485,23 @@ export function requireRegistryPassword(env: NodeJS.ProcessEnv): string {
  * separate concern.
  */
 export function cleanTreeRepository(env: NodeJS.ProcessEnv = process.env): string {
-  return env['WBS_CLEAN_TREE_REPOSITORY'] ?? '.';
+  const repository = env['WBS_CLEAN_TREE_REPOSITORY'] ?? '.';
+  if (repository !== '.' && (!isAbsolute(repository) || resolve(repository) !== repository)) {
+    throw new Error('WBS_CLEAN_TREE_REPOSITORY must be an absolute normalized path');
+  }
+  return repository;
 }
 
 export function assertCleanTree(repository = '.'): void {
+  const topLevel = Bun.spawnSync(['git', '-C', repository, 'rev-parse', '--show-toplevel']);
+  if (topLevel.exitCode !== 0) {
+    throw new Error(
+      `git -C ${repository} rev-parse --show-toplevel failed: ${topLevel.stderr.toString('utf8').trim()}`,
+    );
+  }
+  if (resolve(topLevel.stdout.toString('utf8').trim()) !== resolve(repository)) {
+    throw new Error(`clean-tree repository ${repository} is not its Git top level`);
+  }
   const p = Bun.spawnSync(['git', '-C', repository, 'status', '--porcelain']);
   if (p.exitCode !== 0) {
     throw new Error(
@@ -522,8 +536,8 @@ export async function publishAll(tiers: Tier[], sha: string): Promise<ReleaseRec
       const registrySecret = client.setSecret('registry-password', registryPassword);
       // A single host directory snapshot is reused as the build context for
       // every tier so each Dockerfile sees the same source tree. Ordinary
-      // callers publish a clean checkout; devsync publishes its immutable
-      // archive candidate and names the backing repository for the guard.
+      // callers and detached devsync candidates publish a clean checkout;
+      // only the legacy exported-tree path names a backing repository.
       const src = client
         .host()
         .directory('.', { exclude: ['node_modules', 'dist', '.git', '.nx'] });

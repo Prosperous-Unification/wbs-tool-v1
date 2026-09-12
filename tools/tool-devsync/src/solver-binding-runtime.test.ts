@@ -1,9 +1,14 @@
+import { chmod, mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
 import { SOLVER_SUPERVISOR_BUN } from '@wbs/deploy-contract';
+import { scratchAsync } from '@wbs/tool-test-scratch';
 import { describe, expect, it } from 'bun:test';
 
 import { decodeProdContainerImages, prepareTargetSolverBinding } from './solver-binding-host';
 import {
   createTargetSolverBindingRuntime,
+  isGitMetadata,
   type SolverBindingRuntimeInvocation,
 } from './solver-binding-runtime';
 
@@ -70,7 +75,7 @@ describe('the production solver binding runtime', () => {
       },
       {
         exists: (path) => Promise.resolve(path !== `${ROOT}/.git`),
-        isDirectory: () => Promise.resolve(false),
+        isGitMetadata: () => Promise.resolve(false),
         read: (path) => {
           const contents = files.get(path);
           if (contents === undefined) throw new Error(`fixture has no ${path}`);
@@ -177,7 +182,7 @@ describe('the production solver binding runtime', () => {
       { root: ROOT, bunPath: BUN, sourceSha: SHA, compatibilityIdentity: IDENTITY },
       {
         exists: () => Promise.resolve(false),
-        isDirectory: () => Promise.resolve(false),
+        isGitMetadata: () => Promise.resolve(false),
         read: () => Promise.reject(new Error('missing config must not be read')),
         command: () => Promise.resolve({ exitCode: 0, stderr: '' }),
         withLock: (_path, action) => action(),
@@ -201,7 +206,7 @@ describe('the production solver binding runtime', () => {
       { root: ROOT, bunPath: BUN, sourceSha: SHA, compatibilityIdentity: IDENTITY },
       {
         exists: () => Promise.resolve(true),
-        isDirectory: () => Promise.resolve(false),
+        isGitMetadata: () => Promise.resolve(false),
         read: () => Promise.reject(new Error('EACCES installed config')),
         command: () => Promise.resolve({ exitCode: 0, stderr: '' }),
         withLock: (_path, action) => action(),
@@ -233,7 +238,7 @@ describe('the production solver binding runtime', () => {
       },
       {
         exists: () => Promise.resolve(true),
-        isDirectory: (path) => Promise.resolve(path === `${ROOT}/.git`),
+        isGitMetadata: (path) => Promise.resolve(path === `${ROOT}/.git`),
         read: () => Promise.resolve(bytes('{}')),
         command: (invocation) => {
           invocations.push(invocation);
@@ -267,7 +272,7 @@ describe('the production solver binding runtime', () => {
       },
       {
         exists: () => Promise.resolve(false),
-        isDirectory: () => Promise.resolve(true),
+        isGitMetadata: () => Promise.resolve(true),
         read: () => {
           reads += 1;
           return Promise.resolve(bytes('{}'));
@@ -304,7 +309,7 @@ describe('the production solver binding runtime', () => {
       },
       {
         exists: () => Promise.resolve(false),
-        isDirectory: () => Promise.resolve(true),
+        isGitMetadata: () => Promise.resolve(true),
         read: () => Promise.reject(new Error('failed install must not read host inputs')),
         command: (invocation) => {
           invocations.push(invocation);
@@ -320,5 +325,26 @@ describe('the production solver binding runtime', () => {
       /solver candidate dependency install failed.*lockfile had no matching package/,
     );
     expect(invocations.map(({ argv }) => argv)).toEqual([[BUN, 'install', '--frozen-lockfile']]);
+  });
+
+  it('recognizes clone and worktree Git metadata and fails closed on unreadability', async () => {
+    const root = await scratchAsync('wbs-solver-git-metadata-');
+    const cloneMetadata = join(root, 'clone', '.git');
+    const worktreeMetadata = join(root, 'worktree', '.git');
+    const unreadableParent = join(root, 'unreadable');
+    await mkdir(cloneMetadata, { recursive: true });
+    await mkdir(join(root, 'worktree'), { recursive: true });
+    await writeFile(worktreeMetadata, 'gitdir: /owned/worktree\n');
+    await mkdir(unreadableParent);
+
+    expect(await isGitMetadata(cloneMetadata)).toBe(true);
+    expect(await isGitMetadata(worktreeMetadata)).toBe(true);
+    expect(await isGitMetadata(join(root, 'missing', '.git'))).toBe(false);
+    await chmod(unreadableParent, 0);
+    try {
+      expect(await rejection(isGitMetadata(join(unreadableParent, '.git')))).toMatch(/EACCES/);
+    } finally {
+      await chmod(unreadableParent, 0o700);
+    }
   });
 });

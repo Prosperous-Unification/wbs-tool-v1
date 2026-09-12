@@ -18,6 +18,8 @@ const STATE_KEYS = [
 ] as const;
 
 export interface SolverCompatibilityReader {
+  /** Stable identity included in malformed-object diagnostics. */
+  repository?: string;
   objectIdAt(sourceSha: string, path: string): Promise<string>;
 }
 
@@ -31,7 +33,9 @@ export async function solverCompatibilityIdentityAt(
   for (const path of SOLVER_COMPATIBILITY_PATHS) {
     const objectId = (await reader.objectIdAt(sourceSha, path)).trim();
     if (!GIT_OBJECT_ID.test(objectId)) {
-      throw new Error(`invalid git object id for ${sourceSha}:${path}`);
+      const repository =
+        reader.repository === undefined ? '' : ` in repository ${reader.repository}`;
+      throw new Error(`invalid git object id for ${sourceSha}:${path}${repository}`);
     }
     digest.update(path);
     digest.update('\0');

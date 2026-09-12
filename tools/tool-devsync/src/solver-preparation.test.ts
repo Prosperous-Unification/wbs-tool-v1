@@ -63,6 +63,7 @@ describe('the solver compatibility identity', () => {
     expect(
       await rejection(
         solverCompatibilityIdentityAt(SOURCE_SHA, {
+          repository: '/srv/wbs/source',
           objectIdAt: (_sourceSha, path) =>
             path === 'libs/solver-py'
               ? Promise.resolve('1'.repeat(40))
@@ -70,6 +71,14 @@ describe('the solver compatibility identity', () => {
         }),
       ),
     ).toContain('invalid git object id');
+    expect(
+      await rejection(
+        solverCompatibilityIdentityAt(SOURCE_SHA, {
+          repository: '/srv/wbs/source',
+          objectIdAt: () => Promise.resolve('(missing)'),
+        }),
+      ),
+    ).toContain('repository /srv/wbs/source');
   });
 });
 

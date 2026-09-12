@@ -130,7 +130,7 @@ function solverPreflightDependencies(
     requireHost: async (image) => {
       await $`systemctl --user is-active --quiet ${SOLVER_SUPERVISOR_SERVICE}`;
       await $`test -S ${SOLVER_SUPERVISOR_SOCKET}`;
-      await $`${SOLVER_SUPERVISOR_BUN} ${SOLVER_SUPERVISOR_BUNDLE.remote} --preflight=dev --config=${SOLVER_SUPERVISOR_CONFIG} --solver-image=${image}`;
+      await $`${SOLVER_SUPERVISOR_BUN} ${SOLVER_SUPERVISOR_BUNDLE.remote} --preflight=dev --config=${configPath} --solver-image=${image}`;
     },
   };
 }
@@ -141,6 +141,7 @@ const SOLVER_PREFLIGHT_DEPENDENCIES = solverPreflightDependencies(SRC, SOLVER_SU
 export async function preflightSolver(
   sha: string,
   dependencies: SolverPreflightDependencies = SOLVER_PREFLIGHT_DEPENDENCIES,
+  configPath = SOLVER_SUPERVISOR_CONFIG,
 ): Promise<void> {
   const deployedSha = await dependencies.currentSha();
   const targetChanges = await dependencies.changedPaths(deployedSha, sha);
@@ -148,7 +149,7 @@ export async function preflightSolver(
   if (bytes === undefined) {
     if (targetChanges.length === 0) return;
     throw new Error(
-      `solver compatibility inputs changed (${targetChanges.join(', ')}), but ${SOLVER_SUPERVISOR_CONFIG} is missing; run materialize-solver-supervisor-config and install-solver-supervisor before deploying`,
+      `solver compatibility inputs changed (${targetChanges.join(', ')}), but ${configPath} is missing; run materialize-solver-supervisor-config and install-solver-supervisor before deploying`,
     );
   }
   if (bytes.byteLength === 0 || bytes.byteLength > CONFIG_MAX_BYTES) {
@@ -228,6 +229,15 @@ export function solverTargetDependencies(
   const sourceRepository = options.sourceRepository ?? SRC;
   const runtimeRoot = options.runtimeRoot ?? TARGET_ROOT;
   const solverConfigPath = options.solverConfigPath ?? SOLVER_SUPERVISOR_CONFIG;
+  for (const [label, path] of [
+    ['source repository', sourceRepository],
+    ['runtime root', runtimeRoot],
+    ['solver config', solverConfigPath],
+  ] as const) {
+    if (!path.startsWith('/') || resolve(path) !== path) {
+      throw new Error(`solver ${label} path must be absolute and normalized: ${path}`);
+    }
+  }
   const runtimeFor = (target: SolverBindingTarget) =>
     createTargetSolverBindingRuntime({
       root: runtimeRoot,
@@ -240,6 +250,7 @@ export function solverTargetDependencies(
     changedPaths: (from, to) => changedSolverPathsIn(sourceRepository, from, to),
     compatibilityIdentity: (sourceSha) =>
       solverCompatibilityIdentityAt(sourceSha, {
+        repository: sourceRepository,
         objectIdAt: (sha, path) => solverCompatibilityObjectIdAt(sourceRepository, sha, path),
       }),
     readState: async (target) => {
@@ -252,7 +263,11 @@ export function solverTargetDependencies(
       return prepareTargetSolverBinding(target, stateBytes, runtime.dependencies);
     },
     preflight: (sha) =>
-      preflightSolver(sha, solverPreflightDependencies(sourceRepository, solverConfigPath)),
+      preflightSolver(
+        sha,
+        solverPreflightDependencies(sourceRepository, solverConfigPath),
+        solverConfigPath,
+      ),
     reset: async (sha) => {
       await $`git -C ${sourceRepository} reset --hard --quiet ${sha}`;
     },

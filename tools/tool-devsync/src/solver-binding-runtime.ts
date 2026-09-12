@@ -35,7 +35,7 @@ export interface SolverBindingRuntimeInvocation {
 
 export interface SolverBindingRuntimeIo {
   exists(path: string): Promise<boolean>;
-  isDirectory(path: string): Promise<boolean>;
+  isGitMetadata(path: string): Promise<boolean>;
   read(path: string): Promise<Uint8Array>;
   command(
     invocation: SolverBindingRuntimeInvocation,
@@ -91,15 +91,20 @@ async function query(
   return { exitCode, stdout, stderr };
 }
 
+/** Distinguishes absent Git metadata from unreadable or malformed metadata. */
+export async function isGitMetadata(path: string): Promise<boolean> {
+  try {
+    const metadata = await stat(path);
+    return metadata.isDirectory() || metadata.isFile();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
 const DEFAULT_IO: SolverBindingRuntimeIo = {
   exists: (path) => Bun.file(path).exists(),
-  isDirectory: async (path) => {
-    try {
-      return (await stat(path)).isDirectory();
-    } catch {
-      return false;
-    }
-  },
+  isGitMetadata,
   read: async (path) =>
     new Uint8Array(
       await Bun.file(path)
@@ -205,7 +210,7 @@ export function createTargetSolverBindingRuntime(
           io,
         ),
       publish: async (sourceSha, registryPassword) => {
-        const cleanTreeEnvironment: Readonly<Record<string, string>> = (await io.isDirectory(
+        const cleanTreeEnvironment: Readonly<Record<string, string>> = (await io.isGitMetadata(
           join(target.root, '.git'),
         ))
           ? {}
