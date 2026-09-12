@@ -93,18 +93,75 @@ export function WrittenNotesPanel({
         color: 'var(--popover-foreground)',
         border: '1px solid var(--border)',
         borderRadius: 'var(--radius-md)',
-        padding: '6px 10px',
         marginLeft: 6,
         textAlign: 'left',
         overflowWrap: 'break-word',
         fontWeight: 400,
         // The caret's, not this panel's: a reader dragging a selection in the
         // box must not have it end here, and a click through to the row behind
-        // is what every card in this table already allows.
+        // is what every card in this table already allows. The Done button
+        // below is the one exception, and opts back in by itself.
         pointerEvents: 'none',
+        // A column, so the words scroll inside a box the button can stay pinned
+        // to: with the scroll on this element the button would scroll away with
+        // the first paragraph.
+        display: 'flex',
+        flexDirection: 'column',
       }}
     >
-      <RenderedNotes name={name} notes={notes} />
+      <div style={{ overflowY: 'auto', minHeight: 0, padding: '6px 10px' }}>
+        <RenderedNotes name={name} notes={notes} />
+      </div>
+      {/*
+        **Done.** Dany, 2026-09-12: _"a non-intrusive neat small 'Done' button
+        that you can press to hide the editor of markdown"_. It does what Escape
+        does — leaves the box, which is the save — and it is answered on the
+        press rather than the click because the press is what would have moved
+        the focus off the box anyway: `preventDefault` keeps the focus where it
+        is for the one instant the blur needs to be this handler's own doing,
+        and the panel (this button with it) is gone before any click could land.
+
+        Pointer-only, on purpose. A Tab to it would blur the box and take the
+        panel — and the button — away under the focus, so it is out of the tab
+        order and Escape is the keyboard's way. The `aria-label` names the row
+        for the same reason every card here does: a plan is forty rows.
+      */}
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-label={`Done writing notes for ${number}`}
+        // Proof: the `box.current?.blur()` removed — `the Done button beside
+        // the notes saves and closes the editor too` (`plan-cells.test.tsx`)
+        // failed on `expected '## Risks' to be '## Risks\n\n- one more'`.
+        // Watched, 2026-09-12.
+        onMouseDown={(pressed) => {
+          pressed.preventDefault();
+          box.current?.blur();
+        }}
+        style={{
+          position: 'absolute',
+          top: 4,
+          right: 6,
+          // The one thing in this panel that takes the pointer.
+          // Proof: this left to the panel's `none` — `e2e/hover-cards.spec.ts`'s
+          // `Done is the thing under the pointer, and closes the editor` failed
+          // on `Done is not what the pointer lands on · Expected: "Done writing
+          // notes for 010" · Received: "TD"`, the hit test answering the cell
+          // behind. jsdom cannot see this. Watched in Chromium, 2026-09-12.
+          pointerEvents: 'auto',
+          font: 'inherit',
+          fontSize: 11,
+          lineHeight: 1.2,
+          padding: '1px 7px',
+          color: 'var(--muted-foreground)',
+          background: 'var(--popover)',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--radius-md)',
+          cursor: 'pointer',
+        }}
+      >
+        Done
+      </button>
     </div>
   );
 }

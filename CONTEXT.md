@@ -788,7 +788,11 @@ _Avoid_: formatted date, pretty date, display date
 **Edit exit**:
 How an edit in a field ends, as one of two answers: committed, or abandoned. Leaving and
 Enter commit; Escape abandons and puts back what the server agreed, so nothing is left for
-the blur it causes to send. Closing returns the focus to the cell that was being edited.
+the blur it causes to send — except in the Name box, where Escape leaves the box and leaving
+is the save: a paragraph of markdown is not thrown away on a stray key, and the Done button
+beside the rendered notes is the same exit by pointer. Closing returns the focus to the cell
+that was being edited; the Name box, whose rest is itself, returns it to nobody, as a click
+away does.
 _Avoid_: cancel, dismiss, close, blur handling
 
 **Hover preview**:
