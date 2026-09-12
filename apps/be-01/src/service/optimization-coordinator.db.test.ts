@@ -18,10 +18,7 @@ import {
 } from '../repository/optimization-drain';
 import { allocateGeneration, readGeneration } from '../repository/optimization-generation';
 import { enqueueSolverRequest } from '../repository/optimization-queue';
-import {
-  readOptimizedPair,
-  storeOptimizedOutcome,
-} from '../repository/optimized-schedule-cache';
+import { readOptimizedPair, storeOptimizedOutcome } from '../repository/optimized-schedule-cache';
 import { scheduleInputHash } from '../repository/schedule-input-hash';
 import { eventLog, optimizedScheduleCache, solverQueue, solverSlot } from '../repository/schema';
 import {
