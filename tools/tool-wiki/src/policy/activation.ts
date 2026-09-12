@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   constants,
   copyFileSync,
   existsSync,
@@ -9,62 +10,86 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { builtinModules } from 'node:module';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+
+import { parseOrThrow, type } from '@wbs/validation';
 
 import { compareCanonicalText, hashBytes, serializeCanonical } from '../evidence/content-manifest';
 
 const Sha256 = /^[0-9a-f]{64}$/;
 const GitObject = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
+const roles = [
+  'ciBinding',
+  'evidence',
+  'launcher',
+  'localBinding',
+  'mapping',
+  'policy',
+  'reviewReceipt',
+  'snapshotter',
+  'validator',
+] as const;
+type ActivationRole = (typeof roles)[number];
+const rolePaths: Record<ActivationRole, string> = {
+  ciBinding: 'artifacts/ci-binding.json',
+  evidence: 'artifacts/evidence.json',
+  launcher: 'artifacts/launcher.sh',
+  localBinding: 'artifacts/local-binding.json',
+  mapping: 'artifacts/mapping.json',
+  policy: 'artifacts/policy.json',
+  reviewReceipt: 'artifacts/review-receipt.json',
+  snapshotter: 'artifacts/snapshotter.ts',
+  validator: 'artifacts/validator.mjs',
+};
+const descriptors: Partial<Record<ActivationRole, string>> = {
+  ciBinding: 'ci-binding-path',
+  evidence: 'evidence-path',
+  launcher: 'launcher-path',
+  localBinding: 'local-binding-path',
+  snapshotter: 'snapshotter-path',
+  validator: 'validator-path',
+};
 
-interface ActivationArtifact {
-  readonly name: string;
-  readonly identity: string;
-}
+const Sha256Identity = type(Sha256);
+const ArtifactRecord = type({
+  identity: Sha256Identity,
+  path: 'string>=1',
+  role: "'ciBinding'|'evidence'|'launcher'|'localBinding'|'mapping'|'policy'|'reviewReceipt'|'snapshotter'|'validator'",
+}).onUndeclaredKey('reject');
+const RolesRecord = type({
+  ciBinding: 'string>=1',
+  evidence: 'string>=1',
+  launcher: 'string>=1',
+  localBinding: 'string>=1',
+  mapping: 'string>=1',
+  policy: 'string>=1',
+  reviewReceipt: 'string>=1',
+  snapshotter: 'string>=1',
+  validator: 'string>=1',
+}).onUndeclaredKey('reject');
+const ManifestRecord = type({
+  schemaVersion: '2',
+  sourceRevision: /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/,
+  policyIdentity: Sha256Identity,
+  mappingIdentity: Sha256Identity,
+  validatorIdentity: Sha256Identity,
+  reviewReceiptIdentity: Sha256Identity,
+  roles: RolesRecord,
+  artifacts: ArtifactRecord.array(),
+}).onUndeclaredKey('reject');
 
-interface ActivationManifest {
-  readonly schemaVersion: 1;
-  readonly sourceRevision: string;
-  readonly policyIdentity: string;
-  readonly mappingIdentity: string;
-  readonly validatorIdentity: string;
-  readonly reviewReceiptIdentity: string;
-  readonly artifacts: readonly ActivationArtifact[];
-}
+export type ActivationManifest = typeof ManifestRecord.infer;
 
 export interface PrepareActivationRequest {
   readonly candidateRepository: string;
   readonly destination: string;
-  readonly artifacts: readonly string[];
+  readonly roleSources: Readonly<Record<ActivationRole, string>>;
   readonly sourceRevision: string;
   readonly policyIdentity: string;
   readonly mappingIdentity: string;
   readonly validatorIdentity: string;
   readonly reviewReceiptIdentity: string;
-}
-
-function existingRealPath(path: string): string {
-  let ancestor = resolve(path);
-  const suffix: string[] = [];
-  while (!existsSync(ancestor)) {
-    const parent = dirname(ancestor);
-    if (parent === ancestor)
-      throw new Error(`activation destination has no existing ancestor: ${path}`);
-    suffix.unshift(ancestor.slice(parent.length + (parent.endsWith('/') ? 0 : 1)));
-    ancestor = parent;
-  }
-  return join(realpathSync(ancestor), ...suffix);
-}
-
-function assertExternalDestination(request: PrepareActivationRequest): string {
-  const candidate = realpathSync(request.candidateRepository);
-  const destination = existingRealPath(request.destination);
-  const fromCandidate = relative(candidate, destination);
-  // Proof: allowing this boundary made `activation preparation refuses a candidate-local package
-  // destination` return a package rooted inside the candidate instead of throwing.
-  if (fromCandidate === '' || (!fromCandidate.startsWith('..') && !isAbsolute(fromCandidate))) {
-    throw new Error('activation package destination must be outside the candidate repository');
-  }
-  return destination;
 }
 
 export interface VerifiedActivation {
@@ -77,88 +102,168 @@ export interface PreparedActivation extends VerifiedActivation {
   readonly request: PrepareActivationRequest;
 }
 
-function assertIdentity(identity: string, label: string): void {
-  if (!Sha256.test(identity)) throw new Error(`activation ${label} is not a SHA-256 identity`);
+function existingRealPath(path: string): string {
+  let ancestor = resolve(path);
+  const suffix: string[] = [];
+  while (!existsSync(ancestor)) {
+    const parent = dirname(ancestor);
+    if (parent === ancestor)
+      throw new Error(`activation destination has no existing ancestor: ${path}`);
+    suffix.unshift(ancestor.slice(parent.length + (parent.endsWith(sep) ? 0 : 1)));
+    ancestor = parent;
+  }
+  return join(realpathSync(ancestor), ...suffix);
 }
 
-function artifactSource(path: string): { name: string; path: string; identity: string } {
+function assertExternalDestination(request: PrepareActivationRequest): string {
+  const candidate = realpathSync(request.candidateRepository);
+  const destination = existingRealPath(request.destination);
+  const fromCandidate = relative(candidate, destination);
+  const isParent = fromCandidate === '..' || fromCandidate.startsWith(`..${sep}`);
+  // Proof: preparing at candidate/..inside returned a complete candidate-owned package until the
+  // containment check distinguished the `..` parent segment from an ordinary child prefix.
+  if (fromCandidate === '' || (!isParent && !isAbsolute(fromCandidate))) {
+    throw new Error('activation package destination must be outside the candidate repository');
+  }
+  return destination;
+}
+
+function source(
+  role: ActivationRole,
+  path: string,
+): { identity: string; path: string; role: ActivationRole } {
   let canonical: string;
   try {
     canonical = realpathSync(path);
   } catch (cause) {
-    throw new Error(`cannot read activation source artifact: ${path}`, { cause });
+    throw new Error(`cannot read activation ${role} artifact: ${path}`, { cause });
   }
   if (!statSync(canonical).isFile())
-    throw new Error(`activation source artifact is not a file: ${path}`);
-  return {
-    identity: hashBytes(readFileSync(canonical)),
-    name: basename(canonical),
-    path: canonical,
-  };
+    throw new Error(`activation ${role} artifact is not a file: ${path}`);
+  return { identity: hashBytes(readFileSync(canonical)), path: canonical, role };
 }
 
-function activationManifest(request: PrepareActivationRequest) {
+function assertStandaloneValidator(path: string): void {
+  const imports = new Bun.Transpiler({ loader: path.endsWith('.ts') ? 'ts' : 'js' }).scanImports(
+    readFileSync(path, 'utf8'),
+  );
+  const dependency = imports.find(
+    ({ path: specifier }) =>
+      !specifier.startsWith('node:') &&
+      !specifier.startsWith('bun:') &&
+      !builtinModules.includes(specifier),
+  );
+  // Proof: a lone validator source with an undeclared relative dependency was accepted as a
+  // complete activation until the package required a standalone reviewed validator bundle.
+  if (dependency !== undefined)
+    throw new Error(`activation validator is not standalone: ${dependency.path}`);
+}
+
+function preparedManifest(request: PrepareActivationRequest) {
   if (!GitObject.test(request.sourceRevision))
     throw new Error('activation source revision is invalid');
-  assertIdentity(request.policyIdentity, 'policy identity');
-  assertIdentity(request.mappingIdentity, 'mapping identity');
-  assertIdentity(request.validatorIdentity, 'validator identity');
-  assertIdentity(request.reviewReceiptIdentity, 'review receipt identity');
-  const sources = request.artifacts
-    .map(artifactSource)
-    .sort((left, right) => compareCanonicalText(left.name, right.name));
-  if (sources.length === 0) throw new Error('activation package has no artifacts');
-  if (new Set(sources.map(({ name }) => name)).size !== sources.length) {
-    throw new Error('activation artifact names must be unique');
+  const sources = roles.map((role) => source(role, request.roleSources[role]));
+  const candidate = realpathSync(request.candidateRepository);
+  for (const artifact of sources) {
+    const offset = relative(candidate, artifact.path);
+    const isParent = offset === '..' || offset.startsWith(`..${sep}`);
+    // Proof: selecting a candidate-owned validator source returned a complete activation package
+    // until every role source was checked at the same external-trust boundary as its destination.
+    if (offset === '' || (!isParent && !isAbsolute(offset)))
+      throw new Error(
+        `activation ${artifact.role} source must be outside the candidate repository`,
+      );
   }
+  assertStandaloneValidator(request.roleSources.validator);
+  const byRole = new Map(sources.map((artifact) => [artifact.role, artifact]));
+  for (const [role, expected] of [
+    ['policy', request.policyIdentity],
+    ['mapping', request.mappingIdentity],
+    ['validator', request.validatorIdentity],
+    ['reviewReceipt', request.reviewReceiptIdentity],
+  ] as const) {
+    if (!Sha256.test(expected) || byRole.get(role)?.identity !== expected)
+      throw new Error(`activation ${role} identity differs from its artifact`);
+  }
+  const artifacts = sources
+    .map(({ identity, role }) => ({ identity, path: rolePaths[role], role }))
+    .sort((left, right) => compareCanonicalText(left.role, right.role));
   const manifest: ActivationManifest = {
-    artifacts: sources.map(({ identity, name }) => ({ identity, name })),
+    artifacts,
     mappingIdentity: request.mappingIdentity,
     policyIdentity: request.policyIdentity,
     reviewReceiptIdentity: request.reviewReceiptIdentity,
-    schemaVersion: 1,
+    roles: { ...rolePaths },
+    schemaVersion: 2,
     sourceRevision: request.sourceRevision,
     validatorIdentity: request.validatorIdentity,
   };
   return { bytes: serializeCanonical(manifest), manifest, sources };
 }
 
-/** Copies a reviewed closure into a compare-and-create immutable version directory. */
+function writePackage(destination: string, prepared: ReturnType<typeof preparedManifest>): void {
+  mkdirSync(join(destination, 'artifacts'), { recursive: false, mode: 0o755 });
+  for (const artifact of prepared.sources) {
+    const target = join(destination, rolePaths[artifact.role]);
+    copyFileSync(artifact.path, target, constants.COPYFILE_EXCL);
+    chmodSync(target, 0o444);
+  }
+  writeFileSync(join(destination, 'manifest.json'), prepared.bytes, {
+    encoding: 'utf8',
+    flag: 'wx',
+    mode: 0o444,
+  });
+  writeFileSync(join(destination, 'active-v1'), 'tool-wiki-active-v1\n', {
+    encoding: 'utf8',
+    flag: 'wx',
+    mode: 0o444,
+  });
+  for (const role of roles) {
+    const descriptor = descriptors[role];
+    if (descriptor !== undefined)
+      writeFileSync(join(destination, descriptor), `${rolePaths[role]}\n`, {
+        encoding: 'utf8',
+        flag: 'wx',
+        mode: 0o444,
+      });
+  }
+  writeFileSync(join(destination, 'checksums.sha256'), checksumBytes(prepared.manifest), {
+    encoding: 'utf8',
+    flag: 'wx',
+    mode: 0o444,
+  });
+}
+
+function checksumBytes(manifest: ActivationManifest): string {
+  const entries = manifest.artifacts.map(({ identity, path }) => ({ identity, path }));
+  entries.push({ identity: hashBytes('tool-wiki-active-v1\n'), path: 'active-v1' });
+  for (const role of roles) {
+    const descriptor = descriptors[role];
+    if (descriptor !== undefined)
+      entries.push({ identity: hashBytes(`${rolePaths[role]}\n`), path: descriptor });
+  }
+  return `${entries
+    .sort((left, right) => compareCanonicalText(left.path, right.path))
+    .map(({ identity, path }) => `${identity}  ${path}`)
+    .join('\n')}\n`;
+}
+
+/** Copies a reviewed, role-complete standalone activation into an immutable version directory. */
 export function prepareActivation(request: PrepareActivationRequest): PreparedActivation {
-  const prepared = activationManifest(request);
   const destination = assertExternalDestination(request);
+  const prepared = preparedManifest(request);
   try {
     mkdirSync(destination, { recursive: false, mode: 0o755 });
   } catch (cause) {
-    if (
-      !(cause instanceof Error) ||
-      !('code' in cause) ||
-      Reflect.get(cause, 'code') !== 'EEXIST'
-    ) {
+    if (!(cause instanceof Error) || !('code' in cause) || Reflect.get(cause, 'code') !== 'EEXIST')
       throw cause;
-    }
-    let existing: VerifiedActivation;
-    try {
-      existing = verifyActivation(destination);
-    } catch (verificationCause) {
-      throw new Error('activation package already exists but is not valid', {
-        cause: verificationCause,
-      });
-    }
-    if (readFileSync(join(destination, 'manifest.json'), 'utf8') !== prepared.bytes) {
+    const existing = verifyActivation(destination);
+    if (readFileSync(join(destination, 'manifest.json'), 'utf8') !== prepared.bytes)
       throw new Error('activation package already exists with different bytes', { cause });
-    }
     return { ...existing, request };
   }
   try {
-    for (const source of prepared.sources) {
-      copyFileSync(source.path, join(destination, source.name), constants.COPYFILE_EXCL);
-    }
-    writeFileSync(join(destination, 'manifest.json'), prepared.bytes, {
-      encoding: 'utf8',
-      flag: 'wx',
-      mode: 0o444,
-    });
+    writePackage(destination, prepared);
   } catch (cause) {
     throw new Error(`cannot prepare immutable activation package: ${destination}`, { cause });
   }
@@ -171,37 +276,17 @@ export function prepareActivation(request: PrepareActivationRequest): PreparedAc
 }
 
 function decodeManifest(bytes: string): ActivationManifest {
-  let manifest: unknown;
+  let parsed: unknown;
   try {
-    manifest = JSON.parse(bytes) as unknown;
+    parsed = JSON.parse(bytes) as unknown;
   } catch (cause) {
     throw new Error('activation manifest is malformed JSON', { cause });
   }
-  if (typeof manifest !== 'object' || manifest === null || Array.isArray(manifest)) {
-    throw new Error('activation manifest must be an object');
-  }
-  if (serializeCanonical(manifest) !== bytes)
-    throw new Error('activation manifest is not canonical');
-  if (
-    Reflect.get(manifest, 'schemaVersion') !== 1 ||
-    !Array.isArray(Reflect.get(manifest, 'artifacts'))
-  ) {
-    throw new Error('unsupported activation manifest');
-  }
-  const record = manifest as ActivationManifest;
-  if (!GitObject.test(record.sourceRevision))
-    throw new Error('activation source revision is invalid');
-  for (const identity of [
-    record.policyIdentity,
-    record.mappingIdentity,
-    record.validatorIdentity,
-    record.reviewReceiptIdentity,
-  ])
-    assertIdentity(identity, 'manifest identity');
-  return record;
+  if (serializeCanonical(parsed) !== bytes) throw new Error('activation manifest is not canonical');
+  return parseOrThrow(ManifestRecord, parsed);
 }
 
-/** Recomputes every artifact digest before the activation can be selected or executed. */
+/** Strictly decodes roles and recomputes every artifact and joined identity. */
 export function verifyActivation(directory: string): VerifiedActivation {
   const canonical = realpathSync(directory);
   let bytes: string;
@@ -211,36 +296,85 @@ export function verifyActivation(directory: string): VerifiedActivation {
     throw new Error('cannot read activation manifest', { cause });
   }
   const manifest = decodeManifest(bytes);
+  // Proof: the canonical empty manifest with an unknown trusted field was selected successfully
+  // before strict decoding and the complete nine-role boundary replaced the unchecked cast.
+  if (manifest.artifacts.length !== roles.length)
+    throw new Error('activation artifact set is incomplete');
+  const seenRoles = new Set<string>();
+  const seenPaths = new Set<string>();
   for (const artifact of manifest.artifacts) {
-    if (basename(artifact.name) !== artifact.name || artifact.name === 'manifest.json') {
-      throw new Error(`invalid activation artifact name: ${artifact.name}`);
-    }
-    assertIdentity(artifact.identity, `artifact ${artifact.name}`);
+    if (seenRoles.has(artifact.role) || seenPaths.has(artifact.path))
+      throw new Error('activation artifacts contain a duplicate role or path');
+    seenRoles.add(artifact.role);
+    seenPaths.add(artifact.path);
+    if (
+      manifest.roles[artifact.role] !== artifact.path ||
+      artifact.path !== rolePaths[artifact.role]
+    )
+      throw new Error(`activation role path is invalid: ${artifact.role}`);
     let actual: string;
     try {
-      const path = realpathSync(join(canonical, artifact.name));
-      if (dirname(path) !== canonical || !statSync(path).isFile()) {
+      const path = realpathSync(join(canonical, artifact.path));
+      const offset = relative(canonical, path);
+      if (
+        offset === '..' ||
+        offset.startsWith(`..${sep}`) ||
+        isAbsolute(offset) ||
+        !statSync(path).isFile()
+      )
         throw new Error('artifact escapes activation directory');
-      }
       actual = hashBytes(readFileSync(path));
     } catch (cause) {
-      throw new Error(`cannot read activation artifact: ${artifact.name}`, { cause });
+      throw new Error(`cannot read activation artifact: ${artifact.path}`, { cause });
     }
-    // Proof: changing validator.ts after preparation made `a malformed successor cannot replace
-    // the prior selected activation` fail on `Expected function to throw`; selection now stops
-    // before replacing the prior descriptor.
     if (actual !== artifact.identity)
-      throw new Error(`activation artifact digest mismatch: ${artifact.name}`);
+      throw new Error(`activation artifact digest mismatch: ${artifact.path}`);
+  }
+  if (roles.some((role) => !seenRoles.has(role)))
+    throw new Error('activation artifact role is omitted');
+  const identities = new Map(
+    manifest.artifacts.map((artifact) => [artifact.role, artifact.identity]),
+  );
+  if (
+    identities.get('policy') !== manifest.policyIdentity ||
+    identities.get('mapping') !== manifest.mappingIdentity ||
+    identities.get('validator') !== manifest.validatorIdentity ||
+    identities.get('reviewReceipt') !== manifest.reviewReceiptIdentity
+  )
+    throw new Error('activation manifest identity differs from its role artifact');
+  assertStandaloneValidator(join(canonical, manifest.roles.validator));
+  if (readFileSync(join(canonical, 'checksums.sha256'), 'utf8') !== checksumBytes(manifest))
+    throw new Error('activation checksum manifest differs from roles');
+  if (readFileSync(join(canonical, 'active-v1'), 'utf8') !== 'tool-wiki-active-v1\n')
+    throw new Error('activation marker differs from its package contract');
+  for (const role of roles) {
+    const descriptor = descriptors[role];
+    if (
+      descriptor !== undefined &&
+      readFileSync(join(canonical, descriptor), 'utf8') !== `${rolePaths[role]}\n`
+    )
+      throw new Error(`activation ${role} descriptor differs from its package contract`);
   }
   return { directory: canonical, identity: hashBytes(bytes), manifest };
 }
 
-/** Atomically replaces only the small operator-controlled selection descriptor after verification. */
-export function selectActivation(root: string, directory: string): VerifiedActivation {
+/** Atomically selects only an independently expected verified package identity. */
+export function selectActivation(
+  root: string,
+  directory: string,
+  expectedIdentity: string,
+): VerifiedActivation {
   const activation = verifyActivation(directory);
+  if (activation.identity !== expectedIdentity)
+    throw new Error('activation package differs from selected identity');
   const canonicalRoot = realpathSync(root);
+  const selectedDirectory = relative(canonicalRoot, activation.directory);
+  const isParent = selectedDirectory === '..' || selectedDirectory.startsWith(`..${sep}`);
+  if (selectedDirectory === '' || isParent || isAbsolute(selectedDirectory))
+    throw new Error('activation selection must name a version directory below its root');
   const descriptor = serializeCanonical({
-    directory: activation.directory,
+    checksumsIdentity: hashBytes(readFileSync(join(activation.directory, 'checksums.sha256'))),
+    directory: selectedDirectory,
     identity: activation.identity,
     schemaVersion: 1,
   });
@@ -248,13 +382,8 @@ export function selectActivation(root: string, directory: string): VerifiedActiv
   try {
     if (readFileSync(selectedPath, 'utf8') === descriptor) return activation;
   } catch (cause) {
-    if (
-      !(cause instanceof Error) ||
-      !('code' in cause) ||
-      Reflect.get(cause, 'code') !== 'ENOENT'
-    ) {
+    if (!(cause instanceof Error) || !('code' in cause) || Reflect.get(cause, 'code') !== 'ENOENT')
       throw cause;
-    }
   }
   const pendingPath = join(canonicalRoot, `.selected-${String(process.pid)}.pending`);
   writeFileSync(pendingPath, descriptor, { encoding: 'utf8', mode: 0o444 });

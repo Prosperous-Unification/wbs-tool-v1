@@ -173,6 +173,21 @@ function fixture() {
   };
 }
 
+function trustedVerification(subject: ReturnType<typeof fixture>) {
+  return {
+    admissionProvenance: {
+      kind: 'not-applicable' as const,
+      reason: 'pre-authority bootstrap commit' as const,
+    },
+    publication: {
+      commit: subject.commit,
+      markerRef: subject.markerRef,
+      parent: subject.checked.baseCommit,
+      tree: subject.tree,
+    },
+  };
+}
+
 test('external binding retains distinct candidate, content, evidence, activation, generation, and receipt identities', () => {
   const subject = fixture();
   const destination = join(subject.store, 'bindings', `${subject.commit}.json`);
@@ -218,6 +233,7 @@ test('external binding retains distinct candidate, content, evidence, activation
   }).toEqual(before);
   expect(
     verifyIntegrationBinding({
+      ...trustedVerification(subject),
       activation: subject.activation,
       bindingBytes: readFileSync(destination, 'utf8'),
       candidate: subject.checked,
@@ -247,6 +263,7 @@ test('trusted verification refuses forged candidate or policy identity and an om
   const forgedCommit = { ...emitted.binding, commit: subject.checked.baseCommit };
   expect(() =>
     verifyIntegrationBinding({
+      ...trustedVerification(subject),
       activation: subject.activation,
       bindingBytes: serializeCanonical(forgedCommit),
       candidate: subject.checked,
@@ -255,13 +272,14 @@ test('trusted verification refuses forged candidate or policy identity and an om
       repository: subject.repository,
       verifier: subject.verifier,
     }),
-  ).toThrow('integration binding commit differs from publication marker');
+  ).toThrow('integration binding publication differs from retained authority');
   const forgedPolicy = {
     ...emitted.binding,
     activation: { ...emitted.binding.activation, policyIdentity: 'e'.repeat(64) },
   };
   expect(() =>
     verifyIntegrationBinding({
+      ...trustedVerification(subject),
       activation: subject.activation,
       bindingBytes: serializeCanonical(forgedPolicy),
       candidate: subject.checked,
@@ -274,6 +292,7 @@ test('trusted verification refuses forged candidate or policy identity and an om
   const missingCheck = { ...emitted.binding, checks: [] };
   expect(() =>
     verifyIntegrationBinding({
+      ...trustedVerification(subject),
       activation: subject.activation,
       bindingBytes: serializeCanonical(missingCheck),
       candidate: subject.checked,
@@ -286,6 +305,7 @@ test('trusted verification refuses forged candidate or policy identity and an om
   const forgedContent = { ...emitted.binding, contentManifestIdentity: 'f'.repeat(64) };
   expect(() =>
     verifyIntegrationBinding({
+      ...trustedVerification(subject),
       activation: subject.activation,
       bindingBytes: serializeCanonical(forgedContent),
       candidate: subject.checked,
@@ -295,6 +315,103 @@ test('trusted verification refuses forged candidate or policy identity and an om
       verifier: subject.verifier,
     }),
   ).toThrow('integration binding content or evidence validation differs from trusted inputs');
+});
+
+test('trusted verification refuses invented provenance, mismatched binding kind, and a same-tree publication', () => {
+  const subject = fixture();
+  const emitted = emitIntegrationBinding({
+    activation: subject.activation,
+    admissionProvenance: { kind: 'not-applicable', reason: 'pre-authority bootstrap commit' },
+    candidate: subject.checked,
+    contentManifestIdentity: 'c'.repeat(64),
+    destination: join(subject.store, 'binding.json'),
+    evidenceValidation: {
+      validationId: 'validation.tool-wiki.bootstrap',
+      validationIdentity: 'd'.repeat(64),
+    },
+    publication: { commit: subject.commit, markerRef: subject.markerRef, tree: subject.tree },
+    repository: subject.repository,
+  });
+  const verify = (binding: typeof emitted.binding) =>
+    verifyIntegrationBinding({
+      ...trustedVerification(subject),
+      activation: subject.activation,
+      bindingBytes: serializeCanonical(binding),
+      candidate: subject.checked,
+      contentManifestIdentity: emitted.binding.contentManifestIdentity,
+      evidenceValidation: emitted.binding.evidenceValidation,
+      repository: subject.repository,
+      verifier: subject.verifier,
+    });
+  expect(() =>
+    verify({
+      ...emitted.binding,
+      admissionProvenance: {
+        kind: 'integrated',
+        integrationId: 'invented.integration',
+        attemptIdentity: 'f'.repeat(64),
+      },
+      bindingKind: 'integrated',
+    }),
+  ).toThrow('integration binding admission provenance differs from retained authority');
+  expect(() => verify({ ...emitted.binding, bindingKind: 'integrated' })).toThrow(
+    'integration binding kind differs from admission provenance',
+  );
+
+  git(subject.repository, ['checkout', '--quiet', subject.checked.baseCommit]);
+  writeFileSync(join(subject.repository, 'source.ts'), 'export const version = 2;\n');
+  git(subject.repository, ['add', '.']);
+  git(subject.repository, ['commit', '--quiet', '--message', 'same tree, different commit']);
+  const impostorCommit = git(subject.repository, ['rev-parse', 'HEAD']);
+  const impostorMarker = 'refs/wbs-wiki/publications/impostor';
+  git(subject.repository, ['update-ref', impostorMarker, impostorCommit]);
+  expect(git(subject.repository, ['rev-parse', 'HEAD^{tree}'])).toBe(subject.tree);
+  expect(() =>
+    verify({ ...emitted.binding, commit: impostorCommit, markerRef: impostorMarker }),
+  ).toThrow('integration binding publication differs from retained authority');
+});
+
+test('trusted verification refuses forged serialized receipt provenance', () => {
+  const subject = fixture();
+  const emitted = emitIntegrationBinding({
+    activation: subject.activation,
+    admissionProvenance: { kind: 'not-applicable', reason: 'pre-authority bootstrap commit' },
+    candidate: subject.checked,
+    contentManifestIdentity: 'c'.repeat(64),
+    destination: join(subject.store, 'binding.json'),
+    evidenceValidation: {
+      validationId: 'validation.tool-wiki.bootstrap',
+      validationIdentity: 'd'.repeat(64),
+    },
+    publication: { commit: subject.commit, markerRef: subject.markerRef, tree: subject.tree },
+    repository: subject.repository,
+  });
+  const [check] = emitted.binding.checks;
+  const forged = {
+    ...emitted.binding,
+    checks: [
+      {
+        ...check,
+        verification: {
+          ...check.verification,
+          invocationId: 'never.invoked',
+          receiptIdentity: '0'.repeat(64),
+        },
+      },
+    ],
+  };
+  expect(() =>
+    verifyIntegrationBinding({
+      ...trustedVerification(subject),
+      activation: subject.activation,
+      bindingBytes: serializeCanonical(forged),
+      candidate: subject.checked,
+      contentManifestIdentity: emitted.binding.contentManifestIdentity,
+      evidenceValidation: emitted.binding.evidenceValidation,
+      repository: subject.repository,
+      verifier: subject.verifier,
+    }),
+  ).toThrow();
 });
 
 test('external emission refuses candidate-local destinations and symlink escapes', () => {
@@ -316,6 +433,12 @@ test('external emission refuses candidate-local destinations and symlink escapes
   };
   expect(() =>
     emitIntegrationBinding({ ...request, destination: join(subject.repository, 'binding.json') }),
+  ).toThrow('integration binding destination must be outside the candidate repository');
+  expect(() =>
+    emitIntegrationBinding({
+      ...request,
+      destination: join(subject.repository, '..inside', 'binding.json'),
+    }),
   ).toThrow('integration binding destination must be outside the candidate repository');
   mkdirSync(join(subject.store, 'links'));
   symlinkSync(subject.repository, join(subject.store, 'links', 'candidate'));

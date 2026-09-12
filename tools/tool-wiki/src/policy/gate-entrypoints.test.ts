@@ -16,7 +16,8 @@ import { dirname, join, relative, sep } from 'node:path';
 
 import { afterEach, describe, expect, test } from 'bun:test';
 
-import { hashCanonical } from '../evidence/content-manifest';
+import { hashBytes, hashCanonical } from '../evidence/content-manifest';
+import { prepareActivation, selectActivation } from './activation';
 import { resolveValidatorArtifactPaths } from './trust';
 
 const workspace = join(import.meta.dir, '..', '..', '..', '..');
@@ -476,6 +477,93 @@ describe('tool-wiki production entrypoint adapter', () => {
     });
   });
 
+  test('required admission refuses inactive and non-certified validator output', () => {
+    const paths = fixture();
+    rmSync(join(paths.activationRoot, 'active-v1'));
+    const inactive = runAdapter('committed', paths, { TOOL_WIKI_REQUIRE_CERTIFIED: '1' });
+    expect(inactive.exitCode).not.toBe(0);
+
+    write(join(paths.activationRoot, 'active-v1'), 'tool-wiki-active-v1\n');
+    const uncertified = runAdapter('committed', paths, { TOOL_WIKI_REQUIRE_CERTIFIED: '1' });
+    expect(uncertified.exitCode).not.toBe(0);
+    expect(streamText(uncertified.stderr, 'adapter stderr')).toContain(
+      'required admission did not return certified enforce output',
+    );
+
+    write(
+      paths.cliPath,
+      'process.stdout.write(JSON.stringify({schemaVersion:1,mode:"observe",trustProvenance:"ci-preselected",accepted:true,certified:true}) + "\\n");\n',
+    );
+    write(
+      paths.bindingPath,
+      `${JSON.stringify({ validator: { artifacts: [{ path: paths.cliPath, sha256: sha256(readFileSync(paths.cliPath)) }] } })}\n`,
+    );
+    const observe = runAdapter('committed', paths, { TOOL_WIKI_REQUIRE_CERTIFIED: '1' });
+    expect(observe.exitCode).not.toBe(0);
+
+    write(paths.cliPath, 'process.stdout.write("not json\\n");\n');
+    write(
+      paths.bindingPath,
+      `${JSON.stringify({ validator: { artifacts: [{ path: paths.cliPath, sha256: sha256(readFileSync(paths.cliPath)) }] } })}\n`,
+    );
+    const malformed = runAdapter('committed', paths, { TOOL_WIKI_REQUIRE_CERTIFIED: '1' });
+    expect(malformed.exitCode).not.toBe(0);
+  });
+
+  test('a prepared and selected package drives the preserved launcher required path', () => {
+    const paths = fixture();
+    const sources = join(paths.directory, 'package-sources');
+    const validator = join(sources, 'validator.mjs');
+    write(
+      validator,
+      'process.stdout.write(JSON.stringify({schemaVersion:1,mode:"enforce",trustProvenance:"ci-preselected",accepted:true,certified:true}) + "\\n");\n',
+    );
+    const binding = join(sources, 'binding.json');
+    write(
+      binding,
+      `${JSON.stringify({ validator: { artifacts: [{ path: 'validator.mjs', sha256: hashBytes(readFileSync(validator)) }] } })}\n`,
+    );
+    const roleSources = {
+      ciBinding: binding,
+      evidence: join(sources, 'evidence.json'),
+      launcher: adapterPath,
+      localBinding: binding,
+      mapping: join(sources, 'mapping.json'),
+      policy: join(sources, 'policy.json'),
+      reviewReceipt: join(sources, 'review.json'),
+      snapshotter: join(workspace, 'tools/tool-wiki/src/policy/snapshot-validator.ts'),
+      validator,
+    };
+    for (const role of ['evidence', 'mapping', 'policy', 'reviewReceipt'] as const)
+      write(roleSources[role], '{}\n');
+    const prepared = prepareActivation({
+      candidateRepository: paths.repository,
+      destination: join(paths.activationRoot, 'v1'),
+      mappingIdentity: hashBytes(readFileSync(roleSources.mapping)),
+      policyIdentity: hashBytes(readFileSync(roleSources.policy)),
+      reviewReceiptIdentity: hashBytes(readFileSync(roleSources.reviewReceipt)),
+      roleSources,
+      sourceRevision: '4'.repeat(40),
+      validatorIdentity: hashBytes(readFileSync(validator)),
+    });
+    selectActivation(paths.activationRoot, prepared.directory, prepared.identity);
+
+    const invocation = runAdapter('committed', paths, { TOOL_WIKI_REQUIRE_CERTIFIED: '1' });
+    expect(invocation.exitCode, streamText(invocation.stderr, 'adapter stderr')).toBe(0);
+    expect(JSON.parse(streamText(invocation.stdout, 'adapter stdout'))).toMatchObject({
+      accepted: true,
+      certified: true,
+      mode: 'enforce',
+    });
+    chmodSync(join(prepared.directory, 'artifacts/validator.mjs'), 0o600);
+    write(join(prepared.directory, 'artifacts/validator.mjs'), 'tampered\n');
+    const tampered = runAdapter('committed', paths, { TOOL_WIKI_REQUIRE_CERTIFIED: '1' });
+    expect(tampered.exitCode).not.toBe(0);
+    expect(streamText(tampered.stderr, 'adapter stderr')).toContain(
+      'selected activation package failed digest verification',
+    );
+  });
+
   test.each([
     ['active-v1', 'committed', 'malformed'],
     ['validator-path', 'committed', 'missing'],
@@ -751,6 +839,13 @@ await import(${JSON.stringify(productionSnapshotter)});
     expect(trustedCi.match(/persist-credentials: false/g)).toHaveLength(2);
     expect(trustedCi).toContain('ref: ${{ github.event.pull_request.head.sha }}');
     expect(trustedCi).toContain('$RUNNER_TEMP/tool-wiki-lint.sh');
+    // Proof: removing the selected-package check and required-certification environment from the
+    // production workflow failed here with each missing literal instead of accepting exit 0.
+    expect(trustedCi).toContain("TOOL_WIKI_REQUIRE_CERTIFIED: '1'");
+    expect(trustedCi).toContain('selected.json');
+    expect(trustedCi.indexOf('sha256sum --check --strict')).toBeLessThan(
+      trustedCi.indexOf('tar --extract'),
+    );
     expect(trustedCi).not.toContain('candidate/bin/');
     expect(trustedCi).not.toContain('h2puni-gate-steps.sh');
     expect(lefthook).toContain('run: bash bin/tool-wiki-lint.sh staged . HEAD');

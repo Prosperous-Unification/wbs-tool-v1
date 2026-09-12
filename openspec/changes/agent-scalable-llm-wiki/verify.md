@@ -2965,3 +2965,63 @@ The actual `bin/h2puni-gate.sh <frozen-sha>`, applicable browser decision/run, e
 and GitHub/host binding publication were not performed. There is therefore no frozen activation SHA
 or accepted final binding to record, and Task 5.3 remains open despite the locally verified
 implementation.
+
+### Slice 5.3 review fix round 1
+
+The final-binding verifier now takes a separately retained publication tuple and admission
+provenance. It rejects a binding-kind/provenance mismatch, invented integrated provenance, and a
+sibling commit with the same tree and parent plus its own valid marker. Every serialized receipt
+verification is compared with fresh journal-verifier output by exact obligation and exact unique
+set. Both external destinations use segment-correct containment, so a candidate child named
+`..inside` is not mistaken for parent traversal.
+
+Activation manifest version 2 has nine exact roles: launcher, snapshotter, standalone validator,
+local/CI bindings, evidence, policy, mapping, and review receipt. Its strict decoder rejects unknown
+fields, empty/incomplete/duplicate role sets and fixed-path mismatches; verification recomputes each
+artifact digest, the four identity-to-role joins, marker/descriptors, and the checksum manifest.
+Selection requires the independently expected package identity and writes a relocatable selector.
+The preserved launcher consumes that selector, verifies its manifest and checksum-list identities
+plus every package file, and resolves the package's relative descriptors. A production-path positive
+used the real launcher and snapshotter, and activation preparation separately accepted a standalone
+build of the real Tool Wiki CLI.
+
+Required admission is now an explicit launcher mode. Unlike unchanged diagnostic local behavior,
+it refuses an absent root/marker and rejects malformed, observe-mode, accepted-but-uncertified, or
+otherwise non-enforce output. The base-owned workflow requires this mode and a selected archive;
+SHA-256 verification still precedes extraction. Removing both workflow requirements made the actual
+workflow assertion fail on missing `TOOL_WIKI_REQUIRE_CERTIFIED`; restoration passed.
+
+Observed review-forgery REDs before restoration:
+
+| Fault                                                         | Observed production-path RED                                                           |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| invented integrated provenance over bootstrap binding         | verifier returned a complete verified binding (`Received function did not throw`)      |
+| binding kind changed independently of provenance              | verifier returned a complete verified binding                                          |
+| sibling commit with identical tree/parent and attacker marker | verifier returned a complete verified binding                                          |
+| serialized invocation/receipt identities forged               | verifier returned forged fields as verified                                            |
+| binding or activation destination `candidate/..inside`        | both returned complete candidate-owned artifacts (`Received function did not throw`)   |
+| canonical empty activation with unknown field                 | `selectActivation` returned and replaced selection (`Received function did not throw`) |
+| candidate-owned validator role                                | preparation returned a complete external-looking package                               |
+| required mode with missing activation                         | launcher exited 0 with inactive/non-certifying JSON                                    |
+| workflow required/selected checks removed                     | production workflow test failed on the missing required-mode literal                   |
+
+Post-restoration focused command:
+`bun test --preload ../test/scratch/preload.ts src/admission/attestation.test.ts
+src/policy/activation.test.ts src/policy/gate-entrypoints.test.ts` exited 0 with 47 tests passed,
+0 failed, and 152 assertions in 21.75 seconds. The first full-suite attempt exposed a test-injection
+error after package artifacts became read-only: the successor-tamper setup stopped at `EACCES`
+before calling production selection (496 passed, 1 test failed). Making only that deliberate fixture
+artifact writable restored the intended fault window; its isolated production refusal passed.
+
+The final unfiltered `bun test --preload ../test/scratch/preload.ts` then exited 0 with 497 tests
+passed, 0 failed, and 4,830 assertions across 26 files in 773.81 seconds. Fresh uncached Tool Wiki
+source lint and forced typecheck exited 0; `bash -n bin/tool-wiki-lint.sh` and the whole-repository
+format check exited 0. Strict OpenSpec validation printed `Change 'agent-scalable-llm-wiki' is
+valid` and exited 0; only its optional PostHog DNS flush failed. Diagnostic `tool-wiki:lint` exited
+0 with its explicit inactive/non-certified report because no external activation is provisioned;
+that result is not admission evidence.
+
+External omissions are unchanged: no real trusted review/journal receipt, scoped or full frozen-host
+gate receipts, browser applicability decision, h2puni/GitHub activation administration, required
+ruleset, per-candidate authority snapshot, or final external binding publication was performed or
+invented. Task 5.3 remains open.

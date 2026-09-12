@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 import { parseOrThrow, type } from '@wbs/validation';
 
@@ -143,9 +143,8 @@ function assertCommit(
     ['show-ref', '--verify', '--hash', markerRef],
     'cannot read publication marker',
   );
-  // Proof: replacing the binding commit with its valid parent made
-  // `trusted verification refuses forged candidate or policy identity and an omitted required check`
-  // fail on `Expected function to throw`; the marker comparison now refuses it here.
+  // Proof: direct marker validation rejects a publication record whose selected commit no longer
+  // matches its immutable Git ref; independently retained expected publication is checked below.
   if (marker !== commit)
     throw new Error('integration binding commit differs from publication marker');
   const actualTree = git(
@@ -210,9 +209,10 @@ function assertExternalDestination(repository: string, destination: string): str
   const candidate = realpathSync(repository);
   const resolved = existingRealPath(destination);
   const fromCandidate = relative(candidate, resolved);
-  // Proof: resolving only the lexical destination let `external emission refuses candidate-local
-  // destinations and symlink escapes` write through an external symlink into the candidate.
-  if (fromCandidate === '' || (!fromCandidate.startsWith('..') && !isAbsolute(fromCandidate))) {
+  // Proof: resolving only the lexical destination let a symlink escape write into the candidate;
+  // treating every `..` prefix as a parent also let candidate/..inside accept a binding.
+  const isParent = fromCandidate === '..' || fromCandidate.startsWith(`..${sep}`);
+  if (fromCandidate === '' || (!isParent && !isAbsolute(fromCandidate))) {
     throw new Error('integration binding destination must be outside the candidate repository');
   }
   return resolved;
@@ -330,6 +330,13 @@ export interface VerifyIntegrationBindingRequest {
   readonly activation: IntegrationBindingActivation;
   readonly contentManifestIdentity: string;
   readonly evidenceValidation: FinalIntegrationBinding['evidenceValidation'];
+  readonly publication: {
+    readonly commit: string;
+    readonly tree: string;
+    readonly parent: string;
+    readonly markerRef: string;
+  };
+  readonly admissionProvenance: AdmissionProvenance;
   readonly verifier: IntegrationEvidenceVerifier;
 }
 
@@ -350,6 +357,18 @@ export function verifyIntegrationBinding(request: VerifyIntegrationBindingReques
   readonly identity: string;
 } {
   const binding = decodeBinding(request.bindingBytes);
+  const expectedKind =
+    binding.admissionProvenance.kind === 'not-applicable' ? 'bootstrap' : 'integrated';
+  // Proof: changing only bindingKind to integrated with bootstrap provenance returned verified
+  // until this exact variant join rejected the mismatch.
+  if (binding.bindingKind !== expectedKind) {
+    throw new Error('integration binding kind differs from admission provenance');
+  }
+  // Proof: replacing the authorized bootstrap exception with invented integration and attempt
+  // identities returned verified until comparison with independently retained authority.
+  if (hashCanonical(binding.admissionProvenance) !== hashCanonical(request.admissionProvenance)) {
+    throw new Error('integration binding admission provenance differs from retained authority');
+  }
   assertActivation(binding.activation);
   assertActivation(request.activation);
   // Proof: changing only the binding's policy identity made `trusted verification refuses forged
@@ -376,7 +395,24 @@ export function verifyIntegrationBinding(request: VerifyIntegrationBindingReques
       'integration binding content or evidence validation differs from trusted inputs',
     );
   }
-  assertCommit(request.repository, binding.commit, binding.tree, binding.parent, binding.markerRef);
+  if (
+    binding.commit !== request.publication.commit ||
+    binding.tree !== request.publication.tree ||
+    binding.parent !== request.publication.parent ||
+    binding.markerRef !== request.publication.markerRef
+  ) {
+    throw new Error('integration binding publication differs from retained authority');
+  }
+  // Proof: a sibling commit with the same tree and parent plus its own valid marker made the
+  // same-tree publication forgery test return verified until this independently retained tuple
+  // was compared before Git validation.
+  assertCommit(
+    request.repository,
+    request.publication.commit,
+    request.publication.tree,
+    request.publication.parent,
+    request.publication.markerRef,
+  );
   if (
     binding.tree !== request.candidate.candidateTree ||
     binding.parent !== request.candidate.baseCommit ||
@@ -410,6 +446,30 @@ export function verifyIntegrationBinding(request: VerifyIntegrationBindingReques
     evidence,
     request.verifier,
   );
+  const freshVerifications = new Map(
+    recertified.receiptVerifications.map((verification) => [
+      verification.obligationId,
+      verification,
+    ]),
+  );
+  const boundReceipts = [...binding.checks, ...binding.reviews];
+  const boundObligations = boundReceipts.map(({ obligationId }) => obligationId);
+  if (
+    new Set(boundObligations).size !== boundObligations.length ||
+    boundReceipts.length !== recertified.receiptVerifications.length
+  ) {
+    throw new Error('integration binding receipt verification set is not exact');
+  }
+  for (const receipt of boundReceipts) {
+    const fresh = freshVerifications.get(receipt.obligationId);
+    // Proof: changing only the serialized invocation and receipt identities made the forged
+    // receipt-provenance test return verified until the bound record was joined to fresh output.
+    if (fresh === undefined || hashCanonical(receipt.verification) !== hashCanonical(fresh)) {
+      throw new Error(
+        `integration binding receipt verification differs from trusted verifier: ${receipt.obligationId}`,
+      );
+    }
+  }
   if (
     recertified.evidenceIdentity !== binding.evidenceIdentity ||
     recertified.evidenceIdentity !== request.candidate.evidenceIdentity ||

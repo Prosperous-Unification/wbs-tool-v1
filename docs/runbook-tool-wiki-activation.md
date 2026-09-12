@@ -20,19 +20,25 @@ bunx nx run tool-wiki:lint:source --skip-nx-cache
 bunx nx run tool-wiki:typecheck --skip-nx-cache
 ```
 
-Build a closure containing the launcher, snapshotter, validator, policy, mapping, authority,
-evidence, and journal-verifier trust material. `prepareActivation` copies it into a new versioned
-directory and records every artifact digest; `selectActivation` verifies the whole closure before
-atomically replacing the small operator-controlled selection descriptor. Never edit an activated
-file or reuse a per-candidate authority snapshot.
+Build a closure containing the launcher, snapshotter, a reviewed standalone validator bundle,
+policy, mapping, separate local/CI bindings, authority evidence, and review receipt. Pass those nine
+explicit roles to `prepareActivation`; it copies them into a new versioned directory, joins the
+policy/mapping/validator/review identities to their actual bytes, and records every artifact digest.
+`selectActivation` requires the independently expected package identity and atomically replaces the
+small operator-controlled `selected.json`. Never edit an activated file or reuse a per-candidate
+authority snapshot.
 
 ## Transport and admission
 
 Copy the same digest-pinned archive to a versioned directory on h2puni. The base-owned
 `trusted-wiki` workflow downloads its operator-configured HTTPS archive into runner temporary
 storage, verifies the configured SHA-256 before extraction, and refuses missing URL, digest, or
-version configuration. The separately administered required-workflow/ruleset remains an external
-prerequisite; candidate YAML cannot activate it.
+version configuration. The archive root contains `selected.json` beside its selected version
+directory; paths in both the selector and the package role descriptors are relative so the same
+archive can be extracted under a host version directory or runner temporary storage. The preserved
+launcher verifies the selected manifest identity, checksum-list identity, and every role artifact
+before reading a descriptor. The separately administered required-workflow/ruleset remains an
+external prerequisite; candidate YAML cannot activate it.
 
 Required admission must refuse an inactive, observe-only, absent, unreadable, malformed, or
 wrong-scope activation. Diagnostic local rollout may still report inactive without certification.
