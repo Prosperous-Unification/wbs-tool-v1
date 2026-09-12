@@ -3185,21 +3185,23 @@ strict OpenSpec validation, and `git diff --check` exited 0; OpenSpec printed
 
 #### PR CI production-CLI aggregate timeout correction
 
-PR run `34698956877` evaluated the `dd267f42` tree and reached the terminal Tool Wiki result after
-906.38 seconds: 500 tests passed and three timed out. The complete-SQL selector aggregate exhausted
-its 15-second ceiling at 15031.39ms, the missing/unreadable/malformed/unresolved Nx graph aggregate
-exhausted its 15-second ceiling at 15057.50ms, and the three-mode trusted-policy aggregate exhausted
-Bun's default ceiling at 5030.53ms. These were required production CLI invocations; none was skipped
-or changed to accept a null child exit.
+PR run `34698956877` evaluated `ec3ee4905b1d81af81ace037b0fd4c81795da0fa` and reached the terminal
+Tool Wiki result after 906.38 seconds: 500 tests passed and three timed out. The complete-SQL
+selector aggregate exhausted its 15-second ceiling at 15031.39ms, the
+missing/unreadable/malformed/unresolved Nx graph aggregate exhausted its 15-second ceiling at
+15057.50ms, and the three-mode trusted-policy aggregate exhausted Bun's default ceiling at
+5030.53ms. These were required production CLI invocations; none was skipped or changed to accept a
+null child exit.
 
-The same tree's preceding local complete suite measured those exact aggregates at 11626.59ms,
-9849.67ms, and 3963.31ms respectively. Constraining the focused cases to one CPU reproduced the
-first two failures at 15009.09ms and 15050.70ms. Splitting the aggregates retained every assertion
-and production call while giving each independently named fault or mode its own lifecycle. The six
-SQL cases then completed in 4190.79-4436.07ms. The four Nx cases revealed that Bun's default bound
-was itself too narrow under the same constraint, timing out at 5060.08-5065.31ms, so only those and
-the similarly measured SQL subprocess cases have 10-second scoped ceilings. The three trusted
-rollout cases completed separately in 1606.02-1633.68ms and retain the global 5-second default.
+A later local complete suite at `dd267f42` measured those unchanged aggregate test bodies at
+11626.59ms, 9849.67ms, and 3963.31ms respectively; that local result is not evidence that CI
+evaluated Task 6.1. Constraining the focused cases to one CPU reproduced the first two failures at
+15009.09ms and 15050.70ms. Splitting the aggregates retained every assertion and production call
+while giving each independently named fault or mode its own lifecycle. The six SQL cases then
+completed in 4190.79-4436.07ms. The four Nx cases revealed that Bun's default bound was itself too
+narrow under the same constraint, timing out at 5060.08-5065.31ms, so only those and the similarly
+measured SQL subprocess cases have 10-second scoped ceilings. The three trusted rollout cases
+completed separately in 1606.02-1633.68ms and retain the global 5-second default.
 
 The restored one-CPU focused run passed all 13 split cases with 149 assertions in 58.00 seconds;
 the normal full-file run passed all 85 trusted-policy, relationship, and selector tests with 2,088
@@ -3208,4 +3210,5 @@ assertions across 27 files in 850.99 seconds. Fresh uncached source lint, forced
 diagnostic Tool Wiki lint, whole-repository format check, strict OpenSpec validation, and
 `git diff --check` exited 0; diagnostic lint remained inactive and non-certifying because no
 external activation root is provisioned. No production semantics, global timeout, retry, skip,
-exit-status handling, workflow budget, external activation, or operational evidence changed.
+exit-status handling, workflow budget, external activation, or operational evidence changed. A
+successful full CI run at the repaired head remains pending.
