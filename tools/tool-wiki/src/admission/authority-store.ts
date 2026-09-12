@@ -151,6 +151,14 @@ export interface AuthorityTransaction {
  */
 export interface AuthorityStore {
   transact<T>(operation: (transaction: AuthorityTransaction) => T): T;
+  /**
+   * Holds the authority writer lock while one publication operation performs external Git I/O.
+   *
+   * Adapters may retry lock acquisition before invoking `operation`, but must invoke the
+   * synchronous callback exactly once. This is deliberately separate from {@link transact},
+   * whose callback may be replayed after contention.
+   */
+  transactPublication<T>(operation: (transaction: AuthorityTransaction) => T): T;
   readClock(): number;
 }
 
@@ -494,6 +502,10 @@ export class MemoryAuthorityStore implements AuthorityStore {
     assertSynchronous(value);
     this.#state = pending;
     return value;
+  }
+
+  transactPublication<T>(operation: (transaction: AuthorityTransaction) => T): T {
+    return this.transact(operation);
   }
 
   /** A detached snapshot for assertions and diagnostics. */
@@ -1340,6 +1352,67 @@ class SqliteAuthorityStore implements AuthorityStore {
         if (!isBusy(cause)) throw cause;
         if (attempt === this.#options.maxBusyAttempts) {
           throw new AuthorityContentionError(this.#options.maxBusyAttempts, cause);
+        }
+        Bun.sleepSync(this.#options.busyDelayMilliseconds);
+      }
+    }
+    throw new AuthorityContentionError(this.#options.maxBusyAttempts);
+  }
+
+  transactPublication<T>(operation: (transaction: AuthorityTransaction) => T): T {
+    let began = false;
+    for (let attempt = 1; attempt <= this.#options.maxBusyAttempts; attempt += 1) {
+      try {
+        this.#database.run('BEGIN IMMEDIATE');
+        began = true;
+        break;
+      } catch (cause) {
+        if (!isBusy(cause)) throw cause;
+        if (attempt === this.#options.maxBusyAttempts) {
+          throw new AuthorityContentionError(this.#options.maxBusyAttempts, cause);
+        }
+        Bun.sleepSync(this.#options.busyDelayMilliseconds);
+      }
+    }
+    if (!began) throw new AuthorityContentionError(this.#options.maxBusyAttempts);
+
+    let pending: AuthorityState;
+    let value: T;
+    try {
+      pending = readSqliteState(this.#database);
+      // Proof: delegating this one-shot path to the replaying transaction made `publication
+      // transactions are synchronous and never replay external effects at commit` fail on
+      // `Expected: 1, Received: 16` while a rollback-journal reader blocked COMMIT.
+      value = operation({
+        readState: () => copyState(pending),
+        writeState: (state) => {
+          assertMemoryState(state);
+          pending = copyState(state);
+        },
+      });
+      // Proof: omitting this boundary made that same test accept the async callback instead of
+      // throwing `authority transaction callback must be synchronous` (`Received function did
+      // not throw; Received value: Promise { <resolved> }`).
+      assertSynchronous(value);
+      writeSqliteState(this.#database, pending);
+    } catch (cause) {
+      rollbackTransaction(this.#database, cause);
+      throw cause;
+    }
+
+    for (let attempt = 1; attempt <= this.#options.maxBusyAttempts; attempt += 1) {
+      try {
+        this.#database.run('COMMIT');
+        return value;
+      } catch (cause) {
+        if (!isBusy(cause) || !isTransactionOpen(this.#database)) {
+          rollbackTransaction(this.#database, cause);
+          throw cause;
+        }
+        if (attempt === this.#options.maxBusyAttempts) {
+          const contention = new AuthorityContentionError(this.#options.maxBusyAttempts, cause);
+          rollbackTransaction(this.#database, contention);
+          throw contention;
         }
         Bun.sleepSync(this.#options.busyDelayMilliseconds);
       }

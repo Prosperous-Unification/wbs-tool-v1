@@ -1,4 +1,12 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -317,6 +325,14 @@ async function captureRejection(operation: () => Promise<unknown>): Promise<Erro
   throw new Error('fixture promise resolved unexpectedly');
 }
 
+async function waitForPath(path: string): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (existsSync(path)) return;
+    await Bun.sleep(10);
+  }
+  throw new Error(`fixture path did not appear: ${path}`);
+}
+
 test('target advance while checks are held refuses the old candidate and recomposes exact bytes', async () => {
   const subject = fixture();
   const one = subject.submission('one', 'src/one.ts', 'export const one = 2;\n');
@@ -358,6 +374,82 @@ test('target advance while checks are held refuses the old candidate and recompo
   expect(git(subject.repository, ['show', `${report.commit}:other.ts`])).toBe(
     'export const other = 2;',
   );
+  subject.store.close();
+});
+
+test('the complete candidate submission set must match the durable queue before checks and publication', () => {
+  const subject = fixture();
+  const one = subject.submission('one', 'src/one.ts', 'export const one = 2;\n');
+  const two = subject.submission('two', 'src/two.ts', 'export const two = 2;\n');
+  const requestOne = { policy, submissions: [one] };
+  const requestTwo = { policy, submissions: [two] };
+  const candidateOne = composeIntegrationCandidate(subject.store, subject.repository, requestOne);
+  const candidateTwo = composeIntegrationCandidate(subject.store, subject.repository, requestTwo);
+  enqueueIntegration(subject.store, requestOne, options('submission-binding-check'));
+
+  expect(() =>
+    recordIntegrationCheck(subject.store, 'submission-binding-check', candidateTwo),
+  ).toThrow('integration candidate submissions differ from the durable queue');
+  expect(
+    subject.store
+      .inspect()
+      .integrations.find(({ integrationId }) => integrationId === 'submission-binding-check'),
+  ).toMatchObject({ attemptCount: 0, status: 'queued' });
+
+  enqueueIntegration(subject.store, requestOne, options('submission-binding-reserve'));
+  const checking = recordIntegrationCheck(
+    subject.store,
+    'submission-binding-reserve',
+    candidateOne,
+  );
+  const checked = certify(candidateOne);
+  const commit = createIntegrationCommit(
+    subject.repository,
+    checked,
+    checking,
+    options('submission-binding-reserve').commit,
+  );
+  subject.store.transact((transaction) => {
+    const state = transaction.readState();
+    transaction.writeState({
+      ...state,
+      integrations: state.integrations.map((integration) =>
+        integration.integrationId === 'submission-binding-reserve'
+          ? {
+              ...integration,
+              submissions: candidateTwo.submissions.map(
+                ({ generation, packetIdentity, patchIdentity, sessionId }) => ({
+                  generation,
+                  packetIdentity,
+                  patchIdentity,
+                  sessionId,
+                }),
+              ),
+            }
+          : integration,
+      ),
+    });
+  });
+  expect(() =>
+    reserveIntegrationPublication(
+      subject.store,
+      subject.repository,
+      checked,
+      commit,
+      'submission-binding-reserve',
+      checking.attemptIdentity,
+    ),
+  ).toThrow('integration candidate submissions differ from the durable queue');
+  expect(git(subject.repository, ['rev-parse', 'refs/heads/main'])).toBe(subject.base.commit);
+  expect(
+    git(subject.repository, ['for-each-ref', '--format=%(refname)', 'refs/wbs-wiki/publications']),
+  ).toBe('');
+  expect(
+    subject.store
+      .inspect()
+      .integrations.find(({ integrationId }) => integrationId === 'submission-binding-reserve')
+      ?.status,
+  ).toBe('checking');
   subject.store.close();
 });
 
@@ -431,6 +523,102 @@ test('immutable marker proves publication across a crash and later target advanc
   subject.store.close();
 });
 
+test('publishing recovery checks an immutable marker before enforcing the refreshed deadline', async () => {
+  const expiredClock = { now: 1_000 };
+  const expired = fixture(expiredClock);
+  const expiredSubmission = expired.submission('expired', 'src/one.ts', 'export const one = 2;\n');
+  const expiredRequest = { policy, submissions: [expiredSubmission] };
+  const expiredCandidate = composeIntegrationCandidate(
+    expired.store,
+    expired.repository,
+    expiredRequest,
+  );
+  enqueueIntegration(expired.store, expiredRequest, options('expired-publication'));
+  const expiredChecking = recordIntegrationCheck(
+    expired.store,
+    'expired-publication',
+    expiredCandidate,
+  );
+  const expiredChecked = certify(expiredCandidate);
+  const expiredCommit = createIntegrationCommit(
+    expired.repository,
+    expiredChecked,
+    expiredChecking,
+    options('expired-publication').commit,
+  );
+  reserveIntegrationPublication(
+    expired.store,
+    expired.repository,
+    expiredChecked,
+    expiredCommit,
+    'expired-publication',
+    expiredChecking.attemptIdentity,
+  );
+  expiredClock.now = 601_000;
+
+  expect(
+    await integrateWithRecovery(
+      expired.store,
+      expired.repository,
+      expiredRequest,
+      options('expired-publication'),
+    ),
+  ).toMatchObject({
+    attempts: 1,
+    queueTimeMs: 600_000,
+    reason: 'starvation',
+    status: 'terminal',
+  });
+  expect(git(expired.repository, ['rev-parse', 'refs/heads/main'])).toBe(expired.base.commit);
+  expect(
+    git(expired.repository, ['for-each-ref', '--format=%(refname)', 'refs/wbs-wiki/publications']),
+  ).toBe('');
+  expired.store.close();
+
+  const markedClock = { now: 1_000 };
+  const marked = fixture(markedClock);
+  const markedSubmission = marked.submission('marked', 'src/one.ts', 'export const one = 2;\n');
+  const markedRequest = { policy, submissions: [markedSubmission] };
+  const markedCandidate = composeIntegrationCandidate(
+    marked.store,
+    marked.repository,
+    markedRequest,
+  );
+  enqueueIntegration(marked.store, markedRequest, options('marked-publication'));
+  const markedChecking = recordIntegrationCheck(
+    marked.store,
+    'marked-publication',
+    markedCandidate,
+  );
+  const markedChecked = certify(markedCandidate);
+  const markedCommit = createIntegrationCommit(
+    marked.repository,
+    markedChecked,
+    markedChecking,
+    options('marked-publication').commit,
+  );
+  const markedReservation = reserveIntegrationPublication(
+    marked.store,
+    marked.repository,
+    markedChecked,
+    markedCommit,
+    'marked-publication',
+    markedChecking.attemptIdentity,
+  );
+  expect(publishIntegrationRefs(marked.store, marked.repository, markedReservation)).toBe(true);
+  markedClock.now = 601_000;
+  expect(
+    await integrateWithRecovery(
+      marked.store,
+      marked.repository,
+      markedRequest,
+      options('marked-publication'),
+    ),
+  ).toMatchObject({ commit: markedCommit, status: 'integrated' });
+  expect(marked.store.inspect().integrations[0]?.status).toBe('published');
+  marked.store.close();
+});
+
 test('a publication reservation fences terminal lifecycle changes', () => {
   const subject = fixture();
   const one = subject.submission('one', 'src/one.ts', 'export const one = 2;\n');
@@ -452,6 +640,13 @@ test('a publication reservation fences terminal lifecycle changes', () => {
     commit,
     'fenced',
     queue.attemptIdentity,
+  );
+  const publishing = subject.store
+    .inspect()
+    .integrations.find(({ integrationId }) => integrationId === 'fenced');
+  if (publishing === undefined) throw new Error('publishing fixture record is absent');
+  expect(() => recordIntegrationRework(subject.store, publishing)).toThrow(
+    'publishing rework requires serialized recovery',
   );
   expect(() => rejectGeneration(subject.store, one.token)).toThrow(
     'generation has a reserved publication',
@@ -487,6 +682,254 @@ test('a mismatched publication marker after reservation is refused', () => {
     'integration publication marker mismatch',
   );
   expect(git(subject.repository, ['rev-parse', 'refs/heads/main'])).toBe(subject.base.commit);
+  subject.store.close();
+});
+
+test('an eligible publisher retains its exact attempt across Git ref contention', async () => {
+  const subject = fixture();
+  const one = subject.submission('one', 'src/one.ts', 'export const one = 2;\n');
+  const request = { policy, submissions: [one] };
+  const targetLock = join(subject.repository, '.git', 'refs', 'heads', 'main.lock');
+  writeFileSync(targetLock, 'held by fixture');
+
+  const blocked = await integrateWithRecovery(
+    subject.store,
+    subject.repository,
+    request,
+    options('git-contention'),
+  );
+  expect(blocked).toMatchObject({
+    attempts: 1,
+    reason: 'publication-contended',
+    status: 'waiting',
+  });
+  expect(subject.store.inspect().integrations[0]).toMatchObject({
+    attemptCount: 1,
+    status: 'publishing',
+  });
+  expect(git(subject.repository, ['rev-parse', 'refs/heads/main'])).toBe(subject.base.commit);
+  expect(
+    git(subject.repository, ['for-each-ref', '--format=%(refname)', 'refs/wbs-wiki/publications']),
+  ).toBe('');
+
+  rmSync(targetLock);
+  expect(
+    await integrateWithRecovery(
+      subject.store,
+      subject.repository,
+      request,
+      options('git-contention'),
+    ),
+  ).toMatchObject({ attempts: 1, status: 'integrated' });
+  subject.store.close();
+});
+
+test('a competing recovery cannot clear publication while Git holds prepared ref locks', async () => {
+  const subject = fixture();
+  const one = subject.submission('one', 'src/one.ts', 'export const one = 2;\n');
+  const request = { policy, submissions: [one] };
+  const candidate = composeIntegrationCandidate(subject.store, subject.repository, request);
+  enqueueIntegration(subject.store, request, options('prepared-publication'));
+  const checking = recordIntegrationCheck(subject.store, 'prepared-publication', candidate);
+  const checked = certify(candidate);
+  const commit = createIntegrationCommit(
+    subject.repository,
+    checked,
+    checking,
+    options('prepared-publication').commit,
+  );
+  const reserved = reserveIntegrationPublication(
+    subject.store,
+    subject.repository,
+    checked,
+    commit,
+    'prepared-publication',
+    checking.attemptIdentity,
+  );
+  subject.store.close();
+
+  const readyPath = join(subject.repository, '.publication-prepared');
+  const releasePath = join(subject.repository, '.publication-release');
+  const secondStartedPath = join(subject.repository, '.second-started');
+  const secondDonePath = join(subject.repository, '.second-done');
+  const hookDirectory = join(subject.repository, '.git', 'fixture-hooks');
+  const hookPath = join(hookDirectory, 'reference-transaction');
+  mkdirSync(hookDirectory);
+  writeFileSync(
+    hookPath,
+    `#!/bin/sh\nif [ "$1" = "prepared" ]; then\n  : > ${JSON.stringify(
+      readyPath,
+    )}\n  while [ ! -e ${JSON.stringify(releasePath)} ]; do sleep 0.01; done\nfi\n`,
+  );
+  chmodSync(hookPath, 0o755);
+  git(subject.repository, ['config', 'core.hooksPath', hookDirectory]);
+
+  const payloadPath = join(subject.repository, '.publication-payload.json');
+  writeFileSync(
+    payloadPath,
+    JSON.stringify({
+      request: {
+        policy,
+        submissions: request.submissions.map(({ packet, patch, report }) => ({
+          packet,
+          patch: [...patch],
+          report,
+        })),
+      },
+      reserved,
+    }),
+  );
+  const childPath = join(subject.repository, '.publication-child.ts');
+  const authorityModule = join(import.meta.dir, 'authority-store.ts');
+  const publicationModule = join(import.meta.dir, 'publication.ts');
+  writeFileSync(
+    childPath,
+    `import { writeFileSync } from 'node:fs';
+import { openAuthorityStore } from ${JSON.stringify(authorityModule)};
+import { integrateWithRecovery, publishReservedIntegration } from ${JSON.stringify(
+      publicationModule,
+    )};
+const [mode, repository, payloadPath, startedPath, donePath] = Bun.argv.slice(2);
+if (mode === undefined || repository === undefined || payloadPath === undefined) {
+  throw new Error('publication child arguments are absent');
+}
+const payload = JSON.parse(await Bun.file(payloadPath).text());
+const store = openAuthorityStore(repository, {
+  busyDelayMilliseconds: 50,
+  clock: { read: () => 1_000 },
+  maxBusyAttempts: 100,
+});
+if (startedPath !== undefined) writeFileSync(startedPath, 'started');
+try {
+  const report = mode === 'publish'
+    ? publishReservedIntegration(store, repository, payload.reserved)
+    : await integrateWithRecovery(
+        store,
+        repository,
+        {
+          ...payload.request,
+          submissions: payload.request.submissions.map((submission) => ({
+            ...submission,
+            patch: Uint8Array.from(submission.patch),
+          })),
+        },
+        {
+          certifier: { certify: () => ({ reason: 'unexpected certification', status: 'failed' }) },
+          commit: {
+            authorEmail: 'coordinator@example.invalid',
+            authorName: 'Coordinator',
+            message: 'Integrate prepared-publication',
+          },
+          integrationId: 'prepared-publication',
+          resourceProbe: {
+            inspect: ({ compositionIdentity, integrationId, requirementsIdentity }) => ({
+              compositionIdentity,
+              integrationId,
+              probeIdentity: '9'.repeat(64),
+              requirementsIdentity,
+              unavailable: [],
+            }),
+          },
+          resources: [],
+          targetRef: 'refs/heads/main',
+        },
+      );
+  if (donePath !== undefined) writeFileSync(donePath, 'done');
+  console.log(JSON.stringify(report));
+} finally {
+  store.close();
+}
+`,
+  );
+
+  const first = Bun.spawn(
+    [process.execPath, childPath, 'publish', subject.repository, payloadPath],
+    {
+      stderr: 'pipe',
+      stdout: 'pipe',
+    },
+  );
+  const firstStdout = new Response(first.stdout).text();
+  const firstStderr = new Response(first.stderr).text();
+  await waitForPath(readyPath);
+  const second = Bun.spawn(
+    [
+      process.execPath,
+      childPath,
+      'recover',
+      subject.repository,
+      payloadPath,
+      secondStartedPath,
+      secondDonePath,
+    ],
+    { stderr: 'pipe', stdout: 'pipe' },
+  );
+  const secondStdout = new Response(second.stdout).text();
+  const secondStderr = new Response(second.stderr).text();
+  await waitForPath(secondStartedPath);
+  await Bun.sleep(100);
+  const secondWasSerialized = !existsSync(secondDonePath);
+  writeFileSync(releasePath, 'release');
+  const [firstExit, secondExit, firstOutput, secondOutput, firstError, secondError] =
+    await Promise.all([
+      first.exited,
+      second.exited,
+      firstStdout,
+      secondStdout,
+      firstStderr,
+      secondStderr,
+    ]);
+
+  expect({ firstError, firstExit, secondError, secondExit }).toEqual({
+    firstError: '',
+    firstExit: 0,
+    secondError: '',
+    secondExit: 0,
+  });
+  expect(secondWasSerialized).toBe(true);
+  expect(JSON.parse(firstOutput)).toMatchObject({ commit, status: 'integrated' });
+  expect(JSON.parse(secondOutput)).toMatchObject({ commit, status: 'integrated' });
+  expect(git(subject.repository, ['rev-parse', 'refs/heads/main'])).toBe(commit);
+  expect(git(subject.repository, ['rev-parse', reserved.markerRef])).toBe(commit);
+  const reopened = openAuthorityStore(subject.repository, { clock: { read: () => 1_000 } });
+  expect(reopened.inspect().integrations[0]?.status).toBe('published');
+  expect(reopened.inspect().generations[0]?.status).toBe('integrated');
+  reopened.close();
+});
+
+test('publication transactions are synchronous and never replay external effects at commit', async () => {
+  const subject = fixture();
+  const databasePath = resolveAuthorityDatabasePath(subject.repository);
+  const readerReady = join(subject.repository, '.publication-reader-ready');
+  const reader = Bun.spawn(
+    [
+      process.execPath,
+      '--eval',
+      `import { Database } from 'bun:sqlite'; import { writeFileSync } from 'node:fs'; const database = new Database(process.argv[1]); database.run('PRAGMA busy_timeout = 0'); database.run('BEGIN'); database.query('SELECT count(*) FROM authority_generation').get(); writeFileSync(process.argv[2], 'ready'); Bun.sleepSync(80); database.run('ROLLBACK'); database.close();`,
+      databasePath,
+      readerReady,
+    ],
+    { stderr: 'pipe', stdout: 'pipe' },
+  );
+  const readerStderr = new Response(reader.stderr).text();
+  await waitForPath(readerReady);
+  let callbackAttempts = 0;
+  expect(
+    subject.store.transactPublication((transaction) => {
+      callbackAttempts += 1;
+      const state = transaction.readState();
+      transaction.writeState(state);
+      return 'committed';
+    }),
+  ).toBe('committed');
+  expect(await reader.exited).toBe(0);
+  expect(await readerStderr).toBe('');
+  expect(callbackAttempts).toBe(1);
+
+  expect(() =>
+    subject.store.transactPublication(async () => Promise.resolve('not synchronous')),
+  ).toThrow('authority transaction callback must be synchronous');
+  expect(subject.store.inspect().nextGeneration).toBe(1);
   subject.store.close();
 });
 
@@ -874,6 +1317,7 @@ test('a wrong-tree or extra-parent candidate commit is refused before refs or li
       compositionIdentity: checked.compositionIdentity,
       integrationId: 'wrong-commit',
       markerRef: publicationMarker,
+      submissions: queue.submissions,
       targetRef: 'refs/heads/main',
     }),
   ).toThrow('integration commit differs from the checked candidate');
@@ -909,6 +1353,12 @@ test('a crafted reservation cannot redirect publication or substitute its checke
   );
   git(subject.repository, ['update-ref', 'refs/heads/other', subject.base.commit]);
 
+  expect(() =>
+    publishReservedIntegration(subject.store, subject.repository, {
+      ...reserved,
+      submissions: [],
+    }),
+  ).toThrow('integration publication reservation changed');
   expect(() =>
     publishReservedIntegration(subject.store, subject.repository, {
       ...reserved,

@@ -5,6 +5,7 @@ import type {
   AuthorityGeneration,
   AuthorityState,
   AuthorityStore,
+  AuthorityTransaction,
   IntegrationQueueRecord,
   IntegrationQueueSubmission,
   IntegrationResourceRequirement,
@@ -72,7 +73,7 @@ export interface IntegrationCoordinatorOptions {
 export interface IntegrationWaitingReport {
   readonly status: 'waiting';
   readonly integrationId: string;
-  readonly reason: 'resources' | 'submission-reserved' | 'attempt-fenced';
+  readonly reason: 'resources' | 'submission-reserved' | 'attempt-fenced' | 'publication-contended';
   readonly attempts: number;
   readonly queueTimeMs: number;
   readonly unavailableResources: readonly IntegrationResourceRequirement[];
@@ -120,6 +121,7 @@ export interface ReservedIntegrationPublication {
   readonly candidateTree: string;
   readonly compositionIdentity: string;
   readonly markerRef: string;
+  readonly submissions: readonly IntegrationQueueSubmission[];
 }
 
 class IntegrationGenerationChangedError extends Error {
@@ -224,6 +226,26 @@ function normalizeResources(
 
 function sameCanonical(left: unknown, right: unknown): boolean {
   return hashCanonical(left) === hashCanonical(right);
+}
+
+function candidateQueueSubmissions(
+  candidate: UncheckedIntegrationCandidate | CheckedIntegrationCandidate,
+): readonly IntegrationQueueSubmission[] {
+  return candidate.submissions.map(({ generation, packetIdentity, patchIdentity, sessionId }) => ({
+    generation,
+    packetIdentity,
+    patchIdentity,
+    sessionId,
+  }));
+}
+
+function assertCandidateSubmissions(
+  record: IntegrationQueueRecord,
+  candidate: UncheckedIntegrationCandidate | CheckedIntegrationCandidate,
+): void {
+  if (!sameCanonical(record.submissions, candidateQueueSubmissions(candidate))) {
+    throw new Error('integration candidate submissions differ from the durable queue');
+  }
 }
 
 /** Durably enqueues an exact immutable submission batch. */
@@ -400,6 +422,17 @@ function transition(
   });
 }
 
+function readIntegration(store: AuthorityStore, integrationId: string): IntegrationQueueRecord {
+  return store.transact((transaction) => {
+    const record = transaction
+      .readState()
+      .integrations.find((integration) => integration.integrationId === integrationId);
+    if (record === undefined)
+      throw new Error(`integration queue record is absent: ${integrationId}`);
+    return record;
+  });
+}
+
 function terminal(
   store: AuthorityStore,
   expected: IntegrationQueueRecord,
@@ -454,6 +487,10 @@ export function recordIntegrationCheck(
     if (current.status !== 'queued' && current.status !== 'rework') {
       throw new Error(`integration cannot start checks from ${current.status}: ${integrationId}`);
     }
+    // Proof: omitting this exact tuple comparison let `the complete candidate submission set must
+    // match the durable queue before checks and publication` record candidate two against the
+    // queue for candidate one (`Received function did not throw`).
+    assertCandidateSubmissions(current, candidate);
     if (current.attemptCount >= MAX_INTEGRATION_ATTEMPTS) {
       throw new Error(`integration attempt budget exhausted: ${integrationId}`);
     }
@@ -555,6 +592,10 @@ export function reserveIntegrationPublication(
     ) {
       throw new Error(`integration is not checking this candidate: ${integrationId}`);
     }
+    // Proof: omitting this repeated binding let the complete-submission-set test reserve candidate
+    // one after the durable checking queue was replaced with candidate two (`Received function did
+    // not throw`), before either Git ref or the lifecycle changed.
+    assertCandidateSubmissions(record, checked);
     // Proof: bypassing this final generation recheck together with the persisted publishing-state
     // invariant made `terminal generation transition while checks are held` reach finalization and
     // fail on `integration generation changed before publication: one/1` after updating the ref.
@@ -589,6 +630,7 @@ export function reserveIntegrationPublication(
       compositionIdentity: checked.compositionIdentity,
       integrationId,
       markerRef: publicationMarker,
+      submissions: record.submissions,
       targetRef: record.targetRef,
     };
   });
@@ -631,7 +673,8 @@ function assertReservationMatches(
 ): asserts integration is IntegrationQueueRecord {
   // Proof: in `a crafted reservation cannot redirect publication or substitute its checked tree`,
   // omitting targetRef returned integrated after moving `refs/heads/other`; omitting candidateTree
-  // reached the later commit diagnostic; omitting attemptIdentity returned integrated as attempt 0.
+  // reached the later commit diagnostic; omitting attemptIdentity returned integrated as attempt
+  // 0; omitting submissions returned integrated with an empty reserved tuple.
   if (
     integration?.status !== status ||
     integration.integrationId !== reserved.integrationId ||
@@ -641,24 +684,11 @@ function assertReservationMatches(
     integration.markerRef !== reserved.markerRef ||
     integration.baseCommit !== reserved.baseCommit ||
     integration.candidateTree !== reserved.candidateTree ||
-    integration.compositionIdentity !== reserved.compositionIdentity
+    integration.compositionIdentity !== reserved.compositionIdentity ||
+    !sameCanonical(integration.submissions, reserved.submissions)
   ) {
     throw new Error(`integration publication reservation changed: ${reserved.integrationId}`);
   }
-}
-
-function requireReservation(
-  store: AuthorityStore,
-  reserved: ReservedIntegrationPublication,
-  status: 'publishing' | 'published',
-): IntegrationQueueRecord {
-  return store.transact((transaction) => {
-    const integration = transaction
-      .readState()
-      .integrations.find((entry) => entry.integrationId === reserved.integrationId);
-    assertReservationMatches(integration, reserved, status);
-    return integration;
-  });
 }
 
 function assertPublishedCommit(repository: string, reserved: ReservedIntegrationPublication): void {
@@ -676,46 +706,10 @@ function assertPublishedCommit(repository: string, reserved: ReservedIntegration
   }
 }
 
-/** Finalizes a marker-proven publication, even when the target subsequently advanced. */
-export function finalizeIntegrationPublication(
-  store: AuthorityStore,
-  coordinatorRepository: string,
+function publishedReport(
+  record: IntegrationQueueRecord,
   reserved: ReservedIntegrationPublication,
 ): IntegrationPublishedReport {
-  const repository = realpathSync(coordinatorRepository);
-  requireReservation(store, reserved, 'publishing');
-  assertPublishedCommit(repository, reserved);
-  const record = store.transact((transaction) => {
-    const state = transaction.readState();
-    const integration = state.integrations.find(
-      (entry) => entry.integrationId === reserved.integrationId,
-    );
-    assertReservationMatches(integration, reserved, 'publishing');
-    for (const submission of integration.submissions) {
-      assertGenerationMatches(state.generations, submission);
-    }
-    const timestamp = readTrustedTime(store, state);
-    const owners = new Set(
-      integration.submissions.map(
-        (submission) => `${submission.sessionId}/${String(submission.generation)}`,
-      ),
-    );
-    const generations = state.generations.map((generation): AuthorityGeneration =>
-      owners.has(`${generation.sessionId}/${String(generation.generation)}`)
-        ? { ...generation, claims: [], status: 'integrated', statusAt: timestamp }
-        : generation,
-    );
-    const published: IntegrationQueueRecord = {
-      ...integration,
-      status: 'published',
-      statusAt: timestamp,
-    };
-    transaction.writeState({
-      ...replaceIntegration(state, published),
-      generations,
-    });
-    return published;
-  });
   return {
     attempts: record.attemptCount,
     commit: reserved.candidateCommit,
@@ -728,32 +722,224 @@ export function finalizeIntegrationPublication(
   };
 }
 
+function starvationReport(record: IntegrationQueueRecord): IntegrationTerminalReport {
+  return {
+    attempts: record.attemptCount,
+    integrationId: record.integrationId,
+    queueTimeMs: record.statusAt - record.queuedAt,
+    reason: 'starvation',
+    reworkCount: Math.max(0, record.attemptCount - 1),
+    status: 'terminal',
+  };
+}
+
+function publicationWaitingReport(
+  record: IntegrationQueueRecord,
+  timestamp: number,
+): IntegrationWaitingReport {
+  return {
+    attempts: record.attemptCount,
+    blockingIntegrationIds: [],
+    fileClaimGenerations: record.submissions,
+    integrationId: record.integrationId,
+    queueTimeMs: timestamp - record.queuedAt,
+    reason: 'publication-contended',
+    status: 'waiting',
+    unavailableResources: [],
+  };
+}
+
+function finalizePublication(
+  store: AuthorityStore,
+  transaction: AuthorityTransaction,
+  state: AuthorityState,
+  integration: IntegrationQueueRecord,
+  reserved: ReservedIntegrationPublication,
+): IntegrationPublishedReport {
+  for (const submission of integration.submissions) {
+    assertGenerationMatches(state.generations, submission);
+  }
+  const timestamp = readTrustedTime(store, state);
+  const owners = new Set(
+    integration.submissions.map(
+      (submission) => `${submission.sessionId}/${String(submission.generation)}`,
+    ),
+  );
+  const generations = state.generations.map((generation): AuthorityGeneration =>
+    owners.has(`${generation.sessionId}/${String(generation.generation)}`)
+      ? { ...generation, claims: [], status: 'integrated', statusAt: timestamp }
+      : generation,
+  );
+  const published: IntegrationQueueRecord = {
+    ...integration,
+    status: 'published',
+    statusAt: timestamp,
+  };
+  transaction.writeState({
+    ...replaceIntegration(state, published),
+    generations,
+  });
+  return publishedReport(published, reserved);
+}
+
+function starvePublication(
+  transaction: AuthorityTransaction,
+  state: AuthorityState,
+  integration: IntegrationQueueRecord,
+  timestamp: number,
+): IntegrationTerminalReport {
+  const starved: IntegrationQueueRecord = {
+    ...clearCandidate(integration, 'terminal', timestamp),
+    terminalReason: 'starvation',
+  };
+  transaction.writeState(replaceIntegration(state, starved));
+  return starvationReport(starved);
+}
+
+/** Finalizes a marker-proven publication, even when the target subsequently advanced. */
+export function finalizeIntegrationPublication(
+  store: AuthorityStore,
+  coordinatorRepository: string,
+  reserved: ReservedIntegrationPublication,
+): IntegrationPublishedReport {
+  const repository = realpathSync(coordinatorRepository);
+  return store.transactPublication((transaction) => {
+    const state = transaction.readState();
+    const integration = state.integrations.find(
+      (entry) => entry.integrationId === reserved.integrationId,
+    );
+    assertReservationMatches(integration, reserved, 'publishing');
+    assertPublishedCommit(repository, reserved);
+    return finalizePublication(store, transaction, state, integration, reserved);
+  });
+}
+
 /** Atomically publishes the target and durable marker refs, then finalizes authority lifecycle. */
 export function publishReservedIntegration(
   store: AuthorityStore,
   coordinatorRepository: string,
   reserved: ReservedIntegrationPublication,
-): IntegrationPublishedReport | undefined {
+): IntegrationCoordinatorReport | undefined {
   const repository = realpathSync(coordinatorRepository);
-  if (!publishIntegrationRefs(store, repository, reserved)) return undefined;
-  return finalizeIntegrationPublication(store, repository, reserved);
+  // Proof: splitting this reservation validation, Git transaction and lifecycle decision let the
+  // prepared-ref race's second process clear `publishing`; the first publisher then failed on
+  // `integration publication reservation changed: prepared-publication` after Git committed.
+  return store.transactPublication((transaction) => {
+    const state = transaction.readState();
+    const integration = state.integrations.find(
+      (entry) => entry.integrationId === reserved.integrationId,
+    );
+    if (integration?.status === 'published') {
+      assertReservationMatches(integration, reserved, 'published');
+      assertPublishedCommit(repository, reserved);
+      return publishedReport(integration, reserved);
+    }
+    assertReservationMatches(integration, reserved, 'publishing');
+    const existingMarker = readRef(repository, reserved.markerRef);
+    if (existingMarker !== undefined && existingMarker !== reserved.candidateCommit) {
+      throw new Error(`integration publication marker mismatch: ${reserved.markerRef}`);
+    }
+    // Proof: enforcing the deadline before this marker recovery made `publishing recovery checks
+    // an immutable marker before enforcing the refreshed deadline` return terminal starvation at
+    // 600000ms where it expected the marker-proven commit to be integrated.
+    if (existingMarker === reserved.candidateCommit) {
+      assertIntegrationCommit(
+        repository,
+        reserved.candidateCommit,
+        reserved.candidateTree,
+        reserved.baseCommit,
+      );
+      return finalizePublication(store, transaction, state, integration, reserved);
+    }
+
+    assertIntegrationCommit(
+      repository,
+      reserved.candidateCommit,
+      reserved.candidateTree,
+      reserved.baseCommit,
+    );
+    const beforeCas = readTrustedTime(store, state);
+    // Proof: publishing without this marker-first deadline refresh made `publishing recovery checks
+    // an immutable marker before enforcing the refreshed deadline` advance the target and return
+    // integrated at 600000ms instead of terminal starvation with both refs untouched.
+    if (beforeCas - integration.queuedAt >= MAX_INTEGRATION_QUEUE_WAIT_MS) {
+      return starvePublication(transaction, state, integration, beforeCas);
+    }
+    if (updateRefs(repository, reserved)) {
+      return finalizePublication(store, transaction, state, integration, reserved);
+    }
+
+    const markerAfterFailure = readRef(repository, reserved.markerRef);
+    if (markerAfterFailure !== undefined) {
+      if (markerAfterFailure !== reserved.candidateCommit) {
+        throw new Error(`integration publication marker mismatch: ${reserved.markerRef}`);
+      }
+      assertIntegrationCommit(
+        repository,
+        reserved.candidateCommit,
+        reserved.candidateTree,
+        reserved.baseCommit,
+      );
+      return finalizePublication(store, transaction, state, integration, reserved);
+    }
+    const afterFailure = readTrustedTime(store, state);
+    if (afterFailure - integration.queuedAt >= MAX_INTEGRATION_QUEUE_WAIT_MS) {
+      return starvePublication(transaction, state, integration, afterFailure);
+    }
+    if (requireTargetRef(repository, reserved.targetRef) === reserved.baseCommit) {
+      // Proof: clearing this exact attempt on an ordinary Git lock failure made `an eligible
+      // publisher retains its exact attempt across Git ref contention` spend all three attempts
+      // and terminalize instead of returning publication-contended with status publishing.
+      return publicationWaitingReport(integration, afterFailure);
+    }
+    transaction.writeState(
+      replaceIntegration(state, clearCandidate(integration, 'rework', afterFailure)),
+    );
+    return undefined;
+  });
 }
 
-/** Atomically CAS-updates the target and creates the immutable publication marker. */
+/**
+ * Atomically CAS-updates refs while deliberately retaining `publishing` for crash-recovery tests.
+ */
 export function publishIntegrationRefs(
   store: AuthorityStore,
   coordinatorRepository: string,
   reserved: ReservedIntegrationPublication,
 ): boolean {
   const repository = realpathSync(coordinatorRepository);
-  requireReservation(store, reserved, 'publishing');
-  assertIntegrationCommit(
-    repository,
-    reserved.candidateCommit,
-    reserved.candidateTree,
-    reserved.baseCommit,
-  );
-  return updateRefs(repository, reserved);
+  return store.transactPublication((transaction) => {
+    const state = transaction.readState();
+    const integration = state.integrations.find(
+      (entry) => entry.integrationId === reserved.integrationId,
+    );
+    assertReservationMatches(integration, reserved, 'publishing');
+    const existingMarker = readRef(repository, reserved.markerRef);
+    if (existingMarker !== undefined) {
+      if (existingMarker !== reserved.candidateCommit) {
+        throw new Error(`integration publication marker mismatch: ${reserved.markerRef}`);
+      }
+      assertIntegrationCommit(
+        repository,
+        reserved.candidateCommit,
+        reserved.candidateTree,
+        reserved.baseCommit,
+      );
+      return true;
+    }
+    assertIntegrationCommit(
+      repository,
+      reserved.candidateCommit,
+      reserved.candidateTree,
+      reserved.baseCommit,
+    );
+    const beforeCas = readTrustedTime(store, state);
+    if (beforeCas - integration.queuedAt >= MAX_INTEGRATION_QUEUE_WAIT_MS) {
+      starvePublication(transaction, state, integration, beforeCas);
+      return false;
+    }
+    return updateRefs(repository, reserved);
+  });
 }
 
 async function unavailableResources(
@@ -822,6 +1008,12 @@ export function recordIntegrationRework(
   expected: IntegrationQueueRecord,
 ): IntegrationQueueRecord {
   return transition(store, expected.integrationId, (record, timestamp) => {
+    // Proof: without this boundary `a publication reservation fences terminal lifecycle changes`
+    // cleared a live publishing owner through the ordinary replayable transaction path (`Received
+    // function did not throw`) instead of throwing `publishing rework requires serialized recovery`.
+    if (record.status === 'publishing' || expected.status === 'publishing') {
+      throw new Error('publishing rework requires serialized recovery');
+    }
     // Proof: omitting the exact attempt comparison made `a stale attempt identity cannot reserve
     // an equal checked candidate` clear live attempt two when passed stale attempt one.
     if (!isSameAttempt(record, expected)) {
@@ -968,6 +1160,7 @@ export async function integrateWithRecovery(
       compositionIdentity: record.compositionIdentity,
       integrationId: record.integrationId,
       markerRef: record.markerRef,
+      submissions: record.submissions,
       targetRef: record.targetRef,
     });
     return {
@@ -1018,10 +1211,11 @@ export async function integrateWithRecovery(
       compositionIdentity: record.compositionIdentity,
       integrationId: record.integrationId,
       markerRef: record.markerRef,
+      submissions: record.submissions,
       targetRef: record.targetRef,
     });
     if (recovered !== undefined) return recovered;
-    record = recordIntegrationRework(store, record);
+    record = readIntegration(store, record.integrationId);
   } else if (record.status === 'checking') {
     // A durable checking record contains no external process receipt. A restarted coordinator
     // atomically fences that exact attempt before spending the next one; its stale certifier can no
@@ -1163,8 +1357,7 @@ export async function integrateWithRecovery(
     }
     const published = publishReservedIntegration(store, repository, reserved);
     if (published !== undefined) return published;
-    const publishing = requireReservation(store, reserved, 'publishing');
-    record = recordIntegrationRework(store, publishing);
+    record = readIntegration(store, record.integrationId);
     if (record.attemptCount >= MAX_INTEGRATION_ATTEMPTS) {
       return terminal(store, record, 'attempts-exhausted');
     }

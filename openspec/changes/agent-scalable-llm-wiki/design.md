@@ -256,6 +256,19 @@ commit must have exactly the checked tree and exactly one parent, the checked ba
 queue budget includes resource-probe and certification runtime; trusted time is refreshed after each
 await and before retry/admission transitions.
 
+The checked candidate's canonical submission set is the exact set of session, generation, packet and
+patch identities held by the queue; both check start and publication reservation compare all four
+fields. Publication recovery uses a one-shot authority transaction backed by SQLite's OS-managed
+`BEGIN IMMEDIATE` lock. Lock acquisition may retry, but the synchronous callback containing Git I/O
+never replays; a blocked commit retries only `COMMIT`. Process death releases the OS lock, while the
+durable publishing record and immutable marker remain the recovery evidence. Reservation validation,
+marker inspection, the Git ref transaction and the resulting published/rework/terminal decision all
+remain inside that serialized region. A marker proves publication before the queue deadline is
+considered, even when recovery happens later. Without a marker, trusted time is refreshed immediately
+before CAS; an expired queue terminalizes without touching refs. Git contention with the target still
+at the reserved base retains the exact publishing owner and reports `publication-contended` without
+spending an attempt; only an observed target move permits serialized rework.
+
 ### Measurement and execution adapter
 
 Pin `ExperimentManifest` before partitioning: repository/corpus/acceptance ids, fixed outcome
