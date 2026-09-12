@@ -269,12 +269,36 @@ stop_listener
 chmod 600 "$tmp/apps/be-01/.env"
 rm -rf "$tmp"
 
-# 15. This repo's own four tiers, through the path bin/dev.sh actually calls.
-resolved=$(bash "$ports_sh" --resolve)
+# 15. This checkout's own four tiers, through the path bin/dev.sh actually
+#     calls. What each tier must do depends on whether it is configured here:
+#     `.env` is gitignored, so a developer who has run `bun run dev:setup` has
+#     three of them and a fresh clone — CI included — has none. A tier is either
+#     in the checked set or named as unconfigured; being in neither is a tier
+#     that has fallen out of the loop, which is the fault this case is about.
+#
+#     Asserting the ports unconditionally is what this case did first, and it
+#     passed here and failed in CI on `be-01 is in the checked set · expected:
+#     yes · actual: no` — a claim about the developer's machine, made about a
+#     checkout that has no `.env` to read.
+#
+#     Proof: with `mcp-01` removed from the loop in `resolve_ports`, this case
+#     failed on `mcp-01 is checked or named as unconfigured · expected: yes ·
+#     actual: no` in a checkout that has the three `.env` files, and the same
+#     comparison run against an empty apps tree — the shape CI checks out —
+#     answered `no` there too.
+tmp=$(mktemp -d)
+resolved=$(bash "$ports_sh" --resolve 2>"$tmp/stderr")
 for tier in be-01 gw-01 mcp-01 fe-01; do
-  check "$tier is in the checked set" 'yes' \
-    "$(grep -q "^$tier:[0-9]" <<<"$resolved" && echo yes || echo no)"
+  if grep -q "^$tier:[0-9]" <<<"$resolved"; then
+    accounted=yes
+  elif grep -q "^$tier: " "$tmp/stderr"; then
+    accounted=yes
+  else
+    accounted=no
+  fi
+  check "$tier is checked or named as unconfigured" 'yes' "$accounted"
 done
+rm -rf "$tmp"
 
 if [[ $failures -gt 0 ]]; then
   printf '\n%d check(s) failed\n' "$failures"
