@@ -127,7 +127,7 @@ No `verify.md` exists until implementation produces observations.
       and observe partial ownership/interleaving; remove overlap detection and observe both
       writers acquire the same boundary. Absence on initial creation is modeled; unreadable,
       corrupt or incompatible existing state throws.
-- [ ] 4.2 Implement `admission/generations.ts` and state transitions. Test
+- [x] 4.2 Implement `admission/generations.ts` and state transitions. Test
       `generations.test.ts`: heartbeat expiry fences/investigates; submitted state retains
       claims; exact-generation release is idempotent; rejection/abandonment allows a new
       generation. Negative: resume old writer after successor acquisition, wrong-generation

@@ -2259,3 +2259,56 @@ agent-scalable-llm-wiki --strict` — exit 0; change valid.
   `/home/puni1/.cache` does not exist; no host-gate step ran and the host gate is not green.
 
 Task 3.4 remains complete. Task 3.5 and every later task remain untouched.
+
+## Slice 4.2 — fenced generation lifecycle
+
+Authority schema v2 retains every generation so an exact released token remains distinguishable
+from an unknown token after same-session reacquisition. `working` generations heartbeat from the
+store-owned trusted epoch-millisecond clock; expiry moves them to `investigating` without releasing
+claims or asserting that the process stopped. A submitted generation freezes one exact patch,
+candidate-diff and content identity and retains its claims until integration, rejection or
+abandonment. Only unpublished working/investigating work can release. Terminal history fences every
+old-token mutation while allowing a new globally increasing generation.
+
+The 4.1 claim-only schema was never activated. It is deliberately refused as incompatible rather
+than migrated or defaulted: state, lifecycle timestamps, exact submissions and claims form one
+atomic v2 contract in both memory and SQLite. Wall clocks are not claimed monotonic across
+processes; a trusted value behind retained history is an explicit clock-regression refusal.
+
+The first combined two-process run found the clock sampled before SQLite lock acquisition: one
+disjoint process waited while another committed a later timestamp, then falsely failed as
+regressed. Moving the trusted read inside each serialized transaction attempt removed that false
+refusal; no timeout or elapsed-time assertion was used.
+
+| Deliberate one-at-a-time fault                                             | Observed production-path failure                                                                                         |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| expire directly to `released` and clear claims                             | lifecycle received `released` with `claims: []`, not retained `investigating` ownership                                  |
+| allow a rejected generation to submit after successor acquisition          | spawned stale process returned `{ok:true}` for generation 1 after generation 2 acquired                                  |
+| match release by session without exact generation                          | token `session-b/1` released the generation-2 successor and returned `{ok:true}`                                         |
+| permit a second submitted publication                                      | spawned second submit replaced patch identity `111...` with `444...` and returned `{ok:true}`                            |
+| admit submitted claim expansion                                            | frozen generation added `apps/fe-01`; `expandClaims` returned successfully                                               |
+| admit rejected heartbeat/integration/release                               | stale generation mutated after the successor acquired; each targeted test lost its terminal refusal                      |
+| bypass canonical timestamp, expiry-duration or clock-regression boundaries | invalid time reached a later diagnostic, zero duration fenced immediately, or timestamp 1009 acquired after 1010         |
+| weaken SHA-256 identity validation                                         | `not-sha256` published in each of patch, candidate-diff and content positions                                            |
+| remove lifecycle state invariants                                          | regressed status time, terminal retained claim, missing/forbidden submission and duplicate live session each constructed |
+| corrupt persisted status, status ordering or submission shape              | production SQLite open refused before treating the retained claim as available                                           |
+
+Every fault was observed separately and restored. Adjacent `Proof:` comments record the exact
+observed oracle. The SQLite lifecycle file repeated five times with 25 pass, 0 fail and 85
+assertions. Focused memory, SQLite and spawned-process admission/lifecycle verification passed 46
+tests, 0 failed and 186 assertions.
+
+- `NX_DAEMON=false bunx nx run-many -t lint:source typecheck -p tool-wiki --skip-nx-cache
+--output-style=static` — exit 0; source lint and forced source/spec typecheck passed, cache skipped.
+- The first `NX_DAEMON=false bunx nx run tool-wiki:test --skip-nx-cache --output-style=static`
+  wrapper lost its child without returning an exit or buffered output and is not evidence. A
+  process-table check found no Nx/Bun child; the orphaned session was closed.
+- Exact target command `bun test --preload ../test/scratch/preload.ts` from `tools/tool-wiki` —
+  exit 0; 393 pass, 0 fail, 4,458 assertions across 21 files in 742.21 seconds.
+- `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate
+agent-scalable-llm-wiki --strict` — exit 0; change valid.
+- `NX_DAEMON=false bunx nx format:check --all` and `git diff --check` — exit 0.
+- `bin/h2puni-gate.sh bfed823a` — unavailable, exit 70 immediately because required heavy-lock
+  path `/home/puni1/.cache` does not exist; no host-gate step ran and the host gate is not green.
+
+Only Task 4.2 is added as complete; packet submission, integration and activation remain untouched.
