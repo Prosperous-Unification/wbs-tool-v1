@@ -8,19 +8,27 @@
     "lint": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "bunx eslint libs/core/src"
+        "command": "bunx eslint libs/core/src libs/core/testing libs/core/playwright.config.ts"
       }
     },
     "lint:fast": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "bunx eslint libs/core/src --cache --cache-location .nx/eslintcache-core"
+        "command": "bunx eslint libs/core/src libs/core/testing libs/core/playwright.config.ts --cache --cache-location .nx/eslintcache-core"
       }
     },
     "test": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "bun test --coverage --coverage-reporter=lcov",
+        "command": "bun test src --coverage --coverage-reporter=lcov",
+        "cwd": "libs/core"
+      },
+      "outputs": ["{projectRoot}/coverage"]
+    },
+    "test:unit": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun test src --coverage --coverage-reporter=lcov",
         "cwd": "libs/core"
       },
       "outputs": ["{projectRoot}/coverage"]
@@ -30,6 +38,27 @@
       "options": {
         "command": "bunx tsc --build --force libs/core/tsconfig.json"
       }
+    },
+    "build:portable": {
+      "executor": "nx:run-commands",
+      "inputs": ["default", "^production"],
+      "options": {
+        "command": "bun build libs/core/testing/portable-composition.ts --target=browser --format=esm --outfile=dist/libs/core/portable-composition.js"
+      },
+      "outputs": ["{workspaceRoot}/dist/libs/core/portable-composition.js"]
+    },
+    "test:portable": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build:portable"],
+      "inputs": [
+        "default",
+        "^production",
+        "{workspaceRoot}/dist/libs/core/portable-composition.js"
+      ],
+      "options": {
+        "command": "bunx playwright test --config=libs/core/playwright.config.ts"
+      },
+      "outputs": ["{workspaceRoot}/tmp/core-portable-results"]
     }
   }
 }

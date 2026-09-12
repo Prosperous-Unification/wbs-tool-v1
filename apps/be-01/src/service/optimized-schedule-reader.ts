@@ -1,99 +1,11 @@
-import type { PlanInfeasibleItem } from '@wbs/contracts/solver/plan-infeasible';
-import type { Schedule } from '@wbs/domain';
-import type { ScheduleInput } from '@wbs/domain/canonical-schedule-input';
+import type { OptimizedScheduleAsk, OptimizedScheduleRead } from '@wbs/core';
 
-import type { CachedOutcome } from '../repository/optimized-schedule-cache';
-import type { SolverFailureReason, SolverObjectiveName } from '../repository/schema';
-
-/**
- * Everything the plan read knows and the reader needs, and nothing it has to
- * look up again.
- *
- * The **whole `ScheduleInput`** rather than a hash the service computed: the
- * cache key's `inputHash` is 1.2's SHA-256 of 1.1's canonicalisation, and a
- * service that hashed here would be a second caller of that pair whose argument
- * order could drift from the writer's without either side failing. The reader
- * is the one place that turns a plan into a key, so it is the one place that
- * hashes.
- *
- * `objective` is passed rather than read off the project by the reader, because
- * the reader is handed no project: which of the cached pair is published is a
- * **setting** (3b.2's `schedule_objective`), and the service is what holds the
- * project row.
- *
- * `budgetMs` and the contract version are deliberately **absent**. They are key
- * columns the *reader* owns — a release's configured budget and
- * `SCHEDULER_CONTRACT_VERSION` — and a plan read that named either would be a
- * caller that could serve a 60 s answer to a 120 s release.
- */
-export interface OptimizedScheduleAsk {
-  readonly projectId: string;
-  readonly objective: SolverObjectiveName;
-  readonly input: ScheduleInput;
-  /** False reads identity only: it neither allocates a generation nor admits work. */
-  readonly enabled?: boolean;
-}
-
-export type OptimizationVariantState =
-  | {
-      readonly state: 'ready';
-      /** Whether the published schedule is proved, unfinished, or Fast retained at the floor. */
-      readonly proof: 'proven' | 'incomplete' | 'quantisation-floor';
-    }
-  | { readonly state: 'pending' }
-  | { readonly state: 'retrying' }
-  | { readonly state: 'failed'; readonly reason: SolverFailureReason }
-  | { readonly state: 'corrupt'; readonly message: string }
-  | { readonly state: 'plan-infeasible'; readonly items: readonly PlanInfeasibleItem[] }
-  | { readonly state: 'idle' };
-
-export interface OptimizedScheduleRead {
-  readonly inputHash: string;
-  readonly generation: number | null;
-  readonly contractVersion: string;
-  readonly budgetMs: number;
-  readonly variants: Readonly<Record<SolverObjectiveName, OptimizationVariantState>>;
-  /**
-   * Both variants' materialized schedules, `null` for one that is not `ready`.
-   *
-   * **Both, and not just the selected one** (tasks.md 8b.3). The plan read
-   * compares every ready variant with Fast whatever is displayed, because a
-   * reader looking at Fast is the one who has to be told that PRI would land
-   * the plan three days earlier. The field this replaced carried only the
-   * variant on screen and the other decoded schedule was dropped on the floor:
-   * `readOptimizedPair` decodes both payloads on every read, so this costs the
-   * plan read nothing it was not already paying.
-   *
-   * `null` for a variant that is not `ready` rather than an absent key, so
-   * `schedules[objective]` is always a legal read and a caller cannot mistake
-   * "no schedule" for "no such objective".
-   */
-  readonly schedules: Readonly<Record<SolverObjectiveName, Schedule | null>>;
-}
-
-/** Add the full-key liveness fact to one stored-row outcome. */
-export function optimizationVariantState(
-  outcome: CachedOutcome,
-  live: boolean,
-): OptimizationVariantState {
-  if (outcome.kind === 'ok') {
-    if (outcome.result.publication === 'quantisation-floor') {
-      return { state: 'ready', proof: 'quantisation-floor' };
-    }
-    const proven = Object.values(outcome.result.objectiveValues).every(
-      ({ status }) => status === 'optimal',
-    );
-    return { state: 'ready', proof: proven ? 'proven' : 'incomplete' };
-  }
-  if (outcome.kind === 'miss') return { state: live ? 'pending' : 'idle' };
-  if (outcome.kind === 'failed') {
-    return live ? { state: 'retrying' } : { state: 'failed', reason: outcome.reason };
-  }
-  if (outcome.kind === 'corrupt') {
-    return live ? { state: 'retrying' } : { state: 'corrupt', message: outcome.reason };
-  }
-  return { state: 'plan-infeasible', items: outcome.certificate.items };
-}
+export { optimizationVariantState } from '../repository/optimized-schedule-cache';
+export type {
+  OptimizationVariantState,
+  OptimizedScheduleAsk,
+  OptimizedScheduleRead,
+} from '@wbs/core';
 
 /**
  * The plan read's one question of the optimized cache: *what is the published

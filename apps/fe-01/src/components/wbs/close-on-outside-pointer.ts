@@ -1,4 +1,4 @@
-import { type RefObject, useEffect, useRef } from 'react';
+import { type RefCallback, useCallback, useEffect, useState } from 'react';
 
 /**
  * Closes an open `<details>` when a pointer goes down anywhere outside it.
@@ -26,29 +26,33 @@ import { type RefObject, useEffect, useRef } from 'react';
  * by the platform, not the document, so choosing from one fires no `pointerdown`
  * here and cannot close the panel underneath it.
  *
- * `| null` in the return type is React 19's own: `useRef<T>(null)` now answers
- * `RefObject<T | null>`, which is what a `ref` prop takes.
+ * The callback ref makes the mounted node an effect dependency. Some controls,
+ * including Export, are absent until their boundary read succeeds; a one-shot
+ * effect that reads `ref.current` can run before that `<details>` exists and
+ * never install its listener.
  */
-export function useClosedByPointerOutside(): RefObject<HTMLDetailsElement | null> {
-  const panel = useRef<HTMLDetailsElement>(null);
+export function useClosedByPointerOutside(): RefCallback<HTMLDetailsElement> {
+  const [panel, setPanel] = useState<HTMLDetailsElement | null>(null);
+  const rememberPanel = useCallback((node: HTMLDetailsElement | null): void => {
+    setPanel(node);
+  }, []);
 
   useEffect(() => {
-    const node = panel.current;
-    if (node === null) return undefined;
+    if (panel === null) return undefined;
 
     const closeIfOutside = (event: PointerEvent): void => {
       // Nothing to close, and nothing to read the target for.
-      if (!node.open) return;
+      if (!panel.open) return;
       const { target } = event;
-      if (target instanceof Node && node.contains(target)) return;
-      node.open = false;
+      if (target instanceof Node && panel.contains(target)) return;
+      panel.open = false;
     };
 
     document.addEventListener('pointerdown', closeIfOutside, true);
     return () => {
       document.removeEventListener('pointerdown', closeIfOutside, true);
     };
-  }, []);
+  }, [panel]);
 
-  return panel;
+  return rememberPanel;
 }

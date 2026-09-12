@@ -19,8 +19,10 @@ import {
   withoutPlacement,
   withSnappedRollUps,
 } from '../testing/assumed-duration-oracle';
+import { AvailableWorkItemService as WorkItemService } from '../testing/available-work-item-service';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
 import { inMemoryCapacity } from '../testing/capacity-fixture';
+import { testClock } from '../testing/clock-fixture';
 import { inMemoryCommandJournal } from '../testing/command-journal-fixture';
 import { inMemoryDependencies } from '../testing/dependency-fixture';
 import { inMemoryDirectory } from '../testing/directory-fixture';
@@ -32,7 +34,7 @@ import { inMemoryProjects, projectRow } from '../testing/project-fixture';
 import { inMemorySubtrees } from '../testing/subtree-fixture';
 import { inMemoryWorkItems, workItemRow } from '../testing/work-item-fixture';
 import captured from './fixtures/capacity-oracle-2026-08-13.json';
-import { WorkItemService } from './work-item.service';
+import { fastScheduler } from './optimizer-wiring';
 
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 /** The pre-C5 tip: `main@050fd45`'s schema, and the state the migration runs against. */
@@ -319,10 +321,12 @@ describe('every plan schedules identically across the migration', () => {
             actuals,
             measures,
             progress,
-            state,
+            status,
             serviceId,
             startNoEarlierThanReason,
             deadline,
+            factStart,
+            factEnd,
             ...row
           }) => {
             // The arity claim, and the only place it is made: the set the join
@@ -399,12 +403,12 @@ describe('every plan schedules identically across the migration', () => {
             expect(measures).toEqual({});
             // Lifted for `actuals`' reason and asserted for the same one:
             // `role-progress` (R6 H2b) put two more keys on every row and the
-            // oracle predates the table. `{}` and `not_started` on all sixteen
+            // oracle predates the table. `{}` and `unknown` on all sixteen
             // replayed plans is the claim — nobody having said anything reads as
             // nobody having said anything, never as untouched-therefore-done — and
             // a bare lift would hide a fold that invented a state.
             expect(progress).toEqual({});
-            expect(state).toBe('not_started');
+            expect(status).toBe('unknown');
             // The last two lifts, and the newest reason: both keys are on the
             // row today and the oracle predates both — `serviceId` came with
             // task 10.2's column, `startNoEarlierThanReason` with the words
@@ -424,6 +428,12 @@ describe('every plan schedules identically across the migration', () => {
             // and none was invented by the read path that widened to carry one —
             // and a bare lift would hide a projection that defaulted the column.
             expect(deadline).toBeNull();
+            // Lifted the same way by `work-item-status-and-facts` and asserted null for
+            // the deadline's reason: the oracle predates both columns, nothing in the
+            // replayed plans records a fact, and a projection that filled either from a
+            // clock would pass a bare lift.
+            expect(factStart).toBeNull();
+            expect(factEnd).toBeNull();
             return row;
           },
         ),
@@ -564,6 +574,8 @@ describe('every plan schedules identically across the migration', () => {
     const progress = inMemoryProgress(workItems);
     const dependencies = inMemoryDependencies();
     const service = new WorkItemService({
+      scheduler: fastScheduler,
+      clock: testClock,
       workItems,
       projects,
       estimates,

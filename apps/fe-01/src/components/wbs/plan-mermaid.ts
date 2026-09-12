@@ -240,6 +240,8 @@ interface MermaidTask {
   text: string;
   id: string;
   critical: boolean;
+  /** Whether the row is done, which Mermaid draws with its own `done` tag. */
+  done: boolean;
   from: IsoDate;
   /** The last day the work is still on — see {@link planToMermaid} on `inclusiveEndDates`. */
   to: IsoDate;
@@ -357,6 +359,14 @@ function tasksOf(plan: PlanExport, startDate: IsoDate, sectionMode: SectionMode)
         : null;
     const first = Math.floor(scale.startOf(slice.earliestStart));
     const last = Math.max(first, Math.ceil(scale.endOf(slice.earliestFinish)) - 1);
+    // A done row's slice stops at its fact end where it has one, as the chart's
+    // done bar does (ADR 0024) — and starts no later than it stops, so a plan
+    // that drifted whole past the fact still draws the fact's one day.
+    const done = row.status === 'done';
+    const plannedTo = addCalendarDays(origin, last);
+    const to = done && row.factEnd !== null && row.factEnd < plannedTo ? row.factEnd : plannedTo;
+    const plannedFrom = addCalendarDays(origin, first);
+    const from = plannedFrom < to ? plannedFrom : to;
     return {
       section: section.label,
       text: taskTextOf(plan, row, slice, point),
@@ -366,8 +376,9 @@ function tasksOf(plan: PlanExport, startDate: IsoDate, sectionMode: SectionMode)
       // opaque keys into a document a person reads.
       id: `s${String(at + 1)}`,
       critical: slice.critical,
-      from: addCalendarDays(origin, first),
-      to: addCalendarDays(origin, last),
+      done,
+      from,
+      to,
       point,
     };
   });
@@ -385,7 +396,11 @@ function tasksOf(plan: PlanExport, startDate: IsoDate, sectionMode: SectionMode)
  * end — and a `milestone` is drawn as a point whatever its span.
  */
 function taskLine(task: MermaidTask): string {
-  const tags = [...(task.critical ? ['crit'] : []), ...(task.point === null ? [] : ['milestone'])];
+  const tags = [
+    ...(task.critical ? ['crit'] : []),
+    ...(task.done ? ['done'] : []),
+    ...(task.point === null ? [] : ['milestone']),
+  ];
   return `    ${task.text} :${[...tags, task.id, task.from, task.to].join(', ')}`;
 }
 

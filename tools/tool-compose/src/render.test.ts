@@ -2,9 +2,9 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { scratchAsync } from '@wbs/tool-test-scratch';
 import { describe, expect, it } from 'bun:test';
 
-import { scratchAsync } from '../../test/scratch';
 import { previewContext, renderAll, renderTemplate } from './render';
 
 const TEMPLATES = join(import.meta.dir, 'templates');

@@ -4,10 +4,12 @@ import {
   addCalendarDays,
   addWorkdays,
   calendarDaysBetween,
+  CalendarRangeError,
   deadlineOffsetOf,
   firstWorkdayOf,
   isIsoDate,
   isMonday,
+  isoDateOfInstant,
   isWeekend,
   lastWorkdayOf,
   nextWorkday,
@@ -88,6 +90,11 @@ describe('addWorkdays', () => {
     // Nothing happens before the plan's own start, and quietly counting into
     // last week is the kind of answer that reads as deliberate.
     expect(() => addWorkdays(THURSDAY, -1)).toThrow(/zero or more/);
+  });
+
+  it("reports an offset beyond Date's range as a calendar-range error", () => {
+    expect(() => addWorkdays(MONDAY, 80_000_000)).toThrow(CalendarRangeError);
+    expect(() => addWorkdays(MONDAY, 80_000_000)).toThrow('2026-08-10 + 80000000 workdays');
   });
 
   it('crosses a month and a year without drifting', () => {
@@ -340,5 +347,19 @@ describe('deadlineOffsetOf', () => {
   it('refuses a value that is not a calendar date at either end', () => {
     expect(() => deadlineOffsetOf(MONDAY, '2026-02-31')).toThrow(/not a calendar date/);
     expect(() => deadlineOffsetOf('not-a-date', MONDAY)).toThrow(/not a calendar date/);
+  });
+});
+
+describe('isoDateOfInstant', () => {
+  it('reads the UTC calendar day off an epoch instant', () => {
+    expect(isoDateOfInstant(Date.UTC(2026, 8, 12, 23, 30))).toBe('2026-09-12');
+    expect(isoDateOfInstant(Date.UTC(2026, 8, 13, 0, 0))).toBe('2026-09-13');
+  });
+
+  it('refuses a stamp that is not an instant', () => {
+    // Proof: the guard deleted and this fails with `RangeError: Invalid time
+    // value` out of `toISOString` — an untyped throw from inside the date
+    // library where a named refusal is owed; watched 2026-09-12.
+    expect(() => isoDateOfInstant(Number.NaN)).toThrow('not an instant');
   });
 });

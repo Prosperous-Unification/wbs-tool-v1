@@ -16,6 +16,7 @@ import { StepRepository } from '../repository/step';
 import { UserRepository } from '../repository/user';
 import { WorkItemRepository } from '../repository/work-item';
 import { type RecordingBroadcaster, recordingBroadcaster } from '../testing/broadcast-fixture';
+import { testClock } from '../testing/clock-fixture';
 import { directoryWith } from '../testing/directory-fixture';
 import { workItemRow } from '../testing/work-item-fixture';
 import { DirectoryService } from './directory.service';
@@ -80,10 +81,11 @@ const added = async (name: string, teamIds: readonly string[]): Promise<Person> 
 
 /** A second project with one work item, so a team can be held in two at once. */
 async function roofProject(): Promise<{ projectOf: string; workItemOf: string }> {
-  const created = await new ProjectService({ projects, broadcast: recordingBroadcaster() }).create(
-    'Roof',
-    ownerId,
-  );
+  const created = await new ProjectService({
+    clock: testClock,
+    projects,
+    broadcast: recordingBroadcaster(),
+  }).create('Roof', ownerId);
   const workItemOf = crypto.randomUUID();
   await workItems.insert(newItem(workItemOf, 10, 'Shingle', created.project.id), [], wrote());
   return { projectOf: created.project.id, workItemOf };
@@ -108,7 +110,7 @@ beforeEach(async () => {
   workItems = new WorkItemRepository(db, OPEN);
   stepStore = new StepRepository(db, OPEN);
   broadcast = recordingBroadcaster();
-  directory = new DirectoryService({ directory: store, broadcast });
+  directory = new DirectoryService({ clock: testClock, directory: store, broadcast });
 
   ownerId = crypto.randomUUID();
   // Stamped with its own id, which is how a signup is: there is no earlier
@@ -123,10 +125,11 @@ beforeEach(async () => {
     { at: 1, by: ownerId },
   );
 
-  const created = await new ProjectService({ projects, broadcast: recordingBroadcaster() }).create(
-    'Rollout',
-    ownerId,
-  );
+  const created = await new ProjectService({
+    clock: testClock,
+    projects,
+    broadcast: recordingBroadcaster(),
+  }).create('Rollout', ownerId);
   projectId = created.project.id;
   devId = (await stepNamed('Dev')).id;
   qaId = (await stepNamed('QA')).id;
@@ -532,6 +535,7 @@ describe('directory events', () => {
     // uncommitted, and `publish` is the boundary that can say so.
     const namesAtPublish: string[][] = [];
     const watching = new DirectoryService({
+      clock: testClock,
       directory: store,
       broadcast: {
         async publish() {
@@ -871,6 +875,7 @@ describe('the directory usage a removal is refused with', () => {
     // take is an assignment nobody has been shown.
     const kat = await added('Kat', []);
     const service = new DirectoryService({
+      clock: testClock,
       broadcast,
       directory: storeWith({
         async usageOfPerson(watched) {
@@ -900,6 +905,7 @@ describe('the directory usage a removal is refused with', () => {
     // assignment landing a moment later is exactly what that agreement covers.
     const kat = await added('Kat', []);
     const service = new DirectoryService({
+      clock: testClock,
       broadcast,
       directory: storeWith({
         async removePerson(watched, cascade, stamp) {
@@ -955,6 +961,7 @@ describe('the directory usage a removal is refused with', () => {
     const kat = await added('Kat', []);
 
     const labelled = new DirectoryService({
+      clock: testClock,
       broadcast,
       directory: storeWith({
         async usageOfTeam(watched) {
@@ -975,6 +982,7 @@ describe('the directory usage a removal is refused with', () => {
 
     await workItems.patch('design', { serviceTeamId: null }, wrote());
     const joined = new DirectoryService({
+      clock: testClock,
       broadcast,
       directory: storeWith({
         async usageOfTeam(watched) {

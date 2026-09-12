@@ -25,6 +25,8 @@ const numberedWorkItem = type({
   startNoEarlierThanReason: 'string | null',
   // Proof: widening deadline admitted false,200 instead of500 in the mounted tree case.
   deadline: 'string | null',
+  factStart: 'string | null',
+  factEnd: 'string | null',
   priority: 'number | null',
   serviceTeamId: 'string | null',
   serviceId: 'string | null',
@@ -44,7 +46,7 @@ const numberedWorkItem = type({
   rolledUp: 'boolean',
   actuals: numbers,
   progress: type({ '[string]': "'in_progress' | 'done'" }),
-  state: "'not_started' | 'in_progress' | 'done'",
+  status: "'unknown' | 'in_progress' | 'done'",
   measures: type({ '[string]': numbers }),
   dependsOn: 'string[]',
   finalDays: numbers,
@@ -123,7 +125,7 @@ const optimization = type({
 export const workItemTree = type({
   workItems: numberedWorkItem.array(),
   seq: 'number',
-  scheduleError: "'cycle' | null",
+  scheduleError: "'calendar_range' | 'cycle' | null",
   waitingForPerson: 'number',
   waitingForCapacity: 'number',
   slices: slice.array(),

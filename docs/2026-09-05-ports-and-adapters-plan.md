@@ -746,7 +746,7 @@ negatives 10–11 are written first.
 ## 7 · Open questions for the implementer
 
 **Reconciled 2026-09-08.** These decisions are specified in
-[`core-lib-extraction/design.md`](../openspec/changes/core-lib-extraction/design.md) and
+[`core-lib-extraction/design.md`](../openspec/changes/archive/2026-09-10-core-lib-extraction/design.md) and
 [`repo-namespacing/design.md`](../openspec/changes/repo-namespacing/design.md); they are
 not choices delegated to the implementation worker.
 

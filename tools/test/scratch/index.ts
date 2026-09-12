@@ -24,7 +24,7 @@ export function removeProcessRoot(): void {
  */
 export function scratchRoot(): string {
   if (processRoot !== undefined) return processRoot;
-  processRoot = mkdtempSync(join(tmpdir(), `wbs-test-${process.pid}-`));
+  processRoot = mkdtempSync(join(tmpdir(), `wbs-test-${String(process.pid)}-`));
   process.on('exit', removeProcessRoot);
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
     process.once(signal, () => {

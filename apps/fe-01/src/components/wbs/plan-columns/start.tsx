@@ -54,7 +54,6 @@ export function createStartColumn({ live }: { live: PlanLive }) {
               // under it covers the rows below, and a plan is read down a
               // column. Dany, 2026-09-10: _"I still want to see what is up and
               // down from it for context"_. See {@link sidewaysPlacement}.
-              opensSideways
             >
               {said}
             </HoverCard>

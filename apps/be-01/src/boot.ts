@@ -1,19 +1,15 @@
+import { buildOidcVerifier } from '@wbs/auth';
 import type { Logger } from '@wbs/observability';
+import { openSqliteSource } from '@wbs/store-sqlite';
 
 import { buildApp } from './app';
 import type { OidcRouteOptions } from './controller/oidc-options';
 import { readDeployedCommit } from './deployed-commit';
-import { openConnection } from './repository/db';
 import { OPEN } from './repository/gate';
-import { WriteCoordinator } from './repository/gate';
 import { probeSchema } from './repository/health-probe';
 import { runMigrations } from './repository/migrate';
-import { SavedPlanRepository } from './repository/saved-plan';
-import { SavedPlanCaptureRepository } from './repository/saved-plan-capture';
 import { UserRepository } from './repository/user';
-import { nodeDigest } from './runtime/bun-runtime';
 import type { AuthenticatedUser } from './service/auth.service';
-import { SavedPlanService } from './service/saved-plan.service';
 import { type BeServices, buildServices, type OptimizerRuntime } from './services';
 
 export interface BootOptions {
@@ -58,6 +54,11 @@ export interface RunningBe {
   stop: () => Promise<void>;
 }
 
+interface BootDependencies {
+  /** Opens the source whose lifetime this boot owns. */
+  readonly openSource: typeof openSqliteSource;
+}
+
 /**
  * Everything between an empty process and a serving be-01.
  *
@@ -66,31 +67,22 @@ export interface RunningBe {
  * reach — the same shape of gap as the `runRetention` that had no caller at all,
  * which is what this change set out to fix.
  */
-export function bootBe01(opts: BootOptions): RunningBe {
+export function bootBe01(
+  opts: BootOptions,
+  dependencies: BootDependencies = { openSource: openSqliteSource },
+): RunningBe {
   // One connection for the process, opened through `openDrizzle` so the
   // per-connection pragmas (WAL, busy_timeout) are set and asserted.
-  const connection = openConnection(opts.dbPath);
-  const db = connection.db;
-  // One coordinator for the process, created before the services because every
-  // store takes its turn at it: `buildApp` gets this same object as
-  // `writes.gate` below, and a second one would exclude nothing.
-  const writeCoordinator = new WriteCoordinator();
+  const source = dependencies.openSource({ dbPath: opts.dbPath });
+  const db = source.db;
   const services = buildServices({
-    db,
-    gate: writeCoordinator,
+    source,
     logger: opts.logger,
     jwtKey: opts.jwtKey,
     gwUrl: opts.gwUrl,
     internalAuthSecret: opts.internalAuthSecret,
     pushFetch: globalThis.fetch,
-    oidc:
-      opts.oidc === undefined
-        ? undefined
-        : {
-            groupPrefix: opts.oidc.groupPrefix,
-            groupsClaim: opts.oidc.groupsClaim,
-            verifier: opts.oidc.verifier,
-          },
+    oidc: opts.oidc === undefined ? undefined : buildOidcVerifier(opts.oidc.verifier, opts.oidc),
     passwordSessions: opts.oidc !== undefined && opts.oidc.passwordLoginEnabled !== false,
     localIdentity: opts.localIdentity,
     optimizer: opts.optimizer,
@@ -99,33 +91,21 @@ export function bootBe01(opts: BootOptions): RunningBe {
   const state = { migrationsApplied: false };
   const app = buildApp({
     appOrigin: opts.appOrigin,
+    clock: services.clock,
     get migrationsApplied() {
       return state.migrationsApplied;
     },
     auth: services.auth,
+    // Proof: constructing a second LoginThrottle here made boot.db.test.ts:258
+    // receive HTTP 401 instead of 429 (0 pass, 1 fail, 13 filtered).
+    loginThrottle: services.loginThrottle,
     oidc: opts.oidc,
     projects: services.projects,
     steps: services.steps,
     calendarMarkers: services.calendarMarkers,
     workItems: services.workItems,
     optimizer: services.optimizer,
-    // Built here rather than in `buildServices`, and the reason is structural
-    // rather than tidiness: that factory is defined over the one shared
-    // `Drizzle` handle, and both saved-plan repositories are defined by opening
-    // their **own** connection — the capture needs a read snapshot beside the
-    // live one, and the rename and the delete refuse to wait for the write
-    // lock. A path is what they take, and `boot.ts` is where the path is.
-    savedPlans: new SavedPlanService({
-      digest: nodeDigest,
-      capture: new SavedPlanCaptureRepository({
-        openConnection: () => openConnection(opts.dbPath),
-      }),
-      plans: new SavedPlanRepository({ openConnection: () => openConnection(opts.dbPath) }),
-      newId: () => crypto.randomUUID(),
-      // Epoch **seconds**, matching the column: `Date.now()` is milliseconds and
-      // would store a stamp a thousand times too large without failing anything.
-      now: () => Math.floor(Date.now() / 1000),
-    }),
+    savedPlans: services.savedPlans,
     directory: services.directory,
     capacity: services.capacity,
     priorityBands: services.priorityBands,
@@ -205,7 +185,10 @@ export function bootBe01(opts: BootOptions): RunningBe {
       await app.stop();
       await services.optimizer?.stop();
       await services.retention.stop();
-      connection.close();
+      // Proof: closing first made the boot lifecycle test observe both
+      // `optimizerRunning: true` and `retentionRunning: true` at source close
+      // (0 pass, 1 fail, 14 filtered, 1 assertion).
+      await source.close();
     },
   };
 }

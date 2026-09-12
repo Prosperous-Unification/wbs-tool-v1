@@ -1,9 +1,9 @@
 import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { scratchAsync } from '@wbs/tool-test-scratch';
 import { describe, expect, it } from 'bun:test';
 
-import { scratchAsync } from '../test/scratch';
 import { MissingEnvExampleError, seedApp } from './setup';
 
 async function makeFakeRepo(apps: Record<string, { example?: string; env?: string }>) {

@@ -6,3 +6,5 @@ export {
   untilAborted,
   withinDeadline,
 } from './deadline';
+export { type FetchLike, PushClient, type PushClientOptions, PushFailed } from './push-client';
+export { createScheduler } from './scheduler';

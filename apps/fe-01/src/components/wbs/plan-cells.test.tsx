@@ -5,7 +5,9 @@ import type { ProjectApi } from '@/lib/wbs-api';
 import { DEV, fakeProjectApi as fakeApi, QA } from '@/testing/fake-project-api';
 import { recordCalls } from '@/testing/record-calls';
 
+import { isoToday } from './gantt-panel';
 import { refusedDraftFor } from './live-editing';
+import { shortIsoDate } from './short-date';
 import type * as TableFrameModule from './table-frame';
 import { POPOVER_ROW_LAYER } from './table-frame';
 import { type SubscriptionHandlers, WbsTable } from './wbs-table';
@@ -1953,8 +1955,13 @@ describe('names wrap and notes carry markdown', () => {
     await screen.findByRole('tooltip');
 
     expect(Number(cell().style.zIndex)).toBe(POPOVER_ROW_LAYER);
-    fireEvent.mouseLeave(notesMarkerOf('010'));
-    expect(cell().style.zIndex).toBe('1');
+    // The lift goes with the card, and the card goes after the reach the hand
+    // is given ({@link REACH_FOR_THE_PREVIEW_MS}) — so this waits rather than
+    // reading the frame the pointer left on.
+    fireEvent.mouseOut(nameCellOf('010'), { relatedTarget: document.body });
+    await waitFor(() => {
+      expect(cell().style.zIndex).toBe('1');
+    });
   });
 
   itDom('renders a script in a note as the text somebody typed', async () => {
@@ -2067,13 +2074,90 @@ describe('names wrap and notes carry markdown', () => {
     await screen.findByRole('tooltip');
     fireEvent.mouseEnter(notesMarkerOf('020'));
 
-    const open = screen.getAllByRole('tooltip');
-    expect(open).toHaveLength(1);
-    expect(open[0]?.getAttribute('aria-label')).toBe('Notes for 020, rendered');
+    // The second card is a **takeover** (`card-takeover-delay`): with 010's
+    // card open, 020's marker gets the card only once the pointer has rested
+    // on it for {@link TAKEOVER_MS}. Until then the one card open is still
+    // 010's — never two, never none.
+    const waiting = screen.getAllByRole('tooltip');
+    expect(waiting).toHaveLength(1);
+    expect(waiting[0]?.getAttribute('aria-label')).toBe('Notes for 010, rendered');
+    await waitFor(() => {
+      expect(screen.getByRole('tooltip').getAttribute('aria-label')).toBe(
+        'Notes for 020, rendered',
+      );
+    });
+    expect(screen.getAllByRole('tooltip')).toHaveLength(1);
 
     fireEvent.mouseLeave(notesMarkerOf('010'));
 
     expect(screen.getByRole('tooltip').getAttribute('aria-label')).toBe('Notes for 020, rendered');
+  });
+
+  itDom('Escape saves what was typed and closes the notes editor', async () => {
+    // Dany, 2026-09-12: _"so that ESC key hides the notes editor (edits are
+    // saved)"_. Escape did nothing in this box until now — the only way out was
+    // leaving it — and leaving is the save, so Escape leaves: the blur is the
+    // one commit path, and the box collapses to its one-line rest because it is
+    // no longer focused. No abandon is added; Cmd+Z stays the undo.
+    //
+    // Proof: the Escape branch removed from the Name cell's `onKeyDown` — this
+    // failed on `expected '## Risks' to be '## Risks\n\nand a mitigation'`.
+    // Watched, 2026-09-12.
+    const api = await oneRowWithNotes('## Risks');
+    const box = await screen.findByLabelText('Name of 010');
+    box.focus();
+    expect(document.activeElement).toBe(box);
+    fireEvent.change(box, { target: { value: 'Strip\n## Risks\n\nand a mitigation' } });
+    fireEvent.keyDown(box, { key: 'Escape' });
+    await waitFor(() => {
+      expect(api.rows[0]?.notes).toBe('## Risks\n\nand a mitigation');
+    });
+    expect(document.activeElement).not.toBe(box);
+  });
+
+  itDom('while editing, hovering the notes marker opens no second preview', async () => {
+    // Dany, 2026-09-12: _"when i edit and see the preview - the notes icon must
+    // not trigger another preview pop-up"_. The editing card is the same card
+    // the marker opens, so the marker is inert while the box holds the focus.
+    //
+    // Proof: the `document.activeElement` guard removed from the marker's
+    // `onMouseEnter` — this failed on `expected 2 to be 1`, a second identical
+    // card opening over the editing one. Watched, 2026-09-12.
+    await oneRowWithNotes('## Risks');
+    const box = await screen.findByLabelText('Name of 010');
+    // `fireEvent.focus`, not `box.focus()`: jsdom leaves a blurred box as the
+    // active element (see the marker guard's own note), so `focus()` on it is a
+    // no-op that fires no event. The dispatched focus is what the panel and the
+    // editing ref both listen for.
+    fireEvent.focus(box);
+    await screen.findByLabelText('Notes for 010, rendered while writing');
+    expect(screen.getAllByRole('tooltip')).toHaveLength(1);
+
+    fireEvent.mouseEnter(notesMarkerOf('010'));
+    expect(screen.getAllByRole('tooltip')).toHaveLength(1);
+  });
+
+  itDom('the Done button beside the notes saves and closes the editor too', async () => {
+    // Dany, 2026-09-12: _"a non-intrusive neat small 'Done' button that you can
+    // press to hide the editor of markdown"_, and then _"move the done btn to be
+    // near the note icon"_ — so it stands in the cell beside the `≡`, not in the
+    // card. A press, not a click: the press is what would have moved the focus
+    // off the box anyway, so it is answered where it lands.
+    //
+    // Proof: the button's `blur()` removed — this failed on `expected '## Risks'
+    // to be '## Risks\n\n- one more'`. Watched, 2026-09-12.
+    const api = await oneRowWithNotes('## Risks');
+    const box = await screen.findByLabelText('Name of 010');
+    fireEvent.focus(box);
+    fireEvent.input(box, { target: { value: 'Strip\n## Risks\n\n- one more' } });
+    await screen.findByLabelText('Notes for 010, rendered while writing');
+    const done = screen.getByRole('button', { name: 'Done writing notes for 010' });
+    fireEvent.mouseDown(done);
+    await waitFor(() => {
+      expect(api.rows[0]?.notes).toBe('## Risks\n\n- one more');
+    });
+    expect(document.activeElement).not.toBe(box);
+    expect(screen.queryByLabelText('Notes for 010, rendered while writing')).toBeNull();
   });
 
   itDom('reads the whole note in the preview while the box shows the name', async () => {
@@ -2259,10 +2343,21 @@ describe('names wrap and notes carry markdown', () => {
     expect(screen.queryByRole('tooltip')).not.toBeNull();
 
     // And off the cell altogether, which is what closes it — or the assertion
-    // above would hold for a card nothing could ever close.
+    // above would hold for a card nothing could ever close. **After the reach**,
+    // since 2026-09-10: leaving the cell starts a 300ms hold rather than closing
+    // at once, because the card now hangs diagonally off the cell and the hand
+    // going to it leaves the cell's subtree on the way
+    // ({@link REACH_FOR_THE_PREVIEW_MS}).
     fireEvent.mouseOut(nameCellOf('010'), { relatedTarget: document.body });
 
-    expect(screen.queryByRole('tooltip')).toBeNull();
+    // Held, first — which is the new half of the behaviour and is asserted
+    // here rather than left to the browser: this is the window the fault lives
+    // in.
+    expect(screen.queryByRole('tooltip')).not.toBeNull();
+
+    await waitFor(() => {
+      expect(screen.queryByRole('tooltip')).toBeNull();
+    });
   });
 });
 
@@ -2988,8 +3083,14 @@ describe('the links column', () => {
 
     expect(Number(cell().style.zIndex)).toBe(POPOVER_ROW_LAYER);
 
+    // The lift goes with the card, and the card goes **after the reach** the
+    // hand is given ({@link REACH_FOR_THE_CARD_MS}) — the card hangs diagonally
+    // off this cell now, so an immediate clear would lose it under a hand on its
+    // way to a link.
     fireEvent.mouseLeave(screen.getByLabelText('Links for 010'));
-    expect(cell().style.zIndex).toBe('1');
+    await waitFor(() => {
+      expect(cell().style.zIndex).toBe('1');
+    });
   });
 
   itDom('a non-http URL is not a link, on the card or in the editor', async () => {
@@ -3331,6 +3432,101 @@ describe('the links column', () => {
     expect(patches[1]).toMatchObject({ patch: { externalRefs: [{ systemId: SLACK }] } });
     await waitFor(() => {
       expect(marksOn('010')).toEqual(['slack']);
+    });
+  });
+});
+
+describe('the status cell and the two fact cells', () => {
+  /** One root row with every column shown — the three are in `INITIAL_HIDDEN_COLUMNS`. */
+  async function planWithStatusColumns() {
+    showEveryColumn();
+    const api = fakeApi();
+    render(<WbsTable projectId="p1" api={api} />);
+    click('Add work item');
+    await screen.findByLabelText('Name of 010');
+    return api;
+  }
+
+  const statusCell = (number: string): HTMLInputElement =>
+    screen.getByLabelText<HTMLInputElement>(`Status of ${number}`);
+
+  /** The cell's own list — the toolbar's native selects have options too. */
+  const statusList = (number: string): HTMLElement =>
+    screen.getByRole('listbox', { name: `Status for ${number}` });
+  const offeredStatuses = (number: string): (string | null)[] =>
+    within(statusList(number))
+      .getAllByRole('option')
+      .map((option) => option.textContent);
+
+  itDom('reads Unknown at rest and offers Unknown and Done, in that order', async () => {
+    await planWithStatusColumns();
+
+    expect(statusCell('010').value).toBe('Unknown');
+    expect(statusCell('010')).toHaveAttribute('data-cell', expect.stringMatching(/::status$/));
+    fireEvent.keyDown(statusCell('010'), { key: 'Enter' });
+    expect(offeredStatuses('010')).toEqual(['Unknown', 'Done']);
+  });
+
+  itDom(
+    'choosing Done sends the reader’s day, strikes the row and fills the fact end',
+    async () => {
+      const api = await planWithStatusColumns();
+      const sent = recordCalls(api, 'setStatus', (_id, status, on) => ({ status, on }));
+      const today = isoToday(new Date());
+
+      fireEvent.click(statusCell('010'));
+      fireEvent.click(within(statusList('010')).getByRole('option', { name: 'Done' }));
+
+      await waitFor(() => {
+        expect(statusCell('010').value).toBe('Done');
+      });
+      // Proof: `use-plan-fields.ts` made to send `''` for the day — the nearest a
+      // required argument can come to being dropped — and this failed before the
+      // assertion, on `MalformedDayError: "" is not a YYYY-MM-DD calendar day`
+      // out of the Fact end cell: a reader who pressed Done in their own day and
+      // got no day at all. Watched 2026-09-12.
+      expect(sent).toEqual([{ status: 'done', on: today }]);
+      // Proof: `data-row-done` dropped from `PlanRow`'s `<tr>`, and this fails on
+      // `expected null to be 'true'` — a done row `styles.css` has nothing to
+      // strike; watched 2026-09-12.
+      expect(
+        screen.getByLabelText('Name of 010').closest('tr')?.getAttribute('data-row-done'),
+      ).toBe('true');
+      expect(screen.getByLabelText<HTMLInputElement>('Fact end of 010').value).toBe(
+        shortIsoDate(today, new Date()),
+      );
+    },
+  );
+
+  itDom('shows In progress when the fold says so, and still offers only the two', async () => {
+    const api = await planWithStatusColumns();
+    const row = api.rows.at(0);
+    if (row === undefined) throw new Error('the plan has no row');
+    row.status = 'in_progress';
+    click('Add work item');
+    await waitFor(() => {
+      expect(statusCell('010').value).toBe('In progress');
+    });
+
+    fireEvent.click(statusCell('010'));
+    expect(offeredStatuses('010')).toEqual(['Unknown', 'Done']);
+  });
+
+  itDom('a fact start is typed through the date editor and read back as a short date', async () => {
+    const api = await planWithStatusColumns();
+    const patches = recordCalls(api, 'patchWorkItem', (_id, patch) => patch);
+    expect(screen.getByLabelText<HTMLInputElement>('Fact start of 010').value).toBe('—');
+
+    fireEvent.keyDown(screen.getByLabelText('Fact start of 010'), { key: 'Enter' });
+    typeIntoDate('Fact start of 010', '2026-09-08');
+
+    await waitFor(() => {
+      expect(patches).toEqual([{ factStart: '2026-09-08' }]);
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText<HTMLInputElement>('Fact start of 010').value).toBe(
+        shortIsoDate('2026-09-08', new Date()),
+      );
     });
   });
 });

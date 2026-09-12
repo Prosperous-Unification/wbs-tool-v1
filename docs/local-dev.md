@@ -134,9 +134,20 @@ require it for day-to-day dev.
   stopped (a day earlier, as the pre-checkpoint mtime showed). No test writes
   this file: every `*.db.test.ts` opens its own `mkdtempSync` copy, so a
   changed `local.db` is always a real process or a client, never a gate.
-- **Port already in use** — edit `PORT=` in the relevant `apps/*/.env`. All
-  URLs in peer `.env` files update by convention, not by magic; change both
-  ends.
+- **Port already in use** — `bun run dev` refuses before nx starts and names the
+  port, the tier and the process holding it, with the `kill` line to free it
+  (`bin/dev-ports.sh`; ask it on its own with `bun run dev:ports`, and clear it
+  with `bun run dev:kill`, which ends only holders whose working directory is
+  this checkout and reports anything else rather than killing it — that path
+  needs `lsof`, since a process with no readable working directory is one whose
+  owner cannot be established). The usual
+  cause is a dev server from an earlier session that outlived its terminal —
+  fe-01 is the one that hides, because vite sets `strictPort` and so exits in
+  under a second while nx lists it as a task that _completed_ beside three
+  Continuous ones. To move a tier instead of freeing the port, edit `PORT=` in
+  the relevant `apps/*/.env`; all URLs in peer `.env` files update by
+  convention, not by magic, so change both ends. `WBS_DEV_PORTS='fe-01:4300'`
+  overrides which ports are checked.
 - **`@/` imports fail in fe-01 tests** — run them via `bunx nx test fe-01`
   (Vitest resolves the alias); root `bun test` does not.
 - **gw-01 refuses the WS upgrade** — check the configured authentication mode.

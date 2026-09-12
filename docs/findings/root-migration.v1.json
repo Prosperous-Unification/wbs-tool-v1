@@ -1,0 +1,552 @@
+{
+  "schemaVersion": 1,
+  "migrationId": "root-knowledge.v1",
+  "sources": [
+    {
+      "sourcePath": "AGENTS.md",
+      "sourceRevision": "7ab67cb0b6d843eca87f587124c0f3c0fbd35e67",
+      "sourceBlob": "2bc8742b59bf1aea4b42a4320043f961ad008339",
+      "sourceHeading": "Checks that cannot fail",
+      "destinationPath": "docs/findings/checks-that-cannot-fail.md",
+      "blocks": [
+        {
+          "sourceId": "r5.catalogue.heading",
+          "locator": {
+            "kind": "heading"
+          },
+          "sha256": "8cfb6ac83810f45cf2deecf061fe96f9734f57e7e1202a338ce7d090b9e2974b",
+          "destinationAnchor": "r5-catalogue-heading"
+        },
+        {
+          "sourceId": "r5.catalogue.001",
+          "locator": {
+            "kind": "block",
+            "ordinal": 1
+          },
+          "sha256": "29cd2a90421a7b10bccf37f48be1207f0d77026f4be6b7d00c6d888e3f53d1d7",
+          "destinationAnchor": "r5-catalogue-001"
+        },
+        {
+          "sourceId": "r5.catalogue.002",
+          "locator": {
+            "kind": "block",
+            "ordinal": 2
+          },
+          "sha256": "6c5959709e60d15686a43b8d82eb1d0785436a1620da3e69f4f026179c32123e",
+          "destinationAnchor": "r5-catalogue-002"
+        },
+        {
+          "sourceId": "r5.catalogue.003",
+          "locator": {
+            "kind": "block",
+            "ordinal": 3
+          },
+          "sha256": "31c94320b362d88896e67720cb2b38d688c0fed5501eab7829fe9beb31f763bc",
+          "destinationAnchor": "r5-catalogue-003"
+        },
+        {
+          "sourceId": "r5.catalogue.004",
+          "locator": {
+            "kind": "block",
+            "ordinal": 4
+          },
+          "sha256": "42cd4dd7fa602fc822d644056843fca19f79be99dfed3081a12e36853b997244",
+          "destinationAnchor": "r5-catalogue-004"
+        },
+        {
+          "sourceId": "r5.catalogue.005",
+          "locator": {
+            "kind": "block",
+            "ordinal": 5
+          },
+          "sha256": "5e071f6649826c15caeda8e55f2c200d2ea0b801493d6722fcd6d8c3736af843",
+          "destinationAnchor": "r5-catalogue-005"
+        },
+        {
+          "sourceId": "r5.catalogue.006",
+          "locator": {
+            "kind": "block",
+            "ordinal": 6
+          },
+          "sha256": "faf646dad84054f97ec1971c456b0a6677b3d953a9a2b2995e378d446958deb6",
+          "destinationAnchor": "r5-catalogue-006"
+        },
+        {
+          "sourceId": "r5.catalogue.007",
+          "locator": {
+            "kind": "block",
+            "ordinal": 7
+          },
+          "sha256": "2eed7ba2350ea9d76c454b44cf1193eafdfd4d43f161857bdb1b453e2622a1c3",
+          "destinationAnchor": "r5-catalogue-007"
+        },
+        {
+          "sourceId": "r5.catalogue.008",
+          "locator": {
+            "kind": "block",
+            "ordinal": 8
+          },
+          "sha256": "cec4eb99820a35192c6829c5456df407ccf2265539623f693d459cd0dac80e92",
+          "destinationAnchor": "r5-catalogue-008"
+        },
+        {
+          "sourceId": "r5.catalogue.009",
+          "locator": {
+            "kind": "block",
+            "ordinal": 9
+          },
+          "sha256": "a1e2dd4baa5112c59f00b599acfc0fee6cff915128563147d44f60946179502d",
+          "destinationAnchor": "r5-catalogue-009"
+        },
+        {
+          "sourceId": "r5.catalogue.010",
+          "locator": {
+            "kind": "block",
+            "ordinal": 10
+          },
+          "sha256": "a7946b0d4e0da81c03afdc40ab3457ab50d93f974549080f9a76208f5ce29c3f",
+          "destinationAnchor": "r5-catalogue-010"
+        },
+        {
+          "sourceId": "r5.catalogue.011",
+          "locator": {
+            "kind": "block",
+            "ordinal": 11
+          },
+          "sha256": "a9ac59a11acbdbdfd1a95e2cee8792845b8e527c007531a59b8c651b42accd9d",
+          "destinationAnchor": "r5-catalogue-011"
+        },
+        {
+          "sourceId": "r5.catalogue.012",
+          "locator": {
+            "kind": "block",
+            "ordinal": 12
+          },
+          "sha256": "e396095bd9f3f96b95e7162a8bc864198f458ed58ca1353e8dcc93e094ca760e",
+          "destinationAnchor": "r5-catalogue-012"
+        },
+        {
+          "sourceId": "r5.catalogue.013",
+          "locator": {
+            "kind": "block",
+            "ordinal": 13
+          },
+          "sha256": "f805ae5a888e9a1b112590127bc85ca5214e0030b9b5f32514bf2ad9358eded3",
+          "destinationAnchor": "r5-catalogue-013"
+        },
+        {
+          "sourceId": "r5.catalogue.014",
+          "locator": {
+            "kind": "block",
+            "ordinal": 14
+          },
+          "sha256": "76fa3d975e7449f7da55b6575623269b79d25af217cb842d077140c84e41ada3",
+          "destinationAnchor": "r5-catalogue-014"
+        },
+        {
+          "sourceId": "r5.catalogue.015",
+          "locator": {
+            "kind": "block",
+            "ordinal": 15
+          },
+          "sha256": "7fb58120ae2fcda2c99441c442ae11a342fea36e111233ef5010a4275dee07ff",
+          "destinationAnchor": "r5-catalogue-015"
+        },
+        {
+          "sourceId": "r5.catalogue.016",
+          "locator": {
+            "kind": "block",
+            "ordinal": 16
+          },
+          "sha256": "280be631b40fb4254882347b6e4cfa387a343ecbb985361dbedabe9dea42e5d4",
+          "destinationAnchor": "r5-catalogue-016"
+        },
+        {
+          "sourceId": "r5.catalogue.017",
+          "locator": {
+            "kind": "block",
+            "ordinal": 17
+          },
+          "sha256": "9ad6d57bb72b7890347ddc14c97115b15aa4a15c07e0ae1a9891cd58b9e578d9",
+          "destinationAnchor": "r5-catalogue-017"
+        },
+        {
+          "sourceId": "r5.catalogue.018",
+          "locator": {
+            "kind": "block",
+            "ordinal": 18
+          },
+          "sha256": "223f88625abdef6ecb95d127163b3669f77452b21a6c7fc7d16efb5840828b41",
+          "destinationAnchor": "r5-catalogue-018"
+        },
+        {
+          "sourceId": "r5.catalogue.019",
+          "locator": {
+            "kind": "block",
+            "ordinal": 19
+          },
+          "sha256": "cbea3f6081ccc990347c6171e88432afdba16b49ef094a12d487caa7b8faf4c3",
+          "destinationAnchor": "r5-catalogue-019"
+        },
+        {
+          "sourceId": "r5.catalogue.020",
+          "locator": {
+            "kind": "block",
+            "ordinal": 20
+          },
+          "sha256": "f3db725547dbd9639e5851209b983af41bc22f9d7268cbcf00e2a35ee55e36b5",
+          "destinationAnchor": "r5-catalogue-020"
+        },
+        {
+          "sourceId": "r5.catalogue.021",
+          "locator": {
+            "kind": "block",
+            "ordinal": 21
+          },
+          "sha256": "ac8cc8fa26aa8554064a9d2cf67fed3f656732acd91bea98990cae5ba1b751a2",
+          "destinationAnchor": "r5-catalogue-021"
+        },
+        {
+          "sourceId": "r5.catalogue.022",
+          "locator": {
+            "kind": "block",
+            "ordinal": 22
+          },
+          "sha256": "64697c9107c8d3faad2fe1d4773fde3d74ba32876aaa700e0f8ec24f1cb27f9c",
+          "destinationAnchor": "r5-catalogue-022"
+        },
+        {
+          "sourceId": "r5.catalogue.023",
+          "locator": {
+            "kind": "block",
+            "ordinal": 23
+          },
+          "sha256": "7e229bb869d15c1d10deb168f7072df202c61e0c9924bee73bc57b212acdcf78",
+          "destinationAnchor": "r5-catalogue-023"
+        },
+        {
+          "sourceId": "r5.catalogue.024",
+          "locator": {
+            "kind": "block",
+            "ordinal": 24
+          },
+          "sha256": "32e3ebf3a544de11ae588a5f416da415142b57099a06c00436e9317ea3272c11",
+          "destinationAnchor": "r5-catalogue-024"
+        },
+        {
+          "sourceId": "r5.catalogue.025",
+          "locator": {
+            "kind": "block",
+            "ordinal": 25
+          },
+          "sha256": "285fe77dbe68c3bc994ac6d26ca04ed8e001da51f0a1977a90f3dfcd368bf165",
+          "destinationAnchor": "r5-catalogue-025"
+        },
+        {
+          "sourceId": "r5.catalogue.026",
+          "locator": {
+            "kind": "block",
+            "ordinal": 26
+          },
+          "sha256": "6c27695302d160745677632601b4729a6119cf0c3241fd248ccdae76f50f34ff",
+          "destinationAnchor": "r5-catalogue-026"
+        },
+        {
+          "sourceId": "r5.catalogue.027",
+          "locator": {
+            "kind": "block",
+            "ordinal": 27
+          },
+          "sha256": "6b29f7a27c1103688ef453bddefc6ac04f423a388e7e82ee54d63296a425a390",
+          "destinationAnchor": "r5-catalogue-027"
+        },
+        {
+          "sourceId": "r5.catalogue.028",
+          "locator": {
+            "kind": "block",
+            "ordinal": 28
+          },
+          "sha256": "a610af622a6034180c06574adaf9055111309b919db261f2f1a92d999c556e53",
+          "destinationAnchor": "r5-catalogue-028"
+        },
+        {
+          "sourceId": "r5.catalogue.029",
+          "locator": {
+            "kind": "block",
+            "ordinal": 29
+          },
+          "sha256": "38c078cf99f8b17c1e7f55cd74886e82423bec3e1d5972cd1314bff45a6797dc",
+          "destinationAnchor": "r5-catalogue-029"
+        },
+        {
+          "sourceId": "r5.catalogue.030",
+          "locator": {
+            "kind": "block",
+            "ordinal": 30
+          },
+          "sha256": "36fb2525a8faefe00036eeb7960908a4d21ac9e2f9a65210ce43dd21bfe0f258",
+          "destinationAnchor": "r5-catalogue-030"
+        },
+        {
+          "sourceId": "r5.catalogue.031",
+          "locator": {
+            "kind": "block",
+            "ordinal": 31
+          },
+          "sha256": "a1d4c60da86c07999504a191db812b71f285e5bad7d3578dd8533eed69e32eaf",
+          "destinationAnchor": "r5-catalogue-031"
+        },
+        {
+          "sourceId": "r5.catalogue.032",
+          "locator": {
+            "kind": "block",
+            "ordinal": 32
+          },
+          "sha256": "f4b04ed017e53b82ec4d0be53b3ed8dd849da0618938a44234e4a43449707504",
+          "destinationAnchor": "r5-catalogue-032"
+        },
+        {
+          "sourceId": "r5.catalogue.033",
+          "locator": {
+            "kind": "block",
+            "ordinal": 33
+          },
+          "sha256": "521efc574a9810be0c615b0b1243b9f47d1c0db342d4a9e1b46bef11ac75ec15",
+          "destinationAnchor": "r5-catalogue-033"
+        },
+        {
+          "sourceId": "r5.catalogue.034",
+          "locator": {
+            "kind": "block",
+            "ordinal": 34
+          },
+          "sha256": "3e8533d2b8d35c4d22b436732e1fc4f8b0571deb2add22c19c081c7a636e827d",
+          "destinationAnchor": "r5-catalogue-034"
+        },
+        {
+          "sourceId": "r5.catalogue.035",
+          "locator": {
+            "kind": "block",
+            "ordinal": 35
+          },
+          "sha256": "a9d2778a535ee63b830fa34d8c98b3a0dc70169991981b49efe11f6715629671",
+          "destinationAnchor": "r5-catalogue-035"
+        },
+        {
+          "sourceId": "r5.catalogue.036",
+          "locator": {
+            "kind": "block",
+            "ordinal": 36
+          },
+          "sha256": "2f87a2f89c73312bac3c27adac28e71db7f5d8cd681860eb40b7bc747f52184f",
+          "destinationAnchor": "r5-catalogue-036"
+        },
+        {
+          "sourceId": "r5.catalogue.037",
+          "locator": {
+            "kind": "block",
+            "ordinal": 37
+          },
+          "sha256": "43984a44c484b505cd527f903e10431917a426d12965109325f4bcc3263e12ce",
+          "destinationAnchor": "r5-catalogue-037"
+        },
+        {
+          "sourceId": "r5.catalogue.038",
+          "locator": {
+            "kind": "block",
+            "ordinal": 38
+          },
+          "sha256": "1ad9b8b5d713f460910d60a5d71bbb79382b3fc8d54ccbf495bf34475bc089fd",
+          "destinationAnchor": "r5-catalogue-038"
+        },
+        {
+          "sourceId": "r5.catalogue.039",
+          "locator": {
+            "kind": "block",
+            "ordinal": 39
+          },
+          "sha256": "138d4fd2d05772b4cb3adaae01b4e210a0fa242ff6da0e5c31d21d5b303750d2",
+          "destinationAnchor": "r5-catalogue-039"
+        },
+        {
+          "sourceId": "r5.catalogue.040",
+          "locator": {
+            "kind": "block",
+            "ordinal": 40
+          },
+          "sha256": "aa684fc8e8a04d81b4a19cd321e0d48eeceb38d77db6ec142358a92237611ef4",
+          "destinationAnchor": "r5-catalogue-040"
+        },
+        {
+          "sourceId": "r5.catalogue.041",
+          "locator": {
+            "kind": "block",
+            "ordinal": 41
+          },
+          "sha256": "1ff76698b45d024ce66dd4c2d6acf333d37f359a008245e75ddfa97751695246",
+          "destinationAnchor": "r5-catalogue-041"
+        },
+        {
+          "sourceId": "r5.catalogue.042",
+          "locator": {
+            "kind": "block",
+            "ordinal": 42
+          },
+          "sha256": "928435401b886b43a2f96fc0496a76a61811025a18062cc02a135f9c122b4353",
+          "destinationAnchor": "r5-catalogue-042"
+        },
+        {
+          "sourceId": "r5.catalogue.043",
+          "locator": {
+            "kind": "block",
+            "ordinal": 43
+          },
+          "sha256": "a52c2dac55654db292f38c0fd67a56c3cf8dd0ae98718b7fad9ee2bf6ab43d40",
+          "destinationAnchor": "r5-catalogue-043"
+        },
+        {
+          "sourceId": "r5.catalogue.044",
+          "locator": {
+            "kind": "block",
+            "ordinal": 44
+          },
+          "sha256": "df0081aa8fcfeb3ebb3eb41f64d59e47b831e2b3ed6ff0554dcb7c7be2e3f799",
+          "destinationAnchor": "r5-catalogue-044"
+        },
+        {
+          "sourceId": "r5.catalogue.045",
+          "locator": {
+            "kind": "block",
+            "ordinal": 45
+          },
+          "sha256": "3f5f955e9b161078eec1aca2511a852994256cc24c728280c7b3d08f6e8eba97",
+          "destinationAnchor": "r5-catalogue-045"
+        },
+        {
+          "sourceId": "r5.catalogue.046",
+          "locator": {
+            "kind": "block",
+            "ordinal": 46
+          },
+          "sha256": "9207658aedeac61ee66e53ef2152dc34732d94f5998acb74b2cc9c05db4d14fe",
+          "destinationAnchor": "r5-catalogue-046"
+        },
+        {
+          "sourceId": "r5.catalogue.047",
+          "locator": {
+            "kind": "block",
+            "ordinal": 47
+          },
+          "sha256": "9ce249f15a56a98da1d64da5f9b74a99a795084a0d459555483d11c33c5e721e",
+          "destinationAnchor": "r5-catalogue-047"
+        },
+        {
+          "sourceId": "r5.catalogue.048",
+          "locator": {
+            "kind": "block",
+            "ordinal": 48
+          },
+          "sha256": "f3f2252b9ee89ff210942a1ec66de677b1033d75a3bc8b4246f8e8c2a696ddb6",
+          "destinationAnchor": "r5-catalogue-048"
+        },
+        {
+          "sourceId": "r5.catalogue.049",
+          "locator": {
+            "kind": "block",
+            "ordinal": 49
+          },
+          "sha256": "4a5669dea265a4dcba33263e62904226b67c5be9d0aa1dc2d62076f018feea97",
+          "destinationAnchor": "r5-catalogue-049"
+        },
+        {
+          "sourceId": "r5.catalogue.050",
+          "locator": {
+            "kind": "block",
+            "ordinal": 50
+          },
+          "sha256": "2ae5561903c061eeeb610fbad4d0b0f25f60a89f7fb81b62afcea9b00a4f33c8",
+          "destinationAnchor": "r5-catalogue-050"
+        },
+        {
+          "sourceId": "r5.catalogue.051",
+          "locator": {
+            "kind": "block",
+            "ordinal": 51
+          },
+          "sha256": "b7ad95f87a83195867c914f6f608b498f3592285f51e85aecfeb28ecb76b0b39",
+          "destinationAnchor": "r5-catalogue-051"
+        }
+      ]
+    },
+    {
+      "sourcePath": "LLM_README.md",
+      "sourceRevision": "7ab67cb0b6d843eca87f587124c0f3c0fbd35e67",
+      "sourceBlob": "679d76fbcca984a1b9479b74a9ba861b132871f6",
+      "sourceHeading": "Landmines",
+      "destinationPath": "docs/findings/current.md",
+      "blocks": [
+        {
+          "sourceId": "router.landmines.heading",
+          "locator": {
+            "kind": "heading"
+          },
+          "sha256": "413f0a0a036023beb24dddf567aad957370273ef89337dcfdceff5ad64ce9c26",
+          "destinationAnchor": "router-landmines-heading"
+        },
+        {
+          "sourceId": "router.landmines.001",
+          "locator": {
+            "kind": "block",
+            "ordinal": 1
+          },
+          "sha256": "ffd7294cc5ee56476bd3053fe8b0bf484dec2fe9a11addcd4c77e4f875d60f02",
+          "destinationAnchor": "router-landmines-001"
+        }
+      ]
+    },
+    {
+      "sourcePath": "LLM_README.md",
+      "sourceRevision": "7ab67cb0b6d843eca87f587124c0f3c0fbd35e67",
+      "sourceBlob": "679d76fbcca984a1b9479b74a9ba861b132871f6",
+      "sourceHeading": "Open findings",
+      "destinationPath": "docs/findings/current.md",
+      "blocks": [
+        {
+          "sourceId": "router.findings.heading",
+          "locator": {
+            "kind": "heading"
+          },
+          "sha256": "ddf2bc6b2fa0243041cfb1becf2fda8ceaa3c6d1c87b72fbe4a82abab61cdc29",
+          "destinationAnchor": "router-findings-heading"
+        },
+        {
+          "sourceId": "router.findings.001",
+          "locator": {
+            "kind": "block",
+            "ordinal": 1
+          },
+          "sha256": "9ad8fcfac5a0735dafc2a1cc18e233bdd1ddd372c25589465c3fed885fb0c9e3",
+          "destinationAnchor": "router-findings-001"
+        },
+        {
+          "sourceId": "router.findings.002",
+          "locator": {
+            "kind": "block",
+            "ordinal": 2
+          },
+          "sha256": "d6666bbd3c3a9c45bc00f618ce0cfa87b08e454b9664575849fb7af2b6d2f3ee",
+          "destinationAnchor": "router-findings-002"
+        },
+        {
+          "sourceId": "router.findings.003",
+          "locator": {
+            "kind": "block",
+            "ordinal": 3
+          },
+          "sha256": "5c0f4751b44713c788c5b8a33d7bf15d0685d7c4a359b43dc45ec84dac52273c",
+          "destinationAnchor": "router-findings-003"
+        }
+      ]
+    }
+  ]
+}

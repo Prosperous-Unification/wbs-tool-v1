@@ -46,7 +46,7 @@ not claims about the current main implementation or permission to merge that fea
 
 ## Execution handoff
 
-Start with [core task 2.0](../../openspec/changes/core-lib-extraction/tasks.md): complete
+Start with [core task 2.0](../../openspec/changes/archive/2026-09-10-core-lib-extraction/tasks.md): complete
 recursive project discovery before relying on the move's gates. Execute one checkbox per
 reviewed slice. The eleven remaining packets have intent, explicit design, delta requirements and
 ordered tasks; implementation evidence is still owed. This is readiness for bounded
@@ -57,22 +57,22 @@ tails and linked Radical Modularity programme. Counts are implementation checkbo
 integration reconciliation; historical checked boxes are not newly verified. R10 is shown
 as a completed dependency, outside the eleven remaining packets.
 
-| Scope / owning task file                                                                 | Prepared state                     | Prerequisite and first action                                                                      |
-| ---------------------------------------------------------------------------------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------- |
-| [Core extraction](../../openspec/changes/core-lib-extraction/tasks.md)                   | 6 historical checked, 21 remaining | 2.0 discovery; then neutral values, admitted scopes and runtime ports                              |
-| [Scheduler boundary](../../openspec/changes/scheduler-runtime-port/tasks.md)             | 9 remaining                        | core through 2.2b.4 and #354 or equivalent interfaces landed; 1.1 selection/input characterization |
-| [Source conformance](../../openspec/changes/source-conformance-completion/tasks.md)      | 24 remaining                       | completed core/staged sources; 1.1 exact 19-family and executed-case inventory                     |
-| [Command registry](../../openspec/changes/plan-command-registry/tasks.md)                | 10 remaining                       | core; 1.1 independently pin wire kinds and refusal precedence                                      |
-| [Working plan](../../openspec/changes/live-plan-snapshot/tasks.md)                       | 14 remaining                       | core and registry; 1.1 admitted read/mutation characterization                                     |
-| [JSON import](../../openspec/changes/plan-json-import/tasks.md)                          | 22 remaining                       | core and scheduler; 1.1 pin current export/authored fields                                         |
-| [Local write invalidation](../../openspec/changes/local-write-invalidation/tasks.md)     | 10 remaining                       | R1 and R10 landed; 1.1 map successful subrequests and preserve R10 interfaces                      |
-| [MCP OIDC adoption](../../openspec/changes/mcp-oidc-store/tasks.md)                      | 10 remaining                       | serialize auth edits with core; 1.1 characterize capacity/callback tests                           |
-| [R10 rendering](../../openspec/changes/measured-rendering/tasks.md)                      | Completed, 17/17 checked           | #353 at f66f73e8; preserve landed implementation and evidence                                      |
-| [E2E seeding](../../openspec/changes/e2e-plan-seeding/tasks.md)                          | 11 remaining                       | R10 #353 completed; 1.1 distinguish setup from the tested gesture                                  |
-| [Namespacing](../../openspec/changes/repo-namespacing/tasks.md)                          | 13 remaining                       | core and serialized moves; 1.1 project/path/alias/deploy identity manifest                         |
-| [Radical Modularity / LLM wiki](../../openspec/changes/agent-scalable-llm-wiki/tasks.md) | 29 remaining                       | 1.1 untouched baseline before policy/root cleanup; final mapping follows namespacing               |
-| [W4 closeout](../../openspec/changes/wbs-table-modules/tasks.md)                         | 9/10 historically checked          | 3.5 gate-evidence reconciliation and handoff; review 3.4 already recorded                          |
-| [R1–R9 archival](tasks.md#r1r9-archival-closeout)                                        | A1–A9 administrative slices        | reconcile each change before sync/archive; R1 5.2 needs named browser evidence                     |
+| Scope / owning task file                                                                        | Prepared state                     | Prerequisite and first action                                                                      |
+| ----------------------------------------------------------------------------------------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------- |
+| [Core extraction](../../openspec/changes/archive/2026-09-10-core-lib-extraction/tasks.md)       | 6 historical checked, 21 remaining | 2.0 discovery; then neutral values, admitted scopes and runtime ports                              |
+| [Scheduler boundary](../../openspec/changes/archive/2026-09-10-scheduler-runtime-port/tasks.md) | 9 remaining                        | core through 2.2b.4 and #354 or equivalent interfaces landed; 1.1 selection/input characterization |
+| [Source conformance](../../openspec/changes/source-conformance-completion/tasks.md)             | 24 remaining                       | completed core/staged sources; 1.1 exact 19-family and executed-case inventory                     |
+| [Command registry](../../openspec/changes/plan-command-registry/tasks.md)                       | 10 remaining                       | core; 1.1 independently pin wire kinds and refusal precedence                                      |
+| [Working plan](../../openspec/changes/live-plan-snapshot/tasks.md)                              | 14 remaining                       | core and registry; 1.1 admitted read/mutation characterization                                     |
+| [JSON import](../../openspec/changes/plan-json-import/tasks.md)                                 | 22 remaining                       | core and scheduler; 1.1 pin current export/authored fields                                         |
+| [Local write invalidation](../../openspec/changes/local-write-invalidation/tasks.md)            | 10 remaining                       | R1 and R10 landed; 1.1 map successful subrequests and preserve R10 interfaces                      |
+| [MCP OIDC adoption](../../openspec/changes/mcp-oidc-store/tasks.md)                             | 10 remaining                       | serialize auth edits with core; 1.1 characterize capacity/callback tests                           |
+| [R10 rendering](../../openspec/changes/measured-rendering/tasks.md)                             | Completed, 17/17 checked           | #353 at f66f73e8; preserve landed implementation and evidence                                      |
+| [E2E seeding](../../openspec/changes/e2e-plan-seeding/tasks.md)                                 | 11 remaining                       | R10 #353 completed; 1.1 distinguish setup from the tested gesture                                  |
+| [Namespacing](../../openspec/changes/repo-namespacing/tasks.md)                                 | 13 remaining                       | core and serialized moves; 1.1 project/path/alias/deploy identity manifest                         |
+| [Radical Modularity / LLM wiki](../../openspec/changes/agent-scalable-llm-wiki/tasks.md)        | 29 remaining                       | 1.1 untouched baseline before policy/root cleanup; final mapping follows namespacing               |
+| [W4 closeout](../../openspec/changes/wbs-table-modules/tasks.md)                                | 9/10 historically checked          | 3.5 gate-evidence reconciliation and handoff; review 3.4 already recorded                          |
+| [R1–R9 archival](tasks.md#r1r9-archival-closeout)                                               | A1–A9 administrative slices        | reconcile each change before sync/archive; R1 5.2 needs named browser evidence                     |
 
 There are **173 unchecked implementation slices** across the eleven remaining packets,
 plus closeout work. The original snapshot's 24 pending R10 slices are superseded by the

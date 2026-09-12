@@ -29,7 +29,7 @@ const refusal = (
  * after
  * loose
  * ```
- * The fixture of `apps/be-01/src/service/dependency.test.ts`, so the cases below
+ * The fixture of `libs/core/src/service/dependency.test.ts`, so the cases below
  * are that file's cases and not a paraphrase of them.
  */
 const FIXTURE: readonly (readonly [string, string | null])[] = [
@@ -53,7 +53,7 @@ const asBe01 = (refused: EdgeRefusal | null): 'ancestor' | 'cycle' | null =>
   refused === 'self' || refused === 'descendant' ? 'ancestor' : refused;
 
 /**
- * Every `canDepend` case from `apps/be-01/src/service/dependency.test.ts`, with
+ * Every `canDepend` case from `libs/core/src/service/dependency.test.ts`, with
  * the expectation that file asserts.
  *
  * Copied deliberately rather than shared: fe-01 and be-01 are separate compiles

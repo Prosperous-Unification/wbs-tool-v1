@@ -3,6 +3,7 @@ import { type Type, type } from 'arktype';
 import { defineEndpointShape } from './endpoint-shape';
 import { planCommandsBody } from './plan-command-shapes';
 import type { ParserRefusalCode, PlanCommandKind } from './refusal';
+import { engineUnavailableRefusal } from './scheduler-shapes';
 import { requestSchema, responseSchema } from './schema-shape';
 import { workItemTree } from './work-item-response';
 
@@ -18,11 +19,13 @@ const commandKinds = {
   clearActual: true,
   setProgress: true,
   clearProgress: true,
+  setStatus: true,
   setMeasure: true,
   clearMeasure: true,
   setAssignee: true,
   addDependency: true,
   removeDependency: true,
+  arrangeBySchedule: true,
   freezeProject: true,
   unfreezeProject: true,
   unfreezeWorkItem: true,
@@ -84,6 +87,7 @@ const parserArms = {
   invalid_actual: type({ error: "'invalid_actual'", at: 'number', kind: commandKindsType }),
   invalid_measure: type({ error: "'invalid_measure'", at: 'number', kind: commandKindsType }),
   invalid_progress: type({ error: "'invalid_progress'", at: 'number', kind: commandKindsType }),
+  invalid_status: type({ error: "'invalid_status'", at: 'number', kind: commandKindsType }),
   invalid_estimate: type({ error: "'invalid_estimate'", at: 'number', kind: commandKindsType }),
   cannot_send_both_teamIds_and_serviceTeamId: type({
     error: "'cannot_send_both_teamIds_and_serviceTeamId'",
@@ -358,6 +362,17 @@ const parserArms = {
     at: 'number',
     kind: commandKindsType,
   }),
+  on_must_be_a_date: type({ error: "'on_must_be_a_date'", at: 'number', kind: commandKindsType }),
+  factStart_must_be_a_date: type({
+    error: "'factStart_must_be_a_date'",
+    at: 'number',
+    kind: commandKindsType,
+  }),
+  factEnd_must_be_a_date: type({
+    error: "'factEnd_must_be_a_date'",
+    at: 'number',
+    kind: commandKindsType,
+  }),
   priority_must_be_a_whole_number_from_1: type({
     error: "'priority_must_be_a_whole_number_from_1'",
     at: 'number',
@@ -518,7 +533,15 @@ const batchRefusals = [
     schema: responseSchema(
       type.or(
         type({ ...context, error: "'cycle'" }),
+        // Retired at ADR 0023 and deliberately kept: no release since refuses a
+        // move for a frozen number, but an outgoing be-01 can answer a browser
+        // holding the incoming fe-01 for the length of a swap, and an arm this
+        // union lacks is a 409 the client cannot parse at all.
         type({ ...context, error: "'frozen'" }),
+        // `arrangeBySchedule` while the project's selected optimized variant is
+        // still solving, and on a deployment with no optimizer installed.
+        type({ ...context, error: "'schedule_not_ready'" }),
+        type({ ...context, error: "'engine_unavailable'" }),
         type({ ...context, error: "'rolled_up'" }),
         type({ ...context, error: "'ancestor'" }),
         type({ ...context, error: "'too_large'" }),
@@ -530,12 +553,15 @@ const batchRefusals = [
   {
     status: 422,
     schema: responseSchema(
-      type({
-        ...context,
-        error: "'deadline_before_project_start'",
-        workItemId: 'string',
-        projectDayZero: 'string',
-      }),
+      type.or(
+        type({ ...context, error: "'calendar_range'" }),
+        type({
+          ...context,
+          error: "'deadline_before_project_start'",
+          workItemId: 'string',
+          projectDayZero: 'string',
+        }),
+      ),
     ),
   },
 ] as const;
@@ -557,6 +583,7 @@ export const getWorkItems = defineEndpointShape({
   refusals: [
     ...genericRefusals,
     { status: 404, schema: responseSchema(type({ error: "'not_found'" })) },
+    engineUnavailableRefusal,
   ],
   document: { summary: 'Read the project work-item tree.' },
 });

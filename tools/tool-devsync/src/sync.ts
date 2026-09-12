@@ -102,28 +102,40 @@ export interface SolverPreflightDependencies {
   requireHost(image: string): Promise<void>;
 }
 
-async function changedSolverPaths(from: string, to: string): Promise<readonly string[]> {
+/** Lists compatibility inputs changed between two revisions in their owning repository. */
+async function changedSolverPathsIn(
+  repository: string,
+  from: string,
+  to: string,
+): Promise<readonly string[]> {
   return (
-    await $`git -C ${SRC} diff --name-only ${from} ${to} -- ${SOLVER_COMPATIBILITY_PATHS}`.text()
+    await $`git -C ${repository} diff --name-only ${from} ${to} -- ${SOLVER_COMPATIBILITY_PATHS}`.text()
   )
     .split('\n')
     .filter((path) => path !== '');
 }
 
-const SOLVER_PREFLIGHT_DEPENDENCIES: SolverPreflightDependencies = {
-  currentSha: async () => (await $`git -C ${SRC} rev-parse HEAD`.text()).trim(),
-  changedPaths: changedSolverPaths,
-  readConfig: async () => {
-    const file = Bun.file(SOLVER_SUPERVISOR_CONFIG);
-    if (!(await file.exists())) return undefined;
-    return new Uint8Array(await file.slice(0, CONFIG_MAX_BYTES + 1).arrayBuffer());
-  },
-  requireHost: async (image) => {
-    await $`systemctl --user is-active --quiet ${SOLVER_SUPERVISOR_SERVICE}`;
-    await $`test -S ${SOLVER_SUPERVISOR_SOCKET}`;
-    await $`${SOLVER_SUPERVISOR_BUN} ${SOLVER_SUPERVISOR_BUNDLE.remote} --preflight=dev --config=${SOLVER_SUPERVISOR_CONFIG} --solver-image=${image}`;
-  },
-};
+function solverPreflightDependencies(
+  repository: string,
+  configPath: string,
+): SolverPreflightDependencies {
+  return {
+    currentSha: async () => (await $`git -C ${repository} rev-parse HEAD`.text()).trim(),
+    changedPaths: (from, to) => changedSolverPathsIn(repository, from, to),
+    readConfig: async () => {
+      const file = Bun.file(configPath);
+      if (!(await file.exists())) return undefined;
+      return new Uint8Array(await file.slice(0, CONFIG_MAX_BYTES + 1).arrayBuffer());
+    },
+    requireHost: async (image) => {
+      await $`systemctl --user is-active --quiet ${SOLVER_SUPERVISOR_SERVICE}`;
+      await $`test -S ${SOLVER_SUPERVISOR_SOCKET}`;
+      await $`${SOLVER_SUPERVISOR_BUN} ${SOLVER_SUPERVISOR_BUNDLE.remote} --preflight=dev --config=${SOLVER_SUPERVISOR_CONFIG} --solver-image=${image}`;
+    },
+  };
+}
+
+const SOLVER_PREFLIGHT_DEPENDENCIES = solverPreflightDependencies(SRC, SOLVER_SUPERVISOR_CONFIG);
 
 /** Solver host state is a deploy prerequisite only when its compatibility inputs move. */
 export async function preflightSolver(
@@ -151,6 +163,24 @@ export async function preflightSolver(
   // observes refusal before its injected host preflight can run.
   if (targetChanges.length === 0) return;
   await dependencies.requireHost(mapping.image);
+}
+
+/** Reads one compatibility object id and names its repository on lookup failure. */
+async function solverCompatibilityObjectIdAt(
+  repository: string,
+  sourceSha: string,
+  path: string,
+): Promise<string> {
+  try {
+    return (await $`git -C ${repository} rev-parse ${`${sourceSha}:${path}`}`.text()).trim();
+  } catch (error) {
+    // Proof: sync.test.ts points this production wiring at a missing repository
+    // and observes both the repository and compatibility object in the rejection.
+    throw new Error(
+      `cannot read solver compatibility object ${sourceSha}:${path} from git repository ${repository}: ${String(error)}`,
+      { cause: error },
+    );
+  }
 }
 
 export interface SolverTargetDependencies {
@@ -182,20 +212,35 @@ export async function deploySolverTarget(
   await dependencies.prepare(target, await dependencies.readState(target));
 }
 
-function solverTargetDependencies(): SolverTargetDependencies {
+export interface SolverTargetDependencyOptions {
+  /** The git repository containing the target source SHA and compatibility paths. */
+  sourceRepository?: string;
+  /** The exported deployer tree used only to resolve preparation runtime files. */
+  runtimeRoot?: string;
+  /** Solver mapping path; injectable so repository wiring can be tested without host state. */
+  solverConfigPath?: string;
+}
+
+/** Wires deploy decisions to the repository that owns every target revision. */
+export function solverTargetDependencies(
+  options: SolverTargetDependencyOptions = {},
+): SolverTargetDependencies {
+  const sourceRepository = options.sourceRepository ?? SRC;
+  const runtimeRoot = options.runtimeRoot ?? TARGET_ROOT;
+  const solverConfigPath = options.solverConfigPath ?? SOLVER_SUPERVISOR_CONFIG;
   const runtimeFor = (target: SolverBindingTarget) =>
     createTargetSolverBindingRuntime({
-      root: TARGET_ROOT,
+      root: runtimeRoot,
       bunPath: process.execPath,
+      sourceRepository,
       ...target,
     });
   return {
-    currentSha: async () => (await $`git -C ${SRC} rev-parse HEAD`.text()).trim(),
-    changedPaths: changedSolverPaths,
+    currentSha: async () => (await $`git -C ${sourceRepository} rev-parse HEAD`.text()).trim(),
+    changedPaths: (from, to) => changedSolverPathsIn(sourceRepository, from, to),
     compatibilityIdentity: (sourceSha) =>
       solverCompatibilityIdentityAt(sourceSha, {
-        objectIdAt: async (sha, path) =>
-          (await $`git -C ${TARGET_ROOT} rev-parse ${`${sha}:${path}`}`.text()).trim(),
+        objectIdAt: (sha, path) => solverCompatibilityObjectIdAt(sourceRepository, sha, path),
       }),
     readState: async (target) => {
       const file = Bun.file(runtimeFor(target).statePath);
@@ -206,9 +251,10 @@ function solverTargetDependencies(): SolverTargetDependencies {
       const runtime = runtimeFor(target);
       return prepareTargetSolverBinding(target, stateBytes, runtime.dependencies);
     },
-    preflight: preflightSolver,
+    preflight: (sha) =>
+      preflightSolver(sha, solverPreflightDependencies(sourceRepository, solverConfigPath)),
     reset: async (sha) => {
-      await $`git -C ${SRC} reset --hard --quiet ${sha}`;
+      await $`git -C ${sourceRepository} reset --hard --quiet ${sha}`;
     },
   };
 }
@@ -294,7 +340,11 @@ export const RESTART_PATHS: readonly string[] = [
   // disk is missing from this list, so adding one cannot silently skip it.
   'libs/auth/project.json',
   'libs/config/project.json',
+  'libs/conformance/project.json',
   'libs/contracts/project.json',
+  // Proof: removing this nested entry failed `names every library project.json`
+  // on `Expected to contain: "libs/contracts/solver/supervisor-protocol/project.json"`.
+  'libs/contracts/solver/supervisor-protocol/project.json',
   'libs/core/project.json',
   'libs/domain/project.json',
   'libs/observability/project.json',
@@ -302,6 +352,11 @@ export const RESTART_PATHS: readonly string[] = [
   // Proof: removing this entry failed `names every library project.json that exists on disk`
   // on `Expected to contain: "libs/runtime-portable/project.json"`.
   'libs/runtime-portable/project.json',
+  'libs/store-memory/project.json',
+  // Proof: recursive project discovery first failed the restart coverage test
+  // on conformance, then store-memory, then store-sqlite as each preceding
+  // omission was restored. Watched 2026-09-10.
+  'libs/store-sqlite/project.json',
   'libs/validation/project.json',
   'libs/solver-py/project.json',
 ];

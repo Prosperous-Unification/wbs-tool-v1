@@ -549,6 +549,9 @@ const CHART_CHIP_OFF = 'border-dashed text-muted-foreground/60 line-through';
  */
 const PRIORITY_CAP_PX = 3;
 
+/** The done mark's box, in CSS pixels: a tick this tall and this wide at the end of a done bar. */
+const DONE_MARK_PX = 12;
+
 /**
  * A dependency arrow's approach and its head, in CSS pixels — turned into the
  * user space's two units where they are used.
@@ -729,6 +732,15 @@ function arrowRoute(
 const ASSUMED_BAR_CLASSES = '[fill-opacity:0.35] [stroke-dasharray:3_2]';
 
 /**
+ * How a **done bar** is painted beyond its own colour: a little translucent, so
+ * the row light and the weekend bands read through finished work, with a solid
+ * stroke — deliberately **not** the assumed span's dotted signature, which says
+ * "guessed" where this says "over". The done mark the panel draws on top is
+ * the rest of the saying.
+ */
+const DONE_BAR_CLASSES = '[fill-opacity:0.75]';
+
+/**
  * The classes a bar carries beyond its two colours, and the two facts they say.
  *
  * The critical path is a ring rather than a fill, because the fill is the
@@ -745,10 +757,11 @@ const ASSUMED_BAR_CLASSES = '[fill-opacity:0.35] [stroke-dasharray:3_2]';
  * `vector-effect="non-scaling-stroke"`, so 2 is 2 CSS pixels at any zoom of a
  * user space measured in workdays.
  */
-function barClasses(critical: boolean, estimated: boolean): string {
+function barClasses(critical: boolean, estimated: boolean, done = false): string {
   return [
     critical ? 'stroke-foreground [stroke-width:2]' : '',
     estimated ? '' : ASSUMED_BAR_CLASSES,
+    done ? DONE_BAR_CLASSES : '',
   ]
     .filter((part) => part !== '')
     .join(' ');
@@ -1665,6 +1678,7 @@ export function barFacts(
     // to include 'Tags Compliance, Rework'`. Watched on h2puni, 2026-08-20.
     tagWords(bar.tags),
     `${spanWords(startDate, bar.start, bar.finish, today)} · ${durationWords(bar)}`,
+    bar.done ? 'Done — drawn over what happened, not over the estimate' : null,
     // A line of its own rather than a word tucked into the duration: the bar is
     // drawn a width nobody gave it, and the sentence that says so has to be as
     // findable as the dates above it. See {@link ASSUMED_SLICE_WORKDAYS}.
@@ -2654,12 +2668,13 @@ export function GanttPanel({
   // that is what lets {@link GanttChart} hold its hooks unconditionally: this
   // component has none, so the early return below cannot be a hook order that
   // changes with the payload.
-  if (scheduleError === 'cycle') {
+  if (scheduleError !== null) {
     return (
       <section data-gantt-panel aria-label="Gantt chart" className="border-border border-t p-3">
         <p role="status" className="text-sm">
-          Nothing can be drawn while these dependencies run in a circle — no dates could be worked
-          out. Remove one and the chart comes back.
+          {scheduleError === 'cycle'
+            ? 'Nothing can be drawn while these dependencies run in a circle — no dates could be worked out. Remove one and the chart comes back.'
+            : 'Nothing can be drawn because this plan extends beyond the supported calendar range. Shorten it and the chart comes back.'}
         </p>
       </section>
     );
@@ -2695,7 +2710,7 @@ interface GanttProps {
   /** The day the plan begins, or null while it is not on a calendar. */
   startDate: IsoDate | null;
   /** be-01's answer when no dates could be worked out at all. */
-  scheduleError: 'cycle' | null;
+  scheduleError: 'calendar_range' | 'cycle' | null;
   /**
    * Which chart read this is drawn from — a number that moves whenever a new
    * one lands.
@@ -3533,39 +3548,33 @@ function GanttChart({
     [chart, startDate],
   );
   /**
-   * The bars that are drawn: every placed bar with the detail asked for, and
-   * the slices somebody costed alone without it.
+   * The bars that are drawn, which since 2026-09-11 is **all of them**.
    *
    * A slice nobody has estimated is drawn across an assumed span of two
-   * workdays, translucent and dashed and carrying a `?`. On a fresh plan that is
-   * most of the chart — two steps a leaf, one of them nearly always uncosted, so
-   * ten rows draw twenty bars and half of them are a width nobody gave (Dany,
-   * 2026-08-11: "remove … unestimated QA bars"). At rest they are not drawn, and
-   * where unestimated work is found is the plan's own `?` cells, which is a
-   * place that can say how many there are; a chart cannot. Asked for, they come
-   * back whole — the reader who wants to see what has not been costed yet says
-   * so with the one switch that says it about everything.
+   * workdays, translucent and dashed and carrying a `?`. Those bars were part of
+   * what the detail switch hid, by Dany's own ask on 2026-08-11 ("remove …
+   * unestimated QA bars") and folded into one control on 2026-08-12 ("all
+   * decluttering into one button").
+   *
+   * **Reversed on sight, 2026-09-11**: _"with details disabled you still have to
+   * show the unestimated slices"_. Measured in his own plan before the change —
+   * twelve rows of a twenty-eight-bar chart are uncosted, and with the switch
+   * off those twelve lanes drew **nothing at all**. A row that is on the chart
+   * and draws nothing reads as a row with no work rather than as a row nobody
+   * has costed, which is the opposite of what the `?` is for.
+   *
+   * So the switch answers about **two** families now — the stored-dependency
+   * arrows and the parent rows' summary brackets — and an uncosted slice is
+   * drawn in both of its states. The dashes and the `?` are what say the span
+   * was assumed; they do that whether or not the reader wants elbows.
    *
    * One list, read by the rects, the ticks and the on-bar labels alike, so the
-   * three cannot come to different answers about which bars exist.
-   *
-   * The narrowing is here and not in {@link layOutGantt}: `placed.horizon`
-   * contains the assumed span either way, so the canvas and the axis are one
-   * width in both states and the switch moves no coordinate of anything.
-   *
-   * Proof, both directions, watched 2026-08-12. Pinned to `placed.bars` — the
-   * uncosted slice drawn at rest — `6 failed | 85 passed`: the five tests that
-   * assert a mark is absent, each on `expected SVGElement{…} to be null`, and
-   * `the detail switch`'s own case on `expected 1 to be +0` for the assumed
-   * count. Pinned to the filtered arm — the switch drawing nothing new —
-   * `7 failed | 84 passed`: four of them on {@link askForTheDetail}'s own throw,
-   * `the detail switch was pressed and nothing arrived at [data-assumed]`, and
-   * three on `expected +0 to be 1` / `expected undefined to be 'true'`.
+   * three cannot come to different answers about which bars exist. It is kept
+   * as a name rather than inlined to `placed.bars` because {@link drawn} below
+   * is derived from it, and because a row with no bars at all is still a thing
+   * the flags and links have to ask about.
    */
-  const drawnBars = useMemo(
-    () => (detailShown ? placed.bars : placed.bars.filter(({ bar }) => bar.estimated)),
-    [detailShown, placed],
-  );
+  const drawnBars = placed.bars;
   /**
    * The bar the open surface belongs to, or null when there is no surface, or
    * no such bar, or that bar is not being drawn.
@@ -3963,13 +3972,19 @@ function GanttChart({
   const showSurface = (sliceId: string, mark: SVGRectElement): void => {
     const box = mark.getBoundingClientRect();
     setOpenDay(null);
-    setOpen({ sliceId, anchor: { left: box.left, top: box.top, bottom: box.bottom } });
+    setOpen({
+      sliceId,
+      anchor: { left: box.left, right: box.right, top: box.top, bottom: box.bottom },
+    });
   };
   const showDaySurface = (offset: number, cell: HTMLElement): void => {
     const box = cell.getBoundingClientRect();
     setOpen(null);
     setOpenMarkers(null);
-    setOpenDay({ offset, anchor: { left: box.left, top: box.top, bottom: box.bottom } });
+    setOpenDay({
+      offset,
+      anchor: { left: box.left, right: box.right, top: box.top, bottom: box.bottom },
+    });
   };
 
   /**
@@ -3987,7 +4002,10 @@ function GanttChart({
     const box = badge.getBoundingClientRect();
     setOpen(null);
     setOpenDay(null);
-    setOpenMarkers({ offset, anchor: { left: box.left, top: box.top, bottom: box.bottom } });
+    setOpenMarkers({
+      offset,
+      anchor: { left: box.left, right: box.right, top: box.top, bottom: box.bottom },
+    });
   };
 
   /**
@@ -4589,6 +4607,11 @@ function GanttChart({
             // and three on `expected null to be 'true'` /
             // `expected +0 to be 1`. Watched 2026-08-12.
             {...(bar.estimated ? {} : { 'data-assumed': 'true' })}
+            // The bar that is a done row's fact span, findable as such: the
+            // browser gate measures where it stops against the fact end's axis
+            // cell, and has to tell it from a slice first. Never beside
+            // `data-assumed` — a done bar is not a guess.
+            {...(bar.done ? { 'data-done': 'true' } : {})}
             x={x}
             // The **drawn** span in calendar days — the end reading of
             // the drawn finish less the start reading of the start, so a
@@ -4612,7 +4635,7 @@ function GanttChart({
             // than the destructive one: `#d62728` is the fourth person's
             // colour, and a red ring on a red bar is no ring at all.
             stroke={bar.critical ? undefined : bar.personColor}
-            className={barClasses(bar.critical, bar.estimated)}
+            className={barClasses(bar.critical, bar.estimated, bar.done)}
             vectorEffect="non-scaling-stroke"
             // A control, because it is one: it takes the keyboard, it has
             // a name, and Enter and Space act on it. The step is what
@@ -4756,6 +4779,35 @@ function GanttChart({
               width={Math.min(PRIORITY_CAP_PX / dayPx, width)}
               height={BAR_HEIGHT}
               fill={paint.ink}
+              pointerEvents="none"
+            />,
+          ];
+        })}
+
+        {/*
+              The done mark: a tick at the right end of every done bar, in the
+              SVG so the standalone export keeps it — the HTML labels over the
+              chart are not cloned into that document. Drawn in pixels through
+              the same scale the priority cap is, after the bars so it paints
+              over them, and `pointer-events: none` for the cap's reason: the
+              bar keeps the hover, the focus and the accessible name. Skipped on
+              a bar too narrow to hold it, where the fill and the aria-label
+              still say done.
+            */}
+        {drawnBars.flatMap(({ bar, x, width }) => {
+          if (!bar.done || width * dayPx < DONE_MARK_PX + 6) return [];
+          return [
+            <path
+              key={`${bar.sliceId}-done`}
+              data-done-mark={bar.sliceId}
+              d="M1.5 6 L4.5 9 L10.5 2.5"
+              transform={`translate(${String(x + width - (DONE_MARK_PX + 3) / dayPx)}, ${String(bar.rowIndex + BAR_INSET)}) scale(${String(1 / dayPx)}, ${String(BAR_HEIGHT / DONE_MARK_PX)})`}
+              fill="none"
+              stroke="white"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
               pointerEvents="none"
             />,
           ];
@@ -6065,8 +6117,8 @@ function GanttChart({
           aria-pressed={detailShown}
           data-hint={
             detailShown
-              ? 'Hide the arrows, the parent bars and the unestimated slices'
-              : 'Show the arrows, the parent bars and the unestimated slices'
+              ? 'Hide the arrows and the parent bars'
+              : 'Show the arrows and the parent bars'
           }
           className={detailShown ? chartChip() : chartChip(CHART_CHIP_OFF)}
           onClick={() => {

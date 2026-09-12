@@ -194,6 +194,7 @@ const PROJECT_API_OPERATIONS = {
   removeStep: 'deleteApiProjectsByIdStepsByStepId',
   createWorkItem: 'postApiProjectsByIdCommands',
   patchWorkItem: 'postApiProjectsByIdCommands',
+  setStatus: 'postApiProjectsByIdCommands',
   listTeams: 'getApiTeams',
   listTags: 'getApiTags',
   listServices: 'getApiServices',
@@ -213,6 +214,7 @@ const PROJECT_API_OPERATIONS = {
   removeWorkItem: 'postApiProjectsByIdCommands',
   setEstimate: 'postApiProjectsByIdCommands',
   clearEstimate: 'postApiProjectsByIdCommands',
+  arrangeBySchedule: 'postApiProjectsByIdCommands',
   freezeProject: 'postApiProjectsByIdCommands',
   unfreezeProject: 'postApiProjectsByIdCommands',
   unfreezeWorkItem: 'postApiProjectsByIdCommands',
@@ -262,7 +264,6 @@ function planWire(projectId: string, plan: PlanRead) {
       serviceId: null,
       actuals: {},
       progress: {},
-      state: 'not_started' as const,
       measures: {},
       ...row,
       // Proof: nullish fallback turned tagIds: null into []; the focused tree test
@@ -1138,6 +1139,20 @@ function checkedAnswers(answers: Partial<ProjectApi>): Partial<ProjectApi> {
     };
   }
 
+  const setStatusAnswer = answers.setStatus;
+  if (setStatusAnswer !== undefined) {
+    checked.setStatus = (workItemId, status, on) =>
+      throughProjectCommand(
+        FAKE_PROJECT_ID,
+        { kind: 'setStatus', workItemId, status, on },
+        // `on` off the call rather than off the normalised command: the wire
+        // shape has it optional, this client always sends it, and the fake's
+        // answer wants the day as a string.
+        (_normalizedProjectId, normalized) => setStatusAnswer(normalized.workItemId, status, on),
+        () => VOID_COMMAND_RESULT,
+      );
+  }
+
   const assignPersonAnswer = answers.assignPerson;
   if (assignPersonAnswer !== undefined) {
     checked.assignPerson = (workItemId, stepId, personId) =>
@@ -1225,6 +1240,17 @@ function checkedAnswers(answers: Partial<ProjectApi>): Partial<ProjectApi> {
         { kind: 'clearEstimate', workItemId, stepId },
         (_normalizedProjectId, normalized) =>
           clearEstimateAnswer(normalized.workItemId, normalized.stepId),
+        () => VOID_COMMAND_RESULT,
+      );
+  }
+
+  const arrangeByScheduleAnswer = answers.arrangeBySchedule;
+  if (arrangeByScheduleAnswer !== undefined) {
+    checked.arrangeBySchedule = (projectId) =>
+      throughProjectCommand(
+        projectId,
+        { kind: 'arrangeBySchedule' },
+        (normalizedProjectId) => arrangeByScheduleAnswer(normalizedProjectId),
         () => VOID_COMMAND_RESULT,
       );
   }

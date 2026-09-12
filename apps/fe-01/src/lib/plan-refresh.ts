@@ -16,7 +16,9 @@ export const ALL_RESOURCES: readonly RefreshResource[] = ['tree', 'steps', 'dire
 
 /** Unknown events may affect any resource; narrowing is a claim about known events only. */
 export function resourcesFor(changed?: string | null): readonly RefreshResource[] {
-  if (changed === 'tree_replaced') return ['tree'];
+  // Proof: removing `plan_unavailable` made its peer-refetch test ask for
+  // `[tree, steps, directory, markers]`, expected the one `tree` resource.
+  if (changed === 'tree_replaced' || changed === 'plan_unavailable') return ['tree'];
   if (changed === 'step_added' || changed === 'step_renamed' || changed === 'step_removed') {
     return ['tree', 'steps'];
   }

@@ -1,9 +1,9 @@
 import { chmod, mkdir, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { scratchAsync } from '@wbs/tool-test-scratch';
 import { describe, expect, it } from 'bun:test';
 
-import { scratchAsync } from '../../test/scratch';
 import { isConventional } from './hooks/conventional';
 import { lintMigration } from './hooks/migration-lint';
 import { scan, UnscannableFileError } from './hooks/plaintext-secrets';

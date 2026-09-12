@@ -1587,7 +1587,7 @@ describe('the order of the columns', () => {
     // `openspec/changes/sticky-table-frame/proposal.md`.
     localStorage.setItem(
       'wbs.hiddenColumns.p1',
-      JSON.stringify(['team', 'service', 'type', 'deadline']),
+      JSON.stringify(['team', 'service', 'type', 'deadline', 'status', 'fact-start', 'fact-end']),
     );
     await threeRoots();
 

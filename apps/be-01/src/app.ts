@@ -1,3 +1,10 @@
+import type {
+  Broadcaster,
+  Clock,
+  HistoryService,
+  ReplayOrchestrator,
+  SavedPlanService,
+} from '@wbs/core';
 import { createLogger, type Logger, type MetricsScrape, scrapeMetrics } from '@wbs/observability';
 import { Elysia } from 'elysia';
 
@@ -21,24 +28,21 @@ import { identityResolver } from './http/identity';
 import { openApiPlugin } from './openapi/openapi-plugin';
 import type { DatabaseHealth } from './repository/health-probe';
 import type { AuthService } from './service/auth.service';
-import type { Broadcaster } from './service/broadcast';
 import type { CalendarMarkerService } from './service/calendar-marker.service';
 import type { CapacityService } from './service/capacity.service';
 import type { DirectoryService } from './service/directory.service';
-import type { HistoryService } from './service/history.service';
-import { LoginThrottle } from './service/login-throttle';
+import type { LoginThrottle } from './service/login-throttle';
 import type { OptimizationCoordinator } from './service/optimization-coordinator';
 import { PlanCommandRunner } from './service/plan-commands';
 import type { PriorityBandService } from './service/priority-band.service';
 import type { ProjectService } from './service/project.service';
-import type { ReplayOrchestrator } from './service/replay-orchestrator';
-import type { SavedPlanService } from './service/saved-plan.service';
 import type { StepService } from './service/step.service';
-import type { UnitOfWork } from './service/unit-of-work';
+import type { Scope, UnitOfWork } from './service/unit-of-work';
 import type { WorkItemService } from './service/work-item.service';
 import type { WritingServices } from './services';
 
 export interface AppOptions {
+  clock: Pick<Clock, 'now'>;
   /** Trusted browser origin, resolved from operator configuration before boot. */
   appOrigin: string;
   migrationsApplied: boolean;
@@ -48,8 +52,8 @@ export interface AppOptions {
    * absent, answering 404 — indistinguishable from a routing fault at the edge.
    */
   auth: AuthService;
-  /** Per-process active password logins; defaults to eight and must be a positive integer. */
-  maxConcurrentLogins?: number;
+  /** The composition's one password-attempt throttle. */
+  loginThrottle: LoginThrottle;
   oidc?: OidcRouteOptions;
   /**
    * Required for the same reason as `auth`: an absent project service would
@@ -130,7 +134,7 @@ export interface AppOptions {
    * What a command batch runs inside: the source's unit of work and the batch's
    * own service graph — `sqliteUnitOfWork(db, coordinator, admitted)` in
    * production, the counting fixture on in-memory stores. See
-   * `service/plan-commands.ts`, ADR 0007 and ADR 0015.
+   * `libs/core/src/service/plan-commands.ts`, ADR 0007 and ADR 0015.
    */
   writes: {
     /**
@@ -139,14 +143,14 @@ export interface AppOptions {
      */
     uow: UnitOfWork;
     /**
-     * How a batch's services are built: over stores that hold no turn because
-     * the batch holds it for them (D20), and over the collector the runner
-     * hands in so the batch's announcements are its own (D24). These are
+     * How a batch's services are built: over the stores its unit-of-work scope
+     * admits (D20), and over the collector the runner hands in so the batch's
+     * announcements are its own (D24). These are
      * **not** the services beside them in these options: those take a turn per
      * write and publish straight through, which is what keeps a route write —
      * and a route event — out of an open batch.
      */
-    batch: (broadcast: Broadcaster) => WritingServices;
+    batch: (scope: Scope, broadcast: Broadcaster) => WritingServices;
     /**
      * Where a batch's collected announcements go once it has committed and let
      * go of its turn, and where every route publishes directly.
@@ -186,12 +190,15 @@ export function mountedEndpoints(
     scrapeMetrics: opts.metricsScrape ?? (() => scrapeMetrics('be-01')),
   },
 ) {
-  const passwordThrottle = new LoginThrottle({
-    now: opts.oidc?.now,
-    maxConcurrent: opts.maxConcurrentLogins ?? 8,
-  });
+  const passwordThrottle = opts.loginThrottle;
   const commands = new PlanCommandRunner({
     batchServices: opts.writes.batch,
+    publicServices: {
+      workItems: opts.workItems,
+      directory: opts.directory,
+      capacity: opts.capacity,
+      priorityBands: opts.priorityBands,
+    },
     uow: opts.writes.uow,
     announcements: opts.writes.announcements,
   });
@@ -215,7 +222,7 @@ export function mountedEndpoints(
     // instead of the 44 required by the OIDC composition.
     ...(opts.oidc === undefined ? [] : authOidcEndpoints(opts.auth, opts.oidc)),
     // Proof: omitting this binding made “binds each shared HTTP shape once”
-    // receive39 instead of40 in app.routes.test.ts.
+    // receive 40 endpoints instead of 41 in app.routes.test.ts (2026-09-10).
     ...smokeRoutes(),
     ...stepRoutes(opts.steps),
     ...directoryRoutes(opts.directory),

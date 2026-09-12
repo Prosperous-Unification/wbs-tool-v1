@@ -207,7 +207,11 @@ permissions:
 jobs:
   gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
+    # The original 20-minute box expired after the ordinary Nx phase and during Tool Wiki.
+    # Forty-five minutes is a chosen finite allowance pending the first complete CI measurement,
+    # not a measured completion time. Evidence: openspec/changes/agent-scalable-llm-wiki/verify.md,
+    # "CI gate budget repair after 6234d1c1".
     steps:
       # Full history: with the default depth of 1 the `main` ref is absent, and
       # nx falls back to a different file scope rather than failing. Depth 0
@@ -244,6 +248,33 @@ jobs:
 
       - name: Install solver dependencies
         run: python3 -m pip install --require-hashes -r libs/solver-py/requirements.lock
+
+      # This candidate-owned workflow is diagnostic on PR and merge-queue events. It is not an
+      # admission authority; repository rules must require the base-owned trusted-wiki workflow.
+      - name: Tool wiki — diagnostic/non-certifying
+        if: github.event_name != 'push'
+        env:
+          TOOL_WIKI_ACTIVATION_ROOT: ${{ vars.TOOL_WIKI_ACTIVATION_ROOT }}
+        run: bash bin/tool-wiki-lint.sh committed . "$GITHUB_SHA"
+
+      # A protected-default push is already admitted. Its audit still refuses to execute the
+      # repository adapter: active rollout selects the launcher from external host state.
+      - name: Tool wiki — externally activated push audit
+        if: github.event_name == 'push'
+        env:
+          TOOL_WIKI_ACTIVATION_ROOT: ${{ vars.TOOL_WIKI_ACTIVATION_ROOT }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$TOOL_WIKI_ACTIVATION_ROOT" || ! -e "$TOOL_WIKI_ACTIVATION_ROOT/active-v1" ]]; then
+            echo '{"schemaVersion":1,"status":"inactive","certified":false,"reason":"external activation marker is not provisioned"}'
+            exit 0
+          fi
+          launcher="$(realpath "$(<"$TOOL_WIKI_ACTIVATION_ROOT/launcher-path")")"
+          [[ -f "$launcher" && -r "$launcher" ]]
+          case "$launcher" in
+            "$GITHUB_WORKSPACE"/*) echo 'external launcher resolved inside candidate checkout' >&2; exit 78 ;;
+          esac
+          bash "$launcher" committed . "$GITHUB_SHA"
 
       # --all, not the default base..HEAD comparison. Without it the scope is
       # whatever `git diff main HEAD` returns, which is EMPTY on a push to main
@@ -302,8 +333,15 @@ jobs:
         id: nx_gate
         run: |
           set +e
-          bunx nx run-many -t test lint typecheck build --parallel=2 --output-style=stream \
-            > nx-gate.log 2>&1
+          # Proof: dropping this exclusion made gate-entrypoints.test.ts fail at
+          # `Expected to contain: --exclude=tool-wiki`; source lint remains explicit below.
+          {
+            bunx nx run-many -t test lint typecheck build --parallel=2 --output-style=stream \
+              --exclude=tool-wiki &&
+            bunx nx run-many -t test typecheck build -p tool-wiki --parallel=2 \
+              --output-style=stream &&
+            bunx nx run tool-wiki:lint:source --skip-nx-cache --output-style=stream
+          } > nx-gate.log 2>&1
           gate_status=$?
           annotation_status=0
           bun run tools/tool-git-hooks/src/hooks/ci-gate-annotations.ts nx-gate.log --tail 200 || annotation_status=$?
@@ -337,6 +375,18 @@ jobs:
       # because nothing failed loudly when it opened.
       - name: Gate head pinning
         run: bash bin/h2puni-gate.test.sh
+
+      # `bin/dev.sh` and the port preflight it calls. This is the dev image's
+      # CMD (`deploy/dev-src/Dockerfile`), so a guard rotting here breaks the
+      # dev deployment and not only somebody's terminal — and until 2026-09-12
+      # this suite ran nowhere but a developer typing `bun run dev:test`.
+      #
+      # It binds ephemeral sockets and reads a mode-000 file. The mode-000 case
+      # is meaningless as root, which reads anything: on `ubuntu-latest` the job
+      # is `runner`, and `the check path refuses an unreadable .env` would pass
+      # for the wrong reason inside a root container.
+      - name: Dev entrypoint
+        run: bash bin/dev.test.sh
 
       # The two lefthook hooks, re-run here over every tracked file rather than
       # only the staged ones. A `--no-verify` commit reaches this.
@@ -479,8 +529,10 @@ jobs:
     # The `pixels` aggregate waits for the slowest shard, so the run cost the
     # 21.4m and shard 2 contributed nothing for most of it. Doubling the shard
     # count does not make the suite cheaper — it makes the imbalance finer
-    # grained, so the worst shard falls toward the mean and `gate` becomes the
-    # critical path instead. Expected effect is roughly 21.4m to ~14m per run.
+    # grained, so the worst shard falls toward the mean. Five wholly post-merge
+    # runs measured the worst shard at 9.4-11.0m versus `gate` at 14.2-19.0m,
+    # making `gate` the critical path in each run; the original expected effect
+    # was roughly 21.4m to ~14m per run.
     #
     # Queue wait was checked before assuming runners were free: measured 0.0m
     # across all 24 real jobs in that sample, so the shards start immediately
@@ -523,10 +575,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Both entries and the stable aggregate below are read from this
+        # All four entries and the stable aggregate below are read from this
         # production workflow by pixels-workflow.test.ts.
-        # Proof: deleting shard 2 failed that test with expected [1, 2], got
-        # [1], before the workflow was restored.
+        # Proof: deleting shard 2 failed that test with expected [1, 2, 3, 4],
+        # got [1, 3, 4], before the workflow was restored.
         shard: [1, 2, 3, 4]
     timeout-minutes: 25
     steps:

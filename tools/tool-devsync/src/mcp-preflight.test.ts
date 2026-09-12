@@ -1,9 +1,8 @@
 import { chmod, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { scratchAsync } from '@wbs/tool-test-scratch';
 import { describe, expect, it } from 'bun:test';
-
-import { scratchAsync } from '../../test/scratch';
 
 const PREFLIGHT = join(import.meta.dir, '../../../bin/dev-mcp-preflight.sh');
 const VALID_ENV = [

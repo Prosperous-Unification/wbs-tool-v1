@@ -5,7 +5,11 @@ import type { WorkItemView } from '@/lib/wbs-api';
 /** Where in a row the pointer is, and therefore what dropping there means. */
 export type DropZone = 'above' | 'into' | 'below';
 
-export type DropRefusal = 'frozen' | 'cycle' | 'unchanged' | 'not_found';
+/**
+ * `frozen` is gone since ADR 0023: a frozen work item moves like any other, and
+ * be-01 no longer refuses the move this used to pre-empt.
+ */
+export type DropRefusal = 'cycle' | 'unchanged' | 'not_found';
 
 /**
  * A resolved drop: exactly the two arguments `POST /work-items/:id/move` takes,
@@ -73,11 +77,6 @@ export function planMove(
   // Unknown is not OK. A target the list does not hold is a bug in the caller,
   // not a move to guess at.
   if (dragged === undefined || target === undefined) return { ok: false, reason: 'not_found' };
-
-  // A frozen number has left the tool — it is in someone's ticket. be-01 refuses
-  // the move for that reason; refusing here is what lets the reason be shown.
-  // Proof: this line deleted and only `refuses to move a frozen row` failed.
-  if (dragged.frozenNumber !== null) return { ok: false, reason: 'frozen' };
 
   // Onto itself, or anywhere inside its own subtree. `above` and `below` a
   // descendant are cycles too: both put the row under that descendant's parent,

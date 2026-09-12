@@ -30,7 +30,12 @@ import { createProject } from './create-project';
  * on a fresh project where the toggle is off and the pill is not drawn at all;
  * this is the figure with it.
  */
-const LAID_OUT_WITH_THE_CUE_AT_1280 = 1563;
+// **1601, moved from 1566 on 2026-09-11.** `arrange-by-schedule` added one
+// icon to this bar and it cost 34.8px here, the same 34.8px it cost the
+// cue-less pin in `project-settings.spec.ts` — which is the check on the
+// re-pin: two independently measured bars moved by one control's width.
+// `rows` is still 2 below, so nothing wrapped further.
+const LAID_OUT_WITH_THE_CUE_AT_1280 = 1601;
 
 /** How far a measured edge may be from a pinned figure, in CSS px — `project-settings.spec.ts`'s. */
 const NEARLY = 2;
@@ -152,11 +157,16 @@ test.describe('the schedule cue, in a browser', () => {
     });
     // A bar that lost controls would flatter the budget below.
     expect(measured.controls, 'the toolbar lost controls').toBeGreaterThanOrEqual(16);
-    // Proof: the pill's face given `reading.sentence` instead of the active
-    // schedule's label — the banner this change deleted, wearing a pill's
-    // clothes — and this failed on `2082px of controls to lay out, against the
-    // 1563px this change left · Expected: <= 1565 · Received: 2081.92`.
-    // Watched 2026-09-08.
+    // Proof: the cue's fixed width widened from 11.5rem to 44rem, and this
+    // failed on `2086px of controls to lay out, against the 1566px this change
+    // left · Expected: <= 1568 · Received: 2085.875`. Watched 2026-09-10 after
+    // the landing browser measured the unchanged cue at 1565.875px.
+    //
+    // Re-watched against the raised pin on 2026-09-11, because a ceiling that
+    // moves has to be proved again: the same widened cue failed on `2121px of
+    // controls to lay out, against the 1601px this change left · Expected: <=
+    // 1603 · Received: 2120.671875` — 35px above the old figure, which is the
+    // icon this change added, carried through.
     expect(
       measured.laidOut,
       `${String(Math.round(measured.laidOut))}px of controls to lay out, against the ${String(

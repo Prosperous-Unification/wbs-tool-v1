@@ -20,13 +20,16 @@ import { StepMeasureRepository } from '../repository/step-measure';
 import { StepProgressRepository } from '../repository/step-progress';
 import { UserRepository } from '../repository/user';
 import { SubtreeRepository, WorkItemRepository } from '../repository/work-item';
+import { AvailableWorkItemService as WorkItemService } from '../testing/available-work-item-service';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
 import { inMemoryCapacity } from '../testing/capacity-fixture';
+import { testClock } from '../testing/clock-fixture';
 import { personAdded } from '../testing/directory-fixture';
 import { inMemoryPriorityBands } from '../testing/priority-band-fixture';
 import { workItemRow } from '../testing/work-item-fixture';
+import { fastScheduler } from './optimizer-wiring';
 import { ProjectService } from './project.service';
-import { type UndoOutcome, WorkItemService } from './work-item.service';
+import type { UndoOutcome } from './work-item.service';
 
 /**
  * Conditional undo, end to end, **against real SQLite**.
@@ -109,8 +112,14 @@ beforeEach(async () => {
     { at: 2, by: strangerId },
   );
 
-  projects = new ProjectService({ projects: projectStore, broadcast: recordingBroadcaster() });
+  projects = new ProjectService({
+    clock: testClock,
+    projects: projectStore,
+    broadcast: recordingBroadcaster(),
+  });
   workItems = new WorkItemService({
+    scheduler: fastScheduler,
+    clock: testClock,
     workItems: workItemStore,
     projects: projectStore,
     estimates: estimateStore,
@@ -632,6 +641,54 @@ describe('undoing each kind of change', () => {
     // And the sibling that never had one still has none: a restore that filled
     // the column from a default would pass the assertion above and fail here.
     expect(back.find((row) => row.id === strip)?.deadline).toBeNull();
+  });
+
+  it('restores the fact dates of a deleted work item, against the real cascade', async () => {
+    // The deadline case above, two columns over, and here for the same reason:
+    // the row is gone after the delete and the dates come back only because
+    // `WORK_ITEM_COLUMNS` names them. A fixture-store case passes with them
+    // missing from the list, because its rows survive the deletion in an array.
+    //
+    // Proof: `factStart` and `factEnd` removed from `WORK_ITEM_COLUMNS`, and this
+    // fails on `Expected: ["2026-09-08", "2026-09-12"] / Received: [null, null]`
+    // — a branch back from an undo having quietly lost what happened to it.
+    const strip = await root('Strip');
+    const sockets = await child(strip, 'Sockets');
+    expect(
+      (await workItems.patch(sockets, ownerId, { factStart: '2026-09-08', factEnd: '2026-09-12' }))
+        .ok,
+    ).toBe(true);
+
+    expect((await workItems.remove(strip, ownerId, 'cascade')).ok).toBe(true);
+    expect(await rows()).toEqual([]);
+
+    expect(expectDone(await undone())).toBe('delete “Strip”');
+
+    const back = await rows();
+    const restored = back.find((row) => row.id === sockets);
+    expect([restored?.factStart, restored?.factEnd]).toEqual(['2026-09-08', '2026-09-12']);
+    const parent = back.find((row) => row.id === strip);
+    expect([parent?.factStart, parent?.factEnd]).toEqual([null, null]);
+  });
+
+  it('puts a cleared fact end back, and takes a first one away again', async () => {
+    // The deadline case below, two columns over: a fact rides the ordinary
+    // field-edit path, so the inverse of a clear is the date and the inverse of
+    // a first set is `null` — through `fieldsOf` and `revertTo`, with no verb
+    // of its own.
+    //
+    // Proof: the two `fact…` lines deleted from `fieldsOf`, and this fails at
+    // its first `expectDone` on `refused: stale_undo — “Strip” has changed
+    // since then`: the undo reached past the unjournalled write to an entry
+    // that write had already made stale. The deadline line's own red.
+    const strip = await root('Strip');
+    expect((await workItems.patch(strip, ownerId, { factEnd: '2026-09-12' })).ok).toBe(true);
+    expect((await workItems.patch(strip, ownerId, { factEnd: null })).ok).toBe(true);
+
+    expect(expectDone(await undone())).toBe('edit “Strip”');
+    expect((await rows()).at(0)?.factEnd).toBe('2026-09-12');
+    expect(expectDone(await undone())).toBe('edit “Strip”');
+    expect((await rows()).at(0)?.factEnd).toBeNull();
   });
 
   it('puts a cleared deadline back, and takes a first one away again', async () => {

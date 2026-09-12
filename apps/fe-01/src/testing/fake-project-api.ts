@@ -1,6 +1,9 @@
+import { arrangeBySchedule as arrangeSiblings } from '@wbs/domain/arrange-siblings';
 import type { DependencyReach } from '@wbs/domain/dependency-reach';
+import { deriveNumbers, type WorkItemPlacement } from '@wbs/domain/derive-numbers';
 import { automaticColor } from '@wbs/domain/marker-color';
 import { DEFAULT_PRIORITY_BANDS } from '@wbs/domain/priority-band';
+import { byTreeOrder, treeOrder } from '@wbs/domain/tree-order';
 
 import type {
   AssumedAssigneeFlipView,
@@ -286,20 +289,56 @@ export function fakeProjectApi(): ProjectApi & {
     return summed;
   }
 
+  /**
+   * The numbers and the row order, through **be-01's own rules** rather than a
+   * second copy of them.
+   *
+   * This used to derive labels with a private walk and then sort by the string,
+   * which had two consequences worth naming. It ignored `frozenNumber`
+   * entirely — a frozen row was renumbered like any other, so no jsdom test
+   * could see the rule that a frozen number leaves the tool and stays put. And
+   * the sort was by label, which stopped being the row order at ADR 0023.
+   *
+   * `rows` is this fake's whole model of the tree: the array order inside one
+   * parent's group *is* the sibling order, which is what the splices in
+   * `moveWorkItem` and `createWorkItem` maintain. So the positions are read off
+   * that order and handed to {@link deriveNumbers} and {@link treeOrder}, and
+   * the fake answers what the server would.
+   */
+  /**
+   * The rows as placements, positions read off the array's own order.
+   *
+   * Built beside the rows rather than written onto them: `WorkItemView` is the
+   * wire shape and carries no position, because be-01 never sends one. The
+   * array order inside one parent's group *is* the sibling order here, which is
+   * what the splices in `moveWorkItem` and `createWorkItem` maintain.
+   */
+  function placementsOf(): WorkItemPlacement[] {
+    const filled = new Map<string | null, number>();
+    return rows.map((row) => {
+      const at = (filled.get(row.parentId) ?? 0) + 1;
+      filled.set(row.parentId, at);
+      return {
+        id: row.id,
+        parentId: row.parentId,
+        position: at * 10,
+        frozenNumber: row.frozenNumber,
+      };
+    });
+  }
+
   function renumber(): void {
     seq += 1;
-    const numberOf = new Map<string | null, string>([[null, '']]);
-    const assign = (parentId: string | null, prefix: string): void => {
-      const group = rows.filter((r) => r.parentId === parentId);
-      group.forEach((row, i) => {
-        row.number =
-          prefix === '' ? String((i + 1) * 10).padStart(3, '0') : `${prefix}.${String(i + 1)}`;
-        numberOf.set(row.id, row.number);
-        assign(row.id, row.number);
-      });
-    };
-    assign(null, '');
-    rows.sort((a, b) => (a.number < b.number ? -1 : 1));
+    const placements = placementsOf();
+    const numbers = deriveNumbers(placements);
+    for (const row of rows) {
+      const number = numbers.get(row.id);
+      // `deriveNumbers` answers for every row it is given or throws, so this is
+      // a fixture that built a tree with no root rather than a missing default.
+      if (number === undefined) throw new Error(`the fake left ${row.id} unnumbered`);
+      row.number = number;
+    }
+    rows.sort(byTreeOrder(treeOrder(placements)));
     for (const row of rows) row.rolledUp = rows.some((r) => r.parentId === row.id);
   }
 
@@ -406,7 +445,9 @@ export function fakeProjectApi(): ProjectApi & {
           externalRefs: (r.externalRefs ?? []).map((ref) => ({ ...ref })),
           actuals: {},
           progress: {},
-          state: 'not_started' as const,
+          // The row's own, written by this fake's `setStatus` — the fold be-01
+          // derives, stored here because a fake has no steps to fold.
+          status: r.status,
           measures: {},
           dependsOn: edges.filter((e) => e.successorId === r.id).map((e) => e.predecessorId),
           schedule: scheduleOf(r),
@@ -771,6 +812,9 @@ export function fakeProjectApi(): ProjectApi & {
         // it — the deadline column has none, which is why the table's clear is
         // one field where the floor's is a pair.
         deadline: null,
+        factStart: null,
+        factEnd: null,
+        status: 'unknown' as const,
         // A duplicate `teamIds` sat here until 2026-08-18, and a duplicate
         // `startNoEarlierThanReason` until 2026-09-02 — both harmless, and both
         // only possible because nothing typechecked this file. Moving it here,
@@ -842,6 +886,20 @@ export function fakeProjectApi(): ProjectApi & {
         row.serviceTeamId = row.teamIds.at(0) ?? null;
       } else if (row !== undefined && 'serviceTeamId' in written) {
         row.teamIds = written.serviceTeamId === null ? [] : [written.serviceTeamId ?? ''];
+      }
+      return Promise.resolve();
+    },
+    setStatus(id, status, on) {
+      // be-01's fan-out and its fill, in the fake's own terms: the row and every
+      // row beneath it take the status, and a done row with no fact end takes
+      // `on`. Recorded for the tests that assert what was sent.
+      const beneath = (parentId: string): string[] =>
+        rows.filter((r) => r.parentId === parentId).flatMap((r) => [r.id, ...beneath(r.id)]);
+      for (const id_ of [id, ...beneath(id)]) {
+        const row = rows.find((r) => r.id === id_);
+        if (row === undefined) continue;
+        row.status = status;
+        if (status === 'done' && row.factEnd === null) row.factEnd = on;
       }
       return Promise.resolve();
     },
@@ -926,6 +984,29 @@ export function fakeProjectApi(): ProjectApi & {
           Object.entries(row.estimates).filter(([key]) => key !== stepId),
         );
       }
+      return Promise.resolve();
+    },
+    /**
+     * be-01's own arrangement, through the domain's function rather than a
+     * second ordering: this fake already computes a schedule in `scheduleOf`,
+     * and what a press does with one is exactly what `arrangeBySchedule` says.
+     */
+    arrangeBySchedule() {
+      const placements = placementsOf();
+      const starts = new Map(
+        rows.map((row) => [row.id, { earliestStart: scheduleOf(row).earliestStart }]),
+      );
+      const arranged = arrangeSiblings(placements, starts);
+      if (arranged.placements.length === 0) return Promise.resolve();
+      const at = new Map(arranged.placements.map((placed) => [placed.id, placed.position]));
+      // A group the arrangement left out is already in order, so its rows keep
+      // the positions `placementsOf` just read off the array.
+      const next = placements.map((placed) => ({
+        ...placed,
+        position: at.get(placed.id) ?? placed.position,
+      }));
+      rows.sort(byTreeOrder(treeOrder(next)));
+      renumber();
       return Promise.resolve();
     },
     freezeProject() {

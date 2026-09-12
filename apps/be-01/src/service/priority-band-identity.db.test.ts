@@ -19,8 +19,10 @@ import {
   withoutPlacement,
   withSnappedRollUps,
 } from '../testing/assumed-duration-oracle';
+import { AvailableWorkItemService as WorkItemService } from '../testing/available-work-item-service';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
 import { inMemoryCapacity } from '../testing/capacity-fixture';
+import { testClock } from '../testing/clock-fixture';
 import { inMemoryCommandJournal } from '../testing/command-journal-fixture';
 import { inMemoryDependencies } from '../testing/dependency-fixture';
 import { inMemoryDirectory } from '../testing/directory-fixture';
@@ -32,7 +34,7 @@ import { inMemoryProjects, projectRow } from '../testing/project-fixture';
 import { inMemorySubtrees } from '../testing/subtree-fixture';
 import { inMemoryWorkItems, workItemRow } from '../testing/work-item-fixture';
 import captured from './fixtures/capacity-oracle-2026-08-13.json';
-import { WorkItemService } from './work-item.service';
+import { fastScheduler } from './optimizer-wiring';
 
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 /** The tip before this change: the schema every existing plan is on when the migration runs. */
@@ -301,6 +303,8 @@ describe('a priority ladder moves no date', () => {
     const progress = inMemoryProgress(workItems);
     const dependencies = inMemoryDependencies();
     const service = new WorkItemService({
+      scheduler: fastScheduler,
+      clock: testClock,
       workItems,
       projects,
       estimates,
@@ -502,10 +506,12 @@ describe('a priority ladder moves no date', () => {
           actuals,
           measures,
           progress,
-          state,
+          status,
           serviceId,
           startNoEarlierThanReason,
           deadline,
+          factStart,
+          factEnd,
           ...row
         }) => {
           // Lifted by `work-item-deadline` 6.1, which made the column readable,
@@ -515,6 +521,12 @@ describe('a priority ladder moves no date', () => {
           // column and invented no date on the way. A bare lift would let a
           // projection that defaulted the column to today pass silently.
           expect(deadline).toBeNull();
+          // Lifted the same way by `work-item-status-and-facts` and asserted null for
+          // the deadline's reason: the oracle predates both columns, nothing in the
+          // replayed plans records a fact, and a projection that filled either from a
+          // clock would pass a bare lift.
+          expect(factStart).toBeNull();
+          expect(factEnd).toBeNull();
           expect(teamIds).toEqual(row.serviceTeamId === null ? [] : [row.serviceTeamId]);
           // `tagIds` is lifted the same way by `tags` (R10-B) and asserted **empty**
           // for `actuals`' reason: the oracle predates the dimension, nothing in
@@ -556,13 +568,13 @@ describe('a priority ladder moves no date', () => {
           // change's claim about itself: a figure that is not a day reaches
           // nothing that schedules, and none was invented on the way out.
           expect(measures).toEqual({});
-          // `progress` and `state` are lifted the same way by `role-progress`
+          // `progress` and `status` are lifted the same way by `role-progress`
           // (R6 H2b), and asserted for `actuals`' reason: an empty object and
           // `not_started` on every row of sixteen replayed plans is that change's
           // own claim — nobody has said anything, and a fold that invented a state
           // would otherwise pass here silently.
           expect(progress).toEqual({});
-          expect(state).toBe('not_started');
+          expect(status).toBe('unknown');
           // Lifted for the reason every key above it is, and the newest one:
           // `serviceId` came with task 10.2's column and
           // `startNoEarlierThanReason` with the words beside a not-before date,
@@ -689,6 +701,8 @@ describe('a priority ladder moves no date', () => {
     const progress = inMemoryProgress(workItems);
     const dependencies = inMemoryDependencies();
     const service = new WorkItemService({
+      scheduler: fastScheduler,
+      clock: testClock,
       workItems,
       projects,
       estimates,

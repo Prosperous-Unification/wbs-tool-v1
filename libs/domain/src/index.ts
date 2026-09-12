@@ -1,4 +1,9 @@
 export * from './assumed-duration';
+// One press of `Arrange by schedule`: every sibling group put in the order its
+// bars start. Here because it is a question about a plan's shape answered from
+// a `Schedule` this package already produces, and because be-01 and any later
+// caller must arrange a plan exactly one way (ADR 0023).
+export * from './arrange-siblings';
 export * from './capacity';
 // The read-time resolution of stored deadline dates to `schedule()`'s offsets,
 // beside `dependency-reach` rather than inside `leaf-constraints`: the fold is
@@ -61,21 +66,9 @@ export * from './saved-plan';
 // and answer a question about a plan's shape — which is what everything else in
 // here is. It reads four of its neighbours and no repository.
 export * from './schedule';
-// The exact-input hash and the string it is taken over (tasks.md 1.1, 1.2) are
-// NOT here, and this comment is the enforcement note rather than a description.
-// `canonical-schedule-input.ts` imports `node:crypto`; this barrel is reachable
-// from `apps/fe-01`, so a root re-export would put a Node builtin one
-// `export *` away from a browser bundle. Run 42 exported it here anyway, when
-// the plan read became the first caller outside this library, and Sol's M1 on
-// PR 203 caught the contradiction: the module's own docstring said it was
-// deliberately absent from the barrel while this line exported it.
-// Both halves of that finding are closed the same way. The single-canonicaliser
-// rule run 42 was protecting is real — a second canonicalisation written
-// app-side is the copy that orders an argument differently and serves another
-// plan's schedule — so the module still has exactly one implementation, and
-// backend callers reach it by the explicit Node subpath
-// `@wbs/domain/canonical-schedule-input` (tsconfig.base.json). One import, one
-// canonicaliser, and no browser-reachable path to `node:crypto`.
+// The canonical schedule string stays on its explicit subpath rather than the
+// browser-facing barrel. Backend cache addressing wraps that one canonicalizer
+// beside SQLite; domain contains no production crypto adapter.
 // The order relation two schedules are compared by (tasks.md 8.7, 8b.1). Here
 // rather than in the plan read that shipped it: with slice 8b the comparison is
 // taken for every ready variant instead of the one on screen, and the relation
@@ -110,5 +103,13 @@ export * from './slice-groups';
 // `schedule.ts` because the quantum is a fact about CP-SAT and not about the
 // calendar: 2,212 lines of placement have no business knowing the wire's unit.
 export * from './solver-quantum';
+export * from './solver-quantum-golden-corpus';
+export * from './step';
+// The order every reader draws a project in, and the one sibling grouping
+// `deriveNumbers`, `treeOrder` and `arrangeBySchedule` share. Since ADR 0023 a
+// number is a name rather than a place, so the order has to be stated: two
+// groupings would disagree about which work item is second, and the first two
+// of those are drawn on the same screen.
 export * from './stored-vocabularies';
+export * from './tree-order';
 export * from './workday';

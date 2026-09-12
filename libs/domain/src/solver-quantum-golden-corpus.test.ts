@@ -40,7 +40,7 @@ import {
  * commit that means to change `quantise` edits those assertions to the new
  * numbers and the suite is green — correctly, because that is how a behaviour
  * test is changed. Here the only route to green is to run
- * `write-solver-quantum-golden-corpus.ts` and read a diff of the numbers that
+ * `tools/dev/write-solver-quantum-golden-corpus.ts` and read a diff of the numbers that
  * moved, next to a stored `contractVersion` the change is supposed to move too.
  *
  * **That is a forced reading, not a forced bump, and the difference matters

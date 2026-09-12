@@ -2,8 +2,10 @@ import { type AppOptions, buildApp } from '../app';
 import { testAuthService } from './auth-fixture';
 import { testCalendarMarkerService } from './calendar-marker-fixture';
 import { testCapacityService } from './capacity-fixture';
+import { testClock } from './clock-fixture';
 import { testDirectoryService } from './directory-fixture';
 import { testHistoryService } from './history-fixture';
+import { testLoginThrottle } from './login-throttle-fixture';
 import { testPriorityBandService } from './priority-band-fixture';
 import { testProjectService } from './project-fixture';
 import { testReplay } from './replay-fixture';
@@ -37,6 +39,7 @@ export function testApp(overrides: Partial<AppOptions> = {}): ReturnType<typeof 
   const calendarMarkers = testCalendarMarkerService();
   return buildApp({
     appOrigin: 'http://localhost',
+    loginThrottle: testLoginThrottle(),
     auth: testAuthService(),
     projects,
     workItems,
@@ -64,5 +67,6 @@ export function testApp(overrides: Partial<AppOptions> = {}): ReturnType<typeof 
     }),
     migrationsApplied: true,
     ...overrides,
+    clock: overrides.clock ?? testClock,
   });
 }

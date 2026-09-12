@@ -1,0 +1,170 @@
+{
+  "schemaVersion": 1,
+  "declarationId": "pilot.applicable-checks.v1",
+  "selectorVersion": 1,
+  "coverage": "selected-facts-only",
+  "facts": [
+    {
+      "factId": "check.core.test",
+      "family": "targets",
+      "at": {
+        "kind": "current"
+      },
+      "kind": "nx-target",
+      "project": "core",
+      "target": "test",
+      "expectedConfiguration": {
+        "cache": true,
+        "inputs": ["default", "^production"],
+        "executor": "nx:run-commands",
+        "options": {
+          "command": "bun test src --coverage --coverage-reporter=lcov",
+          "cwd": "libs/core"
+        },
+        "outputs": ["{projectRoot}/coverage"],
+        "configurations": {},
+        "parallelism": true
+      }
+    },
+    {
+      "factId": "check.domain.test",
+      "family": "targets",
+      "at": {
+        "kind": "current"
+      },
+      "kind": "nx-target",
+      "project": "domain",
+      "target": "test",
+      "expectedConfiguration": {
+        "cache": true,
+        "executor": "nx:run-commands",
+        "inputs": [
+          "default",
+          "^production",
+          "{workspaceRoot}/apps/be-01/drizzle/*/migration.sql",
+          "{workspaceRoot}/docs/adr/*.md",
+          "{workspaceRoot}/apps/fe-01/src/styles.css"
+        ],
+        "options": {
+          "command": "bun test --coverage --coverage-reporter=lcov",
+          "cwd": "libs/domain"
+        },
+        "outputs": ["{projectRoot}/coverage"],
+        "configurations": {},
+        "parallelism": true
+      }
+    },
+    {
+      "factId": "check.store-memory.test",
+      "family": "targets",
+      "at": {
+        "kind": "current"
+      },
+      "kind": "nx-target",
+      "project": "store-memory",
+      "target": "test",
+      "expectedConfiguration": {
+        "cache": true,
+        "executor": "nx:run-commands",
+        "inputs": ["default", "^production"],
+        "options": {
+          "command": "bun test src --coverage --coverage-reporter=lcov",
+          "cwd": "libs/store-memory"
+        },
+        "outputs": ["{projectRoot}/coverage"],
+        "configurations": {},
+        "parallelism": true
+      }
+    },
+    {
+      "factId": "check.tool-dagger.test",
+      "family": "targets",
+      "at": {
+        "kind": "current"
+      },
+      "kind": "nx-target",
+      "project": "tool-dagger",
+      "target": "test",
+      "expectedConfiguration": {
+        "cache": true,
+        "executor": "nx:run-commands",
+        "inputs": [
+          "default",
+          "^production",
+          "{workspaceRoot}/bin/with-heavy-lock.sh",
+          "{workspaceRoot}/bin/heavy-lock-lib.sh",
+          "{workspaceRoot}/docs/runbook-prod-deploy.md"
+        ],
+        "options": {
+          "command": "bun test --preload ../test/scratch/preload.ts",
+          "cwd": "tools/tool-dagger"
+        },
+        "outputs": ["{projectRoot}/coverage"],
+        "configurations": {},
+        "parallelism": true
+      }
+    },
+    {
+      "factId": "check.tool-wiki.test",
+      "family": "targets",
+      "at": {
+        "kind": "current"
+      },
+      "kind": "nx-target",
+      "project": "tool-wiki",
+      "target": "test",
+      "expectedConfiguration": {
+        "cache": true,
+        "inputs": ["default", "^production"],
+        "executor": "nx:run-commands",
+        "options": {
+          "command": "bun test --preload ../test/scratch/preload.ts",
+          "cwd": "tools/tool-wiki"
+        },
+        "outputs": ["{projectRoot}/coverage"],
+        "configurations": {},
+        "parallelism": true
+      }
+    },
+    {
+      "factId": "check.tool-wiki.lint-source",
+      "family": "targets",
+      "at": {
+        "kind": "current"
+      },
+      "kind": "nx-target",
+      "project": "tool-wiki",
+      "target": "lint:source",
+      "expectedConfiguration": {
+        "cache": false,
+        "executor": "nx:run-commands",
+        "options": {
+          "command": "bunx eslint tools/tool-wiki/src"
+        },
+        "configurations": {},
+        "parallelism": true
+      }
+    },
+    {
+      "factId": "check.tool-wiki.typecheck",
+      "family": "targets",
+      "at": {
+        "kind": "current"
+      },
+      "kind": "nx-target",
+      "project": "tool-wiki",
+      "target": "typecheck",
+      "expectedConfiguration": {
+        "executor": "nx:run-commands",
+        "options": {
+          "command": "bunx tsc --build --force tools/tool-wiki/tsconfig.json"
+        },
+        "configurations": {},
+        "parallelism": true,
+        "cache": true,
+        "inputs": ["default", "^production", "{workspaceRoot}/tsconfig.base.json"]
+      }
+    }
+  ],
+  "edges": []
+}

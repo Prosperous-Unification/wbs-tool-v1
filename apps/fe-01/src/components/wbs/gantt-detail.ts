@@ -12,10 +12,15 @@ import { remembered } from '@/lib/remembered';
  * what the panel **draws**: the three `detailShown &&` gates over the marks,
  * and the switch's own label and classes.
  *
- * One answer for three families of mark (the stored-dependency arrows, the
- * parent rows' summary brackets, the unestimated slices' assumed bars) and not
- * three: Dany asked for "all decluttering into one button" (2026-08-12), so
- * there is no per-family state to disagree with itself.
+ * One answer for **two** families of mark — the stored-dependency arrows and
+ * the parent rows' summary brackets — and not two switches: Dany asked for "all
+ * decluttering into one button" (2026-08-12), so there is no per-family state to
+ * disagree with itself.
+ *
+ * It was three until 2026-09-11. The unestimated slices' assumed bars were the
+ * third, and they left the switch's scope when Dany saw a chart with the detail
+ * off: _"with details disabled you still have to show the unestimated slices"_.
+ * `gantt-panel.tsx`'s `drawnBars` carries the measurement.
  */
 
 /**

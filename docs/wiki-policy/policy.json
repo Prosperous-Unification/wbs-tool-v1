@@ -1,0 +1,768 @@
+{
+  "schemaVersion": 1,
+  "policyId": "policy.radical-modularity-pilot.v1",
+  "minimumMode": "observe",
+  "classificationPolicy": {
+    "schemaVersion": 1,
+    "policyId": "classification.radical-modularity-pilot.v1",
+    "selectorVersion": 1,
+    "contentClasses": [
+      "source",
+      "test",
+      "config",
+      "script",
+      "migration",
+      "fixture",
+      "generated",
+      "vendored",
+      "placeholder",
+      "document",
+      "openspec"
+    ],
+    "contentRules": [
+      {
+        "contentClass": "test",
+        "include": [
+          {
+            "kind": "suffix",
+            "value": ".test.ts"
+          },
+          {
+            "kind": "suffix",
+            "value": ".spec.ts"
+          },
+          {
+            "kind": "suffix",
+            "value": ".test.tsx"
+          },
+          {
+            "kind": "suffix",
+            "value": ".spec.tsx"
+          },
+          {
+            "kind": "suffix",
+            "value": ".test.sh"
+          },
+          {
+            "kind": "segment",
+            "value": "e2e"
+          },
+          {
+            "kind": "segment",
+            "value": "test"
+          },
+          {
+            "kind": "segment",
+            "value": "tests"
+          }
+        ],
+        "exclude": []
+      },
+      {
+        "contentClass": "generated",
+        "include": [
+          {
+            "kind": "segment",
+            "value": "generated"
+          }
+        ],
+        "exclude": []
+      },
+      {
+        "contentClass": "vendored",
+        "include": [
+          {
+            "kind": "segment",
+            "value": "vendor"
+          },
+          {
+            "kind": "segment",
+            "value": "third-party"
+          }
+        ],
+        "exclude": []
+      },
+      {
+        "contentClass": "fixture",
+        "include": [
+          {
+            "kind": "segment",
+            "value": "fixtures"
+          },
+          {
+            "kind": "segment",
+            "value": "__fixtures__"
+          }
+        ],
+        "exclude": []
+      },
+      {
+        "contentClass": "migration",
+        "include": [
+          {
+            "kind": "segment",
+            "value": "migrations"
+          },
+          {
+            "kind": "segment",
+            "value": "drizzle"
+          }
+        ],
+        "exclude": []
+      },
+      {
+        "contentClass": "openspec",
+        "include": [
+          {
+            "kind": "prefix",
+            "value": "openspec"
+          }
+        ],
+        "exclude": []
+      },
+      {
+        "contentClass": "placeholder",
+        "include": [
+          {
+            "kind": "name",
+            "value": ".gitkeep"
+          },
+          {
+            "kind": "name",
+            "value": ".keep"
+          }
+        ],
+        "exclude": []
+      },
+      {
+        "contentClass": "script",
+        "include": [
+          {
+            "kind": "suffix",
+            "value": ".sh"
+          },
+          {
+            "kind": "prefix",
+            "value": "bin"
+          },
+          {
+            "kind": "path",
+            "value": "ops/agent-trailer/prepare-commit-msg"
+          }
+        ],
+        "exclude": [
+          {
+            "kind": "suffix",
+            "value": ".test.sh"
+          }
+        ]
+      },
+      {
+        "contentClass": "config",
+        "include": [
+          {
+            "kind": "suffix",
+            "value": ".json"
+          },
+          {
+            "kind": "suffix",
+            "value": ".yaml"
+          },
+          {
+            "kind": "suffix",
+            "value": ".yml"
+          },
+          {
+            "kind": "suffix",
+            "value": ".toml"
+          },
+          {
+            "kind": "suffix",
+            "value": ".config.ts"
+          },
+          {
+            "kind": "suffix",
+            "value": ".lock"
+          },
+          {
+            "kind": "suffix",
+            "value": ".example"
+          },
+          {
+            "kind": "suffix",
+            "value": ".sops"
+          },
+          {
+            "kind": "suffix",
+            "value": ".service"
+          },
+          {
+            "kind": "suffix",
+            "value": ".caddy"
+          },
+          {
+            "kind": "suffix",
+            "value": ".candidate"
+          },
+          {
+            "kind": "suffix",
+            "value": ".bootstrap"
+          },
+          {
+            "kind": "suffix",
+            "value": ".tmpl"
+          },
+          {
+            "kind": "suffix",
+            "value": ".Dockerfile"
+          },
+          {
+            "kind": "name",
+            "value": "Dockerfile"
+          },
+          {
+            "kind": "name",
+            "value": "Caddyfile"
+          },
+          {
+            "kind": "name",
+            "value": ".bun-version"
+          },
+          {
+            "kind": "name",
+            "value": ".dockerignore"
+          },
+          {
+            "kind": "name",
+            "value": ".editorconfig"
+          },
+          {
+            "kind": "name",
+            "value": ".gitignore"
+          },
+          {
+            "kind": "name",
+            "value": ".nxignore"
+          },
+          {
+            "kind": "name",
+            "value": ".prettierignore"
+          }
+        ],
+        "exclude": [
+          {
+            "kind": "segment",
+            "value": "fixtures"
+          },
+          {
+            "kind": "segment",
+            "value": "drizzle"
+          },
+          {
+            "kind": "segment",
+            "value": "migrations"
+          },
+          {
+            "kind": "prefix",
+            "value": "openspec"
+          },
+          {
+            "kind": "segment",
+            "value": "e2e"
+          },
+          {
+            "kind": "segment",
+            "value": "test"
+          },
+          {
+            "kind": "segment",
+            "value": "tests"
+          },
+          {
+            "kind": "prefix",
+            "value": "docs/review-evidence"
+          },
+          {
+            "kind": "prefix",
+            "value": "docs/experiment-evidence"
+          }
+        ]
+      },
+      {
+        "contentClass": "source",
+        "include": [
+          {
+            "kind": "suffix",
+            "value": ".ts"
+          },
+          {
+            "kind": "suffix",
+            "value": ".tsx"
+          },
+          {
+            "kind": "suffix",
+            "value": ".js"
+          },
+          {
+            "kind": "suffix",
+            "value": ".mjs"
+          },
+          {
+            "kind": "suffix",
+            "value": ".py"
+          },
+          {
+            "kind": "suffix",
+            "value": ".css"
+          },
+          {
+            "kind": "suffix",
+            "value": ".html"
+          },
+          {
+            "kind": "suffix",
+            "value": ".svg"
+          }
+        ],
+        "exclude": [
+          {
+            "kind": "suffix",
+            "value": ".test.ts"
+          },
+          {
+            "kind": "suffix",
+            "value": ".spec.ts"
+          },
+          {
+            "kind": "suffix",
+            "value": ".test.tsx"
+          },
+          {
+            "kind": "suffix",
+            "value": ".spec.tsx"
+          },
+          {
+            "kind": "suffix",
+            "value": ".config.ts"
+          },
+          {
+            "kind": "segment",
+            "value": "e2e"
+          },
+          {
+            "kind": "segment",
+            "value": "test"
+          },
+          {
+            "kind": "segment",
+            "value": "tests"
+          },
+          {
+            "kind": "segment",
+            "value": "fixtures"
+          },
+          {
+            "kind": "segment",
+            "value": "generated"
+          },
+          {
+            "kind": "segment",
+            "value": "vendor"
+          }
+        ]
+      },
+      {
+        "contentClass": "document",
+        "include": [
+          {
+            "kind": "suffix",
+            "value": ".md"
+          },
+          {
+            "kind": "suffix",
+            "value": ".txt"
+          }
+        ],
+        "exclude": [
+          {
+            "kind": "prefix",
+            "value": "openspec"
+          },
+          {
+            "kind": "segment",
+            "value": "fixtures"
+          }
+        ]
+      }
+    ],
+    "evidenceRoots": [
+      {
+        "path": "docs/review-evidence",
+        "allowedRecordKinds": ["review-receipt", "opaque-transcript"]
+      },
+      {
+        "path": "docs/experiment-evidence",
+        "allowedRecordKinds": ["benchmark-corpus", "candidate-inventory", "experiment-manifest"]
+      }
+    ],
+    "binaryDeclarations": [],
+    "gitlinkBoundaries": [],
+    "symlinks": "inventory-only",
+    "gitlinks": "declared-external-boundary"
+  },
+  "adoptedBoundaryIds": [],
+  "activationBoundaryIds": [],
+  "boundaries": [
+    {
+      "boundaryId": "boundary.domain.saved-plan",
+      "selector": {
+        "kind": "prefix",
+        "value": "libs/domain/src/saved-plan"
+      },
+      "baselineEntries": [
+        {
+          "mode": "100644",
+          "blob": "00776a5d3306ce69ada791779da868b430690490",
+          "path": "libs/domain/src/saved-plan/canonical-plan-input.test.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "666be8db990e1fff69f973ee1c1d077a7d0544ab",
+          "path": "libs/domain/src/saved-plan/canonical-plan-input.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "3fdaa36b9d45a164fbb87b7bd63068df3a4d9973",
+          "path": "libs/domain/src/saved-plan/diff-plans.test.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "4282758f8ec39871505edf92af335c1059529909",
+          "path": "libs/domain/src/saved-plan/diff-plans.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "22d621571860d1abb2fdc79abede428b6eba7875",
+          "path": "libs/domain/src/saved-plan/index.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "890267b86d8ff1459308bea5a73d2cedd594d372",
+          "path": "libs/domain/src/saved-plan/normalise-plan-input.test.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "cec6aadd6a693b8b7eda82576075c994fb21f5be",
+          "path": "libs/domain/src/saved-plan/normalise-plan-input.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "f27f4fb432d1470d464c9d08889fc2a788ff4052",
+          "path": "libs/domain/src/saved-plan/plan-fixture.ts"
+        }
+      ],
+      "obligationIds": []
+    },
+    {
+      "boundaryId": "boundary.application.use-cases",
+      "selector": {
+        "kind": "prefix",
+        "value": "libs/core/src/use-cases"
+      },
+      "baselineEntries": [
+        {
+          "mode": "100644",
+          "blob": "e9d503c7758bf3a8268bfe0b3db751f63619e24c",
+          "path": "libs/core/src/use-cases/admission.test.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "d18bf8e74e82501358dd994e2226a87e068b9220",
+          "path": "libs/core/src/use-cases/replay.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "95be165f6581580326f3e10e40de1304138601d2",
+          "path": "libs/core/src/use-cases/retention-sweep.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "ae4a511651d10d5df47f5de07f1dd8fcc60b6455",
+          "path": "libs/core/src/use-cases/run-command-batch.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "040f8b3ea14c31e503a51d947dcc1f2ea99f949a",
+          "path": "libs/core/src/use-cases/save-plan.ts"
+        }
+      ],
+      "obligationIds": []
+    },
+    {
+      "boundaryId": "boundary.adapter.store-memory",
+      "selector": {
+        "kind": "prefix",
+        "value": "libs/store-memory/src"
+      },
+      "baselineEntries": [
+        {
+          "mode": "100644",
+          "blob": "724cbbfade4390a2774d7d59d34b44357d5dc90c",
+          "path": "libs/store-memory/src/actual-fixture.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "0309c3061103e5f65e681f5f4511b79dadf223bf",
+          "path": "libs/store-memory/src/auth-fixture.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "15e71db8f9b59a63ecd3a7aa91ab550de286d092",
+          "path": "libs/store-memory/src/calendar-marker-fixture.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "a1b559644b3adc848aa3985b858edee2c75c7bf0",
+          "path": "libs/store-memory/src/capacity-fixture.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "87fc071d2d6f0803e1f4f4eb7ad0e79e96551490",
+          "path": "libs/store-memory/src/command-journal-fixture.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "e4bd75cfaecd37e08dbd07ecefd72786141b3384",
+          "path": "libs/store-memory/src/dependency-fixture.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "ec556fd9b9fdf991250f0eda3ad397fb42826c0f",
+          "path": "libs/store-memory/src/directory-fixture.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "72aafc099230822acf3cc8b1b5ad1bca09507176",
+          "path": "libs/store-memory/src/estimate-fixture.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "75e07b9cca56e1e3a917c16b0912316b0a037194",
+          "path": "libs/store-memory/src/history-fixture.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "f10fb16cfa8aee7aede5c0e8ab65771ec47d1ad6",
+          "path": "libs/store-memory/src/in-memory-source.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "54fe1c5c52502e640ed225c122446ab273198683",
+          "path": "libs/store-memory/src/index.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "2b17487dd5dc6eefedcadb3a4029cc317daa40d4",
+          "path": "libs/store-memory/src/measure-fixture.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "d2c92bff89abb469aa192bda6121d61e3b5bc921",
+          "path": "libs/store-memory/src/memory-source.test.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "e2820bc5f2b8217a98a39255d437749a665805d6",
+          "path": "libs/store-memory/src/memory-work-item-fixture.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "f52df524607cd5708c8d91b61255cb1fbfc57831",
+          "path": "libs/store-memory/src/priority-band-fixture.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "5002483cc5b9051d301a50fefcf701907f7d7964",
+          "path": "libs/store-memory/src/progress-fixture.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "8748357eccbb77ad25fabf5a639589b2381ae2b3",
+          "path": "libs/store-memory/src/project-fixture.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "3d64ebe2be0dec7a6c40e4620baaf73c63bfa156",
+          "path": "libs/store-memory/src/replay-fixture.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "7c64b30182717a39e6451485a67ef93fac931f28",
+          "path": "libs/store-memory/src/source-conformance.test.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "0de65b2e93672a78b50814ea018ea7d6cb07ca27",
+          "path": "libs/store-memory/src/source.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "491e10d216dbe569601e961f702e6a5b7a114890",
+          "path": "libs/store-memory/src/step-fixture.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "d30ed0dc2a491c8a457f255f28d095746211802d",
+          "path": "libs/store-memory/src/subtree-fixture.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "31bc1c36f0fc110fe33e635df3f2ecbfac317a22",
+          "path": "libs/store-memory/src/testing/service-fixtures.ts"
+        }
+      ],
+      "obligationIds": []
+    },
+    {
+      "boundaryId": "boundary.infra.release-assembly",
+      "selector": {
+        "kind": "prefix",
+        "value": "tools/tool-dagger/src/lib"
+      },
+      "baselineEntries": [
+        {
+          "mode": "100644",
+          "blob": "fc9ecc8503e6bcabd9c3a368841661a2d2625cc3",
+          "path": "tools/tool-dagger/src/lib/bundle.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "5c1b6d97616ff87d6a274df0c5fc95e1324c215a",
+          "path": "tools/tool-dagger/src/lib/image.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "b8f6fc1d5680e672ce71bce3c8b9ced135f72aed",
+          "path": "tools/tool-dagger/src/lib/publish.test.ts"
+        },
+        {
+          "mode": "100644",
+          "blob": "cc1113d781a8ff2c886ac3d852eab595792827be",
+          "path": "tools/tool-dagger/src/lib/publish.ts"
+        }
+      ],
+      "obligationIds": []
+    },
+    {
+      "boundaryId": "boundary.docs.wbs-table-extraction",
+      "selector": {
+        "kind": "prefix",
+        "value": "docs/refactoring/w4-4"
+      },
+      "baselineEntries": [
+        {
+          "mode": "100644",
+          "blob": "ff3b5597193a73887339465a97571e6000d8a934",
+          "path": "docs/refactoring/w4-4/extraction-map.md"
+        },
+        {
+          "mode": "100644",
+          "blob": "2b0639efaa7bc70579598ddad346e9a50349d4d6",
+          "path": "docs/refactoring/w4-4/tasks.md"
+        },
+        {
+          "mode": "100644",
+          "blob": "a9d8b53174f4a8dab7a6375d59dee0e62d62a799",
+          "path": "docs/refactoring/w4-4/verify.md"
+        }
+      ],
+      "obligationIds": []
+    },
+    {
+      "boundaryId": "boundary.archive.bounded-replay-sweep",
+      "selector": {
+        "kind": "prefix",
+        "value": "openspec/changes/archive/2026-09-08-bounded-replay-sweep"
+      },
+      "baselineEntries": [
+        {
+          "mode": "100644",
+          "blob": "4b79b7541eddec576646c38a620f18bc3b90513c",
+          "path": "openspec/changes/archive/2026-09-08-bounded-replay-sweep/.openspec.yaml"
+        },
+        {
+          "mode": "100644",
+          "blob": "5e5961e3b208c05d3b56601baa44961c8195796c",
+          "path": "openspec/changes/archive/2026-09-08-bounded-replay-sweep/proposal.md"
+        },
+        {
+          "mode": "100644",
+          "blob": "364a40a090b9aeb7565a1c31cf8c305f2c619044",
+          "path": "openspec/changes/archive/2026-09-08-bounded-replay-sweep/specs/bounded-replay-sweep/spec.md"
+        },
+        {
+          "mode": "100644",
+          "blob": "92a60e917c5179213f4e1bd75da6a811535cf398",
+          "path": "openspec/changes/archive/2026-09-08-bounded-replay-sweep/tasks.md"
+        },
+        {
+          "mode": "100644",
+          "blob": "eee11d91717e9cff8bf2fb3b3d02a8be196cc15e",
+          "path": "openspec/changes/archive/2026-09-08-bounded-replay-sweep/verify.md"
+        }
+      ],
+      "obligationIds": []
+    }
+  ],
+  "obligations": [],
+  "exemptions": [],
+  "relationshipRequest": {
+    "schemaVersion": 1,
+    "declarationPaths": ["docs/wiki-policy/relationships.json"],
+    "typescript": {
+      "configPaths": ["libs/domain/tsconfig.lib.json"],
+      "publicEntrypoints": ["libs/domain/src/saved-plan/index.ts"]
+    }
+  },
+  "pilot": {
+    "sourceRevision": "7851161bf96312750d07b933ca5d42b75ce575c7",
+    "coverage": "selected-boundaries-only",
+    "exclusions": [
+      {
+        "selector": {
+          "kind": "prefix",
+          "value": "apps/fe-01/e2e"
+        },
+        "reason": "Browser behavior is outside the six-boundary pilot and remains review debt."
+      },
+      {
+        "selector": {
+          "kind": "prefix",
+          "value": "apps/be-01/drizzle"
+        },
+        "reason": "Applied migrations are outside the pilot and remain immutable review debt."
+      },
+      {
+        "selector": {
+          "kind": "prefix",
+          "value": "docs/review-evidence"
+        },
+        "reason": "Reserved review evidence follows schema validation rather than pilot content review."
+      },
+      {
+        "selector": {
+          "kind": "prefix",
+          "value": "docs/experiment-evidence"
+        },
+        "reason": "Reserved experiment evidence follows schema validation rather than pilot content review."
+      },
+      {
+        "selector": {
+          "kind": "prefix",
+          "value": "openspec/changes/agent-scalable-llm-wiki"
+        },
+        "reason": "The active delivery packet is not allowed to certify itself as pilot-reviewed content."
+      }
+    ]
+  }
+}

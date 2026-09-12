@@ -798,7 +798,7 @@ export function ReferenceSetStrip({
         // four reference columns stand in the middle of the table, and a card
         // under one covers the rows below it in its own column. See
         // {@link sidewaysPlacement}.
-        <HoverCard label={label} opensSideways>
+        <HoverCard label={label}>
           {lines.map((line) => (
             <div key={line.key} data-reference-card-line={line.stated ? 'stated' : 'carried'}>
               {line.text}

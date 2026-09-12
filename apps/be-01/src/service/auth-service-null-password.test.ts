@@ -1,8 +1,8 @@
 import { expect, it } from 'bun:test';
-import { errors } from 'jose';
 
 import type { UserStore } from '../repository';
 import { bunPasswordHasher, joseTokenCodec } from '../runtime/bun-runtime';
+import { testClock } from '../testing/clock-fixture';
 import { AuthService } from './auth.service';
 
 it('rejects password login for an OIDC-only account', async () => {
@@ -21,6 +21,7 @@ it('rejects password login for an OIDC-only account', async () => {
     findById: () => Promise.resolve(oidcUser),
   };
   const auth = new AuthService({
+    clock: testClock,
     users,
     tokens: joseTokenCodec('x'.repeat(32)),
     passwords: bunPasswordHasher,
@@ -50,6 +51,7 @@ it('spends the same dummy password-verifier path for unknown and OIDC-only accou
   };
   const verified: { password: string; hash: string }[] = [];
   const auth = new AuthService({
+    clock: testClock,
     users,
     tokens: joseTokenCodec('x'.repeat(32)),
     passwords: {
@@ -85,6 +87,7 @@ it('never feeds an unbounded login password into the expensive verifier', async 
   };
   const verified: { password: string; hash: string }[] = [];
   const auth = new AuthService({
+    clock: testClock,
     users,
     tokens: joseTokenCodec('x'.repeat(32)),
     passwords: {
@@ -104,7 +107,7 @@ it('never feeds an unbounded login password into the expensive verifier', async 
   expect(verified[0]?.hash).not.toBe('real-hash');
 });
 
-it('rejects legacy HS256 sessions after OIDC mode is configured', async () => {
+it('falls back from invalid OIDC only when password sessions are enabled', async () => {
   const legacyUser = {
     id: 'legacy',
     username: 'legacy',
@@ -121,6 +124,7 @@ it('rejects legacy HS256 sessions after OIDC mode is configured', async () => {
   };
   const key = 'x'.repeat(32);
   const legacy = new AuthService({
+    clock: testClock,
     users,
     tokens: joseTokenCodec(key),
     passwords: bunPasswordHasher,
@@ -128,16 +132,28 @@ it('rejects legacy HS256 sessions after OIDC mode is configured', async () => {
   const login = await legacy.login('legacy', 'legacy-password');
   if (!login.ok) throw new Error('legacy fixture did not issue a token');
 
-  const oidc = new AuthService({
+  const invalidOidc = { verify: () => Promise.resolve(null) };
+  const oidcOnly = new AuthService({
+    clock: testClock,
     users,
     tokens: joseTokenCodec(key),
     passwords: bunPasswordHasher,
-    oidc: {
-      groupPrefix: 'dev',
-      groupsClaim: 'wbs_groups',
-      verifier: { verify: () => Promise.reject(new errors.JOSEAlgNotAllowed('not an OIDC token')) },
-    },
+    oidc: invalidOidc,
+    passwordSessions: false,
+  });
+  const oidcWithPasswordFallback = new AuthService({
+    clock: testClock,
+    users,
+    tokens: joseTokenCodec(key),
+    passwords: bunPasswordHasher,
+    oidc: invalidOidc,
+    passwordSessions: true,
   });
 
-  expect(await oidc.authenticate(login.value.token)).toBeNull();
+  expect(await oidcOnly.authenticate(login.value.token)).toBeNull();
+  expect(await oidcWithPasswordFallback.authenticate(login.value.token)).toEqual({
+    id: 'legacy',
+    username: 'legacy',
+    scopes: ['read', 'write', 'editor'],
+  });
 });

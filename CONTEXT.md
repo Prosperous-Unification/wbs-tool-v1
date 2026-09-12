@@ -31,9 +31,16 @@ _Avoid_: clone, copy-paste, template
 
 **Work item number**:
 The label a work item is known by outside the tool, formed `010`, `020`, `010.1`,
-`010.01`. Derived from position unless frozen. Zero-prefixed so it sorts lexicographically,
-zero-suffixed so later work can be inserted between two numbers already in use.
+`010.01`. Derived from position unless frozen, and reading as tree order until a frozen
+work item has moved — after that a number is a name and the work item's place says where
+it is.
 _Avoid_: id, index, wbs code
+
+**Tree order**:
+The one order every reader draws a project in: depth-first, siblings by position, a tied
+position by id. Numbers used to be the only spelling of it; since a frozen work item may
+move, they are not.
+_Avoid_: number order, sort order, display order
 
 **Position**:
 An integer ordering a work item among its siblings, spaced in gaps of ten. The input a
@@ -48,15 +55,20 @@ their numbers as before, until the next freeze.
 _Avoid_: lock, pin, publish
 
 **Frozen number**:
-A work item number that a freeze wrote down. It survives insertions, deletions and
-repadding elsewhere in the project, and blocks the work item from moving until explicitly
-unfrozen.
+A work item number that a freeze wrote down. It survives insertions, deletions, repadding
+and its own work item moving; unfrozen siblings skip the label it holds.
 _Avoid_: fixed number, locked number
 
 **Repadding**:
 Widening every child number under one parent when that parent gains a tenth child, so
 `010.1` becomes `010.01` and the tenth sorts last rather than second.
 _Avoid_: renumbering, padding fix
+
+**Arrange by schedule**:
+The project-wide act of rewriting each sibling group's positions so siblings read in the
+order their projections start in the selected engine's schedule, work items starting
+together keeping their order. Frozen work items move with the rest; nothing changes parent.
+_Avoid_: sort, reorder, sort by Gantt, sequence, sync with chart
 
 **Step**:
 A named kind of work a project estimates separately, unique by name within it. Every
@@ -320,6 +332,28 @@ The hours a step's work on one work item actually took. Recorded, never derived:
 conversion from tokens or from days exists, because neither is one.
 _Avoid_: actual hours, time spent, effort
 
+**Progress**:
+What one step has said about its own work on one work item — `in_progress` or `done` — with
+the moment it was said. Unknown is the absence of a statement, never a stored value.
+_Avoid_: step status, completion, state
+
+**Status**:
+What a work item reads as — unknown, in progress or done — folded from its steps' progress
+and, for a parent, from its children's statuses, on every read and never stored. Unknown means
+nobody has said anything; done is unanimous; every disagreement in between is in progress.
+_Avoid_: state, completion, progress (which is the step's), done flag
+
+**Fact start**:
+The day work on a work item actually began, date-only, typed by the planner. A record of the
+world beside the schedule's forecast, read by no engine; absent means nobody has said.
+_Avoid_: actual start, real start, started at, start date
+
+**Fact end**:
+The day work on a work item actually finished, date-only. Filled with the day of the act when a
+work item is marked done holding none; otherwise typed. Where a done work item's bar stops,
+whatever the estimate says.
+_Avoid_: actual end, finished at, completion date, done at
+
 **Dependency**:
 One work item waiting for another's reached slice to finish before it starts — which of
 the predecessor's slices that is comes from the project's Dependency reach. Either end may
@@ -510,6 +544,12 @@ that the width reads as a guess. The width itself is the schedule's — what the
 the saying.
 _Avoid_: ghost bar, placeholder bar
 
+**Done bar**:
+The drawing of a done work item: one bar from its fact start — or where its first slice
+started, when it has none — to its fact end, in place of its slices, and marked as done. A
+picture of what happened, where the slices were a picture of what was expected.
+_Avoid_: completed bar, clipped bar, fact bar, finished slice
+
 **Slack**:
 How long a work item can be late before the plan's end moves — its latest finish less its
 earliest finish. Zero slack is Critical. One word for it, and `float` is the one to avoid:
@@ -616,24 +656,34 @@ preview. The export and the search read the source instead.
 _Avoid_: rich text, formatted name, markdown name
 
 **Hover preview**:
-The rendered reading of one work item, opened over its Name cell from the notes marker on
-that cell: the name as a level-one heading the application itself writes, with the name's
-own inline markdown inside it, and the notes as markdown under it. The name is never
-composed into the notes' markdown source. The only place notes render; nowhere does raw
-HTML in either field become markup.
+The rendered reading of one work item: the name as a level-one heading the application
+itself writes, with the name's own inline markdown inside it, and the notes as markdown
+under it. One card, shown two ways — opened over its Name cell from the notes marker on
+hover, and shown beside the box while it is being written in, the same size and content
+either way. The name is never composed into the notes' markdown source. The only place
+notes render; nowhere does raw HTML in either field become markup.
 _Avoid_: tooltip, popover, notes preview
 
 **Notes marker**:
-The small mark at the right edge of a Name cell whose work item has notes, and the only
-thing that opens that cell's hover preview. It says a row has notes; it is not a control —
-nothing to click, no focus, no place in the keyboard grid.
+The small mark at the right edge of a Name cell whose work item has notes, and what opens
+that cell's hover preview — except while the box is being written in, where the editing
+preview already shows it and the marker stays quiet. It says a row has notes; it is not a
+control — nothing to click, no focus, no place in the keyboard grid.
 _Avoid_: notes icon, badge, indicator, button
 
 **Hover card**:
 The instant answer a cell gives to the mouse resting on it: the whole of what its at-rest
 face folds away — a folded step's three points and assignee, a depends chip's names. Opens
-on enter with no delay, one at a time; the Name cell's hover preview is one.
+on enter with no delay while nothing is open, one at a time; an open one gives way by
+Takeover. The Name cell's hover preview is one.
 _Avoid_: tooltip, title attribute, hint
+
+**Takeover**:
+How an open hover card gives way to another cell's: only once the pointer has rested on the
+other trigger for a moment (50ms), so a hand crossing that trigger on its way to the open
+card keeps what it was reaching for. Arriving on the open card, or leaving the trigger, drops
+a pending takeover; with nothing open a trigger opens at once. One rule for every card.
+_Avoid_: hover intent, switch delay, debounce, grace period
 
 **Project fact**:
 Words a mark carries that say something about **this project** — who a tag was inherited
@@ -768,7 +818,11 @@ _Avoid_: formatted date, pretty date, display date
 **Edit exit**:
 How an edit in a field ends, as one of two answers: committed, or abandoned. Leaving and
 Enter commit; Escape abandons and puts back what the server agreed, so nothing is left for
-the blur it causes to send. Closing returns the focus to the cell that was being edited.
+the blur it causes to send — except in the Name box, where Escape leaves the box and leaving
+is the save: a paragraph of markdown is not thrown away on a stray key, and the Done button
+in the cell's top-right, by the notes marker, is the same exit by pointer. Closing returns the focus to the cell
+that was being edited; the Name box, whose rest is itself, returns it to nobody, as a click
+away does.
 _Avoid_: cancel, dismiss, close, blur handling
 
 **Hover preview**:

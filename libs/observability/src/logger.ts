@@ -1,6 +1,9 @@
-import pino, { type Logger, type LoggerOptions } from 'pino';
+import type { Logger } from '@wbs/contracts';
+import pino, { type LoggerOptions } from 'pino';
 
 import { errSerializer } from './serializers';
+
+export { type Logger, noopLogger } from '@wbs/contracts';
 
 export type ServiceName = 'be-01' | 'gw-01' | 'fe-01';
 
@@ -28,5 +31,3 @@ export function createLogger(opts: CreateLoggerOptions): Logger {
 
   return opts.destination ? pino(options, opts.destination) : pino(options);
 }
-
-export type { Logger };

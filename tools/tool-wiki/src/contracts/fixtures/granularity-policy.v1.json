@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "policyId": "granularity.baseline.v1",
+  "mappingVersion": "baseline-layout-v1",
+  "mappings": {
+    "knowledge": {
+      "groups": [
+        {
+          "groupId": "knowledge.domain",
+          "memberships": [{ "kind": "path", "path": "libs/domain/src/index.ts" }]
+        }
+      ]
+    },
+    "review": {
+      "groups": [
+        {
+          "groupId": "review.domain",
+          "memberships": [{ "kind": "path", "path": "libs/domain/src/index.ts" }]
+        }
+      ]
+    },
+    "ownership": {
+      "groups": [
+        {
+          "groupId": "ownership.domain",
+          "memberships": [{ "kind": "path", "path": "libs/domain/src/index.ts" }]
+        }
+      ]
+    },
+    "task": {
+      "groups": [
+        {
+          "groupId": "task.domain",
+          "memberships": [{ "kind": "path", "path": "libs/domain/src/index.ts" }]
+        }
+      ]
+    },
+    "integration": {
+      "groups": [
+        {
+          "groupId": "integration.domain",
+          "memberships": [{ "kind": "path", "path": "libs/domain/src/index.ts" }]
+        }
+      ]
+    }
+  }
+}

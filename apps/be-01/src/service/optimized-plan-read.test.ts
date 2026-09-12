@@ -4,10 +4,16 @@ import { beforeEach, describe, expect, it } from 'bun:test';
 
 import type { ProjectPatch, ProjectStore, WorkItemStore, WriteStamp } from '../repository';
 import type { SolverObjectiveName } from '../repository/schema';
+import { AvailableWorkItemService as WorkItemService } from '../testing/available-work-item-service';
+import { testClock } from '../testing/clock-fixture';
 import { inMemoryServices } from '../testing/harness';
 import { projectRow } from '../testing/project-fixture';
 import type { OptimizationVariantState, OptimizedScheduleAsk } from './optimized-schedule-reader';
-import { WorkItemService, type WorkItemServiceOptions } from './work-item.service';
+import { optimizerWiring } from './optimizer-wiring';
+import {
+  WorkItemService as RefusingWorkItemService,
+  type WorkItemServiceOptions,
+} from './work-item.service';
 
 /**
  * tasks.md 4.11's seam, from the plan read's side.
@@ -40,7 +46,12 @@ let stepId: string;
 beforeEach(async () => {
   const harness = inMemoryServices();
   ({ projects, workItems } = harness.stores);
-  serviceOptions = { ...harness.stores, broadcast: harness.broadcast };
+  serviceOptions = {
+    clock: testClock,
+    ...harness.stores,
+    broadcast: harness.broadcast,
+    scheduler: harness.scheduler,
+  };
   const project = projectRow({ id: crypto.randomUUID(), ownerId: OWNER });
   stepId = crypto.randomUUID();
   await projects.create(
@@ -73,6 +84,8 @@ async function leaf(name: string): Promise<string> {
       startNoEarlierThan: null,
       startNoEarlierThanReason: null,
       deadline: null,
+      factStart: null,
+      factEnd: null,
       serviceTeamId: null,
       serviceId: null,
       maxParallel: 1,
@@ -119,19 +132,21 @@ function recordingReader(
   const stateOf = (objective: SolverObjectiveName): OptimizationVariantState =>
     states[objective] ??
     (schedules[objective] === null ? { state: 'idle' } : { state: 'ready', proof: 'proven' });
+  const read = (ask: OptimizedScheduleAsk) => {
+    asks.push(ask);
+    return {
+      inputHash: 'test-input-hash',
+      generation: schedules.pri === null && schedules.time === null ? null : 1,
+      contractVersion: '7+test',
+      budgetMs: 60_000,
+      variants: { pri: stateOf('pri'), time: stateOf('time') },
+      schedules,
+    };
+  };
   return {
     asks,
-    read: (ask: OptimizedScheduleAsk) => {
-      asks.push(ask);
-      return {
-        inputHash: 'test-input-hash',
-        generation: schedules.pri === null && schedules.time === null ? null : 1,
-        contractVersion: '7+test',
-        budgetMs: 60_000,
-        variants: { pri: stateOf('pri'), time: stateOf('time') },
-        schedules,
-      };
-    },
+    read,
+    scheduler: optimizerWiring({ readLive: read, readCaptured: read }).scheduler,
   };
 }
 
@@ -186,13 +201,13 @@ describe('the plan read and the optimized cache', () => {
     await leaf('Rewire');
     await settings({ optimizationEnabled: true, scheduleEngine: 'optimized' });
     const seen = recordingReader(null);
-    const probe = new WorkItemService({ ...serviceOptions, optimized: seen.read });
+    const probe = new WorkItemService({ ...serviceOptions, scheduler: seen.scheduler });
     await probe.tree(projectId);
     if (seen.asks.length !== 1) throw new Error('the reader was not consulted exactly once');
     const asked = seen.asks[0];
 
     const served = recordingReader(movedTo(asked.input, 3));
-    const service = new WorkItemService({ ...serviceOptions, optimized: served.read });
+    const service = new WorkItemService({ ...serviceOptions, scheduler: served.scheduler });
     const tree = await service.tree(projectId);
     if (tree === null) throw new Error('project vanished');
     expect(tree.slices.map((each) => [each.earliestStart, each.boundBy])).toEqual([
@@ -225,7 +240,7 @@ describe('the plan read and the optimized cache', () => {
     await leaf('Rewire');
     await settings({ optimizationEnabled: true, scheduleEngine: 'optimized' });
     const seen = recordingReader(null);
-    const service = new WorkItemService({ ...serviceOptions, optimized: seen.read });
+    const service = new WorkItemService({ ...serviceOptions, scheduler: seen.scheduler });
     const tree = await service.tree(projectId);
     if (tree === null) throw new Error('project vanished');
     expect(tree.slices.map((each) => [each.earliestStart, each.boundBy])).toEqual([
@@ -262,13 +277,16 @@ describe('the plan read and the optimized cache', () => {
     );
     const service = new WorkItemService({
       ...serviceOptions,
-      optimized: recordingReader(null).read,
+      scheduler: recordingReader(null).scheduler,
     });
 
-    // Legacy rows can still reach datesOf -> addWorkdays -> Date#toISOString,
-    // which is the RangeError that made the whole plan read fail. The write
-    // path must not need that broken read in order to replace the stored trio.
-    expect(service.tree(projectId)).rejects.toBeInstanceOf(RangeError);
+    // Legacy rows are reported as a modeled state rather than letting
+    // datesOf -> addWorkdays -> Date#toISOString fail the whole plan read. The
+    // write path still does not need a valid calendar in order to replace the
+    // stored trio.
+    const stranded = await service.tree(projectId);
+    if (stranded === null || 'kind' in stranded) throw new Error('expected a stored plan');
+    expect(stranded.scheduleError).toBe('calendar_range');
     expect(
       await service.setEstimate(id, OWNER, stepId, {
         optimistic: 1,
@@ -283,7 +301,7 @@ describe('the plan read and the optimized cache', () => {
     await leaf('Rewire');
     await settings({ optimizationEnabled: false, scheduleEngine: 'optimized' });
     const seen = recordingReader(null);
-    const service = new WorkItemService({ ...serviceOptions, optimized: seen.read });
+    const service = new WorkItemService({ ...serviceOptions, scheduler: seen.scheduler });
     const tree = await service.tree(projectId);
     if (tree === null) throw new Error('project vanished');
     expect(seen.asks).toHaveLength(1);
@@ -299,7 +317,7 @@ describe('the plan read and the optimized cache', () => {
     await leaf('Rewire');
     await settings({ optimizationEnabled: true, scheduleEngine: 'fast' });
     const seen = recordingReader(null);
-    const service = new WorkItemService({ ...serviceOptions, optimized: seen.read });
+    const service = new WorkItemService({ ...serviceOptions, scheduler: seen.scheduler });
     const first = await service.tree(projectId);
     if (first === null) throw new Error('project vanished');
     expect(seen.asks).toHaveLength(1);
@@ -316,7 +334,7 @@ describe('the plan read and the optimized cache', () => {
     await leaf('Rewire');
     await settings({ optimizationEnabled: true, scheduleEngine: 'fast' });
     const seen = recordingReader(null);
-    await new WorkItemService({ ...serviceOptions, optimized: seen.read }).tree(projectId);
+    await new WorkItemService({ ...serviceOptions, scheduler: seen.scheduler }).tree(projectId);
     if (seen.asks.length !== 1) throw new Error('the reader was not consulted exactly once');
     const asked = seen.asks[0];
 
@@ -326,10 +344,9 @@ describe('the plan read and the optimized cache', () => {
       pri: movedTo(asked.input, 3),
       time: movedTo(asked.input, 6),
     });
-    const tree = await new WorkItemService({
-      ...serviceOptions,
-      optimized: served.read,
-    }).tree(projectId);
+    const tree = await new WorkItemService({ ...serviceOptions, scheduler: served.scheduler }).tree(
+      projectId,
+    );
     if (tree === null) throw new Error('project vanished');
     // Fast is still what the rows carry: the toggle permits the solver work and
     // the engine alone decides what is displayed.
@@ -352,7 +369,7 @@ describe('the plan read and the optimized cache', () => {
     await leaf('Rewire');
     await settings({ optimizationEnabled: true, scheduleEngine: 'fast' });
     const seen = recordingReader(null);
-    await new WorkItemService({ ...serviceOptions, optimized: seen.read }).tree(projectId);
+    await new WorkItemService({ ...serviceOptions, scheduler: seen.scheduler }).tree(projectId);
     if (seen.asks.length !== 1) throw new Error('the reader was not consulted exactly once');
     const asked = seen.asks[0];
 
@@ -360,10 +377,9 @@ describe('the plan read and the optimized cache', () => {
       { pri: movedTo(asked.input, 3), time: null },
       { time: { state: 'pending' } },
     );
-    const tree = await new WorkItemService({
-      ...serviceOptions,
-      optimized: served.read,
-    }).tree(projectId);
+    const tree = await new WorkItemService({ ...serviceOptions, scheduler: served.scheduler }).tree(
+      projectId,
+    );
     if (tree === null) throw new Error('project vanished');
     // Absent rather than zero: a zero finish is a legal answer about a plan of
     // nothing, and a reader cannot tell the two apart.
@@ -371,27 +387,20 @@ describe('the plan read and the optimized cache', () => {
     expect(tree.optimization?.sameOrderAsFast).toEqual({ pri: true });
   });
 
-  it('invents no figure for a variant that claims ready with nothing behind it', async () => {
-    // The figures are measured off the schedules rather than read off the
-    // states, and this is where the two can disagree. The engine stays Fast so
-    // that the displayed-variant throw is not what is being observed.
+  it('refuses a variant that claims ready with nothing behind it', async () => {
     await leaf('Rewire');
     await settings({ optimizationEnabled: true, scheduleEngine: 'fast' });
     const served = recordingReader(
       { pri: null, time: null },
       { pri: { state: 'ready', proof: 'proven' }, time: { state: 'ready', proof: 'proven' } },
     );
-    const tree = await new WorkItemService({
-      ...serviceOptions,
-      optimized: served.read,
-    }).tree(projectId);
-    if (tree === null) throw new Error('project vanished');
-    expect(tree.optimization?.variants).toEqual({
-      pri: { state: 'ready', proof: 'proven' },
-      time: { state: 'ready', proof: 'proven' },
-    });
-    expect(tree.optimization?.finishDays).toEqual({ fast: 2 });
-    expect(tree.optimization?.sameOrderAsFast).toEqual({});
+    const refusal = await new WorkItemService({ ...serviceOptions, scheduler: served.scheduler })
+      .tree(projectId)
+      .then(
+        () => '(resolved without throwing)',
+        (error: unknown) => String(error),
+      );
+    expect(refusal).toContain('optimized scheduler reported ready without a pri schedule');
   });
 
   it('asks for the objective the project publishes, under the plan the pass is about to run', async () => {
@@ -405,7 +414,7 @@ describe('the plan read and the optimized cache', () => {
       scheduleObjective: 'time',
     });
     const seen = recordingReader(null);
-    const service = new WorkItemService({ ...serviceOptions, optimized: seen.read });
+    const service = new WorkItemService({ ...serviceOptions, scheduler: seen.scheduler });
     await service.tree(projectId);
     if (seen.asks.length !== 1) throw new Error('the reader was not consulted exactly once');
     const asked = seen.asks[0];
@@ -423,17 +432,16 @@ describe('the plan read and the optimized cache', () => {
     // start constraint makes the equality above fail before a stale solve can launch.
   });
 
-  it('runs Fast for a deployment with no cache wired in', async () => {
-    // The optional collaborator's own case. A service built without a reader
-    // must schedule, not refuse and not throw — which is every construction
-    // site in this app on the day this lands.
+  it('refuses an enabled optimized plan when this deployment has no adapter', async () => {
     await leaf('Rewire');
     await settings({ optimizationEnabled: true, scheduleEngine: 'optimized' });
-    const service = new WorkItemService(serviceOptions);
+    const service = new RefusingWorkItemService(serviceOptions);
     const tree = await service.tree(projectId);
-    if (tree === null) throw new Error('project vanished');
-    expect(tree.slices.map((each) => [each.earliestStart, each.boundBy])).toEqual([
-      [0, 'projectStart'],
-    ]);
+    expect(tree).toEqual({
+      kind: 'engine_unavailable',
+      error: 'engine_unavailable',
+      engine: 'optimized',
+    });
+    expect(tree === null || 'slices' in tree).toBe(false);
   });
 });

@@ -29,9 +29,9 @@ import { defineConfig, loadEnv, type ProxyOptions } from 'vite';
  *
  * @throws When the app has no `.env`, rather than starting a dev server that
  * proxies nowhere. `bun run dev:setup` writes one; `nx run fe-01:e2e` runs that
- * first for the same reason. `vite preview` is a `serve` command too, so it
- * throws the same way on a checkout with no `.env`; nothing in this repo runs
- * it, and a preview that quietly proxied nowhere would be the worse default.
+ * first for the same reason. `vite preview` is a `serve` command too, and the
+ * browser gate supplies these values explicitly; a preview that quietly
+ * proxied nowhere would fail later as an application refusal.
  */
 function edgeRoutes(mode: string): Record<string, ProxyOptions> {
   const env = loadEnv(mode, process.cwd(), 'VITE_');
@@ -111,6 +111,7 @@ export default defineConfig(({ command, mode }) => ({
       //   gate vacuous, which is the property that matters (AGENTS.md R5, and
       //   the one vacuous check ever found in the gate itself).
       '@wbs/domain/workday': resolve(__dirname, '../../libs/domain/src/workday.ts'),
+      '@wbs/domain/progress': resolve(__dirname, '../../libs/domain/src/progress.ts'),
       '@wbs/domain/deadline-offsets': resolve(
         __dirname,
         '../../libs/domain/src/deadline-offsets.ts',
@@ -137,6 +138,15 @@ export default defineConfig(({ command, mode }) => ({
       '@wbs/domain/label-mismatch': resolve(__dirname, '../../libs/domain/src/label-mismatch.ts'),
       '@wbs/domain/marker-color': resolve(__dirname, '../../libs/domain/src/marker-color.ts'),
       '@wbs/domain/is-within': resolve(__dirname, '../../libs/domain/src/is-within.ts'),
+      '@wbs/domain/derive-numbers': resolve(__dirname, '../../libs/domain/src/derive-numbers.ts'),
+      // The order every reader draws a project in (ADR 0023), and the sibling
+      // grouping it shares with the numbering. The fake answers the server's
+      // own numbers and row order through these rather than a second copy.
+      '@wbs/domain/tree-order': resolve(__dirname, '../../libs/domain/src/tree-order.ts'),
+      '@wbs/domain/arrange-siblings': resolve(
+        __dirname,
+        '../../libs/domain/src/arrange-siblings.ts',
+      ),
       '@wbs/contracts/ws-frames': resolve(__dirname, '../../libs/contracts/src/ws-frames.ts'),
       // Proof: removing either shared alias from both configs failed its explicit
       // required-alias assertion in vite-config.test.ts, despite map parity.
@@ -192,9 +202,30 @@ export default defineConfig(({ command, mode }) => ({
     // from the proxy with nothing in Caddy's logs to explain it.
     host: '0.0.0.0',
     allowedHosts: ['dev.wbs.bulletpoints.club'],
+    /**
+     * The public source server is a deployment surface, not a developer's editor.
+     * Browser Use Cloud closes its long-lived `vite-hmr` socket after about ten
+     * seconds; Vite's reconnect path then reloads the whole document, letting a QA
+     * read land on the empty root between mounts. Source transforms and watcher
+     * invalidation remain active, so a fresh request still receives a deployed edit.
+     * Local development and isolated browser gates leave the flag unset and keep HMR.
+     *
+     * Proof: with this line absent, `vite-config.test.ts`'s public-dev case failed
+     * `expected undefined to be false` on h2puni at f11a5a04.
+     */
+    hmr: process.env['WBS_PUBLIC_DEV'] === 'true' ? false : undefined,
     // Serve only. `vite build` has no proxy to configure, and the gate job
     // builds fe-01 on a checkout with no `.env` at all — reading one there
     // would turn this into a build that fails for want of a dev setting.
+    proxy: command === 'serve' ? edgeRoutes(mode) : undefined,
+  },
+  // The browser gate serves the built app, which reduces a source page's more
+  // than 100 module requests to the bundle it is meant to deploy. Preview has
+  // its own server options; without this block it would ignore the shifted port
+  // and the two edge routes the browser exercises.
+  preview: {
+    port: Number(process.env['PORT'] ?? 4200),
+    strictPort: true,
     proxy: command === 'serve' ? edgeRoutes(mode) : undefined,
   },
   build: {

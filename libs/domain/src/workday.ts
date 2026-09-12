@@ -10,6 +10,25 @@ export type IsoDate = string;
 const DAY_MS = 86_400_000;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * A workday offset whose calendar day is outside ECMAScript's finite Date range.
+ *
+ * The offset is valid scheduler arithmetic; only its projection onto a calendar
+ * is impossible. Keeping that distinction typed lets the plan reader report a
+ * modeled calendar-range state without disguising unrelated defects as one.
+ */
+export class CalendarRangeError extends RangeError {
+  constructor(
+    readonly from: IsoDate,
+    readonly workdays: number,
+  ) {
+    super(
+      `calendar date is outside the ECMAScript Date range: ${from} + ${String(workdays)} workdays`,
+    );
+    this.name = 'CalendarRangeError';
+  }
+}
+
 /** Whether `value` is a date this module can work with, and a real day. */
 export function isIsoDate(value: unknown): value is IsoDate {
   if (typeof value !== 'string' || !ISO_DATE.test(value)) return false;
@@ -355,7 +374,11 @@ export function addWorkdays(from: IsoDate, workdays: number): IsoDate {
   // with the loop it replaced for every offset 0..500 from every weekday and
   // both weekend days, plus a thousand fast-check cases.
   const start = toUtc(nextWorkday(from));
-  return asIso(dateOfWorkdayIndex(workdayIndexOf(start) + Math.floor(snapWorkdays(workdays))));
+  const answer = dateOfWorkdayIndex(workdayIndexOf(start) + Math.floor(snapWorkdays(workdays)));
+  // Proof: removing this guard makes `reports an offset beyond Date's range as
+  // a calendar-range error` fail with an untyped RangeError from toISOString.
+  if (Number.isNaN(answer.getTime())) throw new CalendarRangeError(from, workdays);
+  return asIso(answer);
 }
 
 /**
@@ -422,4 +445,19 @@ export function deadlineOffsetOf(projectStart: IsoDate, deadline: IsoDate): Dead
   const at = toUtc(previousWorkday(deadline));
   if (at.getTime() < dayZero.getTime()) return { kind: 'before-project-start' };
   return { kind: 'offset', offset: workdayIndexOf(at) - workdayIndexOf(dayZero) };
+}
+
+/**
+ * The calendar day an instant falls on, in UTC.
+ *
+ * What be-01 writes as a fact end when a row is marked done and the client sent
+ * no day of its own: the act's one write stamp (ADR 0012) read as a date, so
+ * the fill and the journal entry that carries it cannot name two days. UTC
+ * because be-01 has no calendar of its own — a client that has one sends `on`
+ * and this is never consulted. Throws on a stamp that is not a finite instant,
+ * which is R5's answer to a clock that answered nothing.
+ */
+export function isoDateOfInstant(epochMs: number): IsoDate {
+  if (!Number.isFinite(epochMs)) throw new Error(`not an instant: ${String(epochMs)}`);
+  return asIso(new Date(epochMs));
 }

@@ -39,7 +39,7 @@
  * regenerating this fixture does **not** mechanically require a bump.
  * `computeQuantumGoldenCorpus` returns this tree's current constant beside this
  * tree's current cases, so a `quantise` change followed by
- * `write-solver-quantum-golden-corpus.ts` writes `{ contractVersion: 8, cases:
+ * `tools/dev/write-solver-quantum-golden-corpus.ts` writes `{ contractVersion: 8, cases:
  * <new bytes> }` and both assertions pass. `fast-golden-corpus.ts` has the same
  * shape and the same limit. What this buys is that the change **cannot be
  * silent**: it fails the suite, and the only way to green is to open the writer,
@@ -64,7 +64,7 @@
  * would have reddened for PR 281, and it would have reddened just as loudly for
  * a comment, a rename or a reformat — trading silent misses for routine false
  * reds whose only repair is regeneration, which is verbatim the failure
- * `write-fast-golden-corpus.ts`'s header names. This corpus observes
+ * `tools/dev/write-fast-golden-corpus.ts`'s header names. This corpus observes
  * **behaviour**, so a comment-only edit to `solver-quantum.ts` leaves every
  * byte below identical. That negative control is the whole difference, and it
  * is asserted in the test rather than left as a claim.

@@ -2,10 +2,10 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import type { Scheduler } from '@wbs/core';
 import {
   diffPlans,
   planDiffIsEmpty,
-  type Schedule,
   SCHEDULE_ALGORITHM_ID,
   serialiseCanonicalPlanInput,
 } from '@wbs/domain';
@@ -21,15 +21,14 @@ import type { WriteStamp } from '../repository/index';
 import { runMigrations } from '../repository/migrate';
 import { ProjectRepository } from '../repository/project';
 import { SavedPlanRepository } from '../repository/saved-plan';
-import type { PlanInputReads } from '../repository/saved-plan-capture';
 import { SavedPlanCaptureRepository } from '../repository/saved-plan-capture';
 import { savedPlan } from '../repository/schema';
 import { UserRepository } from '../repository/user';
 import { WorkItemRepository } from '../repository/work-item';
 import { nodeDigest } from '../runtime/bun-runtime';
 import { projectRow } from '../testing/project-fixture';
+import { fastScheduler } from './optimizer-wiring';
 import { SavedPlanService } from './saved-plan.service';
-import { schedulePlanInput } from './saved-plan-schedule';
 
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 
@@ -85,6 +84,8 @@ describe('projecting the live plan as a comparison side', () => {
     maxParallel: 1,
     startNoEarlierThanReason: null,
     deadline: null,
+    factStart: null,
+    factEnd: null,
     revision: 0,
   });
 
@@ -134,18 +135,28 @@ describe('projecting the live plan as a comparison side', () => {
     }
   };
 
-  const service = (
-    id = 'sp-1',
-    schedule: (reads: PlanInputReads) => Schedule = schedulePlanInput,
-  ): SavedPlanService =>
+  const service = (id = 'sp-1', scheduler: Scheduler = fastScheduler): SavedPlanService =>
     new SavedPlanService({
+      scheduler,
       digest: nodeDigest,
       capture: new SavedPlanCaptureRepository({ openConnection: counting }),
       plans: new SavedPlanRepository({ openConnection: () => openConnection(path) }),
       newId: () => id,
       now: () => OPENED_AT,
-      schedule,
     });
+
+  const calendarRangeScheduler: Scheduler = {
+    supports: (engine) => fastScheduler.supports(engine),
+    read: (ask) => {
+      const answer = fastScheduler.read(ask);
+      if (answer.kind !== 'scheduled') return answer;
+      const workItems = new Map(answer.fast.workItems);
+      const first = workItems.entries().next().value;
+      if (first === undefined) throw new Error('calendar-range fixture has no work item');
+      workItems.set(first[0], { ...first[1], earliestFinish: 90_000_000 });
+      return { ...answer, fast: { ...answer.fast, workItems } };
+    },
+  };
 
   it('returns null for a project that is not there', async () => {
     expect(await service().projectCurrentPlan('missing')).toBeNull();
@@ -207,9 +218,12 @@ describe('projecting the live plan as a comparison side', () => {
    */
   it('holds no capture connection open while the live plan is scheduled', async () => {
     const sampled: number[] = [];
-    const side = await service('sp-1', (reads) => {
-      sampled.push(live);
-      return schedulePlanInput(reads);
+    const side = await service('sp-1', {
+      supports: (engine) => fastScheduler.supports(engine),
+      read: (ask) => {
+        sampled.push(live);
+        return fastScheduler.read(ask);
+      },
     }).projectCurrentPlan('p1');
 
     expect(side).not.toBeNull();
@@ -244,6 +258,15 @@ describe('projecting the live plan as a comparison side', () => {
 
     const side = await service().projectCurrentPlan('p1');
 
+    expect(side!.schedule).toEqual({ present: false, absentReason: 'infeasible' });
+    expect(side!.input.workItems.map((row) => row.id)).toEqual(['wi-1', 'wi-2']);
+  });
+
+  it('maps a calendar-range plan to infeasible and still carries the input', async () => {
+    const side = await service('sp-1', calendarRangeScheduler).projectCurrentPlan('p1');
+
+    // Proof: return `buildScheduleBody` directly from `projectCurrentPlan` and
+    // this awaited comparison-side projection throws CalendarRangeError.
     expect(side!.schedule).toEqual({ present: false, absentReason: 'infeasible' });
     expect(side!.input.workItems.map((row) => row.id)).toEqual(['wi-1', 'wi-2']);
   });

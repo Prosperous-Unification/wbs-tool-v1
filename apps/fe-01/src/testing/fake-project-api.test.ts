@@ -132,3 +132,53 @@ describe('the fake uses the shared tree response shape', () => {
     });
   });
 });
+
+describe('the fake arranges a plan the way be-01 does', () => {
+  it('puts the work item that starts first at the top, and keeps a tie in place', async () => {
+    const api = fakeProjectApi();
+    const strip = await api.createWorkItem('p1', { parentId: null, name: 'Strip' });
+    const sand = await api.createWorkItem('p1', {
+      parentId: null,
+      afterId: strip.id,
+      name: 'Sand',
+    });
+    const paint = await api.createWorkItem('p1', {
+      parentId: null,
+      afterId: sand.id,
+      name: 'Paint',
+    });
+    // An estimate on `Paint`, because this fake gives an unestimated row a
+    // duration of zero — the real engine assumes two workdays — and a
+    // predecessor that takes no time moves nothing.
+    await api.setEstimate(paint.id, 'step-dev', { optimistic: 1, realistic: 2, pessimistic: 3 });
+    // `Strip` waits for `Paint`, so `Sand` and `Paint` both begin on day zero
+    // and keep the order they already read in.
+    await api.addDependency(strip.id, paint.id);
+
+    await api.arrangeBySchedule('p1');
+
+    const tree = await api.tree('p1');
+    expect(tree.workItems.map((row) => row.name)).toEqual(['Sand', 'Paint', 'Strip']);
+  });
+
+  it('leaves a frozen number alone while the work item moves', async () => {
+    const api = fakeProjectApi();
+    const strip = await api.createWorkItem('p1', { parentId: null, name: 'Strip' });
+    const paint = await api.createWorkItem('p1', {
+      parentId: null,
+      afterId: strip.id,
+      name: 'Paint',
+    });
+    await api.setEstimate(paint.id, 'step-dev', { optimistic: 1, realistic: 2, pessimistic: 3 });
+    await api.addDependency(strip.id, paint.id);
+    await api.freezeProject('p1');
+
+    await api.arrangeBySchedule('p1');
+
+    const tree = await api.tree('p1');
+    expect(tree.workItems.map((row) => [row.name, row.number])).toEqual([
+      ['Paint', '020'],
+      ['Strip', '010'],
+    ]);
+  });
+});

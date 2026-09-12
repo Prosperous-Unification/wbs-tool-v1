@@ -1,20 +1,16 @@
 import { describe, expect, it } from 'bun:test';
 
-import {
-  canonicalScheduleInput,
-  type ScheduleInput,
-  scheduleInputHash,
-} from './canonical-schedule-input';
+import { canonicalScheduleInput, type ScheduleInput } from './canonical-schedule-input';
 import type { PlannedRow } from './derive-numbers';
 import { serializeSchedule } from './fast-golden-corpus';
 import { schedule, type Slice } from './schedule';
 
 /**
  * Task 1.3, first half. **Every mutation case here asserts two things**: that
- * the hash moved, and what `schedule()` did about the same edit.
+ * the canonical bytes moved, and what `schedule()` did about the same edit.
  *
- * A hash test that only compares two strings can pass while being wrong in
- * either direction. Too loose and it serves a stale schedule as current; too
+ * A canonicalization test that only compares two strings can pass while being
+ * wrong in either direction. Too loose and it serves a stale schedule as current; too
  * strict and it evicts a cache on an edit that changes nothing, which is a
  * quiet performance bug nobody gets a red for. Running the engine in the same
  * `it` is what makes the difference visible, and it is cheap: these are
@@ -22,14 +18,14 @@ import { schedule, type Slice } from './schedule';
  *
  * So the cases below come in three kinds, and the kind is stated per case:
  *
- * - **moves a placement** — hash differs AND the schedule differs. The pair
- *   the cache exists to keep apart.
+ * - **moves a placement** — canonical bytes differ AND the schedule differs.
+ *   The pair the cache exists to keep apart.
  * - **deliberately stricter** — hash differs and the schedule is IDENTICAL
  *   today. Two of these, and both are load-bearing rather than sloppy: the
  *   fact is one a later edit turns into a placement, and hashing the resolved
  *   value instead would hide it.
- * - **must not move the hash** — hash equal AND the schedule equal. The
- *   asymmetry in (c) lives or dies on these.
+ * - **must not move the canonical bytes** — bytes equal AND the schedule
+ *   equal. The asymmetry in (c) lives or dies on these.
  *
  * 1.9's `parentId` reparenting and `stepId` identity swap are here; what is
  * still to land under 1.9 is 1.4's watched-red removal for **every** field 1.1
@@ -113,16 +109,16 @@ const run = (input: ScheduleInput): unknown =>
   );
 
 const movesAPlacement = (name: string, mutated: ScheduleInput): void => {
-  it(`${name} — moves a placement, so the hash must move`, () => {
-    expect(scheduleInputHash(mutated)).not.toBe(scheduleInputHash(BASE));
+  it(`${name} — moves a placement, so the canonical bytes must move`, () => {
+    expect(canonicalScheduleInput(mutated)).not.toBe(canonicalScheduleInput(BASE));
     expect(run(mutated)).not.toEqual(run(BASE));
   });
 };
 
-const mustNotMoveTheHash = (name: string, same: ScheduleInput): void => {
-  it(`${name} — same schedule, so the hash must not move`, () => {
+const mustNotMoveCanonical = (name: string, same: ScheduleInput): void => {
+  it(`${name} — same schedule, so the canonical bytes must not move`, () => {
     expect(run(same)).toEqual(run(BASE));
-    expect(scheduleInputHash(same)).toBe(scheduleInputHash(BASE));
+    expect(canonicalScheduleInput(same)).toBe(canonicalScheduleInput(BASE));
   });
 };
 
@@ -243,13 +239,7 @@ const NESTED: ScheduleInput = {
   deadlines: new Map(),
 };
 
-describe('canonicalScheduleInput / scheduleInputHash', () => {
-  it('is a 64-character hex digest, and the same input twice is the same digest', () => {
-    const digest = scheduleInputHash(BASE);
-    expect(digest).toMatch(/^[0-9a-f]{64}$/);
-    expect(scheduleInputHash(BASE)).toBe(digest);
-  });
-
+describe('canonicalScheduleInput', () => {
   /**
    * The check-that-cannot-fail guard, R5. `JSON.stringify` renders a `Map` as
    * `{}`, so a canonicalizer that passed `notBefore`, `poolSizes` or
@@ -370,12 +360,12 @@ describe('canonicalScheduleInput / scheduleInputHash', () => {
      * with the array order instead of contradicting it, and the slice that was
      * going first stops going first.
      */
-    it('position swapped between two tied leaves — moves a placement, so the hash must move', () => {
+    it('position swapped between two tied leaves — moves a placement, so the canonical bytes must move', () => {
       const mutated: ScheduleInput = {
         ...TIED,
         rows: [row('x', null, 10, null), row('y', null, 20, null)],
       };
-      expect(scheduleInputHash(mutated)).not.toBe(scheduleInputHash(TIED));
+      expect(canonicalScheduleInput(mutated)).not.toBe(canonicalScheduleInput(TIED));
       expect(run(mutated)).not.toEqual(run(TIED));
     });
 
@@ -386,7 +376,7 @@ describe('canonicalScheduleInput / scheduleInputHash', () => {
      * `BASE` version of this case asked a one-slot pool for two slots and moved
      * nothing.
      */
-    it('the width of one slice widened — moves a placement, so the hash must move', () => {
+    it('the width of one slice widened — moves a placement, so the canonical bytes must move', () => {
       const mutated: ScheduleInput = {
         ...CHAINED,
         slices: [
@@ -394,7 +384,7 @@ describe('canonicalScheduleInput / scheduleInputHash', () => {
           { workItemId: 'y', stepId: null, days: 2, personId: null, width: 1, poolIds: [] },
         ],
       };
-      expect(scheduleInputHash(mutated)).not.toBe(scheduleInputHash(CHAINED));
+      expect(canonicalScheduleInput(mutated)).not.toBe(canonicalScheduleInput(CHAINED));
       expect(run(mutated)).not.toEqual(run(CHAINED));
     });
 
@@ -406,7 +396,7 @@ describe('canonicalScheduleInput / scheduleInputHash', () => {
      * What moves is the **leaf expansion**: the authored edge `r → P` reaches
      * whatever leaves `P` owns, so `s` inherits a predecessor it never named.
      */
-    it('a leaf reparented under the edge’s successor — moves a placement, so the hash must move', () => {
+    it('a leaf reparented under the edge’s successor — moves a placement, so the canonical bytes must move', () => {
       const mutated: ScheduleInput = {
         ...NESTED,
         rows: [
@@ -416,7 +406,7 @@ describe('canonicalScheduleInput / scheduleInputHash', () => {
           row('s', 'P', 30, null),
         ],
       };
-      expect(scheduleInputHash(mutated)).not.toBe(scheduleInputHash(NESTED));
+      expect(canonicalScheduleInput(mutated)).not.toBe(canonicalScheduleInput(NESTED));
       expect(run(mutated)).not.toEqual(run(NESTED));
     });
 
@@ -432,7 +422,7 @@ describe('canonicalScheduleInput / scheduleInputHash', () => {
      * form that dropped `stepId` would hand out one cache key for two plans
      * that disagree about which step is where.
      */
-    it('two stepIds of one work item exchanged — moves a placement, so the hash must move', () => {
+    it('two stepIds of one work item exchanged — moves a placement, so the canonical bytes must move', () => {
       const mutated: ScheduleInput = {
         ...BASE,
         slices: [
@@ -442,7 +432,7 @@ describe('canonicalScheduleInput / scheduleInputHash', () => {
           step('c', null, 2),
         ],
       };
-      expect(scheduleInputHash(mutated)).not.toBe(scheduleInputHash(BASE));
+      expect(canonicalScheduleInput(mutated)).not.toBe(canonicalScheduleInput(BASE));
       expect(run(mutated)).not.toEqual(run(BASE));
     });
 
@@ -456,7 +446,7 @@ describe('canonicalScheduleInput / scheduleInputHash', () => {
      * team's queue, and `alpha` already has an occupant. `x` and `y` stop being
      * simultaneous.
      */
-    it('poolIds widened from one pool to two — moves a placement, so the hash must move', () => {
+    it('poolIds widened from one pool to two — moves a placement, so the canonical bytes must move', () => {
       const mutated: ScheduleInput = {
         ...PARALLEL,
         slices: [
@@ -471,39 +461,8 @@ describe('canonicalScheduleInput / scheduleInputHash', () => {
           },
         ],
       };
-      expect(scheduleInputHash(mutated)).not.toBe(scheduleInputHash(PARALLEL));
+      expect(canonicalScheduleInput(mutated)).not.toBe(canonicalScheduleInput(PARALLEL));
       expect(run(mutated)).not.toEqual(run(PARALLEL));
-    });
-
-    /**
-     * `frozenNumber`, and it takes **two** anchors — which is a fact about
-     * `deriveNumbers` rather than about this test, measured rather than
-     * reasoned.
-     *
-     * The obvious case is one anchor: freeze `x` at `005` and expect it to jump
-     * ahead of `y`'s natural `010`. It does not, and the schedule comes back
-     * byte-identical. `deriveNumbers` **repairs the group around the anchor**:
-     * `claimLabel` has to put the earlier-positioned `y` below `005`, so
-     * `below('005')` gives it `0045` and the pair reads `y=0045, x=005` — the
-     * same relative order as the unfrozen `y=010, x=020`. A single frozen
-     * number can therefore never reorder siblings; it only renames them.
-     *
-     * Two anchors that contradict `position` cannot be repaired, because
-     * neither may be rebuilt: `x` at position 20 frozen `005` and `y` at
-     * position 10 frozen `010` come back exactly as written, and `x` now sorts
-     * first. That is the mutation below. Both probed directly against
-     * `deriveNumbers` on h2puni before the case was written.
-     */
-    it('two frozen numbers that contradict position — moves a placement, so the hash must move', () => {
-      const mutated: ScheduleInput = {
-        ...TIED,
-        rows: [
-          { id: 'x', parentId: null, position: 20, frozenNumber: '005', priority: null },
-          { id: 'y', parentId: null, position: 10, frozenNumber: '010', priority: null },
-        ],
-      };
-      expect(scheduleInputHash(mutated)).not.toBe(scheduleInputHash(TIED));
-      expect(run(mutated)).not.toEqual(run(TIED));
     });
 
     /**
@@ -568,11 +527,40 @@ describe('canonicalScheduleInput / scheduleInputHash', () => {
         step('d', null, 2),
       ],
     };
-    expect(scheduleInputHash(mutated)).not.toBe(scheduleInputHash(BASE));
+    expect(canonicalScheduleInput(mutated)).not.toBe(canonicalScheduleInput(BASE));
     expect(run(mutated)).not.toEqual(run(BASE));
   });
 
-  describe('mutations the hash is deliberately stricter about than today’s engine', () => {
+  describe('mutations the canonical form is deliberately stricter about than today’s engine', () => {
+    /**
+     * `frozenNumber`, which since ADR 0023 cannot move a placement at all.
+     *
+     * It could until then, and this case sat above among the mutations that
+     * do. Two anchors contradicting `position` — `x` at position 20 frozen
+     * `005`, `y` at position 10 frozen `010` — come back exactly as written,
+     * so `x` read first, and `goesFirst`'s third rule handed it the tie. That
+     * rule asks {@link treeOrder} now, which reads `position`; a frozen number
+     * is a name, and the two plans below schedule identically.
+     *
+     * It stays in the canonical form regardless, and this is the safe
+     * direction to be wrong in: a field hashed that no longer moves a
+     * placement costs a re-solve, while a field left out of the key serves a
+     * stale schedule against an edit it cannot see. It is also still an input
+     * to what a reader *sees* — `deriveNumbers` reports it verbatim, and two
+     * plans differing only here are different plans on screen.
+     */
+    it('two frozen numbers that contradict position, which no longer reorder anything', () => {
+      const mutated: ScheduleInput = {
+        ...TIED,
+        rows: [
+          { id: 'x', parentId: null, position: 20, frozenNumber: '005', priority: null },
+          { id: 'y', parentId: null, position: 10, frozenNumber: '010', priority: null },
+        ],
+      };
+      expect(run(mutated)).toEqual(run(TIED));
+      expect(canonicalScheduleInput(mutated)).not.toBe(canonicalScheduleInput(TIED));
+    });
+
     /**
      * The as-written priority on a parent that binds no leaf. Every leaf
      * carries its own priority, so `priorityByLeaf` never reaches `p` and the
@@ -593,7 +581,7 @@ describe('canonicalScheduleInput / scheduleInputHash', () => {
         ],
       };
       expect(run(mutated)).toEqual(run(BASE));
-      expect(scheduleInputHash(mutated)).not.toBe(scheduleInputHash(BASE));
+      expect(canonicalScheduleInput(mutated)).not.toBe(canonicalScheduleInput(BASE));
     });
 
     /**
@@ -619,11 +607,11 @@ describe('canonicalScheduleInput / scheduleInputHash', () => {
       const onLeaf: ScheduleInput = { ...BASE, deadlines: new Map([['a', 3]]) };
 
       expect(run(onParent)).toEqual(run(onLeaf));
-      expect(scheduleInputHash(onParent)).not.toBe(scheduleInputHash(onLeaf));
+      expect(canonicalScheduleInput(onParent)).not.toBe(canonicalScheduleInput(onLeaf));
     });
   });
 
-  describe('facts that must not move the hash', () => {
+  describe('facts that must not move the canonical bytes', () => {
     /**
      * The (c) asymmetry, and the reason it is not a rounding error. The global
      * slice order is whatever `WorkItemRepo.listByProject` returned and it has
@@ -632,7 +620,7 @@ describe('canonicalScheduleInput / scheduleInputHash', () => {
      * makes this stable; preserving each group's own order is what keeps the
      * swap case above red.
      */
-    mustNotMoveTheHash('the global slice order across work items', {
+    mustNotMoveCanonical('the global slice order across work items', {
       ...BASE,
       slices: [
         step('c', null, 2),
@@ -642,7 +630,7 @@ describe('canonicalScheduleInput / scheduleInputHash', () => {
       ],
     });
 
-    mustNotMoveTheHash('the rows array reordered into the same tree', {
+    mustNotMoveCanonical('the rows array reordered into the same tree', {
       ...BASE,
       rows: [
         row('c', null, 30, 9),
@@ -653,7 +641,7 @@ describe('canonicalScheduleInput / scheduleInputHash', () => {
     });
 
     /** `poolIds` is a set: `jointWindowFor` waits for the same pools either way. */
-    mustNotMoveTheHash('poolIds reordered, and a duplicate in them', {
+    mustNotMoveCanonical('poolIds reordered, and a duplicate in them', {
       ...BASE,
       slices: [
         step('a', 'design', 2, { poolIds: ['team', 'team'] }),

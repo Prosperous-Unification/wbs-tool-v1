@@ -1,9 +1,9 @@
 import { chmodSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { scratchSync } from '@wbs/tool-test-scratch';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
-import { scratchSync } from '../../test/scratch';
 import { installedDaggerSdkVersion } from './main';
 import {
   applyRunnerHostAlias,
@@ -11,6 +11,7 @@ import {
   assertCleanTree,
   assertEngineContract,
   type BuildCapacity,
+  cleanTreeRepository,
   createDockerEngineControl,
   type EngineControl,
   engineCreateArgs,
@@ -561,6 +562,46 @@ describe('assertCleanTree', () => {
     }).not.toThrow();
   });
 
+  it('checks an explicit repository while publishing from an exported non-repository tree', () => {
+    const exportedTree = scratchSync('wbs-exported-tree-');
+    process.chdir(exportedTree);
+    try {
+      expect(() => {
+        assertCleanTree(repo);
+      }).not.toThrow();
+    } finally {
+      process.chdir(repo);
+      rmSync(exportedTree, { recursive: true, force: true });
+    }
+  });
+
+  // Proof: before assertCleanTree passed `-C repository`, both cases failed in
+  // the exported tree with exit 128 instead of inspecting the injected fault.
+  it('refuses a dirty explicit repository while cwd is an exported tree', () => {
+    const exportedTree = scratchSync('wbs-exported-tree-');
+    writeFileSync(join(repo, 'tracked.txt'), 'injected dirty source\n');
+    process.chdir(exportedTree);
+    try {
+      expect(() => {
+        assertCleanTree(repo);
+      }).toThrow(/tracked\.txt/);
+    } finally {
+      process.chdir(repo);
+      rmSync(exportedTree, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed and names an explicit non-repository path', () => {
+    const nonRepository = scratchSync('wbs-non-repository-');
+    try {
+      expect(() => {
+        assertCleanTree(nonRepository);
+      }).toThrow(new RegExp(`git -C ${nonRepository} status --porcelain failed`));
+    } finally {
+      rmSync(nonRepository, { recursive: true, force: true });
+    }
+  });
+
   it('refuses when a tracked file is modified, naming the file', () => {
     writeFileSync(join(repo, 'tracked.txt'), 'uncommitted edit\n');
     expect(() => {
@@ -573,6 +614,13 @@ describe('assertCleanTree', () => {
     expect(() => {
       assertCleanTree();
     }).toThrow(/dirty working tree/);
+  });
+});
+
+describe('cleanTreeRepository', () => {
+  it('uses the devsync contract variable and otherwise keeps the ordinary cwd default', () => {
+    expect(cleanTreeRepository({ WBS_CLEAN_TREE_REPOSITORY: '/real/source' })).toBe('/real/source');
+    expect(cleanTreeRepository({})).toBe('.');
   });
 });
 

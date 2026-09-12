@@ -107,6 +107,12 @@ interface PlanRowProps {
   attach: (rowId: string, node: HTMLTableRowElement | null) => void;
   frozen: boolean;
   /**
+   * Whether the row's status is `done`, so the `<tr>` can say so and
+   * `styles.css` can strike the name. Pure row data off the read, like
+   * `frozen`: it changes only when the plan does, never with the pointer.
+   */
+  done: boolean;
+  /**
    * Where this row's **dependency** light is read from.
    *
    * Subscribed to rather than handed in as a boolean since 2026-09-02: it was a
@@ -176,6 +182,7 @@ function PlanRow({
   rowIndex,
   attach,
   frozen,
+  done,
   depLights,
   armed,
   drop,
@@ -203,6 +210,7 @@ function PlanRow({
       // shell's own subscription key. Nothing else in the app reads it.
       data-row-id={rowId}
       data-frozen={frozen ? 'true' : 'false'}
+      data-row-done={done ? 'true' : undefined}
       data-dep-lit={depLit ? 'true' : undefined}
       data-row-lit={lit ? 'true' : undefined}
       data-armed={armed ? 'true' : undefined}
@@ -542,6 +550,8 @@ export function WbsTable({
     setSteps,
     treeMayBeStale,
     setTreeMayBeStale,
+    treeFailureText,
+    setTreeFailureText,
     markers,
     setMarkers,
     busy,
@@ -821,6 +831,7 @@ export function WbsTable({
     activeProject,
     api,
     setTreeMayBeStale,
+    setTreeFailureText,
     setMarkers,
     setTeams,
     setTags,
@@ -956,6 +967,19 @@ export function WbsTable({
     workItemTypes,
     services,
   });
+  /**
+   * `Arrange by schedule`, built here because the toast stack lives here.
+   *
+   * One sentence on the way out and nothing else: `run` already turns a refusal
+   * into its own toast and rereads the plan, and the whole tree comes back in
+   * schedule order because be-01 wrote the positions.
+   */
+  const arrangeBySchedule = useCallback(() => {
+    void run(() => api.arrangeBySchedule(projectId)).then((landed) => {
+      if (landed === 'landed') pushToast({ kind: 'info', text: 'Arranged by schedule.' });
+    });
+  }, [api, projectId, pushToast, run]);
+
   const { siblingsOf, addWorkItem } = useAddWorkItem({
     flat,
     projectId,
@@ -1082,6 +1106,15 @@ export function WbsTable({
     editingDeadline,
     openDeadline,
     closeDeadline,
+    setFactStart,
+    setFactEnd,
+    setStatus,
+    editingFactStart,
+    openFactStart,
+    closeFactStart,
+    editingFactEnd,
+    openFactEnd,
+    closeFactEnd,
   } = usePlanFields({ run, api, priorityBands, pushToast, gridElement });
   const {
     setTeamOf,
@@ -1210,6 +1243,8 @@ export function WbsTable({
           dependencyPicker === null ? [] : depEntriesFor(row, dependencyPicker.typed),
         dependencyPicker,
         editingDeadline: editingDeadline === row.id,
+        editingFactEnd: editingFactEnd === row.id,
+        editingFactStart: editingFactStart === row.id,
         editingNotBefore: editingNotBefore === row.id,
         externalSystems,
         estimateReadings,
@@ -1239,6 +1274,8 @@ export function WbsTable({
     dependenciesOf,
     depPicker,
     editingDeadline,
+    editingFactEnd,
+    editingFactStart,
     editingNotBefore,
     effectiveServiceLabelOf,
     effectiveTagLabelOf,
@@ -1318,6 +1355,13 @@ export function WbsTable({
     closeNotBefore,
     openDeadline,
     closeDeadline,
+    setFactStart,
+    setFactEnd,
+    setStatus,
+    openFactStart,
+    closeFactStart,
+    openFactEnd,
+    closeFactEnd,
     setRefsEditing,
     setTeamOf,
     setTagsOf,
@@ -1723,6 +1767,8 @@ export function WbsTable({
       run={run}
       api={api}
       projectId={projectId}
+      scheduleError={scheduleError}
+      arrangeBySchedule={arrangeBySchedule}
       addWorkItem={addWorkItem}
       filtering={filtering}
       setExpanded={setExpanded}
@@ -1765,6 +1811,7 @@ export function WbsTable({
       stack={stack}
       stepStack={stepStack}
       setCheatSheetOpen={setCheatSheetOpen}
+      exportAvailable={hasSuccessfulTreeRead}
       copyAsMarkdown={copyAsMarkdown}
       copyAsMermaid={copyAsMermaid}
       downloadCsv={downloadCsv}
@@ -1948,7 +1995,11 @@ export function WbsTable({
           data-stale-tree
           className="border-destructive/40 bg-destructive/10 mb-3 flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
         >
-          This plan may be out of date — the last refresh failed.{' '}
+          {/* Proof: suppressing `treeFailureText` failed the Chromium stale-plan window on
+          `Expected: Optimized scheduling is unavailable in this runtime. · Received: This
+          plan may be out of date — the last refresh failed. Retry`, while its dated row
+          remained installed. */}
+          {treeFailureText ?? 'This plan may be out of date — the last refresh failed.'}{' '}
           <Button
             variant="outline"
             size="sm"
@@ -1979,6 +2030,15 @@ export function WbsTable({
           role="alert"
         >
           These dependencies run in a circle, so no dates can be worked out. Remove one to fix it.
+        </p>
+      )}
+      {scheduleError === 'calendar_range' && (
+        <p
+          className="border-destructive/40 bg-destructive/10 mb-3 rounded-md border px-3 py-2 text-sm"
+          role="alert"
+        >
+          This plan extends beyond the supported calendar range, so no dates can be worked out.
+          Shorten its schedule to restore them.
         </p>
       )}
 
@@ -2308,6 +2368,7 @@ export function WbsTable({
                       rowIndex={entry.index}
                       attach={viewport.attachRow}
                       frozen={row.original.frozenNumber !== null}
+                      done={row.original.status === 'done'}
                       depLights={depLights}
                       armed={armedDelete?.rowId === row.original.id}
                       drop={dropHint?.rowId === row.original.id ? dropHint.zone : undefined}

@@ -1,14 +1,7 @@
+import type { OidcIdentity, WbsScope } from '@wbs/contracts';
 import { errors } from 'jose';
 
-export type WbsScope = 'read' | 'write' | 'editor';
-
-export interface OidcIdentity {
-  issuer: string;
-  subject: string;
-  email: string | null;
-  emailVerified: boolean;
-  scopes: readonly WbsScope[];
-}
+export type { OidcIdentity, WbsScope } from '@wbs/contracts';
 
 export interface OidcIdentityOptions {
   groupPrefix: string;

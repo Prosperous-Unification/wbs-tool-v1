@@ -7,6 +7,7 @@ import {
   type BarColor,
   type BindingFloor,
   calendarScale,
+  DONE_BAR_COLOR,
   droppedLinkWords,
   type FloorCalendar,
   GanttDataError,
@@ -65,6 +66,9 @@ const rowAt = (
   leaf: true,
   schedule: { earliestStart, earliestFinish },
   notBeforeOffset: null,
+  status: 'unknown',
+  factStartOffset: null,
+  factEndStop: null,
   priority: null,
   // One at a time, which is every row of every plan nobody has widened.
   maxParallel: 1,
@@ -3205,5 +3209,139 @@ describe('what a placement costs the calendar', () => {
     const xs = placed.bars.map((bar) => bar.x);
     expect(new Set(xs).size).toBe(2);
     for (const x of xs) expect(Math.floor(x)).toBe(3);
+  });
+});
+
+describe('a done leaf draws one bar over its facts', () => {
+  /**
+   * A two-step leaf the engine placed over workdays 8→15 whose work in fact
+   * ended on workday 11, so its fact end **stops** at 12 — the stop the row's
+   * `factEndStop` carries. Every offset is past the plan's first weekend.
+   */
+  const doneStrip = (extras: Partial<GanttRow> = {}, slices?: GanttSlice[]): GanttPlan =>
+    planOf({
+      rows: [rowAt('strip', 8, 15, { status: 'done', factEndStop: 12, ...extras })],
+      slices: slices ?? [
+        sliceAt('strip-dev', 'strip', 8, 11),
+        sliceAt('strip-qa', 'strip', 11, 15, { stepId: 'qa' }),
+      ],
+    });
+
+  it('draws one bar for the leaf, stopping at the fact end where the estimate reaches past it', () => {
+    const chart = layOutGantt(doneStrip());
+
+    // Proof: the `factEndStop` read replaced by the latest slice finish, and
+    // this fails on `Received: [8, 15, 7, true, true]` — a done bar drawn to
+    // the end of an estimate the fact had already overtaken; watched
+    // 2026-09-12.
+    expect(chart.bars).toHaveLength(1);
+    const [bar] = chart.bars;
+    expect([bar.start, bar.finish, bar.drawnSpan, bar.done, bar.estimated]).toEqual([
+      8,
+      12,
+      4,
+      true,
+      true,
+    ]);
+    expect(bar.sliceId).toBe('strip-dev');
+    expect(bar.stepName).toBe('Dev + QA');
+    expect(bar.personColor).toBe(DONE_BAR_COLOR);
+    expect(chart.horizon).toBe(12);
+  });
+
+  it('draws the fact’s one day when the whole plan drifted past it', () => {
+    const chart = layOutGantt(
+      planOf({
+        rows: [rowAt('strip', 20, 25, { status: 'done', factEndStop: 12 })],
+        slices: [sliceAt('strip-dev', 'strip', 20, 25)],
+      }),
+    );
+
+    // Proof: the `wanted < stop` clamp deleted, and this fails on
+    // `expected [ 20, 12, -8 ] to deeply equal [ 11, 12, 1 ]` — a bar of negative
+    // width, which the panel draws as nothing at all; watched 2026-09-12.
+    const [bar] = chart.bars;
+    expect([bar.start, bar.finish, bar.drawnSpan]).toEqual([11, 12, 1]);
+  });
+
+  it('starts the bar at the fact start where the row has one', () => {
+    const [bar] = layOutGantt(doneStrip({ factStartOffset: 6 })).bars;
+    expect([bar.start, bar.finish]).toEqual([6, 12]);
+  });
+
+  it('spans the slices where the row has no fact end, and still says done', () => {
+    const [bar] = layOutGantt(doneStrip({ factEndStop: null })).bars;
+    expect([bar.start, bar.finish, bar.done]).toEqual([8, 15, true]);
+  });
+
+  it('is never an assumed span, whatever its slices were', () => {
+    const [bar] = layOutGantt(
+      doneStrip({}, [
+        sliceAt('strip-dev', 'strip', 8, 10, { estimated: false }),
+        sliceAt('strip-qa', 'strip', 10, 12, { estimated: false, stepId: 'qa' }),
+      ]),
+    ).bars;
+    expect([bar.estimated, bar.done]).toEqual([true, true]);
+  });
+
+  it('leaves the arrow from the done bar’s stop, not from the slice’s finish', () => {
+    const chart = layOutGantt(
+      planOf({
+        rows: [rowAt('strip', 8, 15, { status: 'done', factEndStop: 12 }), rowAt('sand', 15, 17)],
+        slices: [
+          sliceAt('strip-dev', 'strip', 8, 11),
+          sliceAt('strip-qa', 'strip', 11, 15, { stepId: 'qa' }),
+          sliceAt('sand-dev', 'sand', 15, 17),
+        ],
+        dependencies: [{ predecessorId: 'strip', successorId: 'sand' }],
+      }),
+    );
+
+    // Proof: `reachedSpanOf`'s bar lookup removed, and this fails on
+    // `expected [ [ 11, 15 ] ] to deeply equal [ [ 8, 12 ] ]` — the arrow leaving
+    // the reached slice's own span, out in the empty space past the bar; watched
+    // 2026-09-12.
+    expect(chart.arrows.map((arrow) => [arrow.fromStart, arrow.fromFinish])).toEqual([[8, 12]]);
+  });
+
+  it('answers a person link by any of the leaf’s slice ids', () => {
+    const chart = layOutGantt(
+      planOf({
+        rows: [rowAt('strip', 8, 15, { status: 'done', factEndStop: 12 }), rowAt('sand', 15, 17)],
+        slices: [
+          sliceAt('strip-dev', 'strip', 8, 11, { personId: 'kat' }),
+          sliceAt('strip-qa', 'strip', 11, 15, { stepId: 'qa', personId: 'kat' }),
+          sliceAt('sand-dev', 'sand', 15, 17, {
+            personId: 'kat',
+            boundBy: 'person',
+            resourcePredecessorId: 'strip-qa',
+          }),
+        ],
+      }),
+    );
+
+    // Proof: the done bar registered under its first slice id alone, and this
+    // fails on `Received: []` — the hand-off from the QA slice dropped for want
+    // of a bar to leave; watched 2026-09-12.
+    // The link keeps the referent's own id — that is what it names — and its
+    // `fromFinish` is the done bar's stop, which is what says the lookup landed
+    // on the bar and not on the slice's own 15.
+    expect(chart.personLinks.map((link) => [link.fromSliceId, link.fromFinish])).toEqual([
+      ['strip-qa', 12],
+    ]);
+    expect(chart.droppedLinks.personLinks).toBe(0);
+  });
+
+  it('leaves a parent’s bracket as be-01’s projection', () => {
+    const chart = layOutGantt(
+      planOf({
+        rows: [
+          rowAt('hull', 8, 15, { leaf: false }),
+          rowAt('strip', 8, 15, { depth: 1, status: 'done', factEndStop: 12 }),
+        ],
+        slices: [sliceAt('strip-dev', 'strip', 8, 15)],
+      }),
+    );
+    expect(chart.brackets.map((bracket) => [bracket.start, bracket.finish])).toEqual([[8, 15]]);
   });
 });

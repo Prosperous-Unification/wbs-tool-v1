@@ -1,9 +1,8 @@
 import { closeSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { scratchSync } from '@wbs/tool-test-scratch';
 import { afterEach, describe, expect, it } from 'bun:test';
-
-import { scratchSync } from '../../test/scratch';
 
 const SCRIPT = join(import.meta.dir, '../../../bin/with-heavy-lock.sh');
 const LOCK_LIB = join(import.meta.dir, '../../../bin/heavy-lock-lib.sh');

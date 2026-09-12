@@ -13,6 +13,7 @@ import {
   grantAliasCommands,
   isDigest,
   manifestInspectArgs,
+  migrateCommand,
   migrateDownCommand,
   migrateStatusCommand,
   NETWORK,
@@ -590,6 +591,16 @@ describe('tierComposeContext across environments', () => {
 });
 
 describe('migration rollback commands', () => {
+  it('runs the stable migration entrypoint in the incoming container', () => {
+    expect(migrateCommand('be-01-green')).toEqual([
+      'exec',
+      'be-01-green',
+      'bun',
+      'run',
+      'src/migrate-cli.ts',
+    ]);
+  });
+
   it('reads the applied set from the container that is about to migrate', () => {
     // Not from the outgoing colour: it runs the old code, which need not have
     // the status CLI at all.

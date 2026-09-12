@@ -1,5 +1,6 @@
 import { expect, type Locator, type Page, test } from '@playwright/test';
 
+import { TAKEOVER_MS } from '../src/components/wbs/cell-card-store';
 import { cardIsOnTopAt } from './card-paint';
 import { createProject } from './create-project';
 
@@ -15,16 +16,16 @@ import { createProject } from './create-project';
  * browser's question three times over. jsdom lays nothing out, performs no hit
  * test, and has no pointer to walk.
  *
- * The answer is one of two schemes, and which one a column takes follows from
- * its card:
+ * The answer since `cards-open-diagonally` is one rule for all of them — a card
+ * stands past its cell and past its row — and what still differs per column is
+ * what a card does with the pointer:
  *
- * - A card nothing can be clicked in is **pointer-transparent** and can stand
- *   where it likes: the hit test goes straight through it to the trigger below.
- *   Start, Types, Tags and the folded step columns are these.
+ * - A card nothing can be clicked in is **pointer-transparent**, so even where
+ *   it hangs over a row the hit test goes straight through it to the trigger
+ *   below. Start, Types, Tags and the folded step columns are these.
  * - A card that takes the pointer — the links card's whole surface, every line
- *   of the dependency card, the notes preview because it scrolls — has to be
- *   **out of its column**: beside the cell (`opensSideways`), or pulled clear of
- *   the lane its triggers stand in (`clearsMarkerLane`).
+ *   of the dependency card, the notes preview because it scrolls — is reachable
+ *   only because it is out of its own column, and swallows whatever it covers.
  *
  * Measured here per column rather than argued once, because the property is a
  * conjunction of a card's placement, its `pointer-events` and the shape of its
@@ -213,6 +214,23 @@ const middleOf = (box: Box): { x: number; y: number } => ({
   y: box.y + box.height / 2,
 });
 
+/**
+ * Brings the pointer to a cell **down its own column**, from the header above it.
+ *
+ * A diagonal from the corner of the window crosses other columns on the way,
+ * and since 2026-09-10 that matters: the notes preview opens *beside* its cell
+ * and takes the pointer (it scrolls), so a path that clips a `≡` marker on the
+ * way leaves a 640px card standing over the column this walk is about, and the
+ * cell it lands on never sees the pointer at all. Found here as `Depends on: 020
+ * opened no card`.
+ */
+async function pointDownTheColumn(page: Page, at: { x: number; y: number }): Promise<void> {
+  const header = await page.locator('thead tr').first().boundingBox();
+  if (header === null) throw new Error('the table has no header to start from');
+  await page.mouse.move(at.x, header.y + header.height / 2);
+  await page.mouse.move(at.x, at.y, { steps: 6 });
+}
+
 const LANES: readonly Lane[] = [
   {
     what: 'Start',
@@ -290,7 +308,7 @@ test.describe('every cell card leaves its own column clear', () => {
       await expect(page.locator('[role="tooltip"]')).toHaveCount(0);
 
       const from = middleOf(await boxOf(lane.triggerOf(page, first), `${lane.what} ${first}`));
-      await page.mouse.move(from.x, from.y, { steps: 6 });
+      await pointDownTheColumn(page, from);
       expect(await cardIn(lane, page, first), `${lane.what}: ${first} opened no card`).toBe(1);
 
       // The precondition, before the claim: a card that stops above the next
@@ -342,6 +360,10 @@ test.describe('every cell card leaves its own column clear', () => {
       // break it is a card in the way, and the hit test above is what sees that.
       // It is kept because it is what Dany asked for in his own words.
       await page.mouse.move(to.x, to.y, { steps: 12 });
+      // The next row answers after the **takeover**, not at once: with a card
+      // open, a trigger takes over only once the pointer has rested on it for
+      // {@link TAKEOVER_MS} (`card-takeover-delay`). Read once, past that.
+      await page.waitForTimeout(TAKEOVER_MS * 3);
       expect(
         await cardIn(lane, page, second),
         `${lane.what}: the pointer reached ${second} and ${second} did not answer`,
@@ -378,7 +400,7 @@ test.describe('every cell card leaves its own column clear', () => {
       await expect(page.locator('[role="tooltip"]')).toHaveCount(0);
 
       const from = middleOf(await boxOf(lane.triggerOf(page, first), `${lane.what} ${first}`));
-      await page.mouse.move(from.x, from.y, { steps: 6 });
+      await pointDownTheColumn(page, from);
       expect(await cardIn(lane, page, first), `${lane.what}: ${first} opened no card`).toBe(1);
 
       // The cell below in the same column, and the cell above where there is
@@ -388,6 +410,24 @@ test.describe('every cell card leaves its own column clear', () => {
         await cardIsOnTopAt(page, below),
         `${lane.what}: the card stands over ${second}'s own cell`,
       ).not.toBe('the card');
+
+      // **And past the row as well as past the cell**, which is the other half
+      // of the diagonal. Dany, 2026-09-10: _"all display diagonally? like to
+      // make both the on-hover element available for vertical scroll of mouse &
+      // the whole row seen for context on all columns of the row"_.
+      //
+      // Proof: the row offset dropped — `top: 0` instead of the measured
+      // `pastTheRow.below`, which is where these cards hung before — and this
+      // failed on `Start: the card covers its own row · Expected: >= 174.1875 ·
+      // Received: 150`. Watched in Chromium, 2026-09-10.
+      const rowBox = await boxOf(rowOf(page, first), `${lane.what}'s row`);
+      const open = await boxOf(
+        lane.cellOf(page, first).locator('[role="tooltip"]'),
+        `${lane.what}'s open card`,
+      );
+      expect(open.y, `${lane.what}: the card covers its own row`).toBeGreaterThanOrEqual(
+        rowBox.y + rowBox.height - 1,
+      );
 
       // And it is inside the frame it opens in, which is what choosing the side
       // by the room is for: the Start column stands within a card's width of
@@ -404,6 +444,40 @@ test.describe('every cell card leaves its own column clear', () => {
         card.x + card.width,
         `${lane.what}: the card runs off the right of the frame`,
       ).toBeLessThanOrEqual(frame.x + frame.width + 1);
+    }
+  });
+
+  test('every card goes when the pointer moves off its cell', async ({ page }) => {
+    // Dany, 2026-09-10: _"same goes for other cells - make sure that it goes
+    // away at the right time"_. A card held for the length of a reach must
+    // still be gone the moment the reader has plainly moved on, or the plan is
+    // read through somebody else's card.
+    //
+    // Every lane, because the hold lives in the store and the cancel is the
+    // card's own: a column whose card forgot to report its arrivals would keep
+    // the last one up, and a column that never held would lose it under a hand.
+    //
+    // Proof: `holdHovered`'s timer emptied — the hold started and nothing
+    // cleared when it ran out — and this failed on `the notes preview: the card
+    // outstayed the pointer · expect(locator).toHaveCount(0)`. Watched in
+    // Chromium, 2026-09-10.
+    for (const lane of LANES) {
+      const [first] = lane.rows;
+      await page.mouse.move(0, 0);
+      await expect(page.locator('[role="tooltip"]')).toHaveCount(0);
+
+      const from = middleOf(await boxOf(lane.triggerOf(page, first), `${lane.what} ${first}`));
+      await pointDownTheColumn(page, from);
+      expect(await cardIn(lane, page, first), `${lane.what}: ${first} opened no card`).toBe(1);
+
+      // The top-left corner of the window: not the cell, not the card, and not
+      // another cardable cell either — so nothing but the dismissal can close
+      // it.
+      await page.mouse.move(4, 4, { steps: 10 });
+      await expect(
+        page.locator('[role="tooltip"]'),
+        `${lane.what}: the card outstayed the pointer`,
+      ).toHaveCount(0);
     }
   });
 
@@ -459,6 +533,9 @@ test.describe('every cell card leaves its own column clear', () => {
     expect(under, 'the links card is over the next row’s own cell').toBe('the row');
 
     await page.mouse.move(to.x, to.y, { steps: 12 });
+    // Past the takeover, as above: a rested pointer gets the next row's card
+    // {@link TAKEOVER_MS} after landing.
+    await page.waitForTimeout(TAKEOVER_MS * 3);
     expect(await cardIn(lane, page, '020'), '020 did not answer with its own links').toBe(1);
   });
 });

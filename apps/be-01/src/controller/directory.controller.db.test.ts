@@ -22,6 +22,7 @@ import { SubtreeRepository, WorkItemRepository } from '../repository/work-item';
 import { bunPasswordHasher, joseTokenCodec } from '../runtime/bun-runtime';
 import { AuthService } from '../service/auth.service';
 import { DirectoryService } from '../service/directory.service';
+import { fastScheduler } from '../service/optimizer-wiring';
 import { ProjectService } from '../service/project.service';
 import { StepService } from '../service/step.service';
 import { WorkItemService } from '../service/work-item.service';
@@ -29,7 +30,9 @@ import { TEST_JWT_KEY } from '../testing/auth-fixture';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
 import { testCalendarMarkerService } from '../testing/calendar-marker-fixture';
 import { inMemoryCapacity, testCapacityService } from '../testing/capacity-fixture';
+import { testClock } from '../testing/clock-fixture';
 import { testHistoryService } from '../testing/history-fixture';
+import { testLoginThrottle } from '../testing/login-throttle-fixture';
 import { inMemoryPriorityBands, testPriorityBandService } from '../testing/priority-band-fixture';
 import { testReplay } from '../testing/replay-fixture';
 import { testSavedPlanService } from '../testing/saved-plan-fixture';
@@ -72,13 +75,24 @@ beforeEach(async () => {
   // Handing the batch its own would put a `createTeam` command in stores the
   // routes never read.
   const writing = {
-    directory: new DirectoryService({ directory: store, broadcast: recordingBroadcaster() }),
+    directory: new DirectoryService({
+      clock: testClock,
+      directory: store,
+      broadcast: recordingBroadcaster(),
+    }),
     capacity: testCapacityService(),
     priorityBands: testPriorityBandService(),
     calendarMarkers: testCalendarMarkerService(),
-    projects: new ProjectService({ projects, broadcast: recordingBroadcaster() }),
-    steps: new StepService({ projects, steps: stepStore, broadcast: recordingBroadcaster() }),
+    projects: new ProjectService({ clock: testClock, projects, broadcast: recordingBroadcaster() }),
+    steps: new StepService({
+      clock: testClock,
+      projects,
+      steps: stepStore,
+      broadcast: recordingBroadcaster(),
+    }),
     workItems: new WorkItemService({
+      scheduler: fastScheduler,
+      clock: testClock,
       workItems,
       projects,
       estimates: new EstimateRepository(db, OPEN),
@@ -95,11 +109,14 @@ beforeEach(async () => {
     }),
   };
   app = buildApp({
+    loginThrottle: testLoginThrottle(),
+    clock: testClock,
     appOrigin: 'http://localhost',
     savedPlans: testSavedPlanService(),
     ...writing,
     history: testHistoryService(),
     auth: new AuthService({
+      clock: testClock,
       users: new UserRepository(db, OPEN),
       tokens: joseTokenCodec(TEST_JWT_KEY),
       passwords: bunPasswordHasher,

@@ -2,8 +2,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { schedule } from '@wbs/domain';
 import type { ScheduleInput } from '@wbs/domain/canonical-schedule-input';
-import { scheduleInputHash } from '@wbs/domain/canonical-schedule-input';
 import { afterEach, describe, expect, it } from 'bun:test';
 
 import { openDatabase, openDrizzle } from '../repository/db';
@@ -11,10 +11,15 @@ import { DrizzleEventLogStore } from '../repository/event-log';
 import { OPEN } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { reserveSolverSlot } from '../repository/optimization-admission';
-import { DRAIN_RECONCILE_INTERVAL_MS } from '../repository/optimization-drain';
+import {
+  beginOptimizationDrain,
+  DRAIN_RECONCILE_INTERVAL_MS,
+  releaseSolverSlot,
+} from '../repository/optimization-drain';
 import { allocateGeneration, readGeneration } from '../repository/optimization-generation';
 import { enqueueSolverRequest } from '../repository/optimization-queue';
-import { readOptimizedPair } from '../repository/optimized-schedule-cache';
+import { readOptimizedPair, storeOptimizedOutcome } from '../repository/optimized-schedule-cache';
+import { scheduleInputHash } from '../repository/schedule-input-hash';
 import { eventLog, optimizedScheduleCache, solverQueue, solverSlot } from '../repository/schema';
 import {
   OptimizationCoordinator,
@@ -56,7 +61,6 @@ const FEASIBLE_RESPONSE = `${JSON.stringify({
     movement: { value: 0, stageValue: 0, bound: 0, status: 'optimal' },
   },
 })}\n`;
-
 const dirs: string[] = [];
 
 function stream(text: string): ReadableStream<Uint8Array> {
@@ -316,7 +320,12 @@ describe('OptimizationCoordinator read', () => {
     };
 
     for (const input of [empty, zeroDuration]) {
-      const read = coordinator(db, calls).readPlan({ projectId: 'p-1', objective: 'pri', input });
+      const read = coordinator(db, calls).readPlan({
+        projectId: 'p-1',
+        objective: 'pri',
+        input,
+        enabled: true,
+      });
       expect(read).toMatchObject({
         generation: null,
         variants: { pri: { state: 'idle' }, time: { state: 'idle' } },
@@ -342,6 +351,7 @@ describe('OptimizationCoordinator read', () => {
       projectId: 'p-1',
       objective: 'pri',
       input: INPUT,
+      enabled: true,
     });
     expect(read).toMatchObject({
       inputHash: scheduleInputHash(INPUT),
@@ -419,6 +429,7 @@ describe('OptimizationCoordinator read', () => {
       projectId: 'p-1',
       objective: 'pri',
       input: INPUT,
+      enabled: true,
     });
     expect(read.variants).toEqual({
       pri: { state: 'failed', reason: 'timeout' },
@@ -849,6 +860,105 @@ describe('OptimizationCoordinator read', () => {
     expect(calls).toHaveLength(2);
   });
 
+  it('reports an admission-closed miss idle beside a ready incomplete result', () => {
+    const { path, db } = database();
+    seedProject(path);
+    const calls: ReservedSpawnRequest[] = [];
+    const instance = coordinator(
+      db,
+      calls,
+      'blue',
+      () => ({
+        pid: 100 + calls.length,
+        stdout: stream(FEASIBLE_RESPONSE),
+        stderr: stream(''),
+        exited: Promise.resolve(0),
+        verdict: () => undefined,
+        kill: () => undefined,
+      }),
+      runSolverChildLifecycle,
+    );
+    const inputHash = scheduleInputHash(INPUT);
+    const generation = allocateGeneration(db, 'p-1', CONTRACT, inputHash, 2);
+    const admission = reserveSolverSlot(db, {
+      projectId: 'p-1',
+      contractVersion: CONTRACT,
+      generation,
+      objective: 'pri',
+      budgetMs: BUDGET,
+      ownerId: 'blue',
+      attemptToken: 'incomplete-pri',
+      now: 3,
+    });
+    if (admission.kind !== 'reserved') throw new Error('broken fixture: Pri was not admitted');
+    const claim = {
+      projectId: 'p-1',
+      contractVersion: CONTRACT,
+      generation,
+      objective: 'pri' as const,
+      budgetMs: BUDGET,
+      ownerId: 'blue',
+      attemptToken: admission.attemptToken,
+    };
+    expect(
+      storeOptimizedOutcome(db, {
+        claim,
+        inputHash,
+        admittedCancelEpoch: admission.admittedCancelEpoch,
+        outcome: {
+          kind: 'ok',
+          result: {
+            publication: 'solver',
+            schedule: schedule(
+              INPUT.rows,
+              INPUT.edges,
+              INPUT.slices,
+              INPUT.notBefore,
+              INPUT.poolSizes,
+            ),
+            objectiveValues: {
+              makespan: { value: 96, stageValue: 96, bound: 96, status: 'optimal' },
+              priority: { value: 0, stageValue: 0, bound: 0, status: 'optimal' },
+              movement: { value: 0, stageValue: null, bound: null, status: 'unknown' },
+            },
+          },
+        },
+        now: 4,
+      }),
+    ).toBe('stored');
+    expect(releaseSolverSlot(db, claim).released).toBe(true);
+    expect(
+      enqueueSolverRequest(db, {
+        projectId: 'p-1',
+        contractVersion: CONTRACT,
+        generation,
+        objective: 'time',
+        budgetMs: BUDGET,
+        enqueuedAt: 4,
+      }),
+    ).toEqual({ kind: 'queued' });
+    expect(db.select().from(solverQueue).all()).toHaveLength(1);
+
+    expect(beginOptimizationDrain(db, 'p-1', { at: 5, by: 'u-1' }, CONTRACT)).toBe(0);
+    expect(db.select().from(solverQueue).all()).toEqual([]);
+
+    const plan = instance.readPlan({
+      projectId: 'p-1',
+      objective: 'pri',
+      input: INPUT,
+      enabled: true,
+    });
+    expect(plan.generation).toBe(generation);
+    expect(plan.variants).toEqual({
+      pri: { state: 'ready', proof: 'incomplete' },
+      time: { state: 'idle' },
+    });
+    expect(calls).toHaveLength(0);
+    // Proof: skipping beginOptimizationDrain leaves Time queued and the read
+    // reports it pending. The production drain both closes admission and
+    // removes that unstarted work; no direct table mutation creates the state.
+  });
+
   it('stores an internal failure but retains admission when creation has no terminal proof', async () => {
     const { path, db } = database();
     seedProject(path);
@@ -951,7 +1061,8 @@ describe('OptimizationCoordinator read', () => {
     const deadline = seats[0];
 
     const stateOf = (): string =>
-      instance.readPlan({ projectId: 'p-1', objective: 'pri', input: INPUT }).variants.pri.state;
+      instance.readPlan({ projectId: 'p-1', objective: 'pri', input: INPUT, enabled: true })
+        .variants.pri.state;
 
     clock = deadline - 1;
     expect(stateOf()).toBe('retrying');

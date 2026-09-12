@@ -11,7 +11,7 @@
 // additive, so the old colour keeps working while green migrates; the reverse
 // is not additive by nature, which is why this runs only on an abort, when
 // green is being taken away and blue is the release that will keep serving.
-import { ROLLBACK_ALL, rollbackTo } from './repository/migrate-down';
+import { ROLLBACK_ALL, rollbackTo } from '@wbs/store-sqlite/migrate-down';
 
 const dbPath = process.env['DB_PATH'];
 if (dbPath === undefined || dbPath === '') throw new Error('DB_PATH must be set');

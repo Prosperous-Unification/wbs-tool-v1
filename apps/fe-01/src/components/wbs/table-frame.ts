@@ -387,6 +387,12 @@ const COLUMN_WIDTHS = new Map<string, number>([
   // The default table is therefore the table it was, to the pixel, and the
   // folded-width budget at 1280 does not move.
   ['deadline', 84],
+  // The row's status in a word — `In progress` is the widest — and the two
+  // facts at the date columns' width, all three off by default (see
+  // INITIAL_HIDDEN_COLUMNS).
+  ['status', 88],
+  ['fact-start', DATE_COLUMN_WIDTH],
+  ['fact-end', DATE_COLUMN_WIDTH],
   // No `notes`: a work item's notes are typed under its name, in the Name
   // cell, and the column they had of their own is gone. 260px of a table that
   // has to lose about 500 to stop scrolling sideways at 1280.
@@ -483,6 +489,13 @@ export const INITIAL_HIDDEN_COLUMNS: readonly string[] = [
   // minority of rows carry. `work-item-deadline` 9.1 asks for the cell, not for
   // a column every project pays width for.
   'deadline',
+  // Status and the two facts, hidden for deadline's reason: the folded table at
+  // 1280 has no room for three more columns, and the rows they matter on are
+  // the ones somebody has finished. A done row still reads as done with them
+  // hidden — its name is struck through and its bar is marked.
+  'status',
+  'fact-start',
+  'fact-end',
 ];
 
 /** The one-time column target chosen by the full-table Reset layout action. */
@@ -539,6 +552,12 @@ export function hideableColumnIds(stepIds: readonly string[]): readonly string[]
     // it: the two days a planner states about a row sit together, and the days
     // be-01 worked out follow them.
     'deadline',
+    // The three `work-item-status-and-facts` adds, after the two constraints and
+    // before the computed dates: what a planner **records** about a row sits
+    // beside what a planner **asks** of it, and the engine's answer follows both.
+    'status',
+    'fact-start',
+    'fact-end',
     'start',
     'finish',
     'float',

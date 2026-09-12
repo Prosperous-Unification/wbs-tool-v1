@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import { HoverCard, roomForCard, sidewaysPlacement, surfacePlacement } from './hover-card';
+import { diagonalPlacement, HoverCard, sidewaysPlacement, surfacePlacement } from './hover-card';
 import { HoverPreview } from './hover-preview';
 
 // fe-01 tests require jsdom; only Vitest provides it. Skip under plain `bun test`.
@@ -52,24 +52,29 @@ describe('a hover card hangs over the rows below without touching them', () => {
     render(<HoverPreview name="Strip" notes={'- one\n- two'} number="010" />);
 
     const preview = screen.getByRole('tooltip');
-    expect(preview.style.maxHeight).not.toBe('160px');
-    expect(preview.style.maxHeight).toBe(
-      `${String(roomForCard({ top: 0, bottom: 0 }, { top: 0, bottom: window.innerHeight }).maxHeight)}px`,
-    );
-    // The card is placed by its **right** edge, 24px inside its cell's, so that
-    // the lane of `≡` markers stays hoverable at any column width
-    // ({@link HoverCardProps.clearsMarkerLane}) — and the width is the pixel cap
-    // alone, since nothing has to be capped once the edge that matters is the
-    // anchored one. jsdom lays nothing out, so these are the declarations and
-    // not the geometry; what they *do* is `e2e/card-lanes.spec.ts`'s notes
-    // preview lane, in a layout whose Name cell is 192px.
+    // The ceiling is the room beside the cell now ({@link sidewaysPlacement}),
+    // and jsdom measures every box as zero — so what is asserted here is that a
+    // ceiling was set at all, and `e2e/hover-cards.spec.ts` is where the figure
+    // is a real frame's.
+    expect(preview.style.maxHeight).not.toBe('');
+    // The declarations that put this card past its cell and below its own row
+    // ({@link HoverCardProps.leavesItsRowClear}). jsdom measures every box as
+    // zero, so `top` is the unmeasured `100%` here and the row's own edge in a
+    // browser — `e2e/hover-cards.spec.ts`'s `leaves its own row and the marker
+    // lane clear` is where that is asserted.
     //
-    // Proof: `clearsMarkerLane` dropped from `HoverPreview`'s card — this failed
-    // on `expected '' to be '24px'`, the empty string being an unset `right`.
-    // Watched 2026-09-09.
-    expect(preview.style.right).toBe('24px');
-    expect(preview.style.left).toBe('auto');
-    expect(preview.style.maxWidth).toBe('min(640px, 100vw)');
+    // `max-content` is the load-bearing one: shrink-to-fit measures the room
+    // between `left: 100%` and the cell's right edge, which is 4px, so without
+    // it this card is its 260px minimum however wide the plan is.
+    //
+    // Proof: `leavesItsRowClear` dropped from `HoverPreview`'s card — this
+    // failed on `expected '0px' to be '100%'`, the card back at its cell's own
+    // left edge. Watched 2026-09-10.
+    expect(preview.style.left).toBe('100%');
+    expect(preview.style.width).toBe('max-content');
+    // `1018px` is jsdom's own window width less the 6px gap the placement
+    // keeps — the measured room, which in a browser is the frame's.
+    expect(preview.style.maxWidth).toBe('min(1000px, 1018px, 100vw)');
   });
 
   itDom('leaves every other card its own width', () => {
@@ -81,7 +86,8 @@ describe('a hover card hangs over the rows below without touching them', () => {
     // branch — failed on `expected '640px' to be '420px'`. Watched 2026-08-11.
     render(<HoverCard label="Dev for 010">4.8 days</HoverCard>);
 
-    expect(screen.getByRole('tooltip').style.maxWidth).toBe('420px');
+    // The same measured room, against the ceiling a card of words keeps.
+    expect(screen.getByRole('tooltip').style.maxWidth).toBe('min(420px, 1018px, 100vw)');
   });
 
   itDom('renders a body that is not a work item’s notes', () => {
@@ -105,7 +111,7 @@ describe('a hover card hangs over the rows below without touching them', () => {
     // `absolute`. Where it lands once it has a size is a browser fact
     // (`e2e/gantt.spec.ts`).
     const { container } = render(
-      <HoverCard label="Facts for 3.2" anchor={{ left: 120, top: 200, bottom: 228 }}>
+      <HoverCard label="Facts for 3.2" anchor={{ left: 120, right: 140, top: 200, bottom: 228 }}>
         <p>Dev · Kat</p>
       </HoverCard>,
     );
@@ -123,7 +129,9 @@ describe('an anchored surface stays inside the viewport', () => {
   const CARD = { width: 300, height: 120 };
 
   itDom('opens under its mark when there is room below', () => {
-    expect(surfacePlacement({ left: 100, top: 200, bottom: 228 }, CARD, SCREEN)).toEqual({
+    expect(
+      surfacePlacement({ left: 100, right: 120, top: 200, bottom: 228 }, CARD, SCREEN),
+    ).toEqual({
       left: 100,
       top: 234,
     });
@@ -137,7 +145,9 @@ describe('an anchored surface stays inside the viewport', () => {
     // browser's own half of the same fault is
     // `flips a surface above a bar near the bottom of the window`. Watched,
     // 2026-08-09.
-    expect(surfacePlacement({ left: 100, top: 750, bottom: 774 }, CARD, SCREEN)).toEqual({
+    expect(
+      surfacePlacement({ left: 100, right: 120, top: 750, bottom: 774 }, CARD, SCREEN),
+    ).toEqual({
       left: 100,
       top: 624,
     });
@@ -150,7 +160,9 @@ describe('an anchored surface stays inside the viewport', () => {
     // a 1000px screen, and the last test in this block with it. The browser's
     // half is `clamps the right-most bar's surface inside the window`.
     // Watched, 2026-08-09.
-    expect(surfacePlacement({ left: 950, top: 200, bottom: 228 }, CARD, SCREEN)).toEqual({
+    expect(
+      surfacePlacement({ left: 950, right: 970, top: 200, bottom: 228 }, CARD, SCREEN),
+    ).toEqual({
       left: 700,
       top: 234,
     });
@@ -167,95 +179,11 @@ describe('an anchored surface stays inside the viewport', () => {
     // left: 10, top: +0 } to deeply equal { left: +0, top: +0 }`. Watched,
     // 2026-08-09.
     expect(
-      surfacePlacement({ left: 10, top: 30, bottom: 58 }, CARD, { width: 200, height: 100 }),
+      surfacePlacement({ left: 10, right: 30, top: 30, bottom: 58 }, CARD, {
+        width: 200,
+        height: 100,
+      }),
     ).toEqual({ left: 0, top: 0 });
-  });
-});
-
-describe('a scrolling card takes the room its cell leaves it', () => {
-  /** A 1000px-tall window, so a cell at 400 has 594 below it and 394 above. */
-  const WINDOW_HEIGHT = 1000;
-  /**
-   * That window as the box a card is clipped by.
-   *
-   * A box rather than a height since `unified-scroll-docking`: the frame the
-   * cells sit in is only as tall as its own rows now, so what clips a card is
-   * the frame where there is one and the window where there is not. These cases
-   * are all about the window, which starts at zero.
-   */
-  const WINDOW = { top: 0, bottom: WINDOW_HEIGHT };
-
-  itDom('opens downward, as tall as the room below, for a cell high on the screen', () => {
-    // Proof: `below >= above` flipped to `below > above` changes nothing here,
-    // so the branch is proven by the test below instead; the *ceiling* is what
-    // this one holds. `Math.max(below, above, …)` reduced to `above` — failed
-    // on `expected { side: 'below', maxHeight: 194 } to deeply equal { side:
-    // 'below', maxHeight: 794 }`, a card given the empty room behind it.
-    // Watched 2026-08-11.
-    expect(roomForCard({ top: 200, bottom: 200 }, WINDOW)).toEqual({
-      side: 'below',
-      maxHeight: 794,
-    });
-  });
-
-  itDom('flips above when the cell is low enough that above has more room', () => {
-    // The branch the change exists for: at 320px a card below this cell was
-    // merely cramped, at 700px it is off the bottom of the screen entirely.
-    //
-    // Proof: the side forced to `'below'` — failed on `expected { side:
-    // 'below', … } to deeply equal { side: 'above', … }`, and the browser's
-    // half (`opens the card above a row low in the table`) failed with it.
-    // Watched 2026-08-11.
-    expect(roomForCard({ top: 800, bottom: 830 }, WINDOW)).toEqual({
-      side: 'above',
-      maxHeight: 794,
-    });
-  });
-
-  itDom('never takes more than nine tenths of the window', () => {
-    // A cell at the very top of a tall window has almost the whole of it below,
-    // and a card that tall is one whose top edge is under the toolbar and whose
-    // bottom is on the status bar.
-    //
-    // Proof: the `Math.min` against the share dropped — failed on `expected {
-    // side: 'below', maxHeight: 994 } to deeply equal { side: 'below',
-    // maxHeight: 900 }`. Watched 2026-08-11.
-    expect(roomForCard({ top: 0, bottom: 0 }, WINDOW)).toEqual({
-      side: 'below',
-      maxHeight: 900,
-    });
-  });
-
-  itDom('gives a card on the fold a floor to be readable in', () => {
-    // A window 300px tall with the cell across its middle: 130 below, 144
-    // above. Sized to either, the card holds a heading and one line.
-    //
-    // Proof: `SCROLLING_MIN_HEIGHT` dropped from the `Math.max` — failed on
-    // `expected { side: 'above', maxHeight: 144 } to deeply equal { side:
-    // 'above', maxHeight: 160 }`. Watched 2026-08-11.
-    expect(roomForCard({ top: 150, bottom: 164 }, { top: 0, bottom: 300 })).toEqual({
-      side: 'above',
-      maxHeight: 160,
-    });
-  });
-
-  itDom('gives a card no room rather than less than none when its frame is off screen', () => {
-    // Both reviewers, 2026-08-12, agy with the arithmetic. The caller hands
-    // this function the frame ∩ the window, and a frame scrolled entirely off
-    // the top of the window intersects it in nothing: `{top: max(0, -900),
-    // bottom: min(1000, -200)}` is `{0, -200}`, a box whose bottom is above its
-    // top. Nine tenths of a negative height is a card told to be shorter than
-    // nothing. Hardening rather than a bug fix — a card opens on hover and a
-    // cell nobody can point at cannot be hovered — so what it is pinned to is
-    // the arithmetic, not a pointer.
-    //
-    // Proof: the `Math.max` against the container's own top dropped — failed on
-    // `expected { side: 'below', maxHeight: -180 } to deeply equal { side:
-    // 'below', maxHeight: 0 }`. Watched on h2puni, 2026-08-13.
-    expect(roomForCard({ top: -500, bottom: -472 }, { top: 0, bottom: -200 })).toEqual({
-      side: 'below',
-      maxHeight: 0,
-    });
   });
 });
 
@@ -268,7 +196,7 @@ describe('a card beside its cell picks the side with the room', () => {
   it('opens right where the right has the room', () => {
     expect(
       sidewaysPlacement({ left: 300, right: 420, top: 150, bottom: 176 }, CARD, FRAME),
-    ).toEqual({ side: 'right', align: 'top' });
+    ).toEqual({ side: 'right', align: 'top', maxHeight: 720 });
   });
 
   it('opens left for a column within a card of the right edge', () => {
@@ -282,7 +210,7 @@ describe('a card beside its cell picks the side with the room', () => {
     // informative card stands beside its cell, not over its column`.
     expect(
       sidewaysPlacement({ left: 1283, right: 1381, top: 150, bottom: 176 }, CARD, FRAME),
-    ).toEqual({ side: 'left', align: 'top' });
+    ).toEqual({ side: 'left', align: 'top', maxHeight: 720 });
   });
 
   it('opens right on a tie, which is where every card opened before', () => {
@@ -294,7 +222,7 @@ describe('a card beside its cell picks the side with the room', () => {
         { width: 900, height: 60 },
         FRAME,
       ),
-    ).toEqual({ side: 'right', align: 'top' });
+    ).toEqual({ side: 'right', align: 'top', maxHeight: 720 });
   });
 
   it('hangs from the bottom edge for a row too low to hold the card', () => {
@@ -306,6 +234,92 @@ describe('a card beside its cell picks the side with the room', () => {
     // Watched 2026-09-10.
     expect(
       sidewaysPlacement({ left: 300, right: 420, top: 870, bottom: 896 }, CARD, FRAME),
-    ).toEqual({ side: 'right', align: 'bottom' });
+    ).toEqual({ side: 'right', align: 'bottom', maxHeight: 720 });
+  });
+});
+
+describe('a hint card past its cell and past its row', () => {
+  const CARD = { width: 260, height: 60 };
+  /** A plan's frame: the whole window, so the plain cases read as coordinates. */
+  const FRAME = { left: 0, right: 1000, top: 0, bottom: 800 };
+
+  it('stands right of the column and below the row', () => {
+    // A 140px cell in a 26px row, with the rest of the plan to its right: the
+    // card's left edge is the **cell's** right edge and its top is the
+    // **row's** bottom, which is the whole of what "diagonal" is. No gap on
+    // either axis, so it is the same corner an in-cell card hangs in.
+    expect(
+      diagonalPlacement({ left: 100, right: 240, top: 200, bottom: 226 }, CARD, FRAME),
+    ).toEqual({ left: 240, top: 226 });
+  });
+
+  it('flips to the left of a column with no room on its right', () => {
+    // The Slack column, 20px from the frame's right edge: a card opening right
+    // would start at 980 and end 240px past the plan.
+    //
+    // Proof: the side fixed at right, this failed on `expected { left: 740, top:
+    // 226 } to deeply equal { left: 600, top: 226 }` — the clamped card standing
+    // over its own column and three more. Watched 2026-09-11.
+    expect(
+      diagonalPlacement({ left: 860, right: 980, top: 200, bottom: 226 }, CARD, FRAME),
+    ).toEqual({ left: 600, top: 226 });
+  });
+
+  it('hangs above the row for a row too low to hold the card', () => {
+    // 60px of card from a row whose bottom is 4px off the frame's: hung below
+    // it, the card would be 56px past the plan.
+    //
+    // Proof: `underneath` fixed at true, this failed on `expected { left: 240,
+    // top: 740 } to deeply equal { left: 240, top: 710 }` — the card clamped up
+    // the screen and over the row it explains. Watched 2026-09-11.
+    expect(
+      diagonalPlacement({ left: 100, right: 240, top: 770, bottom: 796 }, CARD, FRAME),
+    ).toEqual({ left: 240, top: 710 });
+  });
+
+  it('is clamped into the frame rather than into the window', () => {
+    // The frame is the plan's own scrolling box and it starts 300px in — a
+    // narrow plan beside a wide chart. A card pushed off the roomier side is
+    // pushed back to the **frame's** left edge, not to the window's, because
+    // the promise is that the card stays inside the plan.
+    //
+    // A 120px-wide, 100px-tall frame, and a card that fits in neither
+    // direction: both clamps bind, which is what lets one case prove both.
+    //
+    // Proof: both clamps taken back to the window (`Math.max(0, …)`, which is
+    // what the placement this replaced did), this failed on `expected { left:
+    // 160, top: 90 } to deeply equal { left: 300, top: 100 }` — 140px of card
+    // hanging left of the plan, over the chart, and 10px of it above the frame.
+    // Watched 2026-09-11.
+    expect(
+      diagonalPlacement({ left: 310, right: 330, top: 150, bottom: 176 }, CARD, {
+        left: 300,
+        right: 420,
+        top: 100,
+        bottom: 200,
+      }),
+    ).toEqual({ left: 300, top: 100 });
+  });
+
+  it('clamps rather than refuses where neither side has the room', () => {
+    // 260px of card and 200px of frame. `besidePlacement` answers `null` for
+    // this and is right to: a picker's card that must cover the list it explains
+    // has no claim on the space. A hint is a sentence about the thing under the
+    // pointer, and a reader who is shown nothing cannot ask again.
+    //
+    // Proof: a refusal put in front of the clamp — `if (toTheRight < card.width
+    // && toTheLeft < card.width) return null;`, which is what {@link
+    // besidePlacement} does — this failed on `expected null to deeply equal {
+    // left: +0, top: 40 }`. Watched 2026-09-11. (The refusal is not typeable
+    // here: the placement's return type is not nullable, and the fault runs
+    // because vitest transpiles rather than checks.)
+    expect(
+      diagonalPlacement({ left: 10, right: 30, top: 30, bottom: 58 }, CARD, {
+        left: 0,
+        right: 200,
+        top: 0,
+        bottom: 100,
+      }),
+    ).toEqual({ left: 0, top: 40 });
   });
 });

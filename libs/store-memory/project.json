@@ -1,0 +1,41 @@
+{
+  "name": "store-memory",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/store-memory/src",
+  "projectType": "library",
+  "tags": ["scope:shared", "ring:adapter", "runtime:isomorphic", "product:wbs"],
+  "targets": {
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": { "command": "bunx eslint libs/store-memory/src" }
+    },
+    "lint:fast": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx eslint libs/store-memory/src --cache --cache-location .nx/eslintcache-store-memory"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "inputs": ["default", "^production"],
+      "options": {
+        "command": "bun test src --coverage --coverage-reporter=lcov",
+        "cwd": "libs/store-memory"
+      },
+      "outputs": ["{projectRoot}/coverage"]
+    },
+    "test:unit": {
+      "executor": "nx:run-commands",
+      "inputs": ["default", "^production"],
+      "options": {
+        "command": "bun test src --coverage --coverage-reporter=lcov",
+        "cwd": "libs/store-memory"
+      },
+      "outputs": ["{projectRoot}/coverage"]
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": { "command": "bunx tsc --build --force libs/store-memory/tsconfig.json" }
+    }
+  }
+}

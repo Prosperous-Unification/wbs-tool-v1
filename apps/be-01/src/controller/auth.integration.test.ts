@@ -8,8 +8,10 @@ import { LoginThrottle } from '../service/login-throttle';
 import { inMemoryUsers, TEST_JWT_KEY, testAuthService } from '../testing/auth-fixture';
 import { testCalendarMarkerService } from '../testing/calendar-marker-fixture';
 import { testCapacityService } from '../testing/capacity-fixture';
+import { testClock } from '../testing/clock-fixture';
 import { testDirectoryService } from '../testing/directory-fixture';
 import { testHistoryService } from '../testing/history-fixture';
+import { testLoginThrottle } from '../testing/login-throttle-fixture';
 import { testPriorityBandService } from '../testing/priority-band-fixture';
 import { testProjectService } from '../testing/project-fixture';
 import { testReplay } from '../testing/replay-fixture';
@@ -23,13 +25,14 @@ const TEST_SECRET = 'x'.repeat(32);
 
 function app(auth = testAuthService(), maxConcurrentLogins?: number) {
   return buildApp({
+    loginThrottle: testLoginThrottle(maxConcurrentLogins),
     appOrigin: 'http://localhost',
+    clock: testClock,
     directory: testDirectoryService(),
     capacity: testCapacityService(),
     priorityBands: testPriorityBandService(),
     history: testHistoryService(),
     auth,
-    maxConcurrentLogins,
     calendarMarkers: testCalendarMarkerService(),
     projects: testProjectService(),
     workItems: testWorkItemService(),
@@ -124,6 +127,7 @@ describe('GET /api/auth/me', () => {
   it('returns the fixed development identity without a token in local mode', async () => {
     const users = inMemoryUsers();
     const local = new AuthService({
+      clock: testClock,
       users,
       identities: users,
       tokens: joseTokenCodec(TEST_JWT_KEY),
@@ -135,7 +139,9 @@ describe('GET /api/auth/me', () => {
       },
     });
     const res = await buildApp({
+      loginThrottle: testLoginThrottle(),
       appOrigin: 'http://localhost',
+      clock: testClock,
       directory: testDirectoryService(),
       capacity: testCapacityService(),
       priorityBands: testPriorityBandService(),
@@ -337,6 +343,7 @@ function heldLogins(maxConcurrentLogins?: number, now?: () => number) {
       createdAt: 1,
     });
   const auth = new AuthService({
+    clock: testClock,
     users,
     tokens: joseTokenCodec(TEST_JWT_KEY),
     passwords: {
@@ -347,7 +354,10 @@ function heldLogins(maxConcurrentLogins?: number, now?: () => number) {
         }),
     },
   });
-  const throttle = new LoginThrottle({ now, maxConcurrent: maxConcurrentLogins ?? 8 });
+  const throttle = new LoginThrottle({
+    now: now ?? (() => testClock.now()),
+    maxConcurrent: maxConcurrentLogins ?? 8,
+  });
   const application = now === undefined ? app(auth, maxConcurrentLogins) : null;
   const timedLogin = authPasswordEndpoints(auth, undefined, throttle)[1];
   const requests: Promise<{ status: number }>[] = [];

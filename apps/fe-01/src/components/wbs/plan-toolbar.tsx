@@ -37,7 +37,7 @@ import {
 } from './remembered-layout';
 import { type FrameLayoutState } from './table-frame';
 import { teamsOnThePlan } from './teams-panel';
-import { CollapseIcon, ExpandIcon, KeyboardIcon } from './toolbar-icons';
+import { ArrangeIcon, CollapseIcon, ExpandIcon, KeyboardIcon } from './toolbar-icons';
 import type { TreeNarrowing } from './tree-search';
 import {
   type FacetCriteria,
@@ -336,6 +336,9 @@ export const COLUMN_LABELS: ReadonlyMap<string, string> = new Map([
   ['final-total', 'Days'],
   ['not-before', 'Not before'],
   ['deadline', 'Deadline'],
+  ['status', 'Status'],
+  ['fact-start', 'Fact start'],
+  ['fact-end', 'Fact end'],
   ['start', 'Start'],
   ['finish', 'End'],
   ['float', 'Slack'],
@@ -529,6 +532,8 @@ export function SavedViews({
  */
 export function PlanToolbar({
   criteria,
+  scheduleError,
+  arrangeBySchedule,
   freezeMenuOpen,
   setFreezeMenuOpen,
   busy,
@@ -577,6 +582,7 @@ export function PlanToolbar({
   stack,
   stepStack,
   setCheatSheetOpen,
+  exportAvailable,
   copyAsMarkdown,
   copyAsMermaid,
   downloadCsv,
@@ -611,6 +617,10 @@ export function PlanToolbar({
   hiddenColumnIds: string[];
   frameState: FrameLayoutState;
   people: PersonView[];
+  /** Why the plan has no dated schedule to arrange, when it has none. */
+  scheduleError: 'calendar_range' | 'cycle' | null;
+  /** Issues the arrangement and says it landed; built where the toast stack is. */
+  arrangeBySchedule: () => void;
   chartRead: ChartRead;
   estimateMethod: 'pert' | 'optimistic' | 'realistic' | 'pessimistic';
   commitQuery: (projectId: string, query: string) => void;
@@ -637,6 +647,7 @@ export function PlanToolbar({
   stack: { undoable: boolean; redoable: boolean };
   stepStack: (direction: 'undo' | 'redo') => Promise<void>;
   setCheatSheetOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  exportAvailable: boolean;
   copyAsMarkdown: () => void;
   copyAsMermaid: () => void;
   downloadCsv: () => void;
@@ -648,6 +659,16 @@ export function PlanToolbar({
   startDate: string | null;
   chooseEstimateMethod: (method: 'pert' | 'optimistic' | 'realistic' | 'pessimistic') => void;
 }) {
+  // Selected optimized and still drawn by Fast — solving, failed or infeasible,
+  // which are one state to a reader waiting for the schedule they picked. The
+  // same three conditions be-01 refuses `schedule_not_ready` on.
+  const awaitingSchedule =
+    chartRead.optimization !== undefined &&
+    chartRead.optimization.enabled &&
+    chartRead.optimization.engine === 'optimized' &&
+    chartRead.optimization.displayed === 'fast';
+
+  const exportMenu = useClosedByPointerOutside();
   const [query, setQuery] = useState(criteria.query);
   const deferredQuery = useDeferredValue(query);
   useEffect(() => {
@@ -778,6 +799,56 @@ export function PlanToolbar({
         }}
       >
         <ExpandIcon />
+      </Button>
+      {/*
+        Whether the project picked the optimized engine and is still being drawn
+        by Fast — solving, failed or infeasible, which are one state to a reader
+        waiting for their own schedule. The same three conditions be-01 refuses
+        `schedule_not_ready` on, read off the payload the chart is already
+        holding rather than asked for again.
+      */}
+      {/*
+        One press puts every sibling group in the order its bars start — the
+        third control that acts on the tree's shape, after the two that open and
+        close it.
+
+        **An icon, and its name is the thing that does not change** (D1 of
+        `plan-toolbar-controls`): `Arrange by schedule` is what every test and
+        every screen reader finds, and the staircase is what the bar spends
+        width on. Dany asked for "an icon" and "a small column for now" on
+        2026-09-10, which is the narrowest control this bar can carry.
+
+        **Two states swap the hint for a fact and disable it**, because in both
+        of them be-01 would refuse and the reason is about *this plan* rather
+        than about the tool. A cycle has no schedule to arrange by; a project on
+        the optimized engine that is still drawing Fast has not got the one it
+        picked yet, and arranging by Fast there would leave the rows in an order
+        the reader did not choose with nothing on screen admitting it (ADR
+        0023).
+      */}
+      <Button
+        variant="outline"
+        size="square"
+        type="button"
+        disabled={busy || scheduleError !== null || awaitingSchedule}
+        aria-label="Arrange by schedule"
+        {...(scheduleError === 'cycle'
+          ? {
+              'data-fact':
+                'The plan has a dependency cycle, so there is no schedule to arrange by.',
+            }
+          : scheduleError === 'calendar_range'
+            ? {
+                'data-fact':
+                  'The plan reaches beyond the calendar, so there are no dated bars to arrange by.',
+              }
+            : awaitingSchedule
+              ? { 'data-fact': 'Optimizing… arrange once the schedule settles.' }
+              : { 'data-hint': 'Put every sibling in the order its bar starts' })}
+        {...busyAffordance(busy)}
+        onClick={arrangeBySchedule}
+      >
+        <ArrangeIcon />
       </Button>
       {/*
         The schedule as something to look at, under the plan. `aria-pressed`
@@ -1115,54 +1186,57 @@ export function PlanToolbar({
         names, titles and handlers; the only thing that moved is where they
         sit.
       */}
-      <details ref={useClosedByPointerOutside()} data-export className="relative">
-        <summary
-          className="border-input h-8 cursor-pointer rounded-md border px-2 py-1 text-xs select-none"
-          data-hint="Copy or download the plan — as a Markdown table, a Mermaid gantt, a CSV, or what is on screen"
-        >
-          Export
-        </summary>
-        <div
-          data-export-panel
-          className="bg-popover absolute z-50 mt-1 flex w-56 flex-col items-stretch gap-1 rounded-md border p-2 shadow-md"
-        >
-          <Button
-            variant="outline"
-            size="sm"
-            type="button"
-            data-hint="Copy the whole plan as a Markdown table, with a header saying how to read it"
-            onClick={copyAsMarkdown}
+      {/* Proof: removing `exportAvailable` left `<details data-export>` in the
+          unavailable-plan fixture; expected null, received the live Export menu. */}
+      {exportAvailable && (
+        <details ref={exportMenu} data-export className="relative">
+          <summary
+            className="border-input h-8 cursor-pointer rounded-md border px-2 py-1 text-xs select-none"
+            data-hint="Copy or download the plan — as a Markdown table, a Mermaid gantt, a CSV, or what is on screen"
           >
-            Copy as Markdown
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            type="button"
-            data-hint="Copy the chart as a Mermaid gantt, for a Markdown document that draws it"
-            onClick={copyAsMermaid}
+            Export
+          </summary>
+          <div
+            data-export-panel
+            className="bg-popover absolute z-50 mt-1 flex w-56 flex-col items-stretch gap-1 rounded-md border p-2 shadow-md"
           >
-            Copy as Mermaid
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            type="button"
-            data-hint="Download the whole plan as a CSV, with a header saying how to read it"
-            onClick={downloadCsv}
-          >
-            Download CSV
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            type="button"
-            data-hint="Download the chart as a Mermaid gantt bundled with the Markdown table, with a header saying how to read it"
-            onClick={downloadMermaidDocument}
-          >
-            Download as Markdown
-          </Button>
-          {/*
+            <Button
+              variant="outline"
+              size="sm"
+              type="button"
+              data-hint="Copy the whole plan as a Markdown table, with a header saying how to read it"
+              onClick={copyAsMarkdown}
+            >
+              Copy as Markdown
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              type="button"
+              data-hint="Copy the chart as a Mermaid gantt, for a Markdown document that draws it"
+              onClick={copyAsMermaid}
+            >
+              Copy as Mermaid
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              type="button"
+              data-hint="Download the whole plan as a CSV, with a header saying how to read it"
+              onClick={downloadCsv}
+            >
+              Download CSV
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              type="button"
+              data-hint="Download the chart as a Mermaid gantt bundled with the Markdown table, with a header saying how to read it"
+              onClick={downloadMermaidDocument}
+            >
+              Download as Markdown
+            </Button>
+            {/*
             The chart as a picture, in the menu every other export is in. It
             was on the chart's own control strip alone until 2026-08-31 — a
             `⇩` glyph beside `Full` — which is where somebody already
@@ -1175,17 +1249,17 @@ export function PlanToolbar({
             says nothing at all, and the five beside it are never disabled
             either.
           */}
-          <Button
-            variant="outline"
-            size="sm"
-            type="button"
-            data-export-chart-svg
-            data-hint="Download the chart as a standalone .svg — every bar, arrow, hand-off and colour, openable with no app around it"
-            onClick={downloadChartSvg}
-          >
-            Download chart as SVG
-          </Button>
-          {/*
+            <Button
+              variant="outline"
+              size="sm"
+              type="button"
+              data-export-chart-svg
+              data-hint="Download the chart as a standalone .svg — every bar, arrow, hand-off and colour, openable with no app around it"
+              onClick={downloadChartSvg}
+            >
+              Download chart as SVG
+            </Button>
+            {/*
             The one action that takes the rows on screen rather than the plan. Its
             own button rather than a switch on the four beside it: a mode on a
             button whose header claims the whole plan is how a partial plan gets
@@ -1193,16 +1267,16 @@ export function PlanToolbar({
             only while a filter is on — a collapsed branch narrows the screen too,
             and the `Scope` line it writes says which of the two did it.
           */}
-          <Button
-            variant="outline"
-            size="sm"
-            type="button"
-            data-hint="Download the rows on screen as a Markdown table, with a header saying what was filtered out and what is missing"
-            onClick={downloadOnScreen}
-          >
-            Download what’s on screen
-          </Button>
-          {/*
+            <Button
+              variant="outline"
+              size="sm"
+              type="button"
+              data-hint="Download the rows on screen as a Markdown table, with a header saying what was filtered out and what is missing"
+              onClick={downloadOnScreen}
+            >
+              Download what’s on screen
+            </Button>
+            {/*
             The one setting among the six actions, and it governs two of them:
             `Copy as Mermaid` and `Download as Markdown` both write their fence
             through it. Mermaid has exactly one grouping channel and it is
@@ -1222,39 +1296,40 @@ export function PlanToolbar({
             that dismissed the sheet before the export it configures could be
             reached would be a setting nobody can spend.
           */}
-          <label className="mt-1 flex items-center justify-between gap-1 text-xs">
-            Mermaid lanes
-            <select
-              className="border-input bg-background h-8 rounded-md border px-2 text-xs"
-              // No `aria-label`: the `<label>` wrapping it already names it,
-              // which is where it parts from `Final estimate` below — that one
-              // reads `Plan with` on screen and needs the name spelling out.
-              data-hint="What the two Mermaid exports group their bars into — the plan's outline, the step a bar is estimated under, or whoever is on it"
-              value={mermaidSectionMode}
-              onChange={(e) => {
-                const asked = e.target.value;
-                // Narrowing, **not** a guard, and no negative test is owed for
-                // it: `value` is typed `string` and the options are
-                // {@link SECTION_MODES} itself, so nothing a browser can put
-                // here fails it. The same line the `Plan with` picker below
-                // carries, for the same reason. The real boundary is
-                // {@link rememberedMermaidSectionMode}, which reads storage.
-                if (!isSectionMode(asked)) return;
-                // Stored where it is picked and nowhere else, exactly as the
-                // chart's own rung is: opening a plan must not write to it.
-                setMermaidSectionMode(asked);
-                rememberMermaidSectionMode(asked);
-              }}
-            >
-              {SECTION_MODES.map((mode) => (
-                <option key={mode} value={mode}>
-                  {mode}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      </details>
+            <label className="mt-1 flex items-center justify-between gap-1 text-xs">
+              Mermaid lanes
+              <select
+                className="border-input bg-background h-8 rounded-md border px-2 text-xs"
+                // No `aria-label`: the `<label>` wrapping it already names it,
+                // which is where it parts from `Final estimate` below — that one
+                // reads `Plan with` on screen and needs the name spelling out.
+                data-hint="What the two Mermaid exports group their bars into — the plan's outline, the step a bar is estimated under, or whoever is on it"
+                value={mermaidSectionMode}
+                onChange={(e) => {
+                  const asked = e.target.value;
+                  // Narrowing, **not** a guard, and no negative test is owed for
+                  // it: `value` is typed `string` and the options are
+                  // {@link SECTION_MODES} itself, so nothing a browser can put
+                  // here fails it. The same line the `Plan with` picker below
+                  // carries, for the same reason. The real boundary is
+                  // {@link rememberedMermaidSectionMode}, which reads storage.
+                  if (!isSectionMode(asked)) return;
+                  // Stored where it is picked and nowhere else, exactly as the
+                  // chart's own rung is: opening a plan must not write to it.
+                  setMermaidSectionMode(asked);
+                  rememberMermaidSectionMode(asked);
+                }}
+              >
+                {SECTION_MODES.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {mode}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </details>
+      )}
       <label className="ml-auto flex items-center gap-1 text-sm">
         Starts
         {/*

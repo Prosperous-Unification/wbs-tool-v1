@@ -266,4 +266,69 @@ test.describe('a caret survives another session’s edit', () => {
     //   the focus gone off it altogether.
     expect(after, 'the peer’s edit disturbed the box being typed in').toEqual(before);
   });
+
+  test('a peer marker appears without disturbing the editor', async ({ browser, page }) => {
+    const plan = `Keep the caret through a marker ${String(Date.now())}`;
+    await signIn(page);
+    await createProject(page, plan);
+
+    const start = page.getByLabel('Project start date');
+    await start.fill('2026-09-07');
+    await start.blur();
+    await expect(start).toHaveValue('2026-09-07');
+
+    await page.getByRole('button', { name: 'Add work item' }).click();
+    const cell = page.getByLabel('Name of 010');
+    await expect(cell).toBeVisible();
+    await writeInto(cell, SEEDED);
+    await page.getByRole('button', { name: 'Gantt', exact: true }).click();
+    await expect(page.locator('[data-gantt-chart]')).toBeVisible();
+
+    peerContext = await browser.newContext({
+      baseURL: new URL(page.url()).origin,
+      locale: 'en-US',
+      timezoneId: 'UTC',
+      viewport: { width: 1400, height: 900 },
+    });
+    const peer = await peerContext.newPage();
+    await signIn(peer);
+    await openProject(peer, plan);
+    await peer.getByRole('button', { name: 'Gantt', exact: true }).click();
+    await expect(peer.locator('[data-gantt-chart]')).toBeVisible();
+
+    await cell.click();
+    await page.keyboard.press('ControlOrMeta+a');
+    await page.keyboard.type(HALF_TYPED);
+    await page.keyboard.press('ArrowLeft');
+    await page.keyboard.press('Shift+ArrowLeft');
+    await cell.evaluate((node, witness) => {
+      (node as unknown as Record<string, boolean>)[witness] = true;
+    }, WITNESS);
+    const before = await readBox(cell);
+    expect(before.focused, 'the editor did not hold focus before the peer marker').toBe(true);
+    expect(before.sameElement, 'the editor witness was not installed').toBe(true);
+
+    await peer.locator('[data-axis-day="3"]').click();
+    const composer = peer.getByRole('dialog', { name: /^New calendar marker on / });
+    await expect(composer).toBeVisible();
+    await composer.getByLabel('Marker name').fill('Peer checkpoint');
+    const created = peer.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        response.url().includes('/calendar-markers') &&
+        response.ok(),
+    );
+    await composer.getByRole('button', { name: /^Save the new calendar marker on / }).click();
+    await created;
+
+    // Wait on output only the peer's marker refresh can install, so the editor
+    // comparison below is made after the invalidation has reached this page.
+    const marker = page.locator('[data-marker-chip]', { hasText: 'Peer checkpoint' });
+    // Proof: routing `calendar_markers_changed` to tree instead of markers in
+    // `resourcesFor` failed here after 30s: expected count 1, received 0.
+    await expect(marker, 'the peer marker never reached this session').toHaveCount(1);
+
+    const after = await readBox(cell);
+    expect(after, 'the peer marker disturbed the box being typed in').toEqual(before);
+  });
 });

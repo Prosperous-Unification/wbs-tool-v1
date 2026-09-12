@@ -1,5 +1,10 @@
 {
   "extends": "./tsconfig.json",
-  "compilerOptions": { "outDir": "../../dist/out-tsc", "types": ["bun-types"] },
-  "include": ["src/**/*.test.ts", "src/**/*.spec.ts"]
+  "compilerOptions": {
+    "outDir": "../../dist/out-tsc",
+    "allowJs": true,
+    "checkJs": true,
+    "types": ["bun-types"]
+  },
+  "include": ["src/**/*.test.ts", "src/**/*.spec.ts", "workspace-projects.mjs"]
 }

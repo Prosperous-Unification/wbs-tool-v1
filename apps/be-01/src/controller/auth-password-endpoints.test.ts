@@ -5,6 +5,7 @@ import { bunPasswordHasher, joseTokenCodec } from '../runtime/bun-runtime';
 import { AuthService } from '../service/auth.service';
 import { LoginThrottle } from '../service/login-throttle';
 import { inMemoryUsers, TEST_JWT_KEY, testAuthService } from '../testing/auth-fixture';
+import { testClock } from '../testing/clock-fixture';
 import { authPasswordEndpoints } from './auth-password-endpoints';
 
 const request = (path: string, method = 'POST') => ({
@@ -20,7 +21,11 @@ const sessionHeaders = [
 
 test('direct password bindings preserve service refusals and local bearer sessions', async () => {
   const auth = testAuthService();
-  const endpoints = authPasswordEndpoints(auth, undefined, new LoginThrottle({ maxConcurrent: 8 }));
+  const endpoints = authPasswordEndpoints(
+    auth,
+    undefined,
+    new LoginThrottle({ now: () => testClock.now(), maxConcurrent: 8 }),
+  );
   const credentials = { username: 'ada', password: 'lovelace99' };
   const registered = await endpoints[0].handle({
     params: {},
@@ -62,7 +67,11 @@ test('direct password bindings preserve service refusals and local bearer sessio
 test('direct me binding distinguishes signed out, invalid credentials and store failures', async () => {
   const users = inMemoryUsers();
   const auth = testAuthService(users);
-  const endpoints = authPasswordEndpoints(auth, undefined, new LoginThrottle({ maxConcurrent: 8 }));
+  const endpoints = authPasswordEndpoints(
+    auth,
+    undefined,
+    new LoginThrottle({ now: () => testClock.now(), maxConcurrent: 8 }),
+  );
   const registered = await auth.register('ada', 'lovelace99');
   if (!registered.ok) throw new Error('fixture registration refused');
   const input = {
@@ -114,7 +123,11 @@ test('direct login releases its reservation after an account-store failure', asy
   const failure = new Error('account store unavailable');
   const lookup = spyOn(users, 'findByUsername').mockRejectedValueOnce(failure);
   const auth = testAuthService(users);
-  const endpoints = authPasswordEndpoints(auth, undefined, new LoginThrottle({ maxConcurrent: 1 }));
+  const endpoints = authPasswordEndpoints(
+    auth,
+    undefined,
+    new LoginThrottle({ now: () => testClock.now(), maxConcurrent: 1 }),
+  );
   const input = {
     params: {},
     query: undefined,
@@ -136,6 +149,7 @@ test('direct login releases its reservation after an account-store failure', asy
 test('OIDC password success keeps the token in the hardened access cookie', async () => {
   const users = inMemoryUsers();
   const auth = new AuthService({
+    clock: testClock,
     users,
     identities: users,
     tokens: joseTokenCodec(TEST_JWT_KEY),
@@ -153,7 +167,7 @@ test('OIDC password success keeps the token in the hardened access cookie', asyn
   const endpoints = authPasswordEndpoints(
     auth,
     { passwordLoginEnabled: true, passwordRegisterEnabled: false },
-    new LoginThrottle({ maxConcurrent: 8 }),
+    new LoginThrottle({ now: () => testClock.now(), maxConcurrent: 8 }),
   );
   const login = await endpoints[1].handle({
     params: {},

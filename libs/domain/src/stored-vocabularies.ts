@@ -67,3 +67,16 @@ export type PersonKind = (typeof PERSON_KINDS)[number];
 export const SOLVER_OBJECTIVES = ['pri', 'time'] as const;
 
 export type SolverObjectiveName = (typeof SOLVER_OBJECTIVES)[number];
+
+/** Every modeled failure stored for an optimization attempt. */
+export const SOLVER_FAILURE_REASONS = [
+  'timeout',
+  'invalid-output',
+  'no-solution',
+  'internal-error',
+  'oom',
+  'horizon-overflow',
+  'objective-overflow',
+] as const;
+
+export type SolverFailureReason = (typeof SOLVER_FAILURE_REASONS)[number];

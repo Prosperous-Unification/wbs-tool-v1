@@ -1,0 +1,62 @@
+name: trusted-wiki
+
+on:
+  pull_request_target:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out trusted launcher
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: trusted
+          persist-credentials: false
+
+      - name: Preserve trusted launcher
+        run: install -m 0555 trusted/bin/tool-wiki-lint.sh "$RUNNER_TEMP/tool-wiki-lint.sh"
+
+      - name: Install pinned Bun runtime
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Provision immutable external activation
+        env:
+          ACTIVATION_ARCHIVE_SHA256: ${{ vars.TOOL_WIKI_ACTIVATION_ARCHIVE_SHA256 }}
+          ACTIVATION_ARCHIVE_URL: ${{ vars.TOOL_WIKI_ACTIVATION_ARCHIVE_URL }}
+          ACTIVATION_VERSION: ${{ vars.TOOL_WIKI_ACTIVATION_VERSION }}
+        run: |
+          set -euo pipefail
+          : "${ACTIVATION_ARCHIVE_SHA256:?trusted activation archive digest is not configured}"
+          : "${ACTIVATION_ARCHIVE_URL:?trusted activation archive URL is not configured}"
+          : "${ACTIVATION_VERSION:?trusted activation version is not configured}"
+          archive="$RUNNER_TEMP/tool-wiki-activation.tar"
+          curl --fail --location --proto '=https' --tlsv1.2 --output "$archive" "$ACTIVATION_ARCHIVE_URL"
+          printf '%s  %s\n' "$ACTIVATION_ARCHIVE_SHA256" "$archive" | sha256sum --check --strict
+          activation_root="$RUNNER_TEMP/tool-wiki-activation/$ACTIVATION_VERSION"
+          mkdir -m 0700 -p "$activation_root"
+          tar --extract --file "$archive" --directory "$activation_root" --no-same-owner --no-same-permissions
+          test -s "$activation_root/selected.json"
+          printf 'TOOL_WIKI_ACTIVATION_ROOT=%s\n' "$activation_root" >> "$GITHUB_ENV"
+
+      - name: Check out exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: candidate
+          persist-credentials: false
+
+      # This target-context job runs only the launcher preserved from the default branch.
+      # The launcher runs its externally activated validator with an empty environment and
+      # treats candidate bytes solely as the immutable committed selection being inspected.
+      # Proof: gate-entrypoints.test.ts replaces both candidate scripts with exit 0 and the
+      # preserved production launcher still rejects the stale application obligation.
+      - name: Verify exact candidate with external trust
+        env:
+          TOOL_WIKI_REQUIRE_CERTIFIED: '1'
+        run: bash "$RUNNER_TEMP/tool-wiki-lint.sh" committed "$GITHUB_WORKSPACE/candidate" "${{ github.event.pull_request.head.sha }}"

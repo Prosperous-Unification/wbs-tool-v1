@@ -15,7 +15,7 @@ import { optimizerWiring } from './optimizer-wiring';
 describe('optimizerWiring', () => {
   it('reports unavailable when there is no reader', () => {
     const wiring = optimizerWiring(undefined);
-    expect(wiring.read).toBeUndefined();
+    expect(wiring.scheduler.supports('optimized')).toBe(false);
     expect(wiring.available()).toBe(false);
   });
 
@@ -30,11 +30,8 @@ describe('optimizerWiring', () => {
       variants: { pri: { state: 'idle' }, time: { state: 'idle' } },
       schedules: { pri: null, time: null },
     });
-    const wiring = optimizerWiring(read);
-    // The same function object, not merely a truthy one — a wiring that
-    // reported available while handing `WorkItemService` something else would
-    // be the defect wearing a different hat.
-    expect(wiring.read).toBe(read);
+    const wiring = optimizerWiring({ readLive: read, readCaptured: read });
+    expect(wiring.scheduler.supports('optimized')).toBe(true);
     expect(wiring.available()).toBe(true);
   });
 });

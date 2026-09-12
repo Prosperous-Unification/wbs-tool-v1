@@ -26,6 +26,14 @@
       },
       "outputs": ["{projectRoot}/coverage"]
     },
+    "test:unit": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun test --coverage --coverage-reporter=lcov",
+        "cwd": "libs/contracts/solver/supervisor-protocol"
+      },
+      "outputs": ["{projectRoot}/coverage"]
+    },
     "typecheck": {
       "executor": "nx:run-commands",
       "options": {

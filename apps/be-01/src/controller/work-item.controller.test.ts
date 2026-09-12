@@ -6,15 +6,18 @@ import type {
   OptimizationVariantState,
   OptimizedScheduleReader,
 } from '../service/optimized-schedule-reader';
+import { optimizerWiring } from '../service/optimizer-wiring';
 import { ProjectService } from '../service/project.service';
 import { WorkItemService } from '../service/work-item.service';
 import { inMemoryUsers, testAuthService } from '../testing/auth-fixture';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
 import { testCalendarMarkerService } from '../testing/calendar-marker-fixture';
 import { testCapacityService } from '../testing/capacity-fixture';
+import { testClock } from '../testing/clock-fixture';
 import { testDirectoryService } from '../testing/directory-fixture';
 import { inMemoryServices } from '../testing/harness';
 import { testHistoryService } from '../testing/history-fixture';
+import { testLoginThrottle } from '../testing/login-throttle-fixture';
 import { testPriorityBandService } from '../testing/priority-band-fixture';
 import { testReplay } from '../testing/replay-fixture';
 import { testSavedPlanService } from '../testing/saved-plan-fixture';
@@ -23,11 +26,13 @@ import { testWrites } from '../testing/writes-fixture';
 
 function buildHarness(optimized?: OptimizedScheduleReader) {
   const plan = inMemoryServices();
+  const users = inMemoryUsers();
   const { projects: projectStore, directory: directoryStore, measures: measureStore } = plan.stores;
   const directory = testDirectoryService(directoryStore);
   const capacity = testCapacityService();
   const priorityBands = testPriorityBandService();
   const projects = new ProjectService({
+    clock: testClock,
     projects: projectStore,
     broadcast: recordingBroadcaster(),
     ...(optimized === undefined ? {} : { optimizerAvailable: () => true }),
@@ -36,8 +41,18 @@ function buildHarness(optimized?: OptimizedScheduleReader) {
   const calendarMarkers = testCalendarMarkerService();
   const workItems =
     optimized === undefined
-      ? plan.service
-      : new WorkItemService({ ...plan.stores, broadcast: plan.broadcast, optimized });
+      ? new WorkItemService({
+          clock: testClock,
+          ...plan.stores,
+          broadcast: plan.broadcast,
+          scheduler: plan.scheduler,
+        })
+      : new WorkItemService({
+          clock: testClock,
+          ...plan.stores,
+          broadcast: plan.broadcast,
+          scheduler: optimizerWiring({ readLive: optimized, readCaptured: optimized }).scheduler,
+        });
   // The batch writes through the **same** services the routes do: on the
   // in-memory fixtures there is one set of stores and no turn to hold, so the
   // two graphs the composition root keeps apart are one object here. Given a
@@ -52,6 +67,8 @@ function buildHarness(optimized?: OptimizedScheduleReader) {
     calendarMarkers,
   });
   const app = buildApp({
+    loginThrottle: testLoginThrottle(),
+    clock: testClock,
     appOrigin: 'http://localhost',
     // **One** directory, shared with the work item service below. Two would
     // both look healthy while a person created through a `createPerson`
@@ -63,7 +80,7 @@ function buildHarness(optimized?: OptimizedScheduleReader) {
     priorityBands,
     history: testHistoryService(),
     calendarMarkers,
-    auth: testAuthService(inMemoryUsers()),
+    auth: testAuthService(users),
     projects,
     steps,
     workItems,
@@ -105,7 +122,15 @@ function buildHarness(optimized?: OptimizedScheduleReader) {
   // would be asserting against a read that does not exist. Every other store
   // stays private, as it should: this one is temporary and section 5 takes it
   // out again.
-  return { register, send, measures: measureStore, writes };
+  return {
+    register,
+    send,
+    measures: measureStore,
+    users,
+    workItems,
+    projects: projectStore,
+    writes,
+  };
 }
 
 type Send = (
@@ -115,8 +140,10 @@ type Send = (
 ) => Promise<Response>;
 
 async function setup(optimized?: OptimizedScheduleReader) {
-  const { register, send, measures, writes } = buildHarness(optimized);
+  const { register, send, measures, users, workItems, projects, writes } = buildHarness(optimized);
   const token = await register('owner');
+  const actor = await users.findByUsername('owner');
+  if (actor === null) throw new Error('registered owner is missing');
   const created = await send('/api/projects', token, {
     method: 'POST',
     body: JSON.stringify({ name: 'Rewire the shed' }),
@@ -131,7 +158,18 @@ async function setup(optimized?: OptimizedScheduleReader) {
   const devId = body.steps.find((each) => each.name === 'Dev')?.id;
   const qaId = body.steps.find((each) => each.name === 'QA')?.id;
   if (devId === undefined || qaId === undefined) throw new Error('a project without its steps');
-  return { token, send, measures, writes, projectId: body.project.id, devId, qaId };
+  return {
+    token,
+    send,
+    measures,
+    workItems,
+    projects,
+    writes,
+    actorId: actor.id,
+    projectId: body.project.id,
+    devId,
+    qaId,
+  };
 }
 
 /**
@@ -218,6 +256,21 @@ async function firstRow(
 }
 
 describe('work item routes', () => {
+  it('refuses a directly stored optimized project when this runtime has no adapter', async () => {
+    const { projects, projectId, send, token } = await setup();
+    await projects.update(
+      projectId,
+      { optimizationEnabled: true, scheduleEngine: 'optimized' },
+      { at: 1, by: 'owner' },
+    );
+
+    const response = await send(`/api/projects/${projectId}/work-items`, token);
+
+    expect(response.status).toBe(409);
+    expect(response.headers.get('content-type')).toContain('application/json');
+    expect(await response.json()).toEqual({ error: 'engine_unavailable', engine: 'optimized' });
+  });
+
   it('serializes every optimizer variant state and keeps empty plans idle', async () => {
     type Variants = Readonly<Record<'pri' | 'time', OptimizationVariantState>>;
     let variants: Variants = { pri: { state: 'pending' }, time: { state: 'pending' } };
@@ -1732,6 +1785,95 @@ describe('work item routes', () => {
     ).toEqual({});
   });
 
+  it('refuses a plan-level calendar overflow while preserving its legal control and recovery', async () => {
+    const { token, send, workItems, actorId, projectId, devId } = await setup();
+    const started = await send(`/api/projects/${projectId}`, token, {
+      method: 'PATCH',
+      body: JSON.stringify({ startDate: '2026-01-05' }),
+    });
+    expect(started.status).toBe(200);
+    const first = await addWorkItem(send, token, projectId, { parentId: null, name: 'First' });
+    const second = await addWorkItem(send, token, projectId, { parentId: null, name: 'Second' });
+    const third = await addWorkItem(send, token, projectId, { parentId: null, name: 'Third' });
+    for (const [workItemId, predecessorId] of [
+      [second, first],
+      [third, second],
+    ]) {
+      expect(
+        (
+          await command(send, token, projectId, {
+            kind: 'addDependency',
+            workItemId,
+            predecessorId,
+          })
+        ).status,
+      ).toBe(200);
+    }
+    const estimate = { optimistic: 30_000_000, realistic: 30_000_000, pessimistic: 30_000_000 };
+    expect(
+      (
+        await command(send, token, projectId, {
+          kind: 'setEstimate',
+          workItemId: first,
+          stepId: devId,
+          days: estimate,
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await command(send, token, projectId, {
+          kind: 'setEstimate',
+          workItemId: second,
+          stepId: devId,
+          days: estimate,
+        })
+      ).status,
+    ).toBe(200);
+
+    const control = await send(`/api/projects/${projectId}/work-items`, token);
+    expect(control.status).toBe(200);
+    const controlBody = (await control.json()) as {
+      scheduleError: string | null;
+      workItems: { id: string; dates: { endsOn: string } | null }[];
+    };
+    expect(controlBody.scheduleError).toBeNull();
+    expect(controlBody.workItems.find((row) => row.id === second)?.dates?.endsOn).toBeDefined();
+
+    // Proof: removing the transaction's calendar-range preflight makes this
+    // return 200 and leaves the following read in `calendar_range`.
+    const refused = await command(send, token, projectId, {
+      kind: 'setEstimate',
+      workItemId: third,
+      stepId: devId,
+      days: estimate,
+    });
+    expect(refused.status).toBe(422);
+    expect(await refused.json()).toEqual({ error: 'calendar_range', at: 0, kind: 'setEstimate' });
+
+    // Seed the historical state through the service, which deliberately
+    // bypasses the command transaction's new-plan guard. Its read is modeled,
+    // and clearing the estimate is the recovery path a stranded project needs.
+    expect((await workItems.setEstimate(third, actorId, devId, estimate)).ok).toBe(true);
+    const stranded = await send(`/api/projects/${projectId}/work-items`, token);
+    expect(stranded.status).toBe(200);
+    expect(((await stranded.json()) as { scheduleError: string }).scheduleError).toBe(
+      'calendar_range',
+    );
+    expect(
+      (
+        await command(send, token, projectId, {
+          kind: 'clearEstimate',
+          workItemId: third,
+          stepId: devId,
+        })
+      ).status,
+    ).toBe(200);
+    const recovered = await send(`/api/projects/${projectId}/work-items`, token);
+    expect(recovered.status).toBe(200);
+    expect(((await recovered.json()) as { scheduleError: string | null }).scheduleError).toBeNull();
+  });
+
   it('accepts an ordered estimate and rolls it into the parent', async () => {
     const { token, send, projectId, devId } = await setup();
     const parentId = await addWorkItem(send, token, projectId, { parentId: null, name: 'Strip' });
@@ -2421,12 +2563,12 @@ describe('saying where a step’s work has got to', () => {
     expect(((await res.json()) as { results: unknown[] }).results).toEqual([{ index: 0 }]);
     expect(await rowOf(send, token, projectId, 'Sockets')).toMatchObject({
       progress: { [devId]: 'done' },
-      state: 'done',
+      status: 'done',
     });
     // Folded on the parent, never stored there.
     expect(await rowOf(send, token, projectId, 'Strip')).toMatchObject({
       progress: { [devId]: 'done' },
-      state: 'done',
+      status: 'done',
     });
   });
 
@@ -2462,7 +2604,7 @@ describe('saying where a step’s work has got to', () => {
 
     expect(await rowOf(send, token, projectId, 'Strip')).toMatchObject({
       progress: {},
-      state: 'not_started',
+      status: 'unknown',
     });
   });
 
@@ -2548,7 +2690,7 @@ describe('saying where a step’s work has got to', () => {
     expect([first.status, again.status]).toEqual([200, 200]);
     expect(((await first.json()) as { results: unknown[] }).results).toEqual([{ index: 0 }]);
     // The other step is untouched and the cleared one is **absent** rather than
-    // `not_started`.
+    // `unknown`.
     //
     // The row still reads `done`, and that is the rule rather than a leak: Dev
     // has no estimate and no recorded day on this row, so retracting the only
@@ -2558,7 +2700,7 @@ describe('saying where a step’s work has got to', () => {
     // `service/progress.test.ts`.
     expect(await rowOf(send, token, projectId, 'Strip')).toMatchObject({
       progress: { [qaId]: 'done' },
-      state: 'done',
+      status: 'done',
     });
   });
 
@@ -2662,5 +2804,115 @@ describe('a JSON array body on the work-item routes', () => {
     // Nothing was written, structurally rather than by a second read: the
     // route is `commands.run(id, user, parseBatch(body))`, so a refusal
     // `parseBatch` throws happens before the service is called at all.
+  });
+});
+
+describe('setting a row’s status as one act', () => {
+  interface Row {
+    name: string;
+    progress: Record<string, string>;
+    status: string;
+    factStart: string | null;
+    factEnd: string | null;
+  }
+  const rowOf = async (send: Send, token: string, projectId: string, name: string) => {
+    const tree = await send(`/api/projects/${projectId}/work-items`, token);
+    const body = (await tree.json()) as { workItems: Row[] };
+    return body.workItems.find((w) => w.name === name);
+  };
+
+  it('marks a row done: every step, the status, and the fact end, in one command', async () => {
+    const { token, send, projectId, devId, qaId } = await setup();
+    const strip = await addWorkItem(send, token, projectId, { parentId: null, name: 'Strip' });
+
+    const res = await command(send, token, projectId, {
+      kind: 'setStatus',
+      workItemId: strip,
+      status: 'done',
+      on: '2026-09-12',
+    });
+
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { results: unknown[] }).results).toEqual([{ index: 0 }]);
+    expect(await rowOf(send, token, projectId, 'Strip')).toMatchObject({
+      progress: { [devId]: 'done', [qaId]: 'done' },
+      status: 'done',
+      factStart: null,
+      factEnd: '2026-09-12',
+    });
+  });
+
+  it('refuses a status outside unknown and done, in_progress and not_started included', async () => {
+    // The shape guards the keys and this guards the value (`AGENTS.md`): the
+    // ArkType arm names `'unknown' | 'done'`, but a mistyped value reaches the
+    // parser, and `parseStatus` is what answers it.
+    //
+    // Proof: `parseStatus` replaced by a cast, and `in_progress` answers 200 —
+    // a row-level statement the vocabulary reserves for a step, written on
+    // every step of the row; watched 2026-09-12.
+    const { token, send, projectId } = await setup();
+    const strip = await addWorkItem(send, token, projectId, { parentId: null, name: 'Strip' });
+
+    for (const status of ['in_progress', 'not_started', 'finished', 7, null]) {
+      const res = await command(send, token, projectId, {
+        kind: 'setStatus',
+        workItemId: strip,
+        status,
+      });
+      expect([status, res.status]).toEqual([status, 400]);
+      expect(await res.json()).toEqual({ error: 'invalid_status', at: 0, kind: 'setStatus' });
+    }
+    expect(await rowOf(send, token, projectId, 'Strip')).toMatchObject({
+      progress: {},
+      status: 'unknown',
+      factEnd: null,
+    });
+  });
+
+  it('refuses an on that is not a date', async () => {
+    const { token, send, projectId } = await setup();
+    const strip = await addWorkItem(send, token, projectId, { parentId: null, name: 'Strip' });
+
+    const res = await command(send, token, projectId, {
+      kind: 'setStatus',
+      workItemId: strip,
+      status: 'done',
+      on: 'yesterday',
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'on_must_be_a_date', at: 0, kind: 'setStatus' });
+    expect(await rowOf(send, token, projectId, 'Strip')).toMatchObject({ status: 'unknown' });
+  });
+
+  it('writes the two facts through the ordinary patch and refuses a non-date', async () => {
+    const { token, send, projectId } = await setup();
+    const strip = await addWorkItem(send, token, projectId, { parentId: null, name: 'Strip' });
+
+    const written = await command(send, token, projectId, {
+      kind: 'patchWorkItem',
+      workItemId: strip,
+      patch: { factStart: '2026-09-08', factEnd: '2026-09-12' },
+    });
+    expect(written.status).toBe(200);
+    expect(await rowOf(send, token, projectId, 'Strip')).toMatchObject({
+      factStart: '2026-09-08',
+      factEnd: '2026-09-12',
+    });
+
+    const refused = await command(send, token, projectId, {
+      kind: 'patchWorkItem',
+      workItemId: strip,
+      patch: { factStart: 'yesterday' },
+    });
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toEqual({
+      error: 'factStart_must_be_a_date',
+      at: 0,
+      kind: 'patchWorkItem',
+    });
+    expect(await rowOf(send, token, projectId, 'Strip')).toMatchObject({
+      factStart: '2026-09-08',
+    });
   });
 });

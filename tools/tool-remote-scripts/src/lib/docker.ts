@@ -541,6 +541,11 @@ export function migrateStatusCommand(container: string): string[] {
   return ['exec', container, 'bun', 'run', 'src/migrate-status-cli.ts'];
 }
 
+/** Applies pending migrations through the path shipped in the backend image. */
+export function migrateCommand(container: string): string[] {
+  return ['exec', container, 'bun', 'run', 'src/migrate-cli.ts'];
+}
+
 /**
  * Reverses every migration applied after `baseline`, using the down script
  * shipped alongside each one.

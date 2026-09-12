@@ -7,6 +7,8 @@
 // DOM to test anyway. The tag is read by a regex over the whole file
 // (`groupFilesByEnv`), so a line comment carries it as well as a docblock —
 // and a docblock would need a `@vitest-environment` the jsdoc lint rejects.
+import { readFileSync } from 'node:fs';
+
 import type * as Vite from 'vite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -40,6 +42,12 @@ function proxyOf(env: Record<string, string>) {
   return proxy;
 }
 
+function previewProxyOf(env: Record<string, string>) {
+  const { proxy } = serveConfig(env).preview ?? {};
+  if (!proxy) throw new Error('the preview config has no proxy to assert on');
+  return proxy;
+}
+
 /**
  * Vite's own rule for whether a proxy key claims a URL, copied from
  * `doesProxyContextMatchUrl` in `vite/src/node/server/middlewares/proxy.ts` so
@@ -59,6 +67,27 @@ beforeEach(() => {
 // container behind Caddy, so a localhost bind or a rejected Host header makes
 // the dev site fail in a way that looks like a proxy misconfiguration.
 describe('vite dev server config', () => {
+  it('declares public mode in the source-run container', () => {
+    const compose = readFileSync(
+      new URL('../../deploy/dev-src/compose.yml', import.meta.url),
+      'utf8',
+    );
+    expect(compose).toContain("      WBS_PUBLIC_DEV: 'true'");
+  });
+
+  it('does not expose HMR on the public dev site', () => {
+    process.env['WBS_PUBLIC_DEV'] = 'true';
+    try {
+      expect(serveConfig({ VITE_BE_URL: BE_URL, VITE_GW_URL: GW_URL }).server?.hmr).toBe(false);
+    } finally {
+      delete process.env['WBS_PUBLIC_DEV'];
+    }
+  });
+
+  it('keeps HMR for a developer and the isolated browser gate', () => {
+    expect(serveConfig({ VITE_BE_URL: BE_URL, VITE_GW_URL: GW_URL }).server?.hmr).toBeUndefined();
+  });
+
   it('binds all interfaces so a reverse proxy outside the container can reach it', () => {
     expect(serveConfig({ VITE_BE_URL: BE_URL, VITE_GW_URL: GW_URL }).server?.host).toBe('0.0.0.0');
   });
@@ -119,6 +148,24 @@ describe('vite dev server proxy', () => {
       '/ws': { target: GW_URL, ws: true },
     });
     expect(loadEnv).toHaveBeenCalledWith('development', expect.any(String), 'VITE_');
+  });
+
+  it('gives the built browser gate the same edge routes and owned port', () => {
+    process.env['PORT'] = '4700';
+    try {
+      const served = serveConfig({ VITE_BE_URL: BE_URL, VITE_GW_URL: GW_URL });
+
+      // Proof: deleting `preview.proxy` failed on `the preview config has no
+      // proxy to assert on`; deleting its port failed on `expected undefined
+      // to be 4700`.
+      expect(previewProxyOf({ VITE_BE_URL: BE_URL, VITE_GW_URL: GW_URL })).toEqual(
+        served.server?.proxy,
+      );
+      expect(served.preview?.port).toBe(4700);
+      expect(served.preview?.strictPort).toBe(true);
+    } finally {
+      delete process.env['PORT'];
+    }
   });
 
   it('claims the paths Caddy routes and leaves the ones it does not', () => {

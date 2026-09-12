@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { InMemoryOidcTransactionStore, InMemoryTokenStore } from '@wbs/auth';
 import { createLogger } from '@wbs/observability';
+import { openSqliteSource } from '@wbs/store-sqlite';
 import { afterEach, describe, expect, it } from 'bun:test';
 import { errors } from 'jose';
 
@@ -240,6 +241,69 @@ describe('bootBe01', () => {
     await be.stop();
     expect(be.services.retention.isRunning()).toBe(false);
     running = null;
+  });
+
+  it('mounts the composed login throttle instead of constructing another public graph', async () => {
+    const be = boot();
+    const releases = Array.from({ length: 8 }, (_, index) =>
+      be.services.loginThrottle.reserve(`held-${String(index)}`, `client-${String(index)}`),
+    );
+    expect(releases.every((release) => release !== null)).toBe(true);
+
+    const response = await fetch(`http://localhost:${String(be.port)}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'http://localhost' },
+      body: JSON.stringify({ username: 'somebody', password: 'password' }),
+    });
+
+    expect(response.status).toBe(429);
+    for (const release of releases) release?.();
+  });
+
+  it('stops optimizer and retention before closing its opened source', async () => {
+    const dir = tempDir('wbs-stop-order-');
+    const dbPath = join(dir, 'test.db');
+    runMigrations(dbPath, FOLDER);
+    let stateAtClose: { optimizerRunning: boolean; retentionRunning: boolean } | undefined;
+    const be = bootBe01(
+      {
+        appOrigin: 'http://localhost',
+        dbPath,
+        port: 0,
+        logger: createLogger({ service: 'be-01' }),
+        jwtKey: 'k'.repeat(32),
+        gwUrl: 'http://gw.invalid',
+        internalAuthSecret: 's'.repeat(32),
+        optimizer: {
+          solverVersion: '0.1.0',
+          budgetMs: 60_000,
+          spawn: () => {
+            throw new Error('shutdown ordering must not spawn');
+          },
+        },
+      },
+      {
+        openSource: (options) => {
+          const source = openSqliteSource(options);
+          return {
+            ...source,
+            close: async () => {
+              stateAtClose = {
+                optimizerRunning: be.services.optimizer?.isRunning() ?? false,
+                retentionRunning: be.services.retention.isRunning(),
+              };
+              await source.close();
+            },
+          };
+        },
+      },
+    );
+    running = be;
+
+    await be.stop();
+    running = null;
+
+    expect(stateAtClose).toEqual({ optimizerRunning: false, retentionRunning: false });
   });
 
   it('serves health on the port it bound', async () => {

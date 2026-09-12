@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "corpusId": "radical-modularity.fixed-corpus.v1",
+  "acceptanceId": "radical-modularity.acceptance.v1",
+  "repository": {
+    "revision": "7851161bf96312750d07b933ca5d42b75ce575c7",
+    "tree": "b661e693e9c6656986fd431f4654df6db8dc3afc",
+    "inventoryId": "inventory.baseline.7851161b"
+  },
+  "outcomes": [
+    {
+      "outcomeId": "outcome.independent.example",
+      "title": "Independent module outcome",
+      "stratum": "independent-module",
+      "heldOut": false,
+      "acceptanceCriteria": ["the outcome-specific test exits 0"]
+    },
+    {
+      "outcomeId": "outcome.shared.example",
+      "title": "Shared contract outcome",
+      "stratum": "shared-contract",
+      "heldOut": true,
+      "acceptanceCriteria": ["the contract and consumer tests exit 0"]
+    }
+  ]
+}

@@ -274,25 +274,23 @@ test.describe('the theme control', () => {
   test('is dark at the first paint, before the app has mounted', async ({ page }) => {
     await chooseTheme(page, 'Dark');
 
-    // The app's own entry module, refused. Without it React never mounts, so
-    // whatever is on the root element at this point was put there by the
+    // The built app's own entry chunk, refused. Without it React never mounts,
+    // so whatever is on the root element at this point was put there by the
     // bootstrap in `index.html` and by nothing else — which is the claim, and
     // it cannot be made against a page that has already rendered.
-    await page.route('**/src/main.tsx', (route) => route.abort());
+    // Proof: retaining the old `**/src/main.tsx` route let the built entry load
+    // and failed here with the complete mounted application inside `#root`.
+    await page.route('**/assets/index-*.js', (route) => route.abort());
     await page.goto('/');
 
     expect(await page.locator('#root').innerHTML()).toBe('');
     expect(await paletteOf(page)).toBe('dark');
 
-    // The class, and deliberately not `color-scheme`. Under the dev server the
-    // stylesheet is an import of the entry module this test just refused, so
-    // there is no `.dark { color-scheme: dark }` on the page to read and
-    // Chromium answers `normal` — a fact about Vite's dev pipeline rather than
-    // about the bootstrap. Watched: asserting it here failed on
-    // `expected 'normal' to be 'dark'` with the bootstrap working perfectly.
-    // `hands the platform its own controls in the right palette` makes that
-    // claim against a page whose stylesheet has loaded, which is the only page
-    // it is a claim about.
+    // The class, and deliberately not `color-scheme`: the stylesheet is a
+    // separate built asset and still loads when the entry chunk does not, so
+    // its computed property says nothing about which script set the class.
+    // `hands the platform its own controls in the right palette` owns that
+    // stylesheet claim on a fully mounted page.
   });
 
   test('follows the machine while nothing has been chosen, and stops when something is', async ({

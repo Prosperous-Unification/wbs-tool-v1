@@ -32,6 +32,7 @@ import {
   type EnvLayout,
   grantAliasCommands,
   manifestInspectArgs,
+  migrateCommand,
   migrateDownCommand,
   migrateStatusCommand,
   NETWORK,
@@ -690,7 +691,7 @@ async function execute(plan: SwapPlan, image: string, sha: string): Promise<void
                 'deploy could not roll the schema back',
             );
           }
-          await sh(['exec', greenName, 'bun', 'run', 'src/migrate-cli.ts']);
+          await sh(migrateCommand(greenName));
           break;
 
         case 'health-gate': {

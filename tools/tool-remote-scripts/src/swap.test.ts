@@ -1,9 +1,9 @@
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { scratchSync } from '@wbs/tool-test-scratch';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
-import { scratchSync } from '../../test/scratch';
 import { assembleCaddyfile } from './lib/caddy';
 import { drain } from './lib/drain';
 import { type EnvLayout, envLayout } from './lib/env';

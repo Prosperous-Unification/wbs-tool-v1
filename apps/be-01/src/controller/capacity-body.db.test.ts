@@ -24,12 +24,15 @@ import { bunPasswordHasher, joseTokenCodec } from '../runtime/bun-runtime';
 import { AuthService } from '../service/auth.service';
 import { CapacityService } from '../service/capacity.service';
 import { DirectoryService } from '../service/directory.service';
+import { fastScheduler } from '../service/optimizer-wiring';
 import { ProjectService } from '../service/project.service';
 import { StepService } from '../service/step.service';
 import { WorkItemService } from '../service/work-item.service';
 import { type RecordingBroadcaster, recordingBroadcaster } from '../testing/broadcast-fixture';
 import { testCalendarMarkerService } from '../testing/calendar-marker-fixture';
+import { testClock } from '../testing/clock-fixture';
 import { testHistoryService } from '../testing/history-fixture';
+import { testLoginThrottle } from '../testing/login-throttle-fixture';
 import { inMemoryPriorityBands, testPriorityBandService } from '../testing/priority-band-fixture';
 import { testReplay } from '../testing/replay-fixture';
 import { testSavedPlanService } from '../testing/saved-plan-fixture';
@@ -75,15 +78,21 @@ describe('setCapacity on POST /api/projects/:id/commands', () => {
     const workItems = new WorkItemRepository(db, OPEN);
     broadcast = recordingBroadcaster();
     const auth = new AuthService({
+      clock: testClock,
       users: new UserRepository(db, OPEN),
       tokens: joseTokenCodec(TEST_JWT_KEY),
       passwords: bunPasswordHasher,
     });
 
     const writing = {
-      projects: new ProjectService({ projects: projectStore, broadcast: recordingBroadcaster() }),
-      directory: new DirectoryService({ directory: directoryStore, broadcast }),
+      projects: new ProjectService({
+        clock: testClock,
+        projects: projectStore,
+        broadcast: recordingBroadcaster(),
+      }),
+      directory: new DirectoryService({ clock: testClock, directory: directoryStore, broadcast }),
       capacity: new CapacityService({
+        clock: testClock,
         projects: projectStore,
         capacity: capacityStore,
         broadcast,
@@ -91,11 +100,14 @@ describe('setCapacity on POST /api/projects/:id/commands', () => {
       priorityBands: testPriorityBandService(),
       calendarMarkers: testCalendarMarkerService(),
       steps: new StepService({
+        clock: testClock,
         projects: projectStore,
         steps: new StepRepository(db, OPEN),
         broadcast,
       }),
       workItems: new WorkItemService({
+        scheduler: fastScheduler,
+        clock: testClock,
         workItems,
         projects: projectStore,
         estimates: new EstimateRepository(db, OPEN),
@@ -112,6 +124,8 @@ describe('setCapacity on POST /api/projects/:id/commands', () => {
       }),
     };
     app = buildApp({
+      loginThrottle: testLoginThrottle(),
+      clock: testClock,
       ...writing,
       appOrigin: 'http://localhost',
       savedPlans: testSavedPlanService(),
@@ -179,6 +193,7 @@ describe('setCapacity on POST /api/projects/:id/commands', () => {
   /** A project of `ownerId`'s, and a team, both real rows. */
   async function plan(name = 'Rewire the shed'): Promise<string> {
     const created = await new ProjectService({
+      clock: testClock,
       projects: projectStore,
       broadcast: recordingBroadcaster(),
     }).create(name, ownerId);
@@ -303,13 +318,13 @@ describe('setCapacity on POST /api/projects/:id/commands', () => {
     // pretending the project is absent would contradict the next GET.
     const projectId = await plan();
     const platform = await team('Platform');
-    await new ProjectService({ projects: projectStore, broadcast: recordingBroadcaster() }).update(
-      projectId,
-      ownerId,
-      {
-        restricted: true,
-      },
-    );
+    await new ProjectService({
+      clock: testClock,
+      projects: projectStore,
+      broadcast: recordingBroadcaster(),
+    }).update(projectId, ownerId, {
+      restricted: true,
+    });
     const registered = await app.handle(
       new Request('http://localhost/api/auth/register', {
         method: 'POST',

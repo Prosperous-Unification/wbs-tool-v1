@@ -5,12 +5,14 @@ import { Elysia } from 'elysia';
 import { bunPasswordHasher, joseTokenCodec } from '../../runtime/bun-runtime';
 import { AuthService } from '../../service/auth.service';
 import { inMemoryUsers, TEST_JWT_KEY } from '../../testing/auth-fixture';
+import { testClock } from '../../testing/clock-fixture';
 import { bind } from '../endpoint';
 import { identityResolver } from '../identity';
 import { mountEndpoints } from './mount';
 
 test('marker refusal bindings reject malformed known fields while preserving bare and marker details', async () => {
   const auth = new AuthService({
+    clock: testClock,
     users: inMemoryUsers(),
     tokens: joseTokenCodec(TEST_JWT_KEY),
     passwords: bunPasswordHasher,
