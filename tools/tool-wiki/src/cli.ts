@@ -228,6 +228,39 @@ function writeReviewProvenance(argv: string[]): void {
   process.stdout.write(`${JSON.stringify(validation)}\n`);
 }
 
+async function writeAdmissionSubmission(argv: string[]): Promise<void> {
+  const [repository, packetPath, kind, revision] = argv.slice(1);
+  if (kind !== 'staged' && kind !== 'committed') {
+    throw new Error(
+      'usage: tool-wiki submit-admission <repository> <packet-json> <staged|committed> <revision-or-base>',
+    );
+  }
+  const [{ openAuthorityStore }, { decodeAdmissionPacket }, { submitPacket }] = await Promise.all([
+    import('./admission/authority-store'),
+    import('./admission/packet'),
+    import('./admission/submit'),
+  ]);
+  try {
+    const packet = decodeAdmissionPacket(readJson(packetPath));
+    const store = openAuthorityStore(repository);
+    try {
+      const selection =
+        kind === 'staged' ? ({ base: revision, kind } as const) : ({ kind, revision } as const);
+      process.stdout.write(
+        `${JSON.stringify(submitPacket(store, packet, repository, selection))}\n`,
+      );
+    } finally {
+      store.close();
+    }
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    throw new Error(
+      `${message}; violation was detected and publication refused at submission; editing-time writes were not prevented`,
+      { cause },
+    );
+  }
+}
+
 declare const __TOOL_WIKI_BUNDLED_ARTIFACTS__: string;
 
 function validatorEntryPaths(): string[] | { artifactManifest: string } {
@@ -274,6 +307,9 @@ function run(argv: string[]): Promise<void> | void {
     writeReviewProvenance(argv);
     return;
   }
+  if (argv.length === 5 && argv[0] === 'submit-admission') {
+    return writeAdmissionSubmission(argv);
+  }
   if (argv.length === 7 && argv[0] === 'lint-local') {
     return import('./policy/trust').then(({ writeLocalLintCommand }) => {
       writeLocalLintCommand(argv, validatorEntryPaths());
@@ -290,7 +326,7 @@ function run(argv: string[]): Promise<void> | void {
     });
   }
   throw new Error(
-    'usage: tool-wiki <validate|read-candidate|classify-candidate|content-manifest|validate-artifacts|extract-relationships|check-indexes|check-root-migration|validate-review-provenance|lint-local|lint-ci|validate-policy-activation> ...',
+    'usage: tool-wiki <validate|read-candidate|classify-candidate|content-manifest|validate-artifacts|extract-relationships|check-indexes|check-root-migration|validate-review-provenance|submit-admission|lint-local|lint-ci|validate-policy-activation> ...',
   );
 }
 

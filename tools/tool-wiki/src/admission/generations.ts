@@ -1,4 +1,5 @@
 import type {
+  AuthorityClaim,
   AuthorityGeneration,
   AuthorityState,
   AuthorityStore,
@@ -13,6 +14,26 @@ import {
 import type { ClaimToken } from './claims';
 
 export type { SubmissionIdentity } from './authority-store';
+
+export interface ExpectedSubmissionAuthority {
+  readonly worktreePath: string;
+  readonly claims: readonly AuthorityClaim[];
+}
+
+function claimsMatch(
+  actual: readonly AuthorityClaim[],
+  expected: readonly AuthorityClaim[],
+): boolean {
+  if (actual.length !== expected.length) return false;
+  return actual.every((claim, index) => {
+    const counterpart = expected[index];
+    if (claim.kind !== counterpart.kind) return false;
+    if (claim.identity !== counterpart.identity) return false;
+    return (
+      claim.kind === 'group' || (counterpart.kind === 'path' && claim.access === counterpart.access)
+    );
+  });
+}
 
 function latestTimestamp(state: AuthorityState): number {
   return state.generations.reduce(
@@ -137,6 +158,16 @@ export function submitGeneration(
   token: ClaimToken,
   submission: SubmissionIdentity,
 ): ClaimToken {
+  return submitGenerationMatching(store, token, submission);
+}
+
+/** Freezes publication only if the generation still has the packet's exact authority state. */
+export function submitGenerationMatching(
+  store: AuthorityStore,
+  token: ClaimToken,
+  submission: SubmissionIdentity,
+  expected?: ExpectedSubmissionAuthority,
+): ClaimToken {
   assertSubmissionIdentity(submission);
   return store.transact((transaction) => {
     const state = transaction.readState();
@@ -160,6 +191,16 @@ export function submitGeneration(
     // exact terminal refusal.
     if (generation.status !== 'working') {
       throw new Error(`generation is terminal: ${token.sessionId}`);
+    }
+    // Proof: omitting this same-transaction comparison let a read expansion land after packet
+    // validation but before submission; the production submission mutation accepted changed
+    // authority claims instead of leaving the generation working.
+    if (
+      expected !== undefined &&
+      (generation.worktreePath !== expected.worktreePath ||
+        !claimsMatch(generation.claims, expected.claims))
+    ) {
+      throw new Error(`generation authority differs from admission packet: ${token.sessionId}`);
     }
     transaction.writeState(
       replaceGeneration(state, {
