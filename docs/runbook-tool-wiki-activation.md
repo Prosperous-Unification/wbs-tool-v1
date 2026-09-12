@@ -21,9 +21,11 @@ bunx nx run tool-wiki:typecheck --skip-nx-cache
 ```
 
 Build a closure containing the launcher, snapshotter, a reviewed standalone validator bundle,
-policy, mapping, separate local/CI bindings, authority evidence, and review receipt. Pass those nine
-explicit roles to `prepareActivation`; it copies them into a new versioned directory, joins the
-policy/mapping/validator/review identities to their actual bytes, and records every artifact digest.
+policy, mapping, separate local/CI bindings, lint evidence, trusted authority, and review receipt.
+Pass those ten explicit roles to `prepareActivation`; it copies them into a new versioned directory,
+joins both bindings' policy, authority, validator, and optional mapping references to those exact
+role paths and digests, joins the policy/mapping/validator/review identities to their actual bytes,
+and records every artifact digest.
 `selectActivation` requires the independently expected package identity and atomically replaces the
 small operator-controlled `selected.json`. Never edit an activated file or reuse a per-candidate
 authority snapshot.

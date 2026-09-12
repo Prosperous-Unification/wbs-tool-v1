@@ -19,6 +19,7 @@ function fixture(version: string) {
   const candidate = mkdtempSync(join(tmpdir(), `wiki-activation-candidate-${version}-`));
   scratch.push(source, store, candidate);
   const names = {
+    authority: 'authority.json',
     ciBinding: 'ci-binding.json',
     evidence: 'evidence.json',
     launcher: 'launcher.sh',
@@ -36,6 +37,22 @@ function fixture(version: string) {
       return [role, path];
     }),
   ) as Record<keyof typeof names, string>;
+  const binding = `${JSON.stringify({
+    policy: { path: 'policy.json', sha256: hashBytes(readFileSync(roleSources.policy)) },
+    authority: {
+      artifact: {
+        path: 'authority.json',
+        sha256: hashBytes(readFileSync(roleSources.authority)),
+      },
+    },
+    validator: {
+      artifacts: [
+        { path: 'validator.mjs', sha256: hashBytes(readFileSync(roleSources.validator)) },
+      ],
+    },
+  })}\n`;
+  writeFileSync(roleSources.ciBinding, binding);
+  writeFileSync(roleSources.localBinding, binding);
   const request = {
     candidateRepository: candidate,
     mappingIdentity: hashBytes(readFileSync(roleSources.mapping)),
@@ -80,6 +97,25 @@ test('packages the real launcher and a standalone build of the real validator', 
     { stderr: 'pipe', stdout: 'pipe' },
   );
   expect(build.exitCode, build.stderr.toString('utf8')).toBe(0);
+  for (const role of ['ciBinding', 'localBinding'] as const)
+    writeFileSync(
+      subject.roleSources[role],
+      `${JSON.stringify({
+        policy: {
+          path: 'policy.json',
+          sha256: hashBytes(readFileSync(subject.roleSources.policy)),
+        },
+        authority: {
+          artifact: {
+            path: 'authority.json',
+            sha256: hashBytes(readFileSync(subject.roleSources.authority)),
+          },
+        },
+        validator: {
+          artifacts: [{ path: 'validator.mjs', sha256: hashBytes(readFileSync(validator)) }],
+        },
+      })}\n`,
+    );
   const prepared = prepareActivation({
     ...subject.request,
     destination: join(subject.store, 'real'),
@@ -143,7 +179,7 @@ test('selection refuses a canonical empty or unknown-field package and a wrong e
       policyIdentity: '2'.repeat(64),
       reviewReceiptIdentity: '3'.repeat(64),
       roles: {},
-      schemaVersion: 2,
+      schemaVersion: 3,
       sourceRevision: '4'.repeat(40),
       unknownTrustedField: true,
       validatorIdentity: '5'.repeat(64),
@@ -229,3 +265,42 @@ test('activation preparation refuses a candidate-owned role source', () => {
     }),
   ).toThrow('activation validator source must be outside the candidate repository');
 });
+
+test.each(['policy', 'authority', 'validator', 'mapping'] as const)(
+  'activation preparation refuses an unlisted %s binding reference',
+  (target) => {
+    const subject = fixture(`unlisted${target}`);
+    const binding = JSON.parse(readFileSync(subject.roleSources.ciBinding, 'utf8')) as {
+      policy: { path: string; sha256: string };
+      authority: { artifact: { path: string; sha256: string } };
+      validator: { artifacts: { path: string; sha256: string }[] };
+      pilotModuleMapping?: { artifact: { path: string; sha256: string } };
+    };
+    if (target === 'policy') binding.policy.path = 'unlisted-policy.json';
+    else if (target === 'authority') binding.authority.artifact.path = 'unlisted-authority.json';
+    else if (target === 'validator')
+      binding.validator.artifacts[0] = {
+        ...binding.validator.artifacts[0],
+        path: 'unlisted-validator.mjs',
+      };
+    else
+      binding.pilotModuleMapping = {
+        artifact: {
+          path: 'unlisted-mapping.json',
+          sha256: hashBytes(readFileSync(subject.roleSources.mapping)),
+        },
+      };
+    writeFileSync(subject.roleSources.ciBinding, `${JSON.stringify(binding)}\n`);
+
+    expect(() =>
+      prepareActivation({
+        ...subject.request,
+        destination: join(subject.store, `unlisted-${target}`),
+      }),
+    ).toThrow(
+      target === 'validator'
+        ? 'activation ciBinding validator references differ from authenticated validator role'
+        : `activation ciBinding ${target} reference differs from authenticated ${target} role`,
+    );
+  },
+);

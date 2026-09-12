@@ -3025,3 +3025,51 @@ External omissions are unchanged: no real trusted review/journal receipt, scoped
 gate receipts, browser applicability decision, h2puni/GitHub activation administration, required
 ruleset, per-candidate authority snapshot, or final external binding publication was performed or
 invented. Task 5.3 remains open.
+
+### Slice 5.3 review fix round 2
+
+Activation manifest version 3 has ten exact roles. Trusted authority is distinct from lint evidence
+and is now copied as `artifacts/authority.json`, included in the canonical manifest and checksum
+closure, and required by verification. Preparation and verification decode both local and CI
+bindings and join their policy, authority, standalone-validator, and optional mapping references to
+the exact relative path and digest of the corresponding authenticated role.
+
+The real-path RED built the actual Tool Wiki CLI as a standalone bundle, used the actual snapshotter
+and preserved launcher, prepared and selected the package, deleted its source directory, and invoked
+required committed admission. Preparation, selection, and verification returned successfully, but
+the launcher exited 1 with `cannot open trusted authority .../artifacts/authority.json: ENOENT`;
+expected exit 0. This is the production fault fixed by the tenth role. A separate RED changed only
+`ciBinding.authority.artifact.path` to `unlisted-authority.json`; `prepareActivation` returned a
+complete package (`Received function did not throw`) until binding references were joined to the
+authenticated closure.
+
+After restoration, the relocated package drove the real validator to exit 0 with `mode: enforce`,
+`trustProvenance: ci-preselected`, `accepted: true`, and `certified: true`. Removing its authenticated
+authority and adding the same bytes under an unlisted name made `verifyActivation` fail with `cannot
+read activation artifact: artifacts/authority.json`; required launch independently refused with
+`selected activation package failed digest verification`. The retained required-mode test also now
+passes an explicitly absent root and observes `required admission has no external activation root`.
+
+Focused final command `bun test --preload ../test/scratch/preload.ts
+src/admission/attestation.test.ts src/policy/activation.test.ts
+src/policy/gate-entrypoints.test.ts` exited 0 with 49 tests passed, 0 failed, and 161 assertions in
+23.74 seconds. The post-format repeat passed the same 49 tests and 161 assertions in 23.88 seconds.
+Uncached source lint exited 0. The first uncached forced typecheck found a test-only
+buffer/string mismatch in the new injection setup; using the byte-writing filesystem boundary made
+the same typecheck exit 0.
+
+The final unfiltered Tool Wiki suite exited 0 with 499 tests passed, 0 failed, and 4,839 assertions
+across 26 files in 728.44 seconds. Fresh uncached source lint, forced typecheck, diagnostic Tool Wiki
+lint, and `bash -n bin/tool-wiki-lint.sh` all exited 0. The diagnostic lint remained explicitly
+inactive/non-certified and is not admission. Whole-repository format check exited 0. Strict OpenSpec
+validation printed `Change 'agent-scalable-llm-wiki' is valid` and exited 0; its optional PostHog
+telemetry flush alone could not resolve `edge.openspec.dev`.
+
+Final R5 expansion injected removal of each policy, validator, and optional-mapping reference join
+in turn. Each matching unlisted-reference case failed on `Received function did not throw`, just as
+the authority RED had. With all joins restored, the final focused suite passed 52 tests, 0 failed,
+and 164 assertions in 23.96 seconds. These fault injections did not change production semantics
+from the tree exercised by the complete suite.
+
+No external review, usage, receipt, host/browser gate, activation administration, ruleset, authority
+snapshot, or final binding evidence was created. Task 5.3 remains open.

@@ -20,6 +20,7 @@ import { compareCanonicalText, hashBytes, serializeCanonical } from '../evidence
 const Sha256 = /^[0-9a-f]{64}$/;
 const GitObject = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 const roles = [
+  'authority',
   'ciBinding',
   'evidence',
   'launcher',
@@ -32,6 +33,7 @@ const roles = [
 ] as const;
 type ActivationRole = (typeof roles)[number];
 const rolePaths: Record<ActivationRole, string> = {
+  authority: 'artifacts/authority.json',
   ciBinding: 'artifacts/ci-binding.json',
   evidence: 'artifacts/evidence.json',
   launcher: 'artifacts/launcher.sh',
@@ -55,9 +57,10 @@ const Sha256Identity = type(Sha256);
 const ArtifactRecord = type({
   identity: Sha256Identity,
   path: 'string>=1',
-  role: "'ciBinding'|'evidence'|'launcher'|'localBinding'|'mapping'|'policy'|'reviewReceipt'|'snapshotter'|'validator'",
+  role: "'authority'|'ciBinding'|'evidence'|'launcher'|'localBinding'|'mapping'|'policy'|'reviewReceipt'|'snapshotter'|'validator'",
 }).onUndeclaredKey('reject');
 const RolesRecord = type({
+  authority: 'string>=1',
   ciBinding: 'string>=1',
   evidence: 'string>=1',
   launcher: 'string>=1',
@@ -69,7 +72,7 @@ const RolesRecord = type({
   validator: 'string>=1',
 }).onUndeclaredKey('reject');
 const ManifestRecord = type({
-  schemaVersion: '2',
+  schemaVersion: '3',
   sourceRevision: /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/,
   policyIdentity: Sha256Identity,
   mappingIdentity: Sha256Identity,
@@ -78,6 +81,13 @@ const ManifestRecord = type({
   roles: RolesRecord,
   artifacts: ArtifactRecord.array(),
 }).onUndeclaredKey('reject');
+const BindingArtifactReference = type({ path: 'string>=1', sha256: Sha256Identity });
+const BindingClosureRecord = type({
+  policy: BindingArtifactReference,
+  authority: type({ artifact: BindingArtifactReference }),
+  validator: type({ artifacts: BindingArtifactReference.array() }),
+  'pilotModuleMapping?': type({ artifact: BindingArtifactReference }),
+});
 
 export type ActivationManifest = typeof ManifestRecord.infer;
 
@@ -159,6 +169,59 @@ function assertStandaloneValidator(path: string): void {
     throw new Error(`activation validator is not standalone: ${dependency.path}`);
 }
 
+function packageReference(from: ActivationRole, to: ActivationRole): string {
+  return relative(dirname(rolePaths[from]), rolePaths[to]).split(sep).join('/');
+}
+
+function assertBindingClosure(
+  role: 'ciBinding' | 'localBinding',
+  bytes: Uint8Array,
+  identities: ReadonlyMap<ActivationRole, string>,
+): void {
+  let input: unknown;
+  try {
+    input = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+  } catch (cause) {
+    throw new Error(`activation ${role} is malformed JSON`, { cause });
+  }
+  const binding = parseOrThrow(BindingClosureRecord, input);
+  const expected = (target: ActivationRole) => {
+    const identity = identities.get(target);
+    if (identity === undefined) throw new Error(`activation ${target} role is omitted`);
+    return { path: packageReference(role, target), sha256: identity };
+  };
+  for (const [target, reference] of [
+    ['policy', binding.policy],
+    ['authority', binding.authority.artifact],
+  ] as const) {
+    if (serializeCanonical(reference) !== serializeCanonical(expected(target))) {
+      // Proof: removing each tuple let its `unlisted-policy.json` or `unlisted-authority.json`
+      // preparation return a complete package (`Received function did not throw`).
+      throw new Error(
+        `activation ${role} ${target} reference differs from authenticated ${target} role`,
+      );
+    }
+  }
+  const validator = expected('validator');
+  // Proof: removing this comparison let `unlisted-validator.mjs` preparation return a complete
+  // package (`Received function did not throw`).
+  if (
+    binding.validator.artifacts.length !== 1 ||
+    serializeCanonical(binding.validator.artifacts[0]) !== serializeCanonical(validator)
+  )
+    throw new Error(
+      `activation ${role} validator references differ from authenticated validator role`,
+    );
+  // Proof: removing this comparison let `unlisted-mapping.json` preparation return a complete
+  // package (`Received function did not throw`).
+  if (
+    binding.pilotModuleMapping !== undefined &&
+    serializeCanonical(binding.pilotModuleMapping.artifact) !==
+      serializeCanonical(expected('mapping'))
+  )
+    throw new Error(`activation ${role} mapping reference differs from authenticated mapping role`);
+}
+
 function preparedManifest(request: PrepareActivationRequest) {
   if (!GitObject.test(request.sourceRevision))
     throw new Error('activation source revision is invalid');
@@ -185,6 +248,9 @@ function preparedManifest(request: PrepareActivationRequest) {
     if (!Sha256.test(expected) || byRole.get(role)?.identity !== expected)
       throw new Error(`activation ${role} identity differs from its artifact`);
   }
+  const identities = new Map(sources.map((artifact) => [artifact.role, artifact.identity]));
+  for (const role of ['ciBinding', 'localBinding'] as const)
+    assertBindingClosure(role, readFileSync(request.roleSources[role]), identities);
   const artifacts = sources
     .map(({ identity, role }) => ({ identity, path: rolePaths[role], role }))
     .sort((left, right) => compareCanonicalText(left.role, right.role));
@@ -194,7 +260,7 @@ function preparedManifest(request: PrepareActivationRequest) {
     policyIdentity: request.policyIdentity,
     reviewReceiptIdentity: request.reviewReceiptIdentity,
     roles: { ...rolePaths },
-    schemaVersion: 2,
+    schemaVersion: 3,
     sourceRevision: request.sourceRevision,
     validatorIdentity: request.validatorIdentity,
   };
@@ -297,7 +363,7 @@ export function verifyActivation(directory: string): VerifiedActivation {
   }
   const manifest = decodeManifest(bytes);
   // Proof: the canonical empty manifest with an unknown trusted field was selected successfully
-  // before strict decoding and the complete nine-role boundary replaced the unchecked cast.
+  // before strict decoding and the complete role boundary replaced the unchecked cast.
   if (manifest.artifacts.length !== roles.length)
     throw new Error('activation artifact set is incomplete');
   const seenRoles = new Set<string>();
@@ -314,6 +380,9 @@ export function verifyActivation(directory: string): VerifiedActivation {
       throw new Error(`activation role path is invalid: ${artifact.role}`);
     let actual: string;
     try {
+      // Proof: the real relocated-package test removed authenticated `authority.json` and added
+      // the same bytes under an unlisted name; verification failed here with `cannot read
+      // activation artifact: artifacts/authority.json`, and required launch refused the digest.
       const path = realpathSync(join(canonical, artifact.path));
       const offset = relative(canonical, path);
       if (
@@ -342,6 +411,8 @@ export function verifyActivation(directory: string): VerifiedActivation {
     identities.get('reviewReceipt') !== manifest.reviewReceiptIdentity
   )
     throw new Error('activation manifest identity differs from its role artifact');
+  for (const role of ['ciBinding', 'localBinding'] as const)
+    assertBindingClosure(role, readFileSync(join(canonical, manifest.roles[role])), identities);
   assertStandaloneValidator(join(canonical, manifest.roles.validator));
   if (readFileSync(join(canonical, 'checksums.sha256'), 'utf8') !== checksumBytes(manifest))
     throw new Error('activation checksum manifest differs from roles');

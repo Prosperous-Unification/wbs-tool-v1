@@ -17,7 +17,7 @@ import { dirname, join, relative, sep } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 
 import { hashBytes, hashCanonical } from '../evidence/content-manifest';
-import { prepareActivation, selectActivation } from './activation';
+import { prepareActivation, selectActivation, verifyActivation } from './activation';
 import { resolveValidatorArtifactPaths } from './trust';
 
 const workspace = join(import.meta.dir, '..', '..', '..', '..');
@@ -79,6 +79,8 @@ interface RealFixture {
   activationRoot: string;
   bindingPath: string;
   evidencePath: string;
+  policyPath: string;
+  authorityPath: string;
 }
 
 interface ExactEntry {
@@ -334,7 +336,15 @@ function realFixture(): RealFixture {
   write(join(trust, 'local-binding-path'), `${bindingPath}\n`);
   write(join(trust, 'ci-binding-path'), `${bindingPath}\n`);
   write(join(trust, 'evidence-path'), `${evidencePath}\n`);
-  return { repository, revision, activationRoot: trust, bindingPath, evidencePath };
+  return {
+    repository,
+    revision,
+    activationRoot: trust,
+    bindingPath,
+    evidencePath,
+    policyPath,
+    authorityPath,
+  };
 }
 
 function runRealAdapter(
@@ -478,6 +488,16 @@ describe('tool-wiki production entrypoint adapter', () => {
   });
 
   test('required admission refuses inactive and non-certified validator output', () => {
+    const absentRoot = fixture();
+    rmSync(absentRoot.activationRoot, { recursive: true });
+    const absent = runAdapter('committed', absentRoot, {
+      TOOL_WIKI_REQUIRE_CERTIFIED: '1',
+    });
+    expect(absent.exitCode).not.toBe(0);
+    expect(streamText(absent.stderr, 'adapter stderr')).toContain(
+      'required admission has no external activation root',
+    );
+
     const paths = fixture();
     rmSync(join(paths.activationRoot, 'active-v1'));
     const inactive = runAdapter('committed', paths, { TOOL_WIKI_REQUIRE_CERTIFIED: '1' });
@@ -519,11 +539,9 @@ describe('tool-wiki production entrypoint adapter', () => {
       'process.stdout.write(JSON.stringify({schemaVersion:1,mode:"enforce",trustProvenance:"ci-preselected",accepted:true,certified:true}) + "\\n");\n',
     );
     const binding = join(sources, 'binding.json');
-    write(
-      binding,
-      `${JSON.stringify({ validator: { artifacts: [{ path: 'validator.mjs', sha256: hashBytes(readFileSync(validator)) }] } })}\n`,
-    );
+    const authority = join(sources, 'authority.json');
     const roleSources = {
+      authority,
       ciBinding: binding,
       evidence: join(sources, 'evidence.json'),
       launcher: adapterPath,
@@ -534,8 +552,25 @@ describe('tool-wiki production entrypoint adapter', () => {
       snapshotter: join(workspace, 'tools/tool-wiki/src/policy/snapshot-validator.ts'),
       validator,
     };
-    for (const role of ['evidence', 'mapping', 'policy', 'reviewReceipt'] as const)
+    for (const role of ['authority', 'evidence', 'mapping', 'policy', 'reviewReceipt'] as const)
       write(roleSources[role], '{}\n');
+    write(
+      binding,
+      `${JSON.stringify({
+        policy: { path: 'policy.json', sha256: hashBytes(readFileSync(roleSources.policy)) },
+        authority: {
+          artifact: {
+            path: 'authority.json',
+            sha256: hashBytes(readFileSync(roleSources.authority)),
+          },
+        },
+        validator: {
+          artifacts: [
+            { path: 'validator.mjs', sha256: hashBytes(readFileSync(roleSources.validator)) },
+          ],
+        },
+      })}\n`,
+    );
     const prepared = prepareActivation({
       candidateRepository: paths.repository,
       destination: join(paths.activationRoot, 'v1'),
@@ -560,6 +595,91 @@ describe('tool-wiki production entrypoint adapter', () => {
     const tampered = runAdapter('committed', paths, { TOOL_WIKI_REQUIRE_CERTIFIED: '1' });
     expect(tampered.exitCode).not.toBe(0);
     expect(streamText(tampered.stderr, 'adapter stderr')).toContain(
+      'selected activation package failed digest verification',
+    );
+  });
+
+  test('a relocated role-complete package drives the real validator in required mode', () => {
+    const paths = realFixture();
+    const sources = join(dirname(paths.repository), 'real-package-sources');
+    const validator = join(sources, 'validator.mjs');
+    const build = Bun.spawnSync(
+      ['bun', 'build', trustedCliPath, '--target=bun', '--format=esm', `--outfile=${validator}`],
+      { stderr: 'pipe', stdout: 'pipe' },
+    );
+    expect(build.exitCode, streamText(build.stderr, 'build stderr')).toBe(0);
+    const policy = join(sources, 'policy.json');
+    const authority = join(sources, 'authority.json');
+    const evidence = join(sources, 'evidence.json');
+    const binding = join(sources, 'binding.json');
+    write(policy, readFileSync(paths.policyPath, 'utf8'));
+    write(authority, readFileSync(paths.authorityPath, 'utf8'));
+    const authorityBytes = readFileSync(authority);
+    write(evidence, readFileSync(paths.evidencePath, 'utf8'));
+    const bindingRecord = JSON.parse(readFileSync(paths.bindingPath, 'utf8')) as {
+      policy: { path: string; sha256: string };
+      authority: { artifact: { path: string; sha256: string } };
+      validator: { artifacts: { path: string; sha256: string }[] };
+    };
+    bindingRecord.policy = { path: 'policy.json', sha256: sha256(readFileSync(policy)) };
+    bindingRecord.authority.artifact = {
+      path: 'authority.json',
+      sha256: sha256(readFileSync(authority)),
+    };
+    bindingRecord.validator.artifacts = [
+      { path: 'validator.mjs', sha256: sha256(readFileSync(validator)) },
+    ];
+    write(binding, `${JSON.stringify(bindingRecord)}\n`);
+    const mapping = join(sources, 'mapping.json');
+    const reviewReceipt = join(sources, 'review-receipt.json');
+    write(mapping, '{}\n');
+    write(reviewReceipt, '{}\n');
+    const prepared = prepareActivation({
+      candidateRepository: paths.repository,
+      destination: join(paths.activationRoot, 'real-v1'),
+      mappingIdentity: hashBytes(readFileSync(mapping)),
+      policyIdentity: hashBytes(readFileSync(policy)),
+      reviewReceiptIdentity: hashBytes(readFileSync(reviewReceipt)),
+      roleSources: {
+        authority,
+        ciBinding: binding,
+        evidence,
+        launcher: adapterPath,
+        localBinding: binding,
+        mapping,
+        policy,
+        reviewReceipt,
+        snapshotter: join(workspace, 'tools/tool-wiki/src/policy/snapshot-validator.ts'),
+        validator,
+      },
+      sourceRevision: '4'.repeat(40),
+      validatorIdentity: hashBytes(readFileSync(validator)),
+    });
+    rmSync(sources, { recursive: true });
+    selectActivation(paths.activationRoot, prepared.directory, prepared.identity);
+
+    const invocation = runRealAdapter('committed', paths, {
+      TOOL_WIKI_REQUIRE_CERTIFIED: '1',
+    });
+
+    expect(invocation.exitCode, streamText(invocation.stderr, 'adapter stderr')).toBe(0);
+    expect(JSON.parse(streamText(invocation.stdout, 'adapter stdout'))).toMatchObject({
+      accepted: true,
+      certified: true,
+      mode: 'enforce',
+      trustProvenance: 'ci-preselected',
+    });
+
+    rmSync(join(prepared.directory, 'artifacts', 'authority.json'));
+    writeFileSync(join(prepared.directory, 'artifacts', 'unlisted-authority.json'), authorityBytes);
+    expect(() => verifyActivation(prepared.directory)).toThrow(
+      'cannot read activation artifact: artifacts/authority.json',
+    );
+    const injected = runRealAdapter('committed', paths, {
+      TOOL_WIKI_REQUIRE_CERTIFIED: '1',
+    });
+    expect(injected.exitCode).not.toBe(0);
+    expect(streamText(injected.stderr, 'adapter stderr')).toContain(
       'selected activation package failed digest verification',
     );
   });
