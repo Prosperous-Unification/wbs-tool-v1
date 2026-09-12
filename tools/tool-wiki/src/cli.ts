@@ -228,6 +228,88 @@ function writeReviewProvenance(argv: string[]): void {
   process.stdout.write(`${JSON.stringify(validation)}\n`);
 }
 
+const exhaustiveDocumentNames = [
+  'inventory',
+  'inventoryProtocol',
+  'classificationPolicy',
+  'contentManifestRequest',
+  'exhaustivePolicy',
+  'reviewProtocol',
+  'moduleMapping',
+  'granularityPolicy',
+  'modelContext',
+  'relationshipRequest',
+  'artifactGraph',
+] as const;
+
+function readExhaustiveDocuments(paths: string[]) {
+  if (paths.length !== exhaustiveDocumentNames.length) {
+    throw new Error('exhaustive freeze requires all eleven named input documents');
+  }
+  const path = (name: (typeof exhaustiveDocumentNames)[number]): string => {
+    const index = exhaustiveDocumentNames.indexOf(name);
+    const selected = paths[index];
+    return selected;
+  };
+  return {
+    inventory: readJsonDocument(path('inventory')),
+    inventoryProtocol: readJsonDocument(path('inventoryProtocol')),
+    classificationPolicy: readJsonDocument(path('classificationPolicy')),
+    contentManifestRequest: readJsonDocument(path('contentManifestRequest')),
+    exhaustivePolicy: readJsonDocument(path('exhaustivePolicy')),
+    reviewProtocol: readJsonDocument(path('reviewProtocol')),
+    moduleMapping: readJsonDocument(path('moduleMapping')),
+    granularityPolicy: readJsonDocument(path('granularityPolicy')),
+    modelContext: readJsonDocument(path('modelContext')),
+    relationshipRequest: readJsonDocument(path('relationshipRequest')),
+    artifactGraph: readJsonDocument(path('artifactGraph')),
+  };
+}
+
+async function writeExhaustiveFreeze(argv: string[]): Promise<void> {
+  const [repository, revision, auditSeed, ...paths] = argv.slice(1);
+  const { freezeExhaustivePlan } = await import('./review/exhaustive-coverage');
+  const frozen = freezeExhaustivePlan(
+    repository,
+    revision,
+    readExhaustiveDocuments(paths),
+    auditSeed,
+  );
+  process.stdout.write(`${JSON.stringify(frozen)}\n`);
+}
+
+async function writeExhaustiveVerification(argv: string[]): Promise<void> {
+  const [repository, planPath, expectedIdentity, auditSeed, ...paths] = argv.slice(1);
+  const { verifyExhaustivePlan } = await import('./review/exhaustive-coverage');
+  const verified = verifyExhaustivePlan(
+    repository,
+    expectedIdentity,
+    readJson(planPath),
+    readExhaustiveDocuments(paths),
+    auditSeed,
+  );
+  process.stdout.write(`${JSON.stringify(verified)}\n`);
+}
+
+async function writeExhaustiveCoverage(argv: string[]): Promise<void> {
+  const [repository, planPath, expectedIdentity, auditSeed, auditPath, ...paths] = argv.slice(1);
+  const { evaluateExhaustiveCoverage, verifyExhaustivePlan } =
+    await import('./review/exhaustive-coverage');
+  const plan = readJson(planPath);
+  // Proof: removing this verification let an omitted repository-root subject reach `{}` audit
+  // decoding; the production CLI test received only missing audit fields instead of the omission.
+  verifyExhaustivePlan(
+    repository,
+    expectedIdentity,
+    plan,
+    readExhaustiveDocuments(paths),
+    auditSeed,
+  );
+  process.stdout.write(
+    `${JSON.stringify(evaluateExhaustiveCoverage(plan, readJson(auditPath)))}\n`,
+  );
+}
+
 async function writeAdmissionSubmission(argv: string[]): Promise<void> {
   const [repository, packetPath, kind, revision] = argv.slice(1);
   if (kind !== 'staged' && kind !== 'committed') {
@@ -307,6 +389,15 @@ function run(argv: string[]): Promise<void> | void {
     writeReviewProvenance(argv);
     return;
   }
+  if (argv.length === 15 && argv[0] === 'freeze-exhaustive') {
+    return writeExhaustiveFreeze(argv);
+  }
+  if (argv.length === 16 && argv[0] === 'verify-exhaustive') {
+    return writeExhaustiveVerification(argv);
+  }
+  if (argv.length === 17 && argv[0] === 'evaluate-exhaustive-coverage') {
+    return writeExhaustiveCoverage(argv);
+  }
   if (argv.length === 5 && argv[0] === 'submit-admission') {
     return writeAdmissionSubmission(argv);
   }
@@ -326,7 +417,7 @@ function run(argv: string[]): Promise<void> | void {
     });
   }
   throw new Error(
-    'usage: tool-wiki <validate|read-candidate|classify-candidate|content-manifest|validate-artifacts|extract-relationships|check-indexes|check-root-migration|validate-review-provenance|submit-admission|lint-local|lint-ci|validate-policy-activation> ...',
+    'usage: tool-wiki <validate|read-candidate|classify-candidate|content-manifest|validate-artifacts|extract-relationships|check-indexes|check-root-migration|validate-review-provenance|freeze-exhaustive|verify-exhaustive|evaluate-exhaustive-coverage|submit-admission|lint-local|lint-ci|validate-policy-activation> ...',
   );
 }
 

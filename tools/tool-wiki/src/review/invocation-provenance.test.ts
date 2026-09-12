@@ -49,7 +49,7 @@ function request(invocationId = 'invocation.integration-test'): ReviewInvocation
     subject: {
       subjectId: 'subject.integration-test',
       kind: 'file',
-      path: 'src/example.ts',
+      locator: { kind: 'path', path: 'src/example.ts' },
       contentIdentity: SHA_A,
     },
     informedContextIds: [SHA_C],

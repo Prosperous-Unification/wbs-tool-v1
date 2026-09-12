@@ -231,7 +231,7 @@ function auditReview(
   const subject = {
     subjectId: `subject.${obligationId}`,
     kind: 'project',
-    path: 'src',
+    locator: { kind: 'path', path: 'src' },
     contentIdentity: identity,
   };
   const protocolBlob = 'd'.repeat(64);
@@ -370,7 +370,7 @@ function auditEnvelope(fixture: CandidateFixture, reviewIds: string[], identity:
       subject: {
         subjectId: `subject.${reviewId}`,
         kind: 'project',
-        path: 'src',
+        locator: { kind: 'path', path: 'src' },
         contentIdentity: identity,
       },
     })),
@@ -1720,7 +1720,7 @@ describe('trusted policy production CLI', () => {
     interface AuditSubject {
       subjectId: string;
       kind: 'file' | 'directory' | 'project' | 'documentation';
-      path: string;
+      locator: { kind: 'path'; path: string } | { kind: 'repository-root' };
       contentIdentity: string;
     }
     const authority = JSON.parse(readFileSync(fixture.authorityPath, 'utf8')) as {
@@ -1744,7 +1744,7 @@ describe('trusted policy production CLI', () => {
     const narrowedSubject = {
       ...applicationObligation.subject,
       kind: 'file' as const,
-      path: 'src/app.ts',
+      locator: { kind: 'path' as const, path: 'src/app.ts' },
     };
     applicationObligation.subject = narrowedSubject;
     applicationReview.evidence.protocolEvidence.subject = narrowedSubject;

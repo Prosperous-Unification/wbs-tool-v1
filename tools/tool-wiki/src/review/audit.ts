@@ -517,7 +517,7 @@ export function evaluateAudit(input: unknown): AuditReport {
     if (
       subject.subjectId !== obligation.subject.subjectId ||
       subject.kind !== obligation.subject.kind ||
-      subject.path !== obligation.subject.path
+      hashCanonical(subject.locator) !== hashCanonical(obligation.subject.locator)
     ) {
       throw new Error(`audit review ${review.reviewId} does not bind the obligation subject`);
     }

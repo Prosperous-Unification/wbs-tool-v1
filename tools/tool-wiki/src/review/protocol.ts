@@ -27,12 +27,27 @@ export const ReviewProtocol = type({
   protocolBlob: Sha256,
 }).onUndeclaredKey('reject');
 
+export const ReviewSubjectLocator = type({ kind: "'path'", path: RelativePath })
+  .onUndeclaredKey('reject')
+  .or(type({ kind: "'repository-root'" }).onUndeclaredKey('reject'));
+export type ReviewSubjectLocator = typeof ReviewSubjectLocator.infer;
+
 export const ReviewSubject = type({
   subjectId: OpaqueId,
   kind: "'file'|'directory'|'project'|'documentation'",
-  path: RelativePath,
+  locator: ReviewSubjectLocator,
   contentIdentity: Sha256,
-}).onUndeclaredKey('reject');
+})
+  .onUndeclaredKey('reject')
+  .narrow((subject, context) =>
+    // Proof: accepting repository-root for file made the root-locator production decoder test
+    // return an ordinary file subject instead of throwing the named scope refusal.
+    subject.locator.kind === 'repository-root' &&
+    subject.kind !== 'directory' &&
+    subject.kind !== 'project'
+      ? context.mustBe('repository root is meaningful only for directory and project subjects')
+      : true,
+  );
 
 export const ReviewInvocationRequest = type({
   schemaVersion: SchemaVersion,

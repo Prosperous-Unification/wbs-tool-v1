@@ -173,6 +173,9 @@ No `verify.md` exists until implementation produces observations.
       independent of assignment grouping. Negative: replace a path at equal count or merge
       groups to omit a review and observe coverage fail. Final mapping/index adoption waits
       for `repo-namespacing`; historical packets resolve their pinned pre-move mapping.
+      The strict census/freezer/verifier tooling is implemented; this remains unchecked because
+      operator-selected launch inputs, the operational freeze, and final namespacing adoption are
+      intentionally pending.
 - [ ] 6.2 Execute cold/informed reviews through the provisioned harness, collect all raw
       responses/usage, resolve owned documentation corrections, and route behavior/architecture
       findings to separate changes. Perform fresh post-correction file/directory/project/docs

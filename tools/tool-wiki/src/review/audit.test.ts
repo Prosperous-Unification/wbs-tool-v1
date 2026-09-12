@@ -16,7 +16,7 @@ function obligations(): AuditObligation[] {
       subject: {
         subjectId: 'subject.file.alpha',
         kind: 'file' as const,
-        path: 'src/alpha.ts',
+        locator: { kind: 'path' as const, path: 'src/alpha.ts' },
         contentIdentity: SHA_A,
       },
     },
@@ -26,7 +26,7 @@ function obligations(): AuditObligation[] {
       subject: {
         subjectId: 'subject.directory.src',
         kind: 'directory' as const,
-        path: 'src',
+        locator: { kind: 'path' as const, path: 'src' },
         contentIdentity: SHA_A,
       },
     },
@@ -36,7 +36,7 @@ function obligations(): AuditObligation[] {
       subject: {
         subjectId: 'subject.project.tool-wiki',
         kind: 'project' as const,
-        path: 'tools/tool-wiki',
+        locator: { kind: 'path' as const, path: 'tools/tool-wiki' },
         contentIdentity: SHA_A,
       },
     },
@@ -46,7 +46,7 @@ function obligations(): AuditObligation[] {
       subject: {
         subjectId: 'subject.documentation.guide',
         kind: 'documentation' as const,
-        path: 'docs/guide.md',
+        locator: { kind: 'path' as const, path: 'docs/guide.md' },
         contentIdentity: SHA_A,
       },
     },

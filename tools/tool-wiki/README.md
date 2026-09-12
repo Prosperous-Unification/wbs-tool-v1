@@ -18,3 +18,12 @@ The bootstrap obligation requires the uncached `tool-wiki:test`, `tool-wiki:lint
 Candidate changes can propose future validator or policy bytes, but they cannot select the
 activation that evaluates the same candidate. Immutable activation packages and final integration
 bindings are created and retained outside the candidate tree.
+
+## Exhaustive census
+
+`freeze-exhaustive` derives file, ancestor-directory, Nx/non-Nx project, and documentation
+obligations from an immutable commit after exact inventory, classification, relationship, mapping,
+model/context, protocol, and evidence-graph joins. `verify-exhaustive` independently rereads that
+commit; `evaluate-exhaustive-coverage` replaces submitted population claims with the frozen full
+set before audit evaluation. These commands validate a proposed sweep record. They do not run
+reviews, activate policy, or certify the still-pending operational sweep.

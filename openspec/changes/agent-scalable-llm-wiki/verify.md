@@ -3099,3 +3099,57 @@ five-process aggregates have scoped 10-second ceilings, and the 28-process contr
 scoped 45-second ceiling after a local full-suite RED at 25013.97ms under its former 25-second cap.
 The global Bun timeout, required command chain, exit handling, and all other CI job limits remain
 unchanged.
+
+### Slice 6.1 strict census tooling (operational freeze pending)
+
+The new exhaustive sweep record derives its primary population from immutable candidate B: every
+content entry has a file duty, every entry contributes ancestor-directory topology through an
+explicit repository-root locator, exact candidate Nx projects join root and declared non-Nx
+projects, and document/OpenSpec paths retain an additional documentation duty. The five mapping
+dimensions resolve independently over the same content universe. Stable subject, obligation, and
+hash-prefix shard identities exclude those groupings. A distinct seeded audit sample is recorded
+without shrinking primary coverage.
+
+Observed production-path REDs before restoring each guard:
+
+| Injected fault                                     | Observed RED                                                                                 |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| bypass complete inventory tuple reconciliation     | equal-count path replacement reached CLI exit 0; expected 1                                  |
+| remove mode comparison                             | 100755 claim over committed 100644 reached CLI exit 0; expected 1                            |
+| remove blob comparison                             | attacker blob at unchanged path/mode reached CLI exit 0; expected 1                          |
+| derive shard IDs from the five-map artifact        | regrouping changed all 22 shard IDs                                                          |
+| retain caller-claimed obligations                  | omitted receipt plus shrunken population returned `accepted: true`                           |
+| remove exact omitted-subject diagnostic            | root omission became only generic population mismatch                                        |
+| trust decoded input separately from supplied bytes | `{}` model-context bytes froze successfully                                                  |
+| retain caller generation                           | complete frozen generation-1 reviews returned `accepted: false` under attacker generation 99 |
+| remove frozen protocol join                        | forged protocol reached a generic supplied-context mismatch                                  |
+| remove frozen executor join                        | consistently forged executor receipts returned `accepted: true`                              |
+| ignore unresolved explicit documentation           | missing documentation selection returned no exception                                        |
+| omit nested directory segments from topology       | adding `new-project/src/index.ts` left root identity unchanged                               |
+| skip stable project identity/locator checks        | duplicate became generic; missing project produced no exception                              |
+| skip plan verification in coverage CLI             | omitted root reached `{}` audit decoding instead of census refusal                           |
+
+Focused tests additionally changed valid evidence-only bytes: graph validation identity changed,
+content-only identity stayed unchanged, and B's stale graph failed with `artifact descriptor differs
+from selected evidence`. A source-like `docs/review-evidence/run.sh` was refused. Verification named
+omitted repository root, nested project, documentation (while its file duty remained), and
+evidence-only directory separately. A working-checkout rename did not affect retained B; after the
+move was committed and all other inputs refreshed, B's module mapping was refused against the new
+commit. Direct directory tests retained currency across descendant byte edits and changed it when a
+direct indexed child appeared.
+
+No real model invocation, raw review, usage, external receipt, correction, adjudication, policy
+activation, host/browser gate, GitHub administration, or final namespacing adoption was performed
+or inferred. No operational exhaustive plan was frozen because its actual model version, harness,
+context/resource configuration, five approved mappings, protocol, graph, and retention destination
+remain controller/operator inputs. Task 6.1 therefore remains open.
+
+Final restored commands: after the final root-topology and authenticated coverage-CLI checks, the
+unfiltered `bun test --preload ../test/scratch/preload.ts` from `tools/tool-wiki` exited 0 with 521
+tests passed, 0 failed, and 4,904 assertions across 27 files in 925.42 seconds. The final focused
+exhaustive-census run passed 17 tests and 59 assertions; the broader focused review/census run
+passed 71 tests and 425 assertions; the complete
+trusted-policy file passed 47 tests and 1,272 assertions. Fresh uncached Tool Wiki source lint and
+forced typecheck exited 0. `bunx nx format:check --all`, strict
+`bunx @fission-ai/openspec validate agent-scalable-llm-wiki --strict`, and `git diff --check` each
+exited 0; OpenSpec printed `Change 'agent-scalable-llm-wiki' is valid`.

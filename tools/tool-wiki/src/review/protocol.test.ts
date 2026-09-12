@@ -70,7 +70,7 @@ function coldOutput(): ColdHarnessOutput {
     subject: {
       subjectId: 'subject.protocol-test',
       kind: 'file',
-      path: 'src/example.ts',
+      locator: { kind: 'path', path: 'src/example.ts' },
       contentIdentity: SHA_A,
     },
     cold: {
@@ -116,6 +116,25 @@ function informedOutput(coldArtifact = hashCanonical(coldOutput().cold)): Inform
 }
 
 describe('cold/informed review protocol', () => {
+  test('repository root is explicit and limited to directory and project subjects', () => {
+    const rootDirectory = structuredClone(coldOutput()) as unknown as {
+      subject: Record<string, unknown>;
+    };
+    Reflect.deleteProperty(rootDirectory.subject, 'path');
+    rootDirectory.subject['kind'] = 'directory';
+    rootDirectory.subject['locator'] = { kind: 'repository-root' };
+
+    expect(decodeColdHarnessOutput(rootDirectory).subject).toMatchObject({
+      kind: 'directory',
+      locator: { kind: 'repository-root' },
+    });
+
+    rootDirectory.subject['kind'] = 'file';
+    expect(() => decodeColdHarnessOutput(rootDirectory)).toThrow(
+      'repository root is meaningful only for directory and project subjects',
+    );
+  });
+
   test('decodes cold and informed phases as separate receipts and tool sequences', () => {
     const cold = decodeColdHarnessOutput(coldOutput());
     const informed = decodeInformedHarnessOutput(informedOutput(hashCanonical(cold.cold)));
