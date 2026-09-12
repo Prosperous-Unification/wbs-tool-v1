@@ -201,6 +201,18 @@ export default defineConfig(({ command, mode }) => ({
     // from the proxy with nothing in Caddy's logs to explain it.
     host: '0.0.0.0',
     allowedHosts: ['dev.wbs.bulletpoints.club'],
+    /**
+     * The public source server is a deployment surface, not a developer's editor.
+     * Browser Use Cloud closes its long-lived `vite-hmr` socket after about ten
+     * seconds; Vite's reconnect path then reloads the whole document, letting a QA
+     * read land on the empty root between mounts. Source transforms and watcher
+     * invalidation remain active, so a fresh request still receives a deployed edit.
+     * Local development and isolated browser gates leave the flag unset and keep HMR.
+     *
+     * Proof: with this line absent, `vite-config.test.ts`'s public-dev case failed
+     * `expected undefined to be false` on h2puni at f11a5a04.
+     */
+    hmr: process.env['WBS_PUBLIC_DEV'] === 'true' ? false : undefined,
     // Serve only. `vite build` has no proxy to configure, and the gate job
     // builds fe-01 on a checkout with no `.env` at all — reading one there
     // would turn this into a build that fails for want of a dev setting.

@@ -15,6 +15,13 @@ export interface HoverPreviewProps {
   notes: string;
   /** Named in the popover so a hover on a busy table says which row it belongs to. */
   number: string;
+  /**
+   * The editing preview, shown beside the open box, rather than the marker's
+   * hover card. Changes only the accessible label — the visible card is the
+   * same either way, and its Done button lives in the cell ({@link
+   * WrittenNotesPanel}), not in here.
+   */
+  editing?: boolean;
 }
 
 /**
@@ -126,14 +133,28 @@ export function RenderedNotes({ name, notes }: { name: string; notes: string }) 
   );
 }
 
-export function HoverPreview({ name, notes, number, onPointerArrives }: HoverPreviewProps) {
+export function HoverPreview({
+  name,
+  notes,
+  number,
+  onPointerArrives,
+  editing = false,
+}: HoverPreviewProps) {
   return (
     // The one card in the table that scrolls, and so the one that takes the
     // pointer: ten lines of notes are taller than any box that may hang over
     // the rows below, and content nobody can scroll to is content the clamp on
-    // the cell has hidden twice over. {@link HoverCard} carries the placement,
-    // and the reason every other card refuses the mouse.
-    <HoverCard label={`Notes for ${number}, rendered`} scrolls onPointerArrives={onPointerArrives}>
+    // the cell has hidden twice over. {@link HoverCard} carries the placement —
+    // measured, clamped to the room beside the cell so it never runs off the
+    // screen — and the reason every other card refuses the mouse. The editing
+    // preview is this same card, drawn from the box's live text; its Done button
+    // is in the cell beside the notes marker ({@link WrittenNotesPanel}), not
+    // here, so the two cards are byte-identical.
+    <HoverCard
+      label={`Notes for ${number}, rendered${editing ? ' while writing' : ''}`}
+      scrolls
+      onPointerArrives={onPointerArrives}
+    >
       <RenderedNotes name={name} notes={notes} />
     </HoverCard>
   );

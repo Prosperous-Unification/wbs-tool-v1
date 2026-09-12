@@ -90,6 +90,15 @@ export const KEY_BINDINGS: readonly KeyBinding[] = [
     renderers: EITHER_RENDERER,
   },
   {
+    keys: 'Escape',
+    does: 'In the name, saves what is in the box and closes the notes editor — the same save as leaving it. The Done button beside the rendered notes does the same.',
+    where: 'Editing',
+    // The cards renderer edits a name in its own box, which this change did
+    // not touch; promising Escape there would be the fault `renderers` exists
+    // to prevent.
+    renderers: TABLE_ONLY,
+  },
+  {
     keys: 'Enter in Prio',
     does: 'Saves the number and stays on the row, so the dates move while you are still looking at it. Ctrl/⌘ + Enter is the save that also moves on.',
     where: 'Editing',

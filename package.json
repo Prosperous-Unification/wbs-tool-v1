@@ -16,6 +16,8 @@
     "typecheck": "nx run-many -t typecheck",
     "dev": "bin/dev.sh",
     "dev:local-solver": "bin/dev.sh --local-solver",
+    "dev:ports": "bin/dev-ports.sh",
+    "dev:kill": "bin/dev-ports.sh --kill",
     "dev:be": "nx run be-01:serve",
     "dev:gw": "nx run gw-01:serve",
     "dev:fe": "nx run fe-01:serve",

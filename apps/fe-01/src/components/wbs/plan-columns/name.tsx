@@ -43,6 +43,14 @@ export function createNameColumn({ live }: { live: PlanLive }) {
       const nameCell = cellKey(row.original.id, 'name');
       // eslint-disable-next-line react-hooks/rules-of-hooks -- as above.
       const nameBox = useRef<HTMLTextAreaElement | HTMLInputElement | null>(null);
+      // Whether this row's box is being written in, kept by {@link
+      // WrittenNotesPanel} off the box's own `focus`/`blur` — the same events
+      // it shows the editing card from. A ref and not state, so setting it
+      // costs no render, and read (not `document.activeElement`) because jsdom's
+      // `fireEvent.blur` dispatches the event without moving the active element,
+      // and the marker's own hover tests below fire exactly that.
+      // eslint-disable-next-line react-hooks/rules-of-hooks -- as above.
+      const editingRef = useRef(false);
       const hovered = cardOpen;
       return (
         <span
@@ -145,6 +153,15 @@ export function createNameColumn({ live }: { live: PlanLive }) {
             // Enter-Enter-Enter depends on not losing. It fires on every
             // render rather than only the first, which the id check already
             // tolerated.
+            onFocus={() => {
+              // Editing begins: drop any hover preview this cell had open, so
+              // the editing card — the same card, from {@link
+              // WrittenNotesPanel} — is the only one. On focus, which is a safe
+              // moment to re-render; never keyed on blur, where a re-render
+              // would put the last save back into the uncontrolled box (the
+              // fault {@link WrittenNotesPanel} keeps its own state to avoid).
+              live.current.cellCards.leave(nameCell);
+            }}
             onAttach={(element) => {
               // Held for {@link WrittenNotesPanel}, which listens to this box
               // rather than being told about it — see its own note on why the
@@ -170,6 +187,28 @@ export function createNameColumn({ live }: { live: PlanLive }) {
               live.current.commitNameCell(row.original.id, typed, baseline)
             }
             onKeyDown={(e) => {
+              // **Escape leaves the box, and leaving is the save.** Dany,
+              // 2026-09-12: _"so that ESC key hides the notes editor (edits are
+              // saved)"_. The blur is this table's one commit path, so the edit
+              // goes out exactly as a Tab sends it, and the box collapses to its
+              // one-line rest because it is no longer focused. Nothing is
+              // abandoned — a paragraph of markdown is not thrown away on a stray
+              // key — and the keyboard goes nowhere, as after a click away; the
+              // collapsed box and the editor are one textarea, so there is no
+              // "closed but focused" to land on. Before the chords and the
+              // arrows: Escape is nobody else's here, the Name cell has no list
+              // to close.
+              // Proof: this branch removed — `Escape saves what was typed and
+              // closes the notes editor` (`plan-cells.test.tsx`) failed on
+              // `expected '## Risks' to be '## Risks\n\nand a mitigation'`, the
+              // edit never sent; and `e2e/hover-cards.spec.ts`'s `Escape saves
+              // the note and closes the editor` on the panel staying up. Watched,
+              // 2026-09-12.
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                e.currentTarget.blur();
+                return;
+              }
               live.current.onAltMove(e, row.original, 'name');
               // Before the Name cell's own keys, and before the arrows:
               // Ctrl+Enter is a command here and a plain Enter is a
@@ -219,6 +258,14 @@ export function createNameColumn({ live }: { live: PlanLive }) {
               aria-label={`Notes on ${row.original.number}`}
               data-notes-marker={row.original.id}
               onMouseEnter={() => {
+                // Not while the box is being written in: the editing preview is
+                // already this same card ({@link WrittenNotesPanel}), and a
+                // second identical pop-up over it is what Dany asked to stop
+                // (2026-09-12). Read off {@link editingRef} — no render, and not
+                // `document.activeElement`, which jsdom leaves stale after a
+                // `fireEvent.blur`; `onFocus` below has already cleared any hover
+                // that was open when the edit began.
+                if (editingRef.current) return;
                 live.current.cellCards.arriveOn(nameCell);
               }}
               // **And the marker's leave is what dismisses it**, held for the
@@ -288,7 +335,7 @@ export function createNameColumn({ live }: { live: PlanLive }) {
             // Live from the box's own text and not from the row — the box is
             // uncontrolled, so `row.original` is the last **save** and the
             // panel is meant to answer the keystroke.
-            <WrittenNotesPanel number={row.original.number} box={nameBox} />
+            <WrittenNotesPanel number={row.original.number} box={nameBox} editingRef={editingRef} />
           }
         </span>
       );
