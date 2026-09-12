@@ -839,9 +839,9 @@ export function PlanToolbar({
                 'data-fact':
                   'The plan reaches beyond the calendar, so there are no dated bars to arrange by.',
               }
-          : awaitingSchedule
-            ? { 'data-fact': 'Optimizing… arrange once the schedule settles.' }
-            : { 'data-hint': 'Put every sibling in the order its bar starts' })}
+            : awaitingSchedule
+              ? { 'data-fact': 'Optimizing… arrange once the schedule settles.' }
+              : { 'data-hint': 'Put every sibling in the order its bar starts' })}
         {...busyAffordance(busy)}
         onClick={arrangeBySchedule}
       >
