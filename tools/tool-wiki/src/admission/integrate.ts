@@ -161,6 +161,23 @@ export interface CheckedIntegrationCandidate extends Omit<IntegrationCandidateBo
   readonly receiptVerifications: readonly VerifiedIntegrationReceipt[];
 }
 
+/** Re-authenticates the immutable composition fields carried by a checked candidate. */
+export function assertCheckedIntegrationCandidate(candidate: CheckedIntegrationCandidate): void {
+  const {
+    checkReceipts: _checks,
+    compositionIdentity: _composition,
+    evidenceIdentity: _evidence,
+    receiptVerifications: _verifications,
+    reviewReceipts: _reviews,
+    status: _status,
+    ...body
+  } = candidate;
+  const unchecked: IntegrationCandidateBody = { ...body, status: 'unchecked' };
+  if (hashCanonical(unchecked) !== candidate.compositionIdentity) {
+    throw new Error('checked integration candidate identity mismatch');
+  }
+}
+
 function policyBody(policy: IntegrationPolicy): Omit<IntegrationPolicy, 'policyIdentity'> {
   const { policyIdentity: _identity, ...body } = policy;
   return body;
@@ -452,11 +469,25 @@ function candidateBody(candidate: UncheckedIntegrationCandidate): IntegrationCan
   return body;
 }
 
-/** Composes exact submitted patches into an immutable, unchecked candidate tree. */
-export function composeIntegrationCandidate(
+function assertAncestor(repository: string, ancestor: string, descendant: string): void {
+  const invocation = Bun.spawnSync(
+    ['git', '-C', repository, 'merge-base', '--is-ancestor', ancestor, descendant],
+    { stderr: 'pipe', stdout: 'pipe' },
+  );
+  if (invocation.exitCode === 0) return;
+  if (invocation.exitCode === 1) {
+    throw new Error('integration target no longer descends from the submitted base');
+  }
+  throw new Error(
+    `integration refused: cannot compare integration bases: ${invocation.stderr.toString('utf8').trim()}`,
+  );
+}
+
+function compose(
   store: AuthorityStore,
   coordinatorRepository: string,
   request: IntegrationRequest,
+  integrationBaseCommit?: string,
 ): UncheckedIntegrationCandidate {
   const policy = decodeIntegrationPolicy(request.policy);
   if (request.submissions.length < 1)
@@ -466,8 +497,8 @@ export function composeIntegrationCandidate(
   // opposite sides of a concurrent lifecycle transition. Slice 5.2 must still recheck this set.
   const authoritySnapshot = store.transact((transaction) => transaction.readState());
   const sessions = new Set<string>();
-  let baseCommit: string | undefined;
-  let baseTree: string | undefined;
+  let submissionBaseCommit: string | undefined;
+  let submissionBaseTree: string | undefined;
   const snapshots: IntegrationGenerationSnapshot[] = [];
   for (const submission of request.submissions) {
     const packet = submission.packet;
@@ -489,13 +520,13 @@ export function composeIntegrationCandidate(
     if (packet.mappingIdentity !== policy.mappingIdentity)
       throw new Error('submission mapping identity mismatch');
     if (
-      baseCommit !== undefined &&
-      (packet.base.commit !== baseCommit || packet.base.tree !== baseTree)
+      submissionBaseCommit !== undefined &&
+      (packet.base.commit !== submissionBaseCommit || packet.base.tree !== submissionBaseTree)
     ) {
       throw new Error('integration submissions do not share an exact base');
     }
-    baseCommit = packet.base.commit;
-    baseTree = packet.base.tree;
+    submissionBaseCommit = packet.base.commit;
+    submissionBaseTree = packet.base.tree;
     const generation = authorityGeneration(authoritySnapshot.generations, packet);
     if (
       generation.submission?.patchIdentity !== submission.report.patchIdentity ||
@@ -512,24 +543,38 @@ export function composeIntegrationCandidate(
       status: 'submitted',
     });
   }
-  if (baseCommit === undefined || baseTree === undefined)
+  if (submissionBaseCommit === undefined || submissionBaseTree === undefined)
     throw new Error('integration base is absent');
-  const resolvedTree = gitIdentity(
+  const resolvedSubmissionTree = gitIdentity(
+    coordinator,
+    ['rev-parse', `${submissionBaseCommit}^{tree}`],
+    'cannot resolve submitted integration base',
+  );
+  if (resolvedSubmissionTree !== submissionBaseTree)
+    throw new Error('integration base commit differs from pinned tree');
+  const submittedBaseEntries = readTree(coordinator, submissionBaseTree);
+  for (const submission of request.submissions)
+    verifyFrozenSubmission(coordinator, submissionBaseTree, submittedBaseEntries, submission);
+
+  const baseCommit = integrationBaseCommit ?? submissionBaseCommit;
+  if (integrationBaseCommit !== undefined) {
+    assertAncestor(coordinator, submissionBaseCommit, integrationBaseCommit);
+  }
+  const baseTree = gitIdentity(
     coordinator,
     ['rev-parse', `${baseCommit}^{tree}`],
-    'cannot resolve integration base',
+    'cannot resolve current integration base',
   );
-  if (resolvedTree !== baseTree)
-    throw new Error('integration base commit differs from pinned tree');
   const baseEntries = readTree(coordinator, baseTree);
-  for (const submission of request.submissions)
-    verifyFrozenSubmission(coordinator, baseTree, baseEntries, submission);
 
   const ordered = [...request.submissions].sort((left, right) =>
     compareCanonicalText(left.packet.sessionId, right.packet.sessionId),
   );
   const candidateTree = withTemporaryIndex(coordinator, (index) => {
     git(coordinator, ['read-tree', baseTree], 'cannot initialize coordinator index', { index });
+    // Proof: replacing these frozen bytes with a fresh diff from each writer's mutable staged
+    // tree made `publication uses frozen patch bytes` fail on `Expected ... one = 2; Received ...
+    // one = 99;` at the published-commit oracle.
     for (const submission of ordered) applyPatch(coordinator, index, submission.patch);
     return gitIdentity(coordinator, ['write-tree'], 'cannot freeze combined candidate tree', index);
   });
@@ -657,6 +702,25 @@ export function composeIntegrationCandidate(
     ),
   };
   return { ...body, compositionIdentity: hashCanonical(body) };
+}
+
+/** Composes exact submitted patches into an immutable, unchecked candidate tree. */
+export function composeIntegrationCandidate(
+  store: AuthorityStore,
+  coordinatorRepository: string,
+  request: IntegrationRequest,
+): UncheckedIntegrationCandidate {
+  return compose(store, coordinatorRepository, request);
+}
+
+/** Recomposes the same immutable submissions on a newer descendant target base. */
+export function recomposeIntegrationCandidate(
+  store: AuthorityStore,
+  coordinatorRepository: string,
+  request: IntegrationRequest,
+  integrationBaseCommit: string,
+): UncheckedIntegrationCandidate {
+  return compose(store, coordinatorRepository, request, integrationBaseCommit);
 }
 
 function sameStrings(left: readonly string[], right: readonly string[]): boolean {

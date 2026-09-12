@@ -23,6 +23,7 @@ test('acquires every requested claim with one generation', () => {
   ).toEqual({ generation: 1, sessionId: 'session-a' });
   expect(store.inspect()).toEqual({
     nextGeneration: 2,
+    integrations: [],
     generations: [
       {
         generation: 1,
@@ -253,6 +254,7 @@ test('rejects a session identity outside the strict authority alphabet', () => {
 test('fails closed before overflowing the persisted generation counter', () => {
   const store = new MemoryAuthorityStore({
     generations: [],
+    integrations: [],
     nextGeneration: Number.MAX_SAFE_INTEGER,
   });
   expect(() =>
@@ -264,6 +266,7 @@ test('fails closed before overflowing the persisted generation counter', () => {
   ).toThrow('authority generation exhausted');
   expect(store.inspect()).toEqual({
     generations: [],
+    integrations: [],
     nextGeneration: Number.MAX_SAFE_INTEGER,
   });
 });
@@ -273,6 +276,7 @@ test('rejects a state whose next generation can collide with an existing owner',
     () =>
       new MemoryAuthorityStore({
         nextGeneration: 1,
+        integrations: [],
         generations: [
           {
             claims: [],
@@ -292,9 +296,9 @@ test('refuses an asynchronous transaction callback before committing its pending
   const store = new MemoryAuthorityStore();
   expect(() =>
     store.transact((transaction) => {
-      transaction.writeState({ generations: [], nextGeneration: 2 });
+      transaction.writeState({ generations: [], integrations: [], nextGeneration: 2 });
       return Promise.resolve();
     }),
   ).toThrow('authority transaction callback must be synchronous');
-  expect(store.inspect()).toEqual({ generations: [], nextGeneration: 1 });
+  expect(store.inspect()).toEqual({ generations: [], integrations: [], nextGeneration: 1 });
 });

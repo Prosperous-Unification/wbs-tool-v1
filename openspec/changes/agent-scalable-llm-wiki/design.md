@@ -233,6 +233,19 @@ atomically updating the integration ref; if it moved, rebuild/revalidate the can
 integration records rework, preserves submissions and has bounded retry. Reports say detected/
 refused out-of-packet publication; preventing every editing-time write needs another executor.
 
+Slice 5.2 supersedes the unactivated v3 authority with strict v4 durable integration records.
+Existing v3 files are intentionally refused rather than assigned an empty queue: that default
+could erase an in-flight publication fact. The initial fixed policy admits at most four submissions
+per batch, reports starvation at five trusted-clock minutes and terminates after three certification/
+CAS attempts; these are experiment assumptions, not universal limits. Resource-lane and port
+prerequisites remain typed, trusted-probe inputs separate from file claims and bind the exact
+candidate composition. Publication reserves exact submitted generations, then atomically CAS-updates
+the target ref and creates `refs/wbs-wiki/publications/<integration-identity>`. That immutable marker
+is retained with the durable record: it proves a successful Git transaction across a coordinator
+crash even when the target advances again. Recovery independently verifies the marker's commit tree
+and parent before completing the authority lifecycle; an absent marker permits retry only from the
+reserved base, while a mismatched or preexisting marker is refused.
+
 ### Measurement and execution adapter
 
 Pin `ExperimentManifest` before partitioning: repository/corpus/acceptance ids, fixed outcome

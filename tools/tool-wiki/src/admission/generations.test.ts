@@ -283,13 +283,19 @@ test('memory state refuses malformed lifecycle records before ownership decision
   ];
   for (const generation of invalidStates) {
     expect(
-      () => new MemoryAuthorityStore({ generations: [generation], nextGeneration: 2 }),
+      () =>
+        new MemoryAuthorityStore({
+          generations: [generation],
+          integrations: [],
+          nextGeneration: 2,
+        }),
     ).toThrow();
   }
   expect(
     () =>
       new MemoryAuthorityStore({
         generations: [base, { ...base, generation: 2 }],
+        integrations: [],
         nextGeneration: 3,
       }),
   ).toThrow('duplicate active authority session');

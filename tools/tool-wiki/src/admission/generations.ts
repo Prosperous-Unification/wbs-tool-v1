@@ -216,6 +216,22 @@ function finishGeneration(
     const timestamp = readTrustedTime(store);
     assertClockProgress(state, timestamp);
     const generation = findGeneration(state, token);
+    // Proof: removing this lifecycle fence made `a publication reservation fences terminal
+    // lifecycle changes` reach persisted-state validation and receive `authority integration
+    // submission is not retained: fenced` instead of the reserved-publication refusal.
+    if (
+      state.integrations.some(
+        (integration) =>
+          integration.status === 'publishing' &&
+          integration.submissions.some(
+            (submission) =>
+              submission.sessionId === token.sessionId &&
+              submission.generation === token.generation,
+          ),
+      )
+    ) {
+      throw new Error(`generation has a reserved publication: ${token.sessionId}`);
+    }
     // Proof: admitting `rejected` here let a submitted generation integrate after its successor
     // acquired the same claims; the stale-integration test observed no terminal refusal.
     if (!allowed.has(generation.status)) {

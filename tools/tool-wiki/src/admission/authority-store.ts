@@ -20,7 +20,12 @@ export {
   assertAuthorityWorktreePath,
 } from './authority-identities';
 
-export const AUTHORITY_SCHEMA_VERSION = 'wbs-wiki-authority.v3' as const;
+/**
+ * v4 adds durable integration/recovery history. Existing v3 files are intentionally refused:
+ * inventing an empty queue could erase an in-flight publication fact. This authority remains
+ * unactivated until the separately reviewed production bootstrap in slice 5.3.
+ */
+export const AUTHORITY_SCHEMA_VERSION = 'wbs-wiki-authority.v4' as const;
 
 export type PathAccess = 'read' | 'write';
 
@@ -63,9 +68,42 @@ export interface AuthorityGeneration {
   readonly submission?: SubmissionIdentity;
 }
 
+export type IntegrationQueueStatus =
+  'queued' | 'checking' | 'rework' | 'publishing' | 'published' | 'terminal';
+
+export interface IntegrationQueueSubmission {
+  readonly sessionId: string;
+  readonly generation: number;
+  readonly packetIdentity: string;
+  readonly patchIdentity: string;
+}
+
+export interface IntegrationResourceRequirement {
+  readonly kind: 'lane' | 'port';
+  readonly identity: string;
+}
+
+export interface IntegrationQueueRecord {
+  readonly integrationId: string;
+  readonly targetRef: string;
+  readonly status: IntegrationQueueStatus;
+  readonly queuedAt: number;
+  readonly statusAt: number;
+  readonly attemptCount: number;
+  readonly submissions: readonly IntegrationQueueSubmission[];
+  readonly resources: readonly IntegrationResourceRequirement[];
+  readonly baseCommit?: string;
+  readonly compositionIdentity?: string;
+  readonly candidateTree?: string;
+  readonly candidateCommit?: string;
+  readonly markerRef?: string;
+  readonly terminalReason?: string;
+}
+
 export interface AuthorityState {
   readonly nextGeneration: number;
   readonly generations: readonly AuthorityGeneration[];
+  readonly integrations: readonly IntegrationQueueRecord[];
 }
 
 /**
@@ -135,6 +173,11 @@ function copyState(state: AuthorityState): AuthorityState {
       submission: generation.submission === undefined ? undefined : { ...generation.submission },
       worktreePath: generation.worktreePath,
     })),
+    integrations: state.integrations.map((integration) => ({
+      ...integration,
+      resources: integration.resources.map((resource) => ({ ...resource })),
+      submissions: integration.submissions.map((submission) => ({ ...submission })),
+    })),
   };
 }
 
@@ -151,6 +194,9 @@ function assertSynchronous(value: unknown): void {
 }
 
 const SHA256 = /^[0-9a-f]{64}$/;
+const GIT_OBJECT = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
+const INTEGRATION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
+const RESOURCE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 const HOLDING_STATUSES: ReadonlySet<GenerationStatus> = new Set([
   'working',
   'investigating',
@@ -261,6 +307,149 @@ function assertMemoryState(state: AuthorityState): void {
   if (state.nextGeneration <= highestGeneration) {
     throw new Error('authority next generation does not follow existing generations');
   }
+  const integrationIds = new Set<string>();
+  for (const integration of state.integrations) {
+    if (!INTEGRATION_ID.test(integration.integrationId)) {
+      throw new Error(`invalid authority integration id: ${integration.integrationId}`);
+    }
+    if (integrationIds.has(integration.integrationId)) {
+      throw new Error(`duplicate authority integration id: ${integration.integrationId}`);
+    }
+    integrationIds.add(integration.integrationId);
+    if (!integration.targetRef.startsWith('refs/heads/')) {
+      throw new Error(`invalid authority integration target ref: ${integration.targetRef}`);
+    }
+    assertAuthorityTimestamp(integration.queuedAt);
+    assertAuthorityTimestamp(integration.statusAt);
+    if (integration.statusAt < integration.queuedAt) {
+      throw new Error(`authority integration status predates queue: ${integration.integrationId}`);
+    }
+    if (
+      !Number.isSafeInteger(integration.attemptCount) ||
+      integration.attemptCount < 0 ||
+      integration.attemptCount > 3
+    ) {
+      throw new Error(`invalid authority integration attempt count: ${integration.integrationId}`);
+    }
+    // Proof: removing the persisted upper bound made `queue caps batches` construct a memory
+    // authority record holding five exact submissions (`Received function did not throw`).
+    if (integration.submissions.length < 1 || integration.submissions.length > 4) {
+      throw new Error(`invalid authority integration batch size: ${integration.integrationId}`);
+    }
+    const owners = new Set<string>();
+    for (const submission of integration.submissions) {
+      assertAuthoritySessionId(submission.sessionId);
+      if (!Number.isSafeInteger(submission.generation) || submission.generation < 1) {
+        throw new Error(`invalid authority integration generation: ${integration.integrationId}`);
+      }
+      const owner = `${submission.sessionId}/${String(submission.generation)}`;
+      if (owners.has(owner)) {
+        throw new Error(`duplicate authority integration submission: ${integration.integrationId}`);
+      }
+      owners.add(owner);
+      if (!SHA256.test(submission.packetIdentity) || !SHA256.test(submission.patchIdentity)) {
+        throw new Error(
+          `invalid authority integration submission identity: ${integration.integrationId}`,
+        );
+      }
+    }
+    const resources = new Set<string>();
+    for (const resource of integration.resources) {
+      if (!RESOURCE_ID.test(resource.identity)) {
+        throw new Error(`invalid authority integration resource: ${integration.integrationId}`);
+      }
+      const identity = `${resource.kind}:${resource.identity}`;
+      // Proof: removing this check made `memory authority refuses partial or mismatched durable
+      // integration records` construct a store with the same `lane:heavy` prerequisite twice.
+      if (resources.has(identity)) {
+        throw new Error(`duplicate authority integration resource: ${integration.integrationId}`);
+      }
+      resources.add(identity);
+    }
+    const hasChecked =
+      integration.baseCommit !== undefined &&
+      integration.candidateTree !== undefined &&
+      integration.compositionIdentity !== undefined;
+    const hasPublication =
+      integration.candidateCommit !== undefined && integration.markerRef !== undefined;
+    const checkedFieldCount = [
+      integration.baseCommit,
+      integration.candidateTree,
+      integration.compositionIdentity,
+    ].filter((field) => field !== undefined).length;
+    const publicationFieldCount = [integration.candidateCommit, integration.markerRef].filter(
+      (field) => field !== undefined,
+    ).length;
+    if (
+      (integration.baseCommit !== undefined && !GIT_OBJECT.test(integration.baseCommit)) ||
+      (integration.compositionIdentity !== undefined &&
+        !SHA256.test(integration.compositionIdentity)) ||
+      (integration.candidateTree !== undefined && !GIT_OBJECT.test(integration.candidateTree)) ||
+      (integration.candidateCommit !== undefined &&
+        !GIT_OBJECT.test(integration.candidateCommit)) ||
+      (integration.markerRef !== undefined &&
+        !integration.markerRef.startsWith('refs/wbs-wiki/publications/'))
+    ) {
+      throw new Error(
+        `invalid authority integration publication identity: ${integration.integrationId}`,
+      );
+    }
+    // Proof: removing this all-or-none check made `memory authority refuses partial or mismatched
+    // durable integration records` receive the later `fields do not match status` diagnostic
+    // instead of the partial-publication refusal.
+    if (
+      (checkedFieldCount !== 0 && checkedFieldCount !== 3) ||
+      (publicationFieldCount !== 0 && publicationFieldCount !== 2)
+    ) {
+      throw new Error(
+        `authority integration has partial publication fields: ${integration.integrationId}`,
+      );
+    }
+    if (
+      ((integration.status === 'checking' ||
+        integration.status === 'publishing' ||
+        integration.status === 'published') &&
+        !hasChecked) ||
+      ((integration.status === 'publishing' || integration.status === 'published') &&
+        !hasPublication) ||
+      ((integration.status === 'queued' || integration.status === 'rework') &&
+        (hasChecked || hasPublication)) ||
+      (integration.status === 'checking' && hasPublication)
+    ) {
+      throw new Error(
+        `authority integration fields do not match status: ${integration.integrationId}`,
+      );
+    }
+    if (
+      (integration.status === 'terminal') !== (integration.terminalReason !== undefined) ||
+      integration.terminalReason?.length === 0
+    ) {
+      throw new Error(
+        `authority integration terminal reason does not match status: ${integration.integrationId}`,
+      );
+    }
+    for (const submission of integration.submissions) {
+      const generation = state.generations.find(
+        (record) =>
+          record.sessionId === submission.sessionId && record.generation === submission.generation,
+      );
+      // Proof: omitting these packet/patch comparisons made `memory authority refuses partial or
+      // mismatched durable integration records` construct a queue pointing at a forged packet.
+      if (
+        generation?.packet?.packetIdentity !== submission.packetIdentity ||
+        generation.submission?.patchIdentity !== submission.patchIdentity ||
+        // Proof: bypassing this persisted-state invariant with publication's final generation
+        // recheck made `terminal generation transition while checks are held` update the ref and
+        // fail later on `integration generation changed before publication: one/1`.
+        (integration.status === 'publishing' && generation.status !== 'submitted') ||
+        (integration.status === 'published' && generation.status !== 'integrated')
+      ) {
+        throw new Error(
+          `authority integration submission is not retained: ${integration.integrationId}`,
+        );
+      }
+    }
+  }
 }
 
 /** In-memory adapter with the same commit-or-rollback callback semantics as SQLite. */
@@ -269,7 +458,7 @@ export class MemoryAuthorityStore implements AuthorityStore {
   readonly #clock: AuthorityClock;
 
   constructor(
-    initial: AuthorityState = { generations: [], nextGeneration: 1 },
+    initial: AuthorityState = { generations: [], integrations: [], nextGeneration: 1 },
     clock: AuthorityClock = { read: () => Date.now() },
   ) {
     assertMemoryState(initial);
@@ -335,6 +524,37 @@ const SCHEMA = [
     FOREIGN KEY (session_id, generation) REFERENCES authority_generation(session_id, generation) ON DELETE CASCADE,
     CHECK ((kind = 'path' AND access IS NOT NULL) OR (kind = 'group' AND access IS NULL))
   ) STRICT`,
+  `CREATE TABLE authority_integration (
+    integration_id TEXT PRIMARY KEY,
+    target_ref TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('queued', 'checking', 'rework', 'publishing', 'published', 'terminal')),
+    queued_at INTEGER NOT NULL CHECK (queued_at >= 0),
+    status_at INTEGER NOT NULL CHECK (status_at >= queued_at),
+    attempt_count INTEGER NOT NULL CHECK (attempt_count BETWEEN 0 AND 3),
+    base_commit TEXT,
+    candidate_tree TEXT,
+    composition_identity TEXT,
+    candidate_commit TEXT,
+    marker_ref TEXT,
+    terminal_reason TEXT
+  ) STRICT`,
+  `CREATE TABLE authority_integration_submission (
+    integration_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    generation INTEGER NOT NULL CHECK (generation >= 1),
+    packet_identity TEXT NOT NULL,
+    patch_identity TEXT NOT NULL,
+    PRIMARY KEY (integration_id, session_id, generation),
+    FOREIGN KEY (integration_id) REFERENCES authority_integration(integration_id) ON DELETE CASCADE,
+    FOREIGN KEY (session_id, generation) REFERENCES authority_generation(session_id, generation)
+  ) STRICT`,
+  `CREATE TABLE authority_integration_resource (
+    integration_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('lane', 'port')),
+    identity TEXT NOT NULL,
+    PRIMARY KEY (integration_id, kind, identity),
+    FOREIGN KEY (integration_id) REFERENCES authority_integration(integration_id) ON DELETE CASCADE
+  ) STRICT`,
 ] as const;
 
 const DEFAULT_BUSY_ATTEMPTS = 50;
@@ -387,6 +607,35 @@ interface ClaimRow {
   readonly identity: string;
 }
 
+interface IntegrationRow {
+  readonly integrationId: string;
+  readonly targetRef: string;
+  readonly status: string;
+  readonly queuedAt: number;
+  readonly statusAt: number;
+  readonly attemptCount: number;
+  readonly baseCommit: string | null;
+  readonly candidateTree: string | null;
+  readonly compositionIdentity: string | null;
+  readonly candidateCommit: string | null;
+  readonly markerRef: string | null;
+  readonly terminalReason: string | null;
+}
+
+interface IntegrationSubmissionRow {
+  readonly integrationId: string;
+  readonly sessionId: string;
+  readonly generation: number;
+  readonly packetIdentity: string;
+  readonly patchIdentity: string;
+}
+
+interface IntegrationResourceRow {
+  readonly integrationId: string;
+  readonly kind: string;
+  readonly identity: string;
+}
+
 function assertGenerationStatus(status: string): asserts status is GenerationStatus {
   if (
     status === 'working' ||
@@ -411,6 +660,20 @@ function decodeGenerationStatus(status: string): GenerationStatus {
     throw new Error(`authority database generation status is invalid: ${status}`, { cause });
   }
   return status;
+}
+
+function decodeIntegrationStatus(status: string): IntegrationQueueStatus {
+  if (
+    status === 'queued' ||
+    status === 'checking' ||
+    status === 'rework' ||
+    status === 'publishing' ||
+    status === 'published' ||
+    status === 'terminal'
+  ) {
+    return status;
+  }
+  throw new Error(`authority database integration status is invalid: ${status}`);
 }
 
 /** The authority exhausted its configured attempts to take SQLite's write lock. */
@@ -557,7 +820,8 @@ function assertSchema(database: Database): void {
     )
     .get();
   // Proof: accepting any stored version let `unknown.v99` open; the version test observed that
-  // `openAuthorityStore` did not throw.
+  // `openAuthorityStore` did not throw. Treating v3 as an empty v4 queue made `existing v3
+  // authority state is refused` fail on `Received function did not throw`.
   if (meta?.schemaVersion !== AUTHORITY_SCHEMA_VERSION) {
     throw new Error('authority database version is incompatible');
   }
@@ -707,6 +971,30 @@ function readSqliteState(database: Database): AuthorityState {
       'SELECT session_id AS sessionId, generation, kind, access, identity FROM authority_claim ORDER BY identity, kind',
     )
     .all();
+  const integrations = database
+    .query<IntegrationRow, []>(
+      `SELECT integration_id AS integrationId, target_ref AS targetRef, status,
+              queued_at AS queuedAt, status_at AS statusAt, attempt_count AS attemptCount,
+              base_commit AS baseCommit, candidate_tree AS candidateTree,
+              composition_identity AS compositionIdentity,
+              candidate_commit AS candidateCommit, marker_ref AS markerRef,
+              terminal_reason AS terminalReason
+       FROM authority_integration ORDER BY integration_id`,
+    )
+    .all();
+  const integrationSubmissions = database
+    .query<IntegrationSubmissionRow, []>(
+      `SELECT integration_id AS integrationId, session_id AS sessionId, generation,
+              packet_identity AS packetIdentity, patch_identity AS patchIdentity
+       FROM authority_integration_submission ORDER BY integration_id, session_id, generation`,
+    )
+    .all();
+  const integrationResources = database
+    .query<IntegrationResourceRow, []>(
+      `SELECT integration_id AS integrationId, kind, identity
+       FROM authority_integration_resource ORDER BY integration_id, kind, identity`,
+    )
+    .all();
   const state: AuthorityState = {
     nextGeneration: meta.nextGeneration,
     generations: generations.map((record) => {
@@ -797,6 +1085,38 @@ function readSqliteState(database: Database): AuthorityState {
           }),
       };
     }),
+    integrations: integrations.map((record): IntegrationQueueRecord => ({
+      attemptCount: record.attemptCount,
+      baseCommit: record.baseCommit ?? undefined,
+      candidateTree: record.candidateTree ?? undefined,
+      candidateCommit: record.candidateCommit ?? undefined,
+      compositionIdentity: record.compositionIdentity ?? undefined,
+      integrationId: record.integrationId,
+      markerRef: record.markerRef ?? undefined,
+      queuedAt: record.queuedAt,
+      resources: integrationResources
+        .filter((resource) => resource.integrationId === record.integrationId)
+        .map((resource): IntegrationResourceRequirement => {
+          if (resource.kind !== 'lane' && resource.kind !== 'port') {
+            throw new Error(
+              `authority database integration resource kind is invalid: ${resource.kind}`,
+            );
+          }
+          return { identity: resource.identity, kind: resource.kind };
+        }),
+      status: decodeIntegrationStatus(record.status),
+      statusAt: record.statusAt,
+      submissions: integrationSubmissions
+        .filter((submission) => submission.integrationId === record.integrationId)
+        .map((submission) => ({
+          generation: submission.generation,
+          packetIdentity: submission.packetIdentity,
+          patchIdentity: submission.patchIdentity,
+          sessionId: submission.sessionId,
+        })),
+      targetRef: record.targetRef,
+      terminalReason: record.terminalReason ?? undefined,
+    })),
   };
   assertMemoryState(state);
   if (
@@ -805,11 +1125,25 @@ function readSqliteState(database: Database): AuthorityState {
   ) {
     throw new Error('authority database contains a claim without its exact owner generation');
   }
+  if (
+    integrationSubmissions.length !==
+      state.integrations.reduce(
+        (count, integration) => count + integration.submissions.length,
+        0,
+      ) ||
+    integrationResources.length !==
+      state.integrations.reduce((count, integration) => count + integration.resources.length, 0)
+  ) {
+    throw new Error('authority database contains an orphan integration record');
+  }
   return state;
 }
 
 function writeSqliteState(database: Database, state: AuthorityState): void {
   assertMemoryState(state);
+  database.run('DELETE FROM authority_integration_resource');
+  database.run('DELETE FROM authority_integration_submission');
+  database.run('DELETE FROM authority_integration');
   database.run('DELETE FROM authority_claim');
   database.run('DELETE FROM authority_generation');
   database
@@ -861,6 +1195,68 @@ function writeSqliteState(database: Database, state: AuthorityState): void {
         claim.kind === 'path' ? claim.access : null,
         claim.identity,
       );
+    }
+  }
+  const insertIntegration = database.query<
+    never,
+    [
+      string,
+      string,
+      IntegrationQueueStatus,
+      number,
+      number,
+      number,
+      string | null,
+      string | null,
+      string | null,
+      string | null,
+      string | null,
+      string | null,
+    ]
+  >(
+    `INSERT INTO authority_integration(
+       integration_id, target_ref, status, queued_at, status_at, attempt_count,
+       base_commit, candidate_tree, composition_identity, candidate_commit, marker_ref, terminal_reason
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  const insertIntegrationSubmission = database.query<
+    never,
+    [string, string, number, string, string]
+  >(
+    `INSERT INTO authority_integration_submission(
+       integration_id, session_id, generation, packet_identity, patch_identity
+     ) VALUES (?, ?, ?, ?, ?)`,
+  );
+  const insertIntegrationResource = database.query<never, [string, string, string]>(
+    `INSERT INTO authority_integration_resource(integration_id, kind, identity)
+     VALUES (?, ?, ?)`,
+  );
+  for (const integration of state.integrations) {
+    insertIntegration.run(
+      integration.integrationId,
+      integration.targetRef,
+      integration.status,
+      integration.queuedAt,
+      integration.statusAt,
+      integration.attemptCount,
+      integration.baseCommit ?? null,
+      integration.candidateTree ?? null,
+      integration.compositionIdentity ?? null,
+      integration.candidateCommit ?? null,
+      integration.markerRef ?? null,
+      integration.terminalReason ?? null,
+    );
+    for (const submission of integration.submissions) {
+      insertIntegrationSubmission.run(
+        integration.integrationId,
+        submission.sessionId,
+        submission.generation,
+        submission.packetIdentity,
+        submission.patchIdentity,
+      );
+    }
+    for (const resource of integration.resources) {
+      insertIntegrationResource.run(integration.integrationId, resource.kind, resource.identity);
     }
   }
 }

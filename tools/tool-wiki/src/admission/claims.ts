@@ -162,6 +162,7 @@ function nextState(state: AuthorityState, generation: AuthorityGeneration): Auth
     generations: [...state.generations, generation].sort(
       (left, right) => left.generation - right.generation,
     ),
+    integrations: state.integrations,
   };
 }
 
@@ -285,6 +286,7 @@ export function expandClaims(store: AuthorityStore, request: ExpansionRequest): 
       generations: state.generations.map((candidate) =>
         candidate.generation === request.token.generation ? expanded : candidate,
       ),
+      integrations: state.integrations,
     });
     return request.token;
   });
