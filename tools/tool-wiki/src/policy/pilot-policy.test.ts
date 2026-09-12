@@ -15,7 +15,7 @@ import { dirname, join, resolve } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 
 import { hashCanonical } from '../evidence/content-manifest';
-import { resolveValidatorArtifactPaths } from './trust';
+import { loadTrustedPolicy, resolveValidatorArtifactPaths } from './trust';
 
 interface ExactTuple {
   path: string;
@@ -28,13 +28,17 @@ const cliPath = join(import.meta.dir, '..', 'cli.ts');
 const pilotPaths = [
   'docs/refactoring/w4-4/README.md',
   'docs/wiki-policy/modules.json',
+  'docs/wiki-policy/modules.bootstrap.json',
   'docs/wiki-policy/policy.json',
+  'docs/wiki-policy/bootstrap-policy.json',
   'docs/wiki-policy/relationships.json',
+  'docs/wiki-policy/relationships.bootstrap.json',
   'libs/core/src/use-cases/README.md',
   'libs/domain/src/saved-plan/README.md',
   'libs/store-memory/src/README.md',
   'openspec/changes/archive/2026-09-08-bounded-replay-sweep/README.md',
   'tools/tool-dagger/src/lib/README.md',
+  'tools/tool-wiki/README.md',
 ] as const;
 const scratch: string[] = [];
 
@@ -111,6 +115,7 @@ function createExternalTrust(
   candidate: { repository: string; revision: string },
   trustedMappingBytes = readFileSync(join(candidate.repository, 'docs/wiki-policy/modules.json')),
 ): {
+  authorityPath: string;
   bindingPath: string;
   evidencePath: string;
   mappingPath: string;
@@ -200,10 +205,11 @@ function createExternalTrust(
   );
   const evidencePath = join(trust, 'evidence.json');
   write(evidencePath, '{"schemaVersion":1,"reportMode":"observe","obligations":[]}\n');
-  return { bindingPath, evidencePath, mappingPath, policyPath };
+  return { authorityPath, bindingPath, evidencePath, mappingPath, policyPath };
 }
 
 interface PilotBinding {
+  policy: { path: string; sha256: string };
   pilotModuleMapping: {
     candidatePath: string;
     artifact: { path: string; sha256: string };
@@ -241,6 +247,66 @@ afterEach(() => {
 });
 
 describe('reviewed radical-modularity pilot through production CLI', () => {
+  test('loads the narrow enforced Tool Wiki bootstrap policy through the trusted boundary', () => {
+    const candidate = createCandidate();
+    const trust = createExternalTrust(candidate);
+    const binding = readPilotBinding(trust.bindingPath);
+    binding.policy = {
+      path: trust.policyPath,
+      sha256: sha256(
+        readFileSync(join(candidate.repository, 'docs/wiki-policy/bootstrap-policy.json')),
+      ),
+    };
+    cpSync(join(candidate.repository, 'docs/wiki-policy/bootstrap-policy.json'), trust.policyPath);
+    binding.pilotModuleMapping.artifact = {
+      path: trust.mappingPath,
+      sha256: sha256(
+        readFileSync(join(candidate.repository, 'docs/wiki-policy/modules.bootstrap.json')),
+      ),
+    };
+    cpSync(
+      join(candidate.repository, 'docs/wiki-policy/modules.bootstrap.json'),
+      trust.mappingPath,
+    );
+    const authority = JSON.parse(readFileSync(trust.authorityPath, 'utf8')) as {
+      obligationRequest: { policy: { policyId: string } };
+    };
+    authority.obligationRequest.policy.policyId = 'policy.tool-wiki-bootstrap.v1';
+    write(trust.authorityPath, `${JSON.stringify(authority)}\n`);
+    const completeBinding = JSON.parse(readFileSync(trust.bindingPath, 'utf8')) as PilotBinding & {
+      authority: { artifact: { sha256: string } };
+    };
+    completeBinding.policy = binding.policy;
+    completeBinding.pilotModuleMapping = binding.pilotModuleMapping;
+    completeBinding.authority.artifact.sha256 = sha256(readFileSync(trust.authorityPath));
+    writePilotBinding(trust.bindingPath, completeBinding);
+
+    const loaded = loadTrustedPolicy(trust.bindingPath, candidate.repository);
+    // Proof: deleting the sole adopted boundary made this production-loader test fail on the exact
+    // object diff `adoptedBoundaryIds: []` instead of the required Tool Wiki boundary.
+    expect(loaded.policy).toMatchObject({
+      activationBoundaryIds: [],
+      adoptedBoundaryIds: ['boundary.infra.tool-wiki'],
+      minimumMode: 'enforce',
+      obligations: [
+        {
+          boundaryId: 'boundary.infra.tool-wiki',
+          checkIds: [
+            'check.tool-wiki.test',
+            'check.tool-wiki.lint-source',
+            'check.tool-wiki.typecheck',
+          ],
+          obligationId: 'obligation.tool-wiki.bootstrap',
+          reviewIds: ['review.tool-wiki.bootstrap'],
+        },
+      ],
+      policyId: 'policy.tool-wiki-bootstrap.v1',
+    });
+    expect(loaded.pilotModuleMapping?.mapping.modules.at(-1)?.moduleId).toBe(
+      'module.infra.tool-wiki',
+    );
+  });
+
   test('pins exact pre-index tuples and passes observe lint from external trust', () => {
     const candidate = createCandidate();
     const policy = JSON.parse(
@@ -297,7 +363,11 @@ describe('reviewed radical-modularity pilot through production CLI', () => {
       indexes: { moduleId: string; applicableChecks: string[]; externalConsumers: string[] }[];
     };
     expect(indexReport.indexes.map(({ moduleId }) => moduleId).sort()).toEqual(
-      [...modules.map(({ moduleId }) => moduleId), 'module.docs.findings'].sort(),
+      [
+        ...modules.map(({ moduleId }) => moduleId),
+        'module.docs.findings',
+        'module.infra.tool-wiki',
+      ].sort(),
     );
     expect(indexReport.indexes.every(({ applicableChecks }) => applicableChecks.length > 0)).toBe(
       true,

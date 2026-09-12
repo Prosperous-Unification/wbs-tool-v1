@@ -2882,3 +2882,86 @@ src/one.ts: does not exist in index`.
 
 The complete Tool Wiki suite, browser checks, host gate and external activation were not run. Their
 older results do not certify this correction round.
+
+## Slice 5.3 — trusted activation and external integration binding
+
+The local implementation separates three identities that earlier integration state conflated:
+`compositionIdentity` plus the exact candidate tree describe the full candidate, the final binding's
+`contentManifestIdentity` is the normative evidence-excluding identity, and
+`evidenceValidation.validationIdentity` names the finite artifact validation. The binding is emitted
+outside the candidate only after the immutable publication marker, exact commit/tree, and sole parent
+are independently read from Git. It retains the external activation/policy/mapping/validator review,
+exact generation tuples, complete receipts, and journal verifications. Verification re-authenticates
+the receipt set through `IntegrationEvidenceVerifier`; it does not accept the serialized binding as
+proof of itself.
+
+The first RED was the missing production module: the focused Bun run reported `Cannot find module
+'./attestation'`, 0 pass and 1 failure. After the minimal external binding implementation, three tests
+passed. The activation RED likewise reported `Cannot find module './activation'`, 0 pass and 1
+failure; its first implementation exposed an actual directory-mode defect before all three cases
+went green. The independent content-manifest negative was then RED with `Received function did not
+throw` after substituting `ffff...`; the restored verifier rejects it as differing from trusted
+inputs.
+
+| Deliberate one-at-a-time fault                                             | Observed production-path failure                                                                                                                                                          |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| replace the valid published commit with its parent                         | verifier returned normally until the marker join was added; now `integration binding commit differs from publication marker`                                                              |
+| replace the externally selected policy identity                            | verifier reached later evidence work until the activation comparison was added; now `integration binding activation differs from external selection`                                      |
+| delete the sole required check from binding bytes                          | verifier returned normally until receipt re-certification was added; now `integration check receipt set is incomplete`                                                                    |
+| replace only the normative content identity                                | verifier returned normally (`Received function did not throw`) until the independent content/evidence comparison was added                                                                |
+| route an external-looking destination through a symlink into the candidate | lexical checking allowed the write; canonical ancestor resolution now reports `integration binding destination must be outside the candidate repository`                                  |
+| create an activation package below the candidate root                      | preparation returned the complete candidate-local package (`Received function did not throw`) until canonical destination refusal was added                                               |
+| modify a successor activation artifact before selection                    | selection replaced the prior descriptor until whole-closure verification was moved first; now `activation artifact digest mismatch: validator.ts` and the prior identity remains selected |
+| remove a transitive snapshotter artifact                                   | activation verification reports `cannot read activation artifact: snapshotter.ts`                                                                                                         |
+| delete the bootstrap policy's sole adopted boundary                        | the trusted production loader test failed on the exact object diff `adoptedBoundaryIds: []`; restoring the boundary made the same path pass                                               |
+
+The bootstrap declarations are intentionally separate from the still-active six-boundary observe
+pilot: `policy.tool-wiki-bootstrap.v1`, `modules.tool-wiki-bootstrap.v1`, and the bootstrap relationship
+declaration select only `boundary.infra.tool-wiki`, `obligation.tool-wiki.bootstrap`, the exact test,
+source-lint and forced-typecheck Nx commands, and `review.tool-wiki.bootstrap`. The Tool Wiki README
+indexes source/tests/configuration and names only the launcher/gate/workflow/hook/Nx consumers. The
+base-owned trusted workflow now requires an operator archive URL, SHA-256 and version, installs Bun
+1.4.2, verifies the archive before extraction, and places it in runner temporary storage.
+
+Local focused evidence so far: `attestation.test.ts` plus `activation.test.ts` passed 7 tests, 0
+failed and 27 assertions; uncached forced Tool Wiki typecheck exited 0. A pilot-policy production lint
+initially refused the new index because `check.tool-wiki.lint-source` was absent, then refused the
+first typecheck declaration because it omitted Nx's actual inherited inputs. After registering the
+actual target shapes, the filtered production lint test passed (1 test, 14 filtered, 26 assertions).
+The bootstrap policy itself was then loaded through that trusted production boundary: deleting its
+sole adopted boundary failed on the exact `adoptedBoundaryIds: []` object diff, and restoration
+passed 1 test with 15 filtered and 10 assertions.
+
+Pending external obligations are material and prevent a completion claim: no trusted review harness
+was invoked, no review/usage/raw-response/journal receipt exists, no scoped check receipts or full
+host-gate receipt were issued for a frozen candidate, no immutable package was provisioned on h2puni,
+no GitHub archive/ruleset/workflow activation was administered, no browser applicability decision or
+run was authenticated, and no external final binding was published to either retention channel. The
+bootstrap provenance exception is implemented but no provenance record is fabricated. Tasks 6 and 7
+remain open. Final local suite/gates are recorded below after they run.
+
+Final local verification:
+
+- The final complete project command `bun test --preload ../test/scratch/preload.ts` from
+  `tools/tool-wiki` exited 0: 488 tests passed, 0 failed, 4,803 assertions across 26 files in
+  788.40 seconds. The initial Nx wrapper attempt was refused by Nx's recursive-task guard, so this
+  is the exact underlying target command and did not filter any test.
+- `NX_DAEMON=false bunx nx run tool-wiki:lint:source --skip-nx-cache
+--output-style=static` exited 0. Nx reported its sandbox socket denial and ran plugins in-process;
+  the target was not skipped.
+- `NX_DAEMON=false bunx nx run tool-wiki:typecheck --skip-nx-cache
+--output-style=static` exited 0 with forced source/spec compilation and the same in-process Nx
+  warning.
+- `NX_DAEMON=false bunx nx run tool-wiki:lint --skip-nx-cache --output-style=static` exited 0 but
+  printed `{"status":"inactive","certified":false,"reason":"external activation root is not
+provisioned"}`. This is diagnostic evidence only and does not satisfy required admission.
+- `NX_DAEMON=false NX_ISOLATE_PLUGINS=false ./node_modules/.bin/nx format:check --all` exited 0
+  after Prettier corrected the named implementation/configuration/verification files.
+- `bunx @fission-ai/openspec@1.3.0 validate agent-scalable-llm-wiki --strict` printed `Change
+'agent-scalable-llm-wiki' is valid` and exited 0. Its optional PostHog flush reported DNS failure;
+  validation itself completed and no validation issue was reported.
+
+The actual `bin/h2puni-gate.sh <frozen-sha>`, applicable browser decision/run, external activation,
+and GitHub/host binding publication were not performed. There is therefore no frozen activation SHA
+or accepted final binding to record, and Task 5.3 remains open despite the locally verified
+implementation.

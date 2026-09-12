@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "declarationId": "pilot.applicable-checks.v1",
+  "declarationId": "tool-wiki.bootstrap.applicable-checks.v1",
   "selectorVersion": 1,
   "coverage": "selected-facts-only",
   "facts": [
