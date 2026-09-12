@@ -1,4 +1,4 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
 
 import { describe, expect, it } from 'bun:test';
 import {
@@ -196,21 +196,29 @@ function outsidePathLiterals(source: string): string[] {
       // Proof: the raw-quote scan reported Tool Wiki fixture literals as real reads of
       // `tools/outside` and `tools/provider/src/index`; syntax selection removed only those two,
       // while the production gate still failed on the real undeclared h2puni steps-script read.
-      if (ts.isNewExpression(parent)) {
-        const context = parent.arguments?.map((argument) => argument.getText(syntax));
-        if (parent.expression.getText(syntax) === 'URL' && context?.[1] === 'import.meta.url')
-          found.push(node.text);
-      } else if (ts.isCallExpression(parent)) {
-        const callee = parent.expression.getText(syntax);
-        const context = parent.arguments.map((argument) => argument.getText(syntax));
+      const isSymlinkTarget =
+        ts.isCallExpression(parent) &&
+        /(?:^|\.)symlinkSync$/.test(parent.expression.getText(syntax));
+      let ancestor = parent;
+      let isExpectedFixture = false;
+      while (!ts.isSourceFile(ancestor)) {
         if (
-          ((callee === 'join' || callee === 'resolve') && context.includes('import.meta.dir')) ||
-          // Proof: omitting direct reader calls lost `../../../config/real.json`; the focused
-          // syntax test failed with that exact expected entry absent from the received array.
-          ['Bun.file', 'readFile', 'readFileSync'].includes(callee)
-        )
-          found.push(node.text);
+          ts.isCallExpression(ancestor) &&
+          ts.isPropertyAccessExpression(ancestor.expression) &&
+          ['toEqual', 'toStrictEqual'].includes(ancestor.expression.name.text) &&
+          ancestor.arguments.some(
+            (argument) => argument.pos <= node.pos && node.end <= argument.end,
+          )
+        ) {
+          isExpectedFixture = true;
+          break;
+        }
+        ancestor = ancestor.parent;
       }
+      // Unclassified matching paths stay fail-closed. In particular, a literal alias and
+      // namespace-qualified fs/path calls are still real dependencies even though their
+      // immediate AST parents do not identify the eventual reader.
+      if (!isSymlinkTarget && !isExpectedFixture) found.push(node.text);
     }
     ts.forEachChild(node, visit);
   };
@@ -245,16 +253,86 @@ describe('outside-read syntax', () => {
       const actual = new URL('../../../bin/real.sh', import.meta.url);
       const joined = join(import.meta.dir, '../../../docs/real.md');
       const direct = readFile('../../../config/real.json');
+      expect(readFile('../../../config/asserted.json')).toEqual('contents');
       const fixture = "import x from '../../../provider/src/index'";
       symlinkSync('../../../outside', fixtureRoot);
       expect(value).toEqual({ specifier: '../../../provider/src/index' });
     `;
 
+    // Proof: treating the whole matcher call as fixture syntax lost the reader-side literal;
+    // the test received the other three reads with `../../../config/asserted.json` absent.
     expect(outsidePathLiterals(source)).toEqual([
       '../../../bin/real.sh',
       '../../../docs/real.md',
       '../../../config/real.json',
+      '../../../config/asserted.json',
     ]);
+  });
+
+  it('finds a literal alias used by a real URL read through outsideReads', async () => {
+    const probe = new URL(
+      `tools/tool-devsync/src/outside-read-alias-${crypto.randomUUID()}.probe.test.ts`,
+      WORKSPACE,
+    );
+    const before = await outsideReads('tools/tool-devsync');
+    try {
+      await writeFile(
+        probe,
+        `
+          import { readFileSync } from 'node:fs';
+          const externalPath = '../../../AGENTS.md';
+          export const externalContents = readFileSync(
+            new URL(externalPath, import.meta.url),
+            'utf8',
+          );
+        `,
+      );
+      const loaded = (await import(probe.href)) as { externalContents: string };
+      expect(loaded.externalContents).toContain('# Agent rules');
+
+      const after = await outsideReads('tools/tool-devsync');
+      // Proof: the immediate-parent whitelist returned `[]` here after this exact generated
+      // suite successfully read AGENTS.md through the aliased literal.
+      expect(after.filter((read) => !before.includes(read))).toEqual(['AGENTS.md']);
+    } finally {
+      await rm(probe);
+    }
+  });
+
+  it('finds namespace reader and path calls through outsideReads', async () => {
+    const probe = new URL(
+      `tools/tool-devsync/src/outside-read-namespace-${crypto.randomUUID()}.probe.test.ts`,
+      WORKSPACE,
+    );
+    const before = await outsideReads('tools/tool-devsync');
+    try {
+      await writeFile(
+        probe,
+        `
+          import * as fs from 'node:fs';
+          import * as path from 'node:path';
+          export const readAgentRules = () => fs.readFileSync('../../../AGENTS.md', 'utf8');
+          export const index = fs.readFileSync(
+            path.join(import.meta.dir, '../../../LLM_README.md'),
+            'utf8',
+          );
+        `,
+      );
+      const agentRules = await readFile(new URL('AGENTS.md', WORKSPACE), 'utf8');
+      const loaded = (await import(probe.href)) as { index: string };
+      expect(agentRules).toContain('# Agent rules');
+      expect(loaded.index.length).toBeGreaterThan(0);
+
+      const after = await outsideReads('tools/tool-devsync');
+      // Proof: the immediate-parent whitelist returned `[]` here instead of these two paths
+      // after the namespace path call successfully loaded LLM_README.md.
+      expect(after.filter((read) => !before.includes(read))).toEqual([
+        'AGENTS.md',
+        'LLM_README.md',
+      ]);
+    } finally {
+      await rm(probe);
+    }
   });
 });
 
