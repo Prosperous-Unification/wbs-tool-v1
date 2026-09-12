@@ -2004,6 +2004,15 @@ export function WbsTable({
           These dependencies run in a circle, so no dates can be worked out. Remove one to fix it.
         </p>
       )}
+      {scheduleError === 'calendar_range' && (
+        <p
+          className="border-destructive/40 bg-destructive/10 mb-3 rounded-md border px-3 py-2 text-sm"
+          role="alert"
+        >
+          This plan extends beyond the supported calendar range, so no dates can be worked out.
+          Shorten its schedule to restore them.
+        </p>
+      )}
 
       {!connected && (
         <p className="text-muted-foreground mb-3 text-sm" role="status">

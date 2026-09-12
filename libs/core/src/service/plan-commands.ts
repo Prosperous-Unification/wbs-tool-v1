@@ -72,6 +72,7 @@ export type AppliedCommand =
 type PlainReason =
   | Exclude<WorkItemRefusal, 'deadline_before_project_start'>
   | DirectoryRefusal
+  | 'calendar_range'
   | 'too_many_commands'
   | 'project_required'
   | 'unknown_ref'
@@ -151,6 +152,16 @@ const DIRECTORY_KINDS: ReadonlySet<PlanCommandKind> = new Set([
   'createService',
   'patchService',
   'deleteService',
+]);
+
+/** Commands that can lengthen or reorder the placed plan's calendar horizon. */
+const CALENDAR_AFFECTING_KINDS: ReadonlySet<PlanCommandKind> = new Set([
+  'patchWorkItem',
+  'duplicateWorkItem',
+  'setEstimate',
+  'setAssignee',
+  'addDependency',
+  'setCapacity',
 ]);
 
 /** Thrown inside a batch to stop it; caught by `run`, never seen outside. */
@@ -264,9 +275,29 @@ export class PlanCommandRunner {
           this.applyAll(graph, projectId, actorId, commands),
         );
         if (projectId !== null) {
-          await graph.workItems.recordCollected(projectId, actorId, collected.recordings);
+          const needsCalendarPreflight = commands.some(({ kind }) =>
+            CALENDAR_AFFECTING_KINDS.has(kind),
+          );
+          const tree = needsCalendarPreflight ? await graph.workItems.tree(projectId) : null;
+          if (needsCalendarPreflight && tree === null)
+            throw new Error(`Project ${projectId} disappeared inside its command batch`);
+          if (tree !== null && !('kind' in tree) && tree.scheduleError === 'calendar_range') {
+            const last = commands.at(-1);
+            if (last === undefined)
+              throw new Error('A calendar-affecting batch completed without a command');
+            applied = {
+              ok: false,
+              at: commands.length - 1,
+              kind: last.kind,
+              reason: 'calendar_range',
+            };
+          } else {
+            await graph.workItems.recordCollected(projectId, actorId, collected.recordings);
+            applied = collected;
+          }
+        } else {
+          applied = collected;
         }
-        applied = collected;
       } catch (cause) {
         if (cause instanceof Refused) {
           applied = { ok: false, at: cause.at, kind: cause.kind, ...cause.refusal };

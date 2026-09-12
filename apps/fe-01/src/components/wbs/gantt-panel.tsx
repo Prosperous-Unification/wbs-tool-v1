@@ -2654,12 +2654,13 @@ export function GanttPanel({
   // that is what lets {@link GanttChart} hold its hooks unconditionally: this
   // component has none, so the early return below cannot be a hook order that
   // changes with the payload.
-  if (scheduleError === 'cycle') {
+  if (scheduleError !== null) {
     return (
       <section data-gantt-panel aria-label="Gantt chart" className="border-border border-t p-3">
         <p role="status" className="text-sm">
-          Nothing can be drawn while these dependencies run in a circle — no dates could be worked
-          out. Remove one and the chart comes back.
+          {scheduleError === 'cycle'
+            ? 'Nothing can be drawn while these dependencies run in a circle — no dates could be worked out. Remove one and the chart comes back.'
+            : 'Nothing can be drawn because this plan extends beyond the supported calendar range. Shorten it and the chart comes back.'}
         </p>
       </section>
     );
@@ -2695,7 +2696,7 @@ interface GanttProps {
   /** The day the plan begins, or null while it is not on a calendar. */
   startDate: IsoDate | null;
   /** be-01's answer when no dates could be worked out at all. */
-  scheduleError: 'cycle' | null;
+  scheduleError: 'calendar_range' | 'cycle' | null;
   /**
    * Which chart read this is drawn from — a number that moves whenever a new
    * one lands.

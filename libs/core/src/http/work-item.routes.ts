@@ -937,6 +937,8 @@ function answerBatch(
         status: 422,
         body: { ...context, error: outcome.reason, ...outcome.detail },
       };
+    case 'calendar_range':
+      return { ok: false, status: 422, body: { ...context, error: outcome.reason } };
     case 'taken':
       return {
         ok: false,

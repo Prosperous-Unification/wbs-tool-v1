@@ -1,5 +1,6 @@
 import {
   addWorkdays,
+  CalendarRangeError,
   deadlineOffsetOf,
   deadlineOffsetsOf,
   type DependencyReach,
@@ -568,7 +569,7 @@ export interface IdentifiedSlice extends ScheduledSlice {
 }
 
 /** Why a project has no dates, when it has none. `null` is the ordinary case. */
-export type ScheduleError = 'cycle' | null;
+export type ScheduleError = 'calendar_range' | 'cycle' | null;
 
 export type DeleteStrategy = 'cascade' | 'promote';
 
@@ -1664,6 +1665,19 @@ export class WorkItemService {
           ...comparedWithFast(fast, optimizationRead),
         };
       }
+      // Scheduling uses dimensionless workday offsets and may remain valid
+      // beyond the finite calendar ECMAScript can represent. Name that state
+      // before any row calls `datesOf`, which would otherwise surface a 500.
+      // Proof: remove this preflight and the mounted controller case
+      // `models a plan beyond the calendar range without partial dates` fails
+      // on the unhandled invalid-Date projection.
+      if (project.startDate !== null) {
+        let projectFinish = 0;
+        for (const placed of planned.workItems.values()) {
+          if (placed.earliestFinish > projectFinish) projectFinish = placed.earliestFinish;
+        }
+        addWorkdays(project.startDate, lastWorkdayOf(0, projectFinish));
+      }
       timing = planned.workItems;
       waitingForPerson = planned.waitingForPerson;
       waitingForCapacity = planned.waitingForCapacity;
@@ -1688,8 +1702,9 @@ export class WorkItemService {
       // exception in this block — a stack overflow on a pathological tree, a
       // future mistake in `slicesOf` — into "your dependencies run in a
       // circle", which is a lie told confidently. R5: unknown is not OK.
-      if (!(err instanceof ScheduleCycleError)) throw err;
-      scheduleError = 'cycle';
+      if (err instanceof ScheduleCycleError) scheduleError = 'cycle';
+      else if (err instanceof CalendarRangeError) scheduleError = 'calendar_range';
+      else throw err;
     }
     const waitingFor = new Map<string, string[]>();
     for (const found of edges) {

@@ -281,7 +281,11 @@ export const notBeforeOffsetOf = (
  * A cycle is not a failure to report and retry: it is a plan somebody has to
  * fix, so it draws a sentence where the bars would be.
  */
-export function usePlanSchedule({ scheduleError }: { scheduleError: 'cycle' | null }) {
+export function usePlanSchedule({
+  scheduleError,
+}: {
+  scheduleError: 'calendar_range' | 'cycle' | null;
+}) {
   const hasSchedule = useCallback(() => scheduleError === null, [scheduleError]);
 
   const showSchedule = useCallback(

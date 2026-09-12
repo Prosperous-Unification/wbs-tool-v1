@@ -40,7 +40,7 @@ export function usePlanExportActions({
   projectName: string | undefined;
   estimateMethod: 'pert' | 'optimistic' | 'realistic' | 'pessimistic';
   startDate: string | null;
-  scheduleError: 'cycle' | null;
+  scheduleError: 'calendar_range' | 'cycle' | null;
   steps: StepView[];
   teams: TeamView[];
   tags: TagView[];

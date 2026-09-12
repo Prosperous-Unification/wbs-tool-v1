@@ -104,6 +104,7 @@ export type CommandRefusalCode =
   | 'forbidden'
   | 'strategy_required'
   | 'cycle'
+  | 'calendar_range'
   /**
    * **Retired at ADR 0023 and deliberately still here.** No release since
    * produces it: a frozen work item moves like any other, so `move` has no

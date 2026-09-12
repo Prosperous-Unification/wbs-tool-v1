@@ -278,10 +278,13 @@ describe('the plan read and the optimized cache', () => {
       scheduler: recordingReader(null).scheduler,
     });
 
-    // Legacy rows can still reach datesOf -> addWorkdays -> Date#toISOString,
-    // which is the RangeError that made the whole plan read fail. The write
-    // path must not need that broken read in order to replace the stored trio.
-    expect(service.tree(projectId)).rejects.toBeInstanceOf(RangeError);
+    // Legacy rows are reported as a modeled state rather than letting
+    // datesOf -> addWorkdays -> Date#toISOString fail the whole plan read. The
+    // write path still does not need a valid calendar in order to replace the
+    // stored trio.
+    const stranded = await service.tree(projectId);
+    if (stranded === null || 'kind' in stranded) throw new Error('expected a stored plan');
+    expect(stranded.scheduleError).toBe('calendar_range');
     expect(
       await service.setEstimate(id, OWNER, stepId, {
         optimistic: 1,
