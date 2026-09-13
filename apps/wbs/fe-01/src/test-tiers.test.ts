@@ -9,13 +9,13 @@ import { NODE_SUITES } from '../vitest.node-suites';
 const SELF = 'src/test-tiers.test.ts';
 
 /**
- * `apps/fe-01`, which is where both configs run and what the list is relative
+ * `apps/wbs/fe-01`, which is where both configs run and what the list is relative
  * to.
  *
  * `process.cwd()` and **not** `new URL('..', import.meta.url)`: this suite runs
  * in both tiers, and under jsdom Vite serves the module from a `/@fs/…` URL —
  * so the same expression that resolves correctly under `node` gave
- * `ENOENT: … scandir '/@fs/Users/…/apps/fe-01/src'`. Both configs set their cwd
+ * `ENOENT: … scandir '/@fs/Users/…/apps/wbs/fe-01/src'`. Both configs set their cwd
  * here.
  */
 const APP = process.cwd();
@@ -91,7 +91,7 @@ const needsADom = (suite: string): boolean =>
   DOM_EVIDENCE.test(readFileSync(join(APP, suite), 'utf8'));
 
 /**
- * fe-01's two tiers, and the rule that keeps the fast one honest.
+ * wbs-fe-01's two tiers, and the rule that keeps the fast one honest.
  *
  * The whole suite is a **69-second** jsdom run; `vitest.node.config.ts` runs
  * the DOM-free files under `node` in **1.9 seconds** for 341 tests, which is
@@ -102,7 +102,7 @@ const needsADom = (suite: string): boolean =>
  * exactly as `be-01`'s `test-tiers.test.ts` does.
  *
  * What this file cannot say is that a listed suite really runs under `node`;
- * only running it can, and `nx run fe-01:test:unit` is that run. What it does
+ * only running it can, and `nx run wbs-fe-01:test:unit` is that run. What it does
  * say is that the list has not drifted from the files, which is the fault a
  * list has and a suffix does not.
  */
@@ -149,15 +149,19 @@ describe('fe-01’s test tiers', () => {
 describe('fe-01 lint inputs', () => {
   it.each(['lint', 'lint:fast'])('includes every root TypeScript source in %s', (target) => {
     // Proof: leaving vitest.zoned.config.ts out of both production commands
-    // failed these cases on expected ['apps/fe-01/vitest.zoned.config.ts']
+    // failed these cases on expected ['apps/wbs/fe-01/vitest.zoned.config.ts']
     // to deeply equal [], before either input list was repaired.
+    // Proof: omitting moved `vite.config.ts` made the actual lint target pass
+    // with two deliberate errors still in that file, while the owning Nx test
+    // target failed these two cases naming exactly the omitted path
+    // (2026-09-13).
     const project = JSON.parse(readFileSync(join(APP, 'project.json'), 'utf8')) as {
       targets: Record<string, { options: { command: string } }>;
     };
     const inputs = new Set(project.targets[target].options.command.split(/\s+/));
     const missing = readdirSync(APP, { withFileTypes: true })
       .filter((entry) => entry.isFile() && /\.tsx?$/.test(entry.name))
-      .map((entry) => `apps/fe-01/${entry.name}`)
+      .map((entry) => `apps/wbs/fe-01/${entry.name}`)
       .filter((path) => !inputs.has(path));
     expect(missing).toEqual([]);
   });

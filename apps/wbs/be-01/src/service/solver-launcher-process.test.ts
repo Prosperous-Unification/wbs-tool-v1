@@ -81,6 +81,16 @@ describe('spawnSolverLauncher', () => {
     );
   });
 
+  it('finds source metadata at the namespaced Python adapter root', () => {
+    const probe = (): never => {
+      throw new Error('installed launcher must not run in source dev');
+    };
+    // Proof: restoring `../../../../libs/solver-py` failed through this
+    // production reader with ENOENT at `apps/libs/solver-py/.../__init__.py`
+    // (2026-09-13).
+    expect(readRuntimeSolverVersion('development', undefined, probe)).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+
   it('spawns the lifecycle launcher with identity and absolute deadline only on argv', () => {
     const fake = harness();
     const child = spawnSolverLauncher(

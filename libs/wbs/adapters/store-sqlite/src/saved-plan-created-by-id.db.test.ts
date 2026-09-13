@@ -8,7 +8,7 @@ import { openDatabase } from './db';
 import { runMigrations } from './migrate';
 import { rollbackTo } from './migrate-down';
 
-const FOLDER = new URL('../../../apps/be-01/drizzle', import.meta.url).pathname;
+const FOLDER = new URL('../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 const CREATED_BY_ID = '20260904020000_add_saved_plan_created_by_id';
 /**
  * `calendar_marker`, one table and one index added whole. It sits directly

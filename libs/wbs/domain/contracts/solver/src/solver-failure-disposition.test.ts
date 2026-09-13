@@ -29,7 +29,7 @@ import { SOLVER_PREFLIGHT_FAILURES } from './solver-preflight';
  */
 
 const DESIGN = readFileSync(
-  new URL('../../../../openspec/changes/dual-optimized-scheduler/design.md', import.meta.url),
+  new URL('../../../../../../openspec/changes/dual-optimized-scheduler/design.md', import.meta.url),
   'utf8',
 );
 
@@ -155,7 +155,10 @@ describe('a solver that ran and answered nothing is invalid-output', () => {
 
   it('reads its codes from the entrypoint that emits them', () => {
     const cli = readFileSync(
-      new URL('../../../../libs/solver-py/src/wbs_solver/cli.py', import.meta.url),
+      new URL(
+        '../../../../../../libs/wbs/adapters/solver-py/src/wbs_solver/cli.py',
+        import.meta.url,
+      ),
       'utf8',
     );
     const codeOf = (name: string): number => {

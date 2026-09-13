@@ -24,7 +24,7 @@ import {
   rollbackTo,
 } from './migrate-down';
 
-const FOLDER = new URL('../../../apps/be-01/drizzle', import.meta.url).pathname;
+const FOLDER = new URL('../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 const INIT = '20260426171432_talented_smiling_tiger';
 const USERS = '20260804194845_add_users';
 const WBS = '20260805154500_add_wbs_domain';

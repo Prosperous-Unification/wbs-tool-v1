@@ -8,7 +8,7 @@ import { expect, type Page, test } from '@playwright/test';
  * `playwright.config.ts` starts three dev servers and knows nothing about a
  * Caddy on 4341, and this file starts no be-01 at all.
  *
- * What is under test is **one line of `apps/fe-01/Caddyfile`** —
+ * What is under test is **one line of `apps/wbs/fe-01/Caddyfile`** —
  * `try_files {path} /index.html`. The static server holds no file called
  * `directory`, so without it a reload on the address this change introduced
  * answers 404 and the reader gets Caddy's not-found page instead of the app.
@@ -111,7 +111,7 @@ test.describe('the built site, asked for an address it holds no file for', () =>
  * `openspec/changes/directory-page/verify.md`.
  *
  * FAULT T — the fallback deleted.
- *   `apps/fe-01/Caddyfile`: the line `try_files {path} /index.html` removed,
+ *   `apps/wbs/fe-01/Caddyfile`: the line `try_files {path} /index.html` removed,
  *   leaving `root`, `file_server` and `encode`.
  * Both tests fail. `answers the application rather than a not-found page` on
  * `expected 404 to be 200`, and `draws the directory on a reload of /directory`

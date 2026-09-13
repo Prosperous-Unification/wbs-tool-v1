@@ -8,7 +8,7 @@ import { type Connection, openConnection } from './db';
 import { runMigrations } from './migrate';
 import { openSqliteSource } from './source';
 
-const MIGRATIONS = new URL('../../../apps/be-01/drizzle', import.meta.url).pathname;
+const MIGRATIONS = new URL('../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 const dirs: string[] = [];
 
 function databasePath(): string {

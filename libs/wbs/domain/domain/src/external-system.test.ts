@@ -110,7 +110,7 @@ describe('systemOfUrl', () => {
     // list here — a copy would drift with the thing it is checking and could not
     // fail.
     const migration = new URL(
-      '../../../apps/be-01/drizzle/20260830020000_add_external_ref/migration.sql',
+      '../../../../../apps/wbs/be-01/drizzle/20260830020000_add_external_ref/migration.sql',
       import.meta.url,
     ).pathname;
     const seeded = Bun.file(migration);

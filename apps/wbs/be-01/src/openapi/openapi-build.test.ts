@@ -12,7 +12,7 @@ test('the be-01 build emits the generated OpenAPI document', async () => {
   // Proof: before the emitter command joined the production build target, this
   // received undefined instead of an array containing the expected command.
   expect(build?.options?.commands).toContain(
-    'bun apps/be-01/src/openapi/emit-openapi-cli.ts dist/apps/be-01/openapi.json',
+    'bun apps/wbs/be-01/src/openapi/emit-openapi-cli.ts dist/apps/wbs/be-01/openapi.json',
   );
   expect(build?.options?.parallel).toBe(false);
 });

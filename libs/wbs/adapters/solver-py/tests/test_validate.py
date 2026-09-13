@@ -17,7 +17,7 @@ import unittest
 from pathlib import Path
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
-REPO_ROOT = PACKAGE_ROOT.parents[1]
+REPO_ROOT = PACKAGE_ROOT.parents[3]
 sys.path.insert(0, str(PACKAGE_ROOT / "src"))
 
 from wbs_solver.validate import (  # noqa: E402
@@ -29,7 +29,7 @@ from wbs_solver.validate import (  # noqa: E402
     validate_request,
 )
 
-CORPUS = REPO_ROOT / "libs" / "contracts" / "solver" / "fixtures"
+CORPUS = REPO_ROOT / "libs" / "wbs" / "domain" / "contracts" / "solver" / "fixtures"
 FIXTURES = CORPUS / "request"
 KEY_A = "wi-1\x00step-a"
 KEY_B = "wi-2\x00"

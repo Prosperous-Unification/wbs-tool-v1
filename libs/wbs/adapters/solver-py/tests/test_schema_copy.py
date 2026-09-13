@@ -23,12 +23,12 @@ import unittest
 from pathlib import Path
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
-REPO_ROOT = PACKAGE_ROOT.parents[1]
+REPO_ROOT = PACKAGE_ROOT.parents[3]
 sys.path.insert(0, str(PACKAGE_ROOT / "src"))
 
 from wbs_solver.validate import SCHEMA_FILENAME, SCHEMA_PATH  # noqa: E402
 
-ORIGINAL = REPO_ROOT / "libs" / "contracts" / "solver" / SCHEMA_FILENAME
+ORIGINAL = REPO_ROOT / "libs" / "wbs" / "domain" / "contracts" / "solver" / SCHEMA_FILENAME
 
 
 class SchemaCopy(unittest.TestCase):

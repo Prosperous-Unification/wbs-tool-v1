@@ -28,7 +28,7 @@ import {
  * of the four body fills are custom properties in it, so a theme change that
  * darkened a band has to break this test rather than the chart.
  */
-const STYLES = new URL('../../../apps/fe-01/src/styles.css', import.meta.url);
+const STYLES = new URL('../../../../../apps/wbs/fe-01/src/styles.css', import.meta.url);
 
 /**
  * `sky-500` is the fourth fill and it is **not** in `styles.css` — it is a

@@ -15,7 +15,7 @@ import { describe, expect, it } from 'bun:test';
  * spawn on inside `main.ts`; the two entrypoints are different files, and this
  * is what stops that from being an argument rather than a check.
  */
-const REPO_ROOT = new URL('../../..', import.meta.url).pathname;
+const REPO_ROOT = new URL('../../../..', import.meta.url).pathname;
 
 /**
  * Bundled through the CLI rather than `Bun.build`, and from the repo root.
@@ -28,7 +28,7 @@ const REPO_ROOT = new URL('../../..', import.meta.url).pathname;
  */
 function productionGraph(): string {
   const built = Bun.spawnSync({
-    cmd: ['bun', 'build', 'apps/be-01/src/main.ts', '--target=bun'],
+    cmd: ['bun', 'build', 'apps/wbs/be-01/src/main.ts', '--target=bun'],
     cwd: REPO_ROOT,
     stdout: 'pipe',
     stderr: 'pipe',

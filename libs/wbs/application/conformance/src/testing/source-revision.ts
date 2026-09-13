@@ -1,4 +1,4 @@
-const REPOSITORY_ROOT = new URL('../../../../', import.meta.url).pathname;
+const REPOSITORY_ROOT = new URL('../../../../../../', import.meta.url).pathname;
 
 function gitOutput(...arguments_: string[]): string {
   const command = Bun.spawnSync({

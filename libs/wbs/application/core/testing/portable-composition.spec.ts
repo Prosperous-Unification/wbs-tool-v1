@@ -13,7 +13,7 @@ declare global {
 }
 
 const bootstrap = 'https://core-probe.invalid/';
-const bundlePath = resolve('dist/libs/core/portable-composition.js');
+const bundlePath = resolve('dist/libs/wbs/application/core/portable-composition.js');
 
 test('portable composition executes all operations in Chromium', async ({ page }) => {
   const unexpectedRequests: string[] = [];

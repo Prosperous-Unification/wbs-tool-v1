@@ -8,7 +8,7 @@ import { openDatabase } from './db';
 import { runMigrations } from './migrate';
 import { rollbackTo } from './migrate-down';
 
-const FOLDER = new URL('../../../apps/be-01/drizzle', import.meta.url).pathname;
+const FOLDER = new URL('../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 
 /** The migration under test: slice 3b.1's three project settings columns. */
 const CALENDAR_MARKER = '20260905090000_add_calendar_marker';

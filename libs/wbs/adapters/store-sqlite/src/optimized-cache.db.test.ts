@@ -58,7 +58,7 @@ import { optimizedScheduleCache } from './schema';
  * wait for admission.
  */
 
-const FOLDER = new URL('../../../apps/be-01/drizzle', import.meta.url).pathname;
+const FOLDER = new URL('../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 
 const CONTRACT = '7+1.0.0';
 const HASH = 'h1';

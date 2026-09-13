@@ -8,7 +8,7 @@ import { openDatabase } from './db';
 import { runMigrations } from './migrate';
 import { readMigrationFolders, rollbackTo } from './migrate-down';
 
-const FOLDER = new URL('../../../apps/be-01/drizzle', import.meta.url).pathname;
+const FOLDER = new URL('../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 const PERSON_KIND = '20260821150000_add_person_kind';
 const OIDC_IDENTITY = '20260824010000_add_oidc_identity';
 const SOLUTION_REF = '20260824020000_add_solution_ref';

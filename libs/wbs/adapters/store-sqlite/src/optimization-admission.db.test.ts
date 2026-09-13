@@ -10,7 +10,7 @@ import { bindSolverSlot, heartbeatSolverSlot, reserveSolverSlot } from './optimi
 import { allocateGeneration } from './optimization-generation';
 import { optimizationGeneration, solverSlot } from './schema';
 
-const FOLDER = new URL('../../../apps/be-01/drizzle', import.meta.url).pathname;
+const FOLDER = new URL('../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 const CONTRACT = '7+0.1.0';
 const BUDGET = 60_000;
 const dirs: string[] = [];

@@ -16,7 +16,7 @@ import {
 } from './optimization-queue';
 import { solverQueue, solverSlot } from './schema';
 
-const FOLDER = new URL('../../../apps/be-01/drizzle', import.meta.url).pathname;
+const FOLDER = new URL('../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 const BLUE = '7+0.1.0';
 const GREEN = '8+0.1.0';
 const dirs: string[] = [];

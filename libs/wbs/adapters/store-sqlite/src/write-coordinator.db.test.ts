@@ -39,7 +39,7 @@ import { StepProgressRepository } from './step-progress';
 import { UserRepository } from './user';
 import { SubtreeRepository, WorkItemRepository } from './work-item';
 
-const FOLDER = new URL('../../../apps/be-01/drizzle', import.meta.url).pathname;
+const FOLDER = new URL('../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 
 /**
  * A promise the test resolves, and the promise that says it has been reached.

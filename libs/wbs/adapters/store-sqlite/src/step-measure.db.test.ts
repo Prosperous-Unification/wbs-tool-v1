@@ -15,7 +15,7 @@ import { StepMeasureRepository } from './step-measure';
 import { UserRepository } from './user';
 import { WorkItemRepository } from './work-item';
 
-const FOLDER = new URL('../../../apps/be-01/drizzle', import.meta.url).pathname;
+const FOLDER = new URL('../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 
 let dir: string;
 let path: string;

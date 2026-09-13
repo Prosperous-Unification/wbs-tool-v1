@@ -14,7 +14,7 @@ import { ProjectRepository } from './project';
 import { calendarMarker } from './schema';
 import { UserRepository } from './user';
 
-const FOLDER = new URL('../../../apps/be-01/drizzle', import.meta.url).pathname;
+const FOLDER = new URL('../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 const CALENDAR_MARKER = '20260905090000_add_calendar_marker';
 /** The folder this one is stamped after — the newest on main before it. */
 // The folder immediately before this one, which moved when TASK-219 landed two

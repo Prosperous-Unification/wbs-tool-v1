@@ -13,12 +13,13 @@ const IMAGE = process.env['WBS_SOLVER_ORPHAN_IMAGE'];
 // This process-boundary proof owns a real migrated SQLite database.
 const realProcessDescribe = IMAGE === undefined ? describe.skip : describe;
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
-const REQUEST = '/app/libs/contracts/solver/fixtures/request/valid-quantised-baseline.json';
+const REQUEST =
+  '/app/libs/wbs/domain/contracts/solver/fixtures/request/valid-quantised-baseline.json';
 const HOST = new URL(
-  '../../../../tools/tool-remote-scripts/src/fixtures/solver-supervisor-orphan-host.ts',
+  '../../../../../tools/tool-remote-scripts/src/fixtures/solver-supervisor-orphan-host.ts',
   import.meta.url,
 ).pathname;
-const CLIENT = '/app/apps/be-01/scripts/solver-supervisor-orphan-client.ts';
+const CLIENT = '/app/apps/wbs/be-01/scripts/solver-supervisor-orphan-client.ts';
 const PROJECT = '11111111-1111-4111-8111-111111111111';
 const CONTRACT = '7+0.1.0';
 

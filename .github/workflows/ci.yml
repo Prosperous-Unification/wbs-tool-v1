@@ -615,8 +615,8 @@ jobs:
           # Successful runs keep the deliberate geometry screenshot and HTML
           # report; failed runs additionally keep Playwright's retained trace.
           path: |
-            apps/fe-01/test-results/
-            apps/fe-01/playwright-report/
+            apps/wbs/fe-01/test-results/
+            apps/wbs/fe-01/playwright-report/
 
   # Branch protection asks for one stable `pixels` check. The matrix above has
   # changing display names, so this job reduces its aggregate result without

@@ -57,7 +57,7 @@ Names below refer to the old root before slice 3 and its mapped destination afte
       typechecks compile source and specs. Negative: inject a type error into a moved test
       file and observe its renamed Nx target fail; restore. Carry core's ring/runtime/
       SQLite negatives through their new paths; do not change their intended exemption.
-- [ ] 3.2 Rewrite Vite/Vitest aliases and outputs, both Playwright configurations and tests,
+- [x] 3.2 Rewrite Vite/Vitest aliases and outputs, both Playwright configurations and tests,
       the packaged-build server, root lint source inputs, CI artifact paths and all
       cross-tree fixtures. Test: frontend configuration/test-tier suites and `wbs-fe-01`
       typecheck/build resolve the moved files. Negative: restore one old alias target and

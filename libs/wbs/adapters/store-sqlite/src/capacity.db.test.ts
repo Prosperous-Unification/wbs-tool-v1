@@ -15,7 +15,7 @@ import { runMigrations } from './migrate';
 import { ProjectRepository } from './project';
 import { UserRepository } from './user';
 
-const FOLDER = new URL('../../../apps/be-01/drizzle', import.meta.url).pathname;
+const FOLDER = new URL('../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 
 /** The stamp every write here carries; `owner` is the account the setup creates first. */
 const wrote: WriteStamp = { at: 1, by: 'owner' };

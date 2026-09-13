@@ -8,12 +8,14 @@
 // (`groupFilesByEnv`), so a line comment carries it as well as a docblock —
 // and a docblock would need a `@vitest-environment` the jsdoc lint rejects.
 import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import type * as Vite from 'vite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // `edgeRoutes` reads `.env` off the disk through Vite's `loadEnv`. A test that
-// let it do that would assert the developer's own `apps/fe-01/.env` — present
+// let it do that would assert the developer's own `apps/wbs/fe-01/.env` — present
 // here, absent in CI — so the two cases below (env set, env missing) would each
 // only ever run on one of the two machines. The stub is the whole point of the
 // mock; `defineConfig` stays the real one.
@@ -30,6 +32,7 @@ const { default: config } = await import('./vite.config');
 
 const BE_URL = 'http://be-01:3000';
 const GW_URL = 'http://gw-01:3001';
+const APP_ROOT = dirname(fileURLToPath(import.meta.url));
 
 function serveConfig(env: Record<string, string>, mode = 'development') {
   loadEnv.mockReturnValue(env);
@@ -69,7 +72,7 @@ beforeEach(() => {
 describe('vite dev server config', () => {
   it('declares public mode in the source-run container', () => {
     const compose = readFileSync(
-      new URL('../../deploy/dev-src/compose.yml', import.meta.url),
+      new URL('../../../deploy/dev-src/compose.yml', import.meta.url),
       'utf8',
     );
     expect(compose).toContain("      WBS_PUBLIC_DEV: 'true'");
@@ -187,7 +190,7 @@ describe('vite dev server proxy', () => {
 
   it('configures no proxy for a build, and does not read an env to decide', () => {
     loadEnv.mockImplementation(() => {
-      throw new Error('a build must not read apps/fe-01/.env');
+      throw new Error('a build must not read apps/wbs/fe-01/.env');
     });
 
     expect(config({ command: 'build', mode: 'production' }).server?.proxy).toBeUndefined();
@@ -198,7 +201,7 @@ describe('vite dev server proxy', () => {
     loadEnv.mockReturnValue({});
 
     expect(() => config({ command: 'serve', mode: 'development' })).toThrow(
-      /apps\/fe-01\/\.env must set VITE_BE_URL and VITE_GW_URL; got VITE_BE_URL=\(unset\) VITE_GW_URL=\(unset\)\..*bun run dev:setup/s,
+      /apps\/wbs\/fe-01\/\.env must set VITE_BE_URL and VITE_GW_URL; got VITE_BE_URL=\(unset\) VITE_GW_URL=\(unset\)\..*bun run dev:setup/s,
     );
   });
 
@@ -224,14 +227,12 @@ describe('vite dev server proxy', () => {
  * has described the trap since the second time, which is how we know a comment
  * does not catch it.
  *
- * The keys and not the resolved paths, on purpose: a missing key is what breaks
- * a run, and comparing absolute paths would fail this file on a checkout in
- * another directory for a reason it is not about. Both maps resolve against
- * their own `__dirname` and the two configs sit in one folder, so a key in both
- * already names the same file.
+ * Both keys and resolved paths matter. Comparing checkout-relative absolute
+ * paths keeps the assertion portable while proving each alias reaches the
+ * namespaced source tree rather than a deleted pre-move root.
  */
 describe('the app and the run resolve the same modules', () => {
-  it('lists the same alias keys in both configs', async () => {
+  it('maps every alias to the namespaced source file in both configs', async () => {
     const { default: suiteConfig } = await import('./vitest.config');
     // Both URLs set, because `edgeRoutes` refuses a config without them before
     // it ever builds a `resolve` block — an empty env here fails this case on
@@ -242,6 +243,47 @@ describe('the app and the run resolve the same modules', () => {
     expect(Object.keys(suiteAliases).sort()).toEqual(Object.keys(appAliases).sort());
     expect(Object.keys(appAliases)).toContain('@wbs/contracts');
     expect(Object.keys(appAliases)).toContain('@wbs/validation');
+
+    const domain = '../../../libs/wbs/domain/domain/src';
+    const expected = {
+      '@': resolve(APP_ROOT, 'src'),
+      '@wbs/domain/workday': resolve(APP_ROOT, domain, 'workday.ts'),
+      '@wbs/domain/progress': resolve(APP_ROOT, domain, 'progress.ts'),
+      '@wbs/domain/deadline-offsets': resolve(APP_ROOT, domain, 'deadline-offsets.ts'),
+      '@wbs/domain/assumed-duration': resolve(APP_ROOT, domain, 'assumed-duration.ts'),
+      '@wbs/domain/effective-team': resolve(APP_ROOT, domain, 'effective-team.ts'),
+      '@wbs/domain/effective-tag': resolve(APP_ROOT, domain, 'effective-tag.ts'),
+      '@wbs/domain/effective-service': resolve(APP_ROOT, domain, 'effective-service.ts'),
+      '@wbs/domain/label-mismatch': resolve(APP_ROOT, domain, 'label-mismatch.ts'),
+      '@wbs/domain/marker-color': resolve(APP_ROOT, domain, 'marker-color.ts'),
+      '@wbs/domain/is-within': resolve(APP_ROOT, domain, 'is-within.ts'),
+      '@wbs/domain/derive-numbers': resolve(APP_ROOT, domain, 'derive-numbers.ts'),
+      '@wbs/domain/tree-order': resolve(APP_ROOT, domain, 'tree-order.ts'),
+      '@wbs/domain/arrange-siblings': resolve(APP_ROOT, domain, 'arrange-siblings.ts'),
+      '@wbs/contracts/ws-frames': resolve(
+        APP_ROOT,
+        '../../../libs/wbs/domain/contracts/src/ws-frames.ts',
+      ),
+      '@wbs/contracts': resolve(APP_ROOT, '../../../libs/wbs/domain/contracts/src/index.ts'),
+      '@wbs/validation': resolve(APP_ROOT, '../../../libs/wbs/domain/validation/src/index.ts'),
+      '@wbs/domain/priority-band': resolve(APP_ROOT, domain, 'priority-band.ts'),
+      '@wbs/domain/dependency-reach': resolve(APP_ROOT, domain, 'dependency-reach.ts'),
+      '@wbs/domain/external-system': resolve(APP_ROOT, domain, 'external-system.ts'),
+    };
+    // Proof: with both maps still resolving their legacy `../../libs/*`
+    // targets, this failed with every shared alias under `apps/libs/*` instead
+    // of `libs/wbs/*`. Restoring only Vite's old workday target also made the
+    // actual `wbs-fe-01:build` fail on `UNLOADABLE_DEPENDENCY` from
+    // completion-prompt.tsx (2026-09-13).
+    expect(appAliases).toEqual(expected);
+    expect(suiteAliases).toEqual(expected);
+  });
+
+  it('writes the build to the namespaced application artifact root', () => {
+    const build = config({ command: 'build', mode: 'production' });
+    // Proof: restoring `../../dist/apps/fe-01` failed here with that exact
+    // received path instead of `../../../dist/apps/wbs/fe-01` (2026-09-13).
+    expect(build.build?.outDir).toBe('../../../dist/apps/wbs/fe-01');
   });
 });
 
@@ -294,8 +336,8 @@ describe('the built chunks', () => {
   });
 
   it('leaves the app and everything else where Rollup would put it', () => {
-    expect(chunkOf('/repo/apps/fe-01/src/components/wbs/wbs-table.tsx')).toBeUndefined();
-    expect(chunkOf('/repo/libs/domain/src/workday.ts')).toBeUndefined();
+    expect(chunkOf('/repo/apps/wbs/fe-01/src/components/wbs/wbs-table.tsx')).toBeUndefined();
+    expect(chunkOf('/repo/libs/wbs/domain/domain/src/workday.ts')).toBeUndefined();
     // A dependency the app's own code drags in: in `vendor` it would invalidate
     // the cached half on every change to the app.
     expect(chunkOf('/repo/node_modules/arktype/out/index.js')).toBeUndefined();

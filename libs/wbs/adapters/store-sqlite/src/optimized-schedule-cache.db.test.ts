@@ -26,7 +26,7 @@ import { storeOptimizedOutcome } from './optimized-schedule-cache';
 import { toOptimizedScheduleCacheRow } from './optimizer-rows';
 import { optimizedScheduleCache } from './schema';
 
-const FOLDER = new URL('../../../apps/be-01/drizzle', import.meta.url).pathname;
+const FOLDER = new URL('../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 
 /** The migration under test; `PROJECT_SETTINGS` below it is now the newest. */
 const OPTIMIZER_TABLES = '20260904100000_add_optimizer_tables';

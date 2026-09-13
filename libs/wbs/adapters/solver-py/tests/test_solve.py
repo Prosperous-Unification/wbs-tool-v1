@@ -44,7 +44,7 @@ from unittest import mock
 from ortools.sat.python import cp_model
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
-REPO_ROOT = PACKAGE_ROOT.parents[1]
+REPO_ROOT = PACKAGE_ROOT.parents[3]
 sys.path.insert(0, str(PACKAGE_ROOT / "src"))
 
 from test_model import a_request, a_slice, an_edge  # noqa: E402
@@ -70,7 +70,9 @@ from wbs_solver.solve import (  # noqa: E402
 )
 from wbs_solver.validate import validate_against_schema  # noqa: E402
 
-FIXTURES = REPO_ROOT / "libs" / "contracts" / "solver" / "fixtures" / "request"
+FIXTURES = (
+    REPO_ROOT / "libs" / "wbs" / "domain" / "contracts" / "solver" / "fixtures" / "request"
+)
 
 # One worker and a fixed seed everywhere in this file. Every instance here is
 # proved OPTIMAL in milliseconds, so no case depends on a budget; the pin is

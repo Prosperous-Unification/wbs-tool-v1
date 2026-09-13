@@ -44,7 +44,7 @@ function edgeRoutes(mode: string): Record<string, ProxyOptions> {
   // same fault here anyway: a dev server that would proxy nowhere.
   if (!backend || !gateway) {
     throw new Error(
-      `apps/fe-01/.env must set VITE_BE_URL and VITE_GW_URL; got ` +
+      `apps/wbs/fe-01/.env must set VITE_BE_URL and VITE_GW_URL; got ` +
         `VITE_BE_URL=${backend || '(unset)'} VITE_GW_URL=${gateway || '(unset)'}. ` +
         `Run \`bun run dev:setup\` to seed it from .env.example.`,
     );
@@ -110,11 +110,11 @@ export default defineConfig(({ command, mode }) => ({
       //   `gantt-panel.tsx(406,7): error TS2322`. `noEmit` did not make the
       //   gate vacuous, which is the property that matters (AGENTS.md R5, and
       //   the one vacuous check ever found in the gate itself).
-      '@wbs/domain/workday': resolve(__dirname, '../../libs/domain/src/workday.ts'),
-      '@wbs/domain/progress': resolve(__dirname, '../../libs/domain/src/progress.ts'),
+      '@wbs/domain/workday': resolve(__dirname, '../../../libs/wbs/domain/domain/src/workday.ts'),
+      '@wbs/domain/progress': resolve(__dirname, '../../../libs/wbs/domain/domain/src/progress.ts'),
       '@wbs/domain/deadline-offsets': resolve(
         __dirname,
-        '../../libs/domain/src/deadline-offsets.ts',
+        '../../../libs/wbs/domain/domain/src/deadline-offsets.ts',
       ),
       // The same bargain again, and this one is a single number: the workdays
       // the schedule gives a slice nobody estimated. be-01 places the slice
@@ -122,41 +122,68 @@ export default defineConfig(({ command, mode }) => ({
       // is a bar whose width contradicts the Start and End columns beside it.
       '@wbs/domain/assumed-duration': resolve(
         __dirname,
-        '../../libs/domain/src/assumed-duration.ts',
+        '../../../libs/wbs/domain/domain/src/assumed-duration.ts',
       ),
       // The same module-not-barrel import, one file along: `effective-team.ts`
       // is pure and dependency-free, and the rule it holds — a leaf's team is
       // its own label or the nearest ancestor's — is the one be-01 pools on.
       // A second copy of it here is a table that disagrees with the dates it
       // is printing.
-      '@wbs/domain/effective-team': resolve(__dirname, '../../libs/domain/src/effective-team.ts'),
-      '@wbs/domain/effective-tag': resolve(__dirname, '../../libs/domain/src/effective-tag.ts'),
+      '@wbs/domain/effective-team': resolve(
+        __dirname,
+        '../../../libs/wbs/domain/domain/src/effective-team.ts',
+      ),
+      '@wbs/domain/effective-tag': resolve(
+        __dirname,
+        '../../../libs/wbs/domain/domain/src/effective-tag.ts',
+      ),
       '@wbs/domain/effective-service': resolve(
         __dirname,
-        '../../libs/domain/src/effective-service.ts',
+        '../../../libs/wbs/domain/domain/src/effective-service.ts',
       ),
-      '@wbs/domain/label-mismatch': resolve(__dirname, '../../libs/domain/src/label-mismatch.ts'),
-      '@wbs/domain/marker-color': resolve(__dirname, '../../libs/domain/src/marker-color.ts'),
-      '@wbs/domain/is-within': resolve(__dirname, '../../libs/domain/src/is-within.ts'),
-      '@wbs/domain/derive-numbers': resolve(__dirname, '../../libs/domain/src/derive-numbers.ts'),
+      '@wbs/domain/label-mismatch': resolve(
+        __dirname,
+        '../../../libs/wbs/domain/domain/src/label-mismatch.ts',
+      ),
+      '@wbs/domain/marker-color': resolve(
+        __dirname,
+        '../../../libs/wbs/domain/domain/src/marker-color.ts',
+      ),
+      '@wbs/domain/is-within': resolve(
+        __dirname,
+        '../../../libs/wbs/domain/domain/src/is-within.ts',
+      ),
+      '@wbs/domain/derive-numbers': resolve(
+        __dirname,
+        '../../../libs/wbs/domain/domain/src/derive-numbers.ts',
+      ),
       // The order every reader draws a project in (ADR 0023), and the sibling
       // grouping it shares with the numbering. The fake answers the server's
       // own numbers and row order through these rather than a second copy.
-      '@wbs/domain/tree-order': resolve(__dirname, '../../libs/domain/src/tree-order.ts'),
+      '@wbs/domain/tree-order': resolve(
+        __dirname,
+        '../../../libs/wbs/domain/domain/src/tree-order.ts',
+      ),
       '@wbs/domain/arrange-siblings': resolve(
         __dirname,
-        '../../libs/domain/src/arrange-siblings.ts',
+        '../../../libs/wbs/domain/domain/src/arrange-siblings.ts',
       ),
-      '@wbs/contracts/ws-frames': resolve(__dirname, '../../libs/contracts/src/ws-frames.ts'),
+      '@wbs/contracts/ws-frames': resolve(
+        __dirname,
+        '../../../libs/wbs/domain/contracts/src/ws-frames.ts',
+      ),
       // Proof: removing either shared alias from both configs failed its explicit
       // required-alias assertion in vite-config.test.ts, despite map parity.
-      '@wbs/contracts': resolve(__dirname, '../../libs/contracts/src/index.ts'),
-      '@wbs/validation': resolve(__dirname, '../../libs/validation/src/index.ts'),
+      '@wbs/contracts': resolve(__dirname, '../../../libs/wbs/domain/contracts/src/index.ts'),
+      '@wbs/validation': resolve(__dirname, '../../../libs/wbs/domain/validation/src/index.ts'),
       // The same bargain a third time: `priority-band.ts` is four pure functions
       // and a constant, and the rule it holds — which band a number falls in —
       // is what be-01 validates a ladder against. A second copy here is a table
       // that names a priority differently from the API that stored it.
-      '@wbs/domain/priority-band': resolve(__dirname, '../../libs/domain/src/priority-band.ts'),
+      '@wbs/domain/priority-band': resolve(
+        __dirname,
+        '../../../libs/wbs/domain/domain/src/priority-band.ts',
+      ),
       // And a fourth: `dependency-reach.ts` is a two-member enum and its
       // guard, and the rule it holds — how far into a predecessor a
       // dependency reaches — is what be-01 schedules by. A second copy here
@@ -164,14 +191,17 @@ export default defineConfig(({ command, mode }) => ({
       // the edge to.
       '@wbs/domain/dependency-reach': resolve(
         __dirname,
-        '../../libs/domain/src/dependency-reach.ts',
+        '../../../libs/wbs/domain/domain/src/dependency-reach.ts',
       ),
       // And a fifth, for `external-refs`: `external-system.ts` holds the ordered
       // URL→system rules, and the deriving rule and the seeded vocabulary are
       // one fact (`EXTERNAL_SYSTEMS` is asserted against the migration's seed).
       // A second copy here is a paste that types itself as a system be-01 would
       // refuse to store.
-      '@wbs/domain/external-system': resolve(__dirname, '../../libs/domain/src/external-system.ts'),
+      '@wbs/domain/external-system': resolve(
+        __dirname,
+        '../../../libs/wbs/domain/domain/src/external-system.ts',
+      ),
     },
   },
   server: {
@@ -229,7 +259,7 @@ export default defineConfig(({ command, mode }) => ({
     proxy: command === 'serve' ? edgeRoutes(mode) : undefined,
   },
   build: {
-    outDir: '../../dist/apps/fe-01',
+    outDir: '../../../dist/apps/wbs/fe-01',
     emptyOutDir: true,
     rolldownOptions: {
       output: {

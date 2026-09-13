@@ -9,7 +9,7 @@ import { runMigrations } from './migrate';
 import { allocateGeneration, readGeneration } from './optimization-generation';
 import { optimizedScheduleCache, solverQueue, solverSlot } from './schema';
 
-const FOLDER = new URL('../../../apps/be-01/drizzle', import.meta.url).pathname;
+const FOLDER = new URL('../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 
 /** The two releases running against one file during a swap. */
 const BLUE = '7+1.0.0';

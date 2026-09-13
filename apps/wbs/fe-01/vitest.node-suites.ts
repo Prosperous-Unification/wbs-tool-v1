@@ -14,7 +14,7 @@
  * be-01's own tiering learned that the guard is the part that matters: it
  * caught its own first draft's mistake.
  *
- * Paths are relative to `apps/fe-01`, which is where both configs run.
+ * Paths are relative to `apps/wbs/fe-01`, which is where both configs run.
  */
 export const NODE_SUITES: readonly string[] = [
   'playwright-config.test.ts',

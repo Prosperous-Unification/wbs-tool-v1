@@ -12,7 +12,7 @@ import * as publicSqlite from '../index';
 import { runMigrations } from '../migrate';
 import { openSqliteSourceWithFault, sqliteLateWriteControl } from './faults';
 
-const MIGRATIONS = new URL('../../../../apps/be-01/drizzle', import.meta.url).pathname;
+const MIGRATIONS = new URL('../../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 const stamp = { at: 1, by: 'owner' };
 const entry = (id: string): NewJournalEntry => ({
   id,

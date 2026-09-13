@@ -20,7 +20,7 @@ import {
   solverSlot,
 } from './schema';
 
-const FOLDER = new URL('../../../apps/be-01/drizzle', import.meta.url).pathname;
+const FOLDER = new URL('../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 
 /**
  * The negative injections of tasks.md 3.8, run against a real migrated file.
@@ -347,7 +347,7 @@ describe('a stored optimizer enum', () => {
  */
 describe('the cache status vocabulary is the one design.md declares', () => {
   const DESIGN = readFileSync(
-    new URL('../../../openspec/changes/dual-optimized-scheduler/design.md', import.meta.url),
+    new URL('../../../../../openspec/changes/dual-optimized-scheduler/design.md', import.meta.url),
     'utf8',
   );
 

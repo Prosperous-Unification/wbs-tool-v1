@@ -81,7 +81,7 @@ async function cssFromStylesheetAlone(): Promise<string> {
  * separate `pixels` job and needs a chromium. Inside the gate, this is the only
  * check on the production wiring.
  *
- * `write: false` over the config's own `outDir`, so `dist/apps/fe-01` is never
+ * `write: false` over the config's own `outDir`, so `dist/apps/wbs/fe-01` is never
  * touched by a test run.
  */
 async function cssFromShippedConfig(): Promise<string> {

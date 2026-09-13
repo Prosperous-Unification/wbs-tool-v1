@@ -5,9 +5,9 @@ import { readFile, writeFile } from 'node:fs/promises';
 /** Source revision and exact measurement code identity, captured before timing starts. */
 export async function renderingProvenance() {
   const files = [
-    'apps/fe-01/e2e/rendering-baseline.spec.ts',
-    'apps/fe-01/e2e/rendering-fixture.ts',
-    'apps/fe-01/e2e/rendering-evidence.ts',
+    'apps/wbs/fe-01/e2e/rendering-baseline.spec.ts',
+    'apps/wbs/fe-01/e2e/rendering-fixture.ts',
+    'apps/wbs/fe-01/e2e/rendering-evidence.ts',
   ];
   const hash = createHash('sha256');
   for (const path of files)

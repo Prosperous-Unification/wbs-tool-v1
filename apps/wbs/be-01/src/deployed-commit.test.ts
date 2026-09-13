@@ -65,10 +65,10 @@ describe('readDeployedCommit', () => {
   });
 
   it('searches upward, because each tier runs with its own app as cwd', () => {
-    // be-01 serves from `apps/be-01`; the repository root is two levels up.
+    // be-01 serves from `apps/wbs/be-01`; the reader must search through every level.
     const root = tempRoot();
     repoOnBranch(root);
-    const cwd = join(root, 'apps', 'be-01');
+    const cwd = join(root, 'apps', 'wbs', 'be-01');
     mkdirSync(cwd, { recursive: true });
     expect(readDeployedCommit(cwd)).toBe(SHA);
   });

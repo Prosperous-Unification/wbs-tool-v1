@@ -31,7 +31,7 @@ import { rollbackTo } from './migrate-down';
  * The last release before this change is the baseline; the two service
  * migrations are the diff under test.
  */
-const FOLDER = new URL('../../../apps/be-01/drizzle', import.meta.url).pathname;
+const FOLDER = new URL('../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 
 /** The release immediately before the split — everything after it is this change. */
 const BEFORE_SERVICE = '20260819120000_add_tag';

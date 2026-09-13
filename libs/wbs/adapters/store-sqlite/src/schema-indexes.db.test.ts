@@ -9,7 +9,7 @@ import { openDatabase } from './db';
 import { runMigrations } from './migrate';
 import * as schema from './schema';
 
-const FOLDER = new URL('../../../apps/be-01/drizzle', import.meta.url).pathname;
+const FOLDER = new URL('../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 
 let dir: string;
 let path: string;

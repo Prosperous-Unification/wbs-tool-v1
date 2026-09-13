@@ -18,7 +18,7 @@ import { savedPlan } from './schema';
 import { sqliteUnitOfWork } from './sqlite-unit-of-work';
 import { UserRepository } from './user';
 
-const FOLDER = new URL('../../../apps/be-01/drizzle', import.meta.url).pathname;
+const FOLDER = new URL('../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 
 const wrote: WriteStamp = { at: 1, by: 'owner' };
 

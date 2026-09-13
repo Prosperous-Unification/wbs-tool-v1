@@ -29,7 +29,7 @@ import { readMigrationFolders, rollbackTo } from './migrate-down';
  * `expected [ 50, 50 ] to equal [ null, null ]`. The folder was then deleted.
  * Watched 2026-08-29.
  */
-const FOLDER = new URL('../../../apps/be-01/drizzle', import.meta.url).pathname;
+const FOLDER = new URL('../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 
 function tempDb(): { path: string; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), 'wbs-priority-backfill-'));

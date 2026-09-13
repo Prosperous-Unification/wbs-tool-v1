@@ -14,7 +14,7 @@ import { PlanEventRepository } from './plan-event';
 import { ProjectRepository } from './project';
 import { UserRepository } from './user';
 
-const FOLDER = new URL('../../../apps/be-01/drizzle', import.meta.url).pathname;
+const FOLDER = new URL('../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 
 /** The stamp the setup's writes carry; `owner` is the account it creates first. */
 const wrote: WriteStamp = { at: 1, by: 'owner' };

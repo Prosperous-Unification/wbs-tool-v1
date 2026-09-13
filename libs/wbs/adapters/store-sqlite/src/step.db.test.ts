@@ -29,7 +29,7 @@ import { WorkItemRepository } from './work-item';
  * `estimate.step_id` has no cascade for, and the revision arithmetic that
  * happens inside the statement rather than in this process.
  */
-const FOLDER = new URL('../../../apps/be-01/drizzle', import.meta.url).pathname;
+const FOLDER = new URL('../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 
 let dir: string;
 let ownerId: string;

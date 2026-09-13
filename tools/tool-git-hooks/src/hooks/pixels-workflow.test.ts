@@ -7,7 +7,7 @@ interface WorkflowStep {
   name?: string;
   run?: string;
   uses?: string;
-  with?: { name?: string };
+  with?: { name?: string; path?: string };
 }
 
 interface WorkflowJob {
@@ -50,6 +50,12 @@ describe('the CI pixels gate', () => {
     expect(layoutStep?.run).toBe('bun run e2e -- --shard=${{ matrix.shard }}/4');
     expect(artifactStep?.with?.name).toBe(
       'wbs-table-screenshot-${{ matrix.shard }}-${{ github.run_attempt }}',
+    );
+    // Proof: restoring only the old `apps/fe-01/test-results/` upload path
+    // failed with that exact first line instead of the namespaced one
+    // (2026-09-13).
+    expect(artifactStep?.with?.path).toBe(
+      'apps/wbs/fe-01/test-results/\napps/wbs/fe-01/playwright-report/\n',
     );
     expect(summaryJob?.needs).toBe('pixels_shard');
     expect(summaryJob?.if).toBe('${{ always() }}');

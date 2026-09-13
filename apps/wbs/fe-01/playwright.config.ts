@@ -15,11 +15,11 @@ import { defineConfig, devices } from '@playwright/test';
  * the wrong directory and failing forty seconds later on a signup 502.
  */
 const repoRoot = process.cwd();
-if (!existsSync(join(repoRoot, 'apps', 'fe-01', 'playwright.config.ts'))) {
+if (!existsSync(join(repoRoot, 'apps', 'wbs', 'fe-01', 'playwright.config.ts'))) {
   throw new Error(
     `The layout gate must be run from the workspace root; this is ${repoRoot}. ` +
-      `Use \`bun run e2e\` (or \`nx run fe-01:e2e\`), never \`bunx playwright test\` ` +
-      `from inside apps/fe-01 — the three dev servers are started relative to this path.`,
+      `Use \`bun run e2e\` (or \`nx run wbs-fe-01:e2e\`), never \`bunx playwright test\` ` +
+      `from inside apps/wbs/fe-01 — the three dev servers are started relative to this path.`,
   );
 }
 
@@ -142,7 +142,7 @@ mkdirSync(join(repoRoot, 'tmp'), { recursive: true });
  */
 const server = (app: string, command: string, url: string, env?: Record<string, string>) => ({
   command,
-  cwd: join(repoRoot, 'apps', app),
+  cwd: join(repoRoot, 'apps', 'wbs', app),
   url,
   env,
   // Fresh state in CI, and a running `bun run dev` reused locally. Playwright

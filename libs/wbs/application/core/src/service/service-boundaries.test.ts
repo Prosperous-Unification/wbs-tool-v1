@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { expect, it } from 'bun:test';
 import { ESLint } from 'eslint';
 
-const root = fileURLToPath(new URL('../../../..', import.meta.url));
+const root = fileURLToPath(new URL('../../../../../..', import.meta.url));
 const services = [
   'assumed-assignee',
   'auth.service',
@@ -52,7 +52,7 @@ const services = [
 // Proof: importing be-01's repository from command-bindings.ts failed here with
 // the same @nx/enforce-module-boundaries message (2026-09-12).
 it('keeps extracted production services inside the core boundary', async () => {
-  const files = services.map((name) => `${root}/libs/core/src/service/${name}.ts`);
+  const files = services.map((name) => `${root}/libs/wbs/application/core/src/service/${name}.ts`);
   for (const file of files) expect(existsSync(file), file).toBe(true);
   const lint = new ESLint({ cwd: root });
   const checked = await lint.lintFiles(files);

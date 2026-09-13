@@ -5,6 +5,8 @@
 // DOM to test. Kept beside that file rather than under `src/` because both are
 // about a config at the root of this app rather than about the app.
 import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -15,12 +17,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  *
  * Computed from this file rather than read from `process.cwd()`: the suite is
  * launched from the workspace root today, and a test that quietly depended on
- * that would fail for the next person who runs it from `apps/fe-01`.
+ * that would fail for the next person who runs it from `apps/wbs/fe-01`.
  */
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
 interface WebServerEntry {
   command?: string;
+  cwd?: string;
   url: string;
   env?: Record<string, string>;
 }
@@ -39,6 +42,13 @@ function serversOf(config: { webServer?: unknown }): WebServerEntry[] {
   return webServer as WebServerEntry[];
 }
 
+async function loadPackagedConfig(root: string) {
+  vi.resetModules();
+  vi.spyOn(process, 'cwd').mockReturnValue(root);
+  const { default: config } = await import('./playwright.packaged.config');
+  return config;
+}
+
 describe('the browser gate’s port shift', () => {
   beforeEach(() => {
     vi.spyOn(process, 'cwd').mockReturnValue(repoRoot);
@@ -55,6 +65,15 @@ describe('the browser gate’s port shift', () => {
       'http://localhost:3200/health',
       'http://localhost:4200',
     ]);
+  });
+
+  it('starts every tier from its namespaced application root', async () => {
+    const servers = serversOf(await loadConfig());
+    // Proof: removing the `wbs` segment from the production server helper
+    // failed with all three received roots under `apps/<app>` (2026-09-13).
+    expect(servers.map((server) => server.cwd)).toEqual(
+      ['be-01', 'gw-01', 'fe-01'].map((app) => join(repoRoot, 'apps', 'wbs', app)),
+    );
   });
 
   it('moves all three tiers together, and every URL they hold about each other', async () => {
@@ -146,8 +165,8 @@ describe('the browser gate’s port shift', () => {
         ...backend.env,
       };
       const script = `
-      import { loadConfig } from './apps/be-01/src/config.ts';
-      import { testApp } from './apps/be-01/src/testing/app-fixture.ts';
+      import { loadConfig } from './apps/wbs/be-01/src/config.ts';
+      import { testApp } from './apps/wbs/be-01/src/testing/app-fixture.ts';
       const config = loadConfig(JSON.parse(process.env['ORIGIN_PROBE_CONFIG']));
       const app = testApp({appOrigin: config.appOrigin});
       const response = await app.handle(new Request('http://localhost:3600/api/auth/login', {
@@ -222,5 +241,39 @@ describe('the browser gate’s port shift', () => {
 
     expect(callerId).toBe('e2e000000000');
     expect(callerId).toMatch(/^[0-9a-f]{12}$/);
+  });
+});
+
+describe('the packaged browser gate', () => {
+  const roots: string[] = [];
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+  });
+
+  it('serves the namespaced build with the namespaced Caddy configuration', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'wbs-packaged-config-'));
+    roots.push(root);
+    const appRoot = join(root, 'apps', 'wbs', 'fe-01');
+    const site = join(root, 'dist', 'apps', 'wbs', 'fe-01');
+    mkdirSync(join(appRoot, 'e2e-packaged'), { recursive: true });
+    mkdirSync(site, { recursive: true });
+    writeFileSync(join(appRoot, 'playwright.packaged.config.ts'), 'fixture');
+    writeFileSync(join(appRoot, 'Caddyfile'), 'fixture');
+    writeFileSync(join(site, 'index.html'), '<!doctype html>');
+
+    const config = await loadPackagedConfig(root);
+    const servers = serversOf(config);
+    // Proof: restoring the packaged site's `dist/apps/fe-01` path made the
+    // production config refuse that absent index before this assertion
+    // (`.../dist/apps/fe-01 holds no index.html`, 2026-09-13).
+    expect(config.testDir).toBe(join(appRoot, 'e2e-packaged'));
+    expect(config.outputDir).toBe(join(appRoot, 'test-results-packaged'));
+    expect(servers).toHaveLength(1);
+    expect(servers[0]?.command).toContain(`-v ${site}:/srv/www:ro`);
+    expect(servers[0]?.command).toContain(
+      `-v ${join(appRoot, 'Caddyfile')}:/etc/caddy/Caddyfile:ro`,
+    );
   });
 });

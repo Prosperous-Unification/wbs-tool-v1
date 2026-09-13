@@ -169,9 +169,9 @@ test('the compiler enforces closed refusal codes, detail variants and command co
       'es2022',
       '--types',
       'bun-types',
-      'libs/contracts/src/http/refusal.test.ts',
+      'libs/wbs/domain/contracts/src/http/refusal.test.ts',
     ],
-    cwd: new URL('../../../../', import.meta.url).pathname,
+    cwd: new URL('../../../../../../', import.meta.url).pathname,
     stdout: 'pipe',
     stderr: 'pipe',
   });

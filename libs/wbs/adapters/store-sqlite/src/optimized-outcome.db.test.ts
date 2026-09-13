@@ -18,7 +18,7 @@ import { storeOptimizedOutcomeAndRecord } from './optimized-outcome';
 import type { OutcomeWrite } from './optimized-schedule-cache';
 import { scheduleInputHash } from './schedule-input-hash';
 
-const FOLDER = new URL('../../../apps/be-01/drizzle', import.meta.url).pathname;
+const FOLDER = new URL('../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 const CONTRACT = '7+0.1.0';
 const BUDGET = 60_000;
 const INPUT: ScheduleInput = {

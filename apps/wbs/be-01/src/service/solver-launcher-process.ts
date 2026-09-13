@@ -63,7 +63,10 @@ export function readRuntimeSolverVersion(
   const module =
     sourceModule ??
     readFileSync(
-      new URL('../../../../libs/solver-py/src/wbs_solver/__init__.py', import.meta.url),
+      new URL(
+        '../../../../../libs/wbs/adapters/solver-py/src/wbs_solver/__init__.py',
+        import.meta.url,
+      ),
       'utf8',
     );
   const versions = [...module.matchAll(/^__version__ = "([^"]+)"$/gm)].map((match) => match[1]);

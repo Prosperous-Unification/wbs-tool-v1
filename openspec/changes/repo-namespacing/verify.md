@@ -188,8 +188,50 @@ as absent from the TypeScript project service. `tsconfig.tools.json` now include
 config, while the existing capture-oracle exclusion is preserved as the same exact ESLint
 path exemption. The restored backend typecheck passed before the hook rerun.
 
+## Section 3.2 frontend and cross-tree consumers
+
+Vite and Vitest now resolve every frontend alias to the mapped domain, contract or validation
+source, and Vite writes to `dist/apps/wbs/fe-01`. The source-run Playwright stack starts all
+three applications from `apps/wbs`, while the packaged configuration reads the namespaced
+build and Caddy file. The CI browser artifact uploads follow the moved frontend root. The
+frontend root-source lint oracle now derives the same namespaced paths declared by both lint
+commands.
+
+Every executable cross-tree reader owned by this slice follows the moved roots: the SQLite
+migration fixtures, domain README/ADR/style/migration readers, contract compiler and wire
+fixtures, Python solver corpus readers, backend source/version/bundle probes, core portable
+artifact and service-boundary probe, and conformance Git-root reader. A static resolution
+pass found 63 such `new URL(..., import.meta.url)` references and required every target to
+exist. Development, restart, image, migration tooling and corpus-hook consumers remain with
+Tasks 3.3-3.5.
+
+| Check                    | Fault injected                                                      | Production-path observer                            | Observed failure                                                                                     |
+| ------------------------ | ------------------------------------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Frontend alias targets   | Restored Vite's workday alias to `../../libs/domain/src/workday.ts` | Actual `wbs-fe-01:build`, cache disabled            | Exit 1; Vite named `UNLOADABLE_DEPENDENCY` from `completion-prompt.tsx`.                             |
+| Alias-map correlation    | Left both Vite/Vitest maps on their legacy `../../libs/*` targets   | `vite-config.test.ts`                               | Every shared alias resolved under deleted `apps/libs/*` instead of `libs/wbs/*`.                     |
+| Root lint reachability   | Added two deliberate lint errors to moved `vite.config.ts`          | Actual `wbs-fe-01:lint`, cache disabled             | Exit 1; direct diagnostic named both errors at line 295.                                             |
+| Root lint input totality | Kept the fault but omitted `vite.config.ts` from both lint commands | Actual lint target plus owning `test:unit` target   | Lint incorrectly passed; the owning target exited 1 and its oracle named the one omitted moved path. |
+| Vite output              | Restored `../../dist/apps/fe-01`                                    | `vite-config.test.ts`                               | Received the legacy output instead of `../../../dist/apps/wbs/fe-01`.                                |
+| Source Playwright roots  | Removed `wbs` from the server helper                                | `playwright-config.test.ts`                         | Reported all three received roots under `apps/<app>` instead of `apps/wbs/<app>`.                    |
+| Packaged Playwright site | Restored `dist/apps/fe-01`                                          | Packaged production config through its focused test | Refused the absent legacy site with `dist/apps/fe-01 holds no index.html`.                           |
+| CI browser artifacts     | Restored only `apps/fe-01/test-results/`                            | `pixels-workflow.test.ts`                           | Reported the legacy first upload line instead of the namespaced path.                                |
+| Backend Python metadata  | Restored the old relative `libs/solver-py` source path              | `readRuntimeSolverVersion` through its owning test  | Failed with ENOENT at `apps/libs/solver-py/src/wbs_solver/__init__.py`.                              |
+
+Fresh restored evidence:
+
+- `NODE_OPTIONS=--max-old-space-size=8192 NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx run-many -t build lint typecheck -p wbs-fe-01 --skip-nx-cache --parallel=1 --output-style=stream` — all three targets passed in 41.3 seconds; Vite transformed 911 modules.
+- The host-permitted `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx run wbs-fe-01:test:unit --skip-nx-cache --output-style=stream` — 32 files and 547 tests passed. The restricted run had previously reached 14/15 focused assertions before its existing nested Bun origin probe received `spawnSync bun EPERM`.
+- `TZ=UTC bunx vitest run vite-config.test.ts --config vitest.config.ts --no-file-parallelism --maxWorkers=1` from the frontend root — 18 passed, 0 failed.
+- The same focused node command for `playwright-config.test.ts` and `src/test-tiers.test.ts`, excluding only the separately host-proven origin probe — 15 passed, 1 skipped; the complete owning target above proves that probe too.
+- `NODE_OPTIONS=--max-old-space-size=8192 NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx run-many -t typecheck -p wbs-be-01,wbs-core,wbs-conformance,wbs-contracts,wbs-domain,wbs-store-sqlite,tool-git-hooks --skip-nx-cache --parallel=1 --output-style=stream` — all seven targets passed in 9.1 seconds.
+- Focused moved readers: 51 domain/contract tests, 35 wire-vocabulary tests, 80 SQLite migration/source tests, 16 backend/core path tests, 7 solver-launcher tests, 1 calendar-marker source-boundary test and 2 host-permitted production-entrypoint bundle tests passed.
+- `bun test tools/tool-git-hooks/src/hooks/pixels-workflow.test.ts` — 1 passed, 0 failed, 8 expectations.
+- Focused ESLint over the changed frontend configuration/tests and CI workflow oracle — passed.
+- The Python fixture path formula directly resolved the namespaced schema and request corpus. The full Python test remains unavailable in this checkout because `python3` has no `jsonschema` installation; Task 3.4 owns solver installation/package consumers.
+
 ## Deferred verification
 
-Sections 3.2–4, the full workspace/browser gate, image builds, migration transition probes,
+Sections 3.3–4, the full workspace/browser gate, image builds, migration transition probes,
 production dry-run, publication and archive remain intentionally open. Section 3.1 proves
-only the coordinated project/configuration move assigned above.
+the coordinated project/configuration move, and Section 3.2 proves frontend and cross-tree
+consumers through their moved production paths.

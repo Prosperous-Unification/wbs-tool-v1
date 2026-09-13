@@ -9,7 +9,7 @@ import { openDatabase } from './db';
 import { runMigrations } from './migrate';
 import { rollbackTo } from './migrate-down';
 
-const FOLDER = new URL('../../../apps/be-01/drizzle', import.meta.url).pathname;
+const FOLDER = new URL('../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 const USERS = '20260804194845_add_users';
 const WBS = '20260805154500_add_wbs_domain';
 const DEPS = '20260806084828_add_dependencies';

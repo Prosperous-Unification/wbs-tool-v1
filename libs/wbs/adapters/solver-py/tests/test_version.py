@@ -25,12 +25,14 @@ import unittest
 from pathlib import Path
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
-REPO_ROOT = PACKAGE_ROOT.parents[1]
+REPO_ROOT = PACKAGE_ROOT.parents[3]
 sys.path.insert(0, str(PACKAGE_ROOT / "src"))
 
 from wbs_solver import __version__  # noqa: E402
 
-FIXTURES = REPO_ROOT / "libs" / "contracts" / "solver" / "fixtures" / "request"
+FIXTURES = (
+    REPO_ROOT / "libs" / "wbs" / "domain" / "contracts" / "solver" / "fixtures" / "request"
+)
 
 
 class VersionPin(unittest.TestCase):

@@ -312,7 +312,7 @@ describe('the schedule identity guarantee', () => {
    */
   it('passes the scheduler exactly its own argument tuple, and the engine names no marker', () => {
     const scheduler = readFileSync(
-      join(import.meta.dir, '../../../../libs/runtime-portable/src/scheduler.ts'),
+      join(import.meta.dir, '../../../../../libs/wbs/adapters/runtime-portable/src/scheduler.ts'),
       'utf8',
     );
 
@@ -340,7 +340,7 @@ describe('the schedule identity guarantee', () => {
     // is the mechanical fault, and a bare occurrence of the type name catches a
     // structural type declared inline to dodge the import.
     const engine = readFileSync(
-      join(import.meta.dir, '../../../../libs/domain/src/schedule.ts'),
+      join(import.meta.dir, '../../../../../libs/wbs/domain/domain/src/schedule.ts'),
       'utf8',
     );
     expect(engine).not.toContain('marker');

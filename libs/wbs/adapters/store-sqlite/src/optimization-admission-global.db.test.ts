@@ -10,7 +10,7 @@ import { reserveSolverSlot } from './optimization-admission';
 import { allocateGeneration } from './optimization-generation';
 import { solverSlot } from './schema';
 
-const FOLDER = new URL('../../../apps/be-01/drizzle', import.meta.url).pathname;
+const FOLDER = new URL('../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 const CONTRACT = '7+0.1.0';
 const dirs: string[] = [];
 

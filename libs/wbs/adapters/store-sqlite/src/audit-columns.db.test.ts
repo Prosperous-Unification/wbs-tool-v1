@@ -25,7 +25,7 @@ import { UserRepository } from './user';
  * not TypeScript's.
  */
 
-const FOLDER = new URL('../../../apps/be-01/drizzle', import.meta.url).pathname;
+const FOLDER = new URL('../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 
 let dir: string;
 let db: Drizzle;

@@ -45,9 +45,9 @@ function must<T>(value: T | undefined, what: string): T {
   return value;
 }
 
-const repoRoot = new URL('../../../../', import.meta.url);
+const repoRoot = new URL('../../../../../../', import.meta.url);
 const schema = JSON.parse(
-  readFileSync(new URL('libs/contracts/solver/solver-wire.v1.json', repoRoot), 'utf8'),
+  readFileSync(new URL('libs/wbs/domain/contracts/solver/solver-wire.v1.json', repoRoot), 'utf8'),
 ) as unknown;
 
 /**

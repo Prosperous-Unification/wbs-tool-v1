@@ -9,8 +9,8 @@ import { describe, expect, it } from 'bun:test';
  * be-01 retains compatibility reexports and the publication services that have
  * not moved yet.
  */
-const FOLDERS = ['apps/be-01/src/service', 'libs/core/src/service'];
-const ROOT = join(import.meta.dir, '../../../..');
+const FOLDERS = ['apps/wbs/be-01/src/service', 'libs/wbs/application/core/src/service'];
+const ROOT = join(import.meta.dir, '../../../../..');
 
 /**
  * The three classes that keep a `now` of their own, and why each is not a
@@ -84,13 +84,13 @@ describe('one clock', () => {
     expect(sources.map((file) => file.name)).toContain('work-item.service.ts');
     expect(sources.some((file) => file.text.includes('this.clock.stampFor('))).toBe(true);
     const coreCapacity = sources.find(
-      (file) => file.path === 'libs/core/src/service/capacity.service.ts',
+      (file) => file.path === 'libs/wbs/application/core/src/service/capacity.service.ts',
     );
     const coreWorkItems = sources.find(
-      (file) => file.path === 'libs/core/src/service/work-item.service.ts',
+      (file) => file.path === 'libs/wbs/application/core/src/service/work-item.service.ts',
     );
     const beWorkItems = sources.find(
-      (file) => file.path === 'apps/be-01/src/service/work-item.service.ts',
+      (file) => file.path === 'apps/wbs/be-01/src/service/work-item.service.ts',
     );
     // Proof: removing the core folder from FOLDERS failed this assertion on
     // Received: undefined while the two shape checks passed (2026-09-09).

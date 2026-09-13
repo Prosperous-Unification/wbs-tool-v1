@@ -4,7 +4,7 @@ import { describe, expect, it } from 'bun:test';
 
 const HERE = new URL('./', import.meta.url);
 const README = new URL('../README.md', import.meta.url);
-const ADRS = new URL('../../../docs/adr/', import.meta.url);
+const ADRS = new URL('../../../../../docs/adr/', import.meta.url);
 
 /**
  * The README's noun → module map names files and ADRs that exist.

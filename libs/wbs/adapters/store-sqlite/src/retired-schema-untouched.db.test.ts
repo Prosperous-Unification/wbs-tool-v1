@@ -33,7 +33,7 @@ import { rollbackTo } from './migrate-down';
  * and the five-rule version-overlap protocol this file enforces.
  */
 
-const FOLDER = new URL('../../../apps/be-01/drizzle', import.meta.url).pathname;
+const FOLDER = new URL('../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 
 /** The migration immediately before the service split — the baseline the
  * "down then up" case rolls back to. */

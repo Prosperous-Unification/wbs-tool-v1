@@ -16,7 +16,7 @@ import { allocateGeneration } from './optimization-generation';
 import { scheduleInputHash } from './schedule-input-hash';
 import { optimizationGeneration, optimizedScheduleCache, solverQueue, solverSlot } from './schema';
 
-const FOLDER = new URL('../../../apps/be-01/drizzle', import.meta.url).pathname;
+const FOLDER = new URL('../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 const CONTRACT = '7+1.0.0';
 const BUDGET = 60_000;
 const NOW = 100;

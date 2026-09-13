@@ -89,7 +89,7 @@ import {
   sqliteLateWriteControl,
 } from './faults';
 
-const MIGRATIONS = new URL('../../../../apps/be-01/drizzle', import.meta.url).pathname;
+const MIGRATIONS = new URL('../../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 type ExistingFamily = Exclude<keyof ExistingStoreOpeners, 'savedPlans' | 'savedPlanCapture'>;
 type OpenSource = (options: OpenSqliteSourceOptions) => SqliteSource;
 type Task62SqliteSource = SqliteSource & {

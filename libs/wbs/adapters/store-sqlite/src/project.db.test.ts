@@ -16,7 +16,7 @@ import { ProjectRepository } from './project';
 import { optimizationGeneration, solverQueue, solverSlot } from './schema';
 import { UserRepository } from './user';
 
-const FOLDER = new URL('../../../apps/be-01/drizzle', import.meta.url).pathname;
+const FOLDER = new URL('../../../../../apps/wbs/be-01/drizzle', import.meta.url).pathname;
 
 let dir: string;
 let repo: ProjectRepository;
