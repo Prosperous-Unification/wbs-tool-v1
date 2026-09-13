@@ -229,9 +229,48 @@ Fresh restored evidence:
 - Focused ESLint over the changed frontend configuration/tests and CI workflow oracle — passed.
 - The Python fixture path formula directly resolved the namespaced schema and request corpus. The full Python test remains unavailable in this checkout because `python3` has no `jsonschema` installation; Task 3.4 owns solver installation/package consumers.
 
+## Section 3.3 development and sync consumers
+
+Development setup now reads and writes the three managed environments below `apps/wbs`,
+while the port preflight resolves the same root and the supervisor selects all four qualified
+Nx projects in both modes. The macOS solver environment, package installation and golden
+request proof read their mapped adapter and contract roots. Dev deployment and sync use the
+moved remote MCP environment without reading or changing a live `.env` during verification.
+
+Restart fingerprints cover every moved application configuration, migration root and
+library manifest discovered from the actual project graph. Solver compatibility binds the
+moved Python adapter and backend Dockerfile to the image mapping. The two owning test targets
+now declare their namespaced external inputs, including recursive application Dockerfiles.
+
+| Check                      | Fault injected                                                              | Production-path observer                     | Observed failure                                                                                                           |
+| -------------------------- | --------------------------------------------------------------------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Setup environment root     | Restored `seedApp` to `apps/<app>`                                          | Moved-layout setup fixture                   | Threw `MissingEnvExampleError: apps/be-01/.env.example is missing`; the required namespaced diagnostic also failed.        |
+| Solver environment/corpus  | Restored the old solver lock and contract fixture roots                     | `solverEnvironment` and `solveGoldenRequest` | Returned the old absolute lock; the golden-request caller then failed with ENOENT before invoking the fake solver.         |
+| Development selectors      | Restored the four unqualified project names in `bin/dev.sh`                 | Host `bin/dev.test.sh`                       | Exactly `local solver runs all four tiers` failed with expected `yes`, actual `no`; fake Nx was still invoked.             |
+| Restart paths              | Restored the pre-move app/library list                                      | `needsRestart` and actual inventory tests    | First failed on absent `apps/wbs/be-01/drizzle`; moved migration/config changes no longer requested the restart.           |
+| Solver compatibility paths | Restored `libs/solver-py` and `apps/be-01/Dockerfile`                       | Real compatibility-object reader fixture     | Threw `fixture has no object id` at its first old-path lookup instead of proving the moved sources compatible.             |
+| Remote MCP environment     | Restored `src/apps/mcp-01/.env` at the deployment and sync callers          | Production-script/default-path oracles       | Both exact namespaced-path assertions failed before any live remote environment was read.                                  |
+| Solver test cache          | Restored the old solver-lock input, then changed the moved Linux numpy pin  | Actual cached `tool-dev-setup:test` target   | Returned `[local cache]`, exit 0; the moved input reran and exited 1 on `numpy: linux 2.5.3, macos 2.5.2`.                 |
+| Dockerfile test cache      | Restored the one-level app Dockerfile input, then changed the moved Bun tag | Actual cached `tool-devsync:test` target     | Returned `[local cache]`, 1/1 hit and exit 0; the recursive input reran and failed on `apps/wbs/be-01/Dockerfile: 1.3.14`. |
+
+Fresh restored evidence:
+
+- `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx test tool-devsync --skip-nx-cache --output-style=stream` with host permission — 155 passed, 0 failed across 15 files, 524 expectations.
+- `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx test tool-dev-setup --skip-nx-cache --output-style=stream` — 19 passed, 0 failed across 2 files, 36 expectations.
+- Host-permitted `bash bin/dev.test.sh` — all 47 checks passed, including actual loopback bind/refusal and all four qualified selectors.
+- `NODE_OPTIONS=--max-old-space-size=8192 NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx run-many -t lint typecheck -p tool-dev-setup,tool-devsync --skip-nx-cache --parallel=1 --output-style=stream` — all four owning static targets passed.
+- `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx build tool-devsync --skip-nx-cache --output-style=stream` — the shellcheck build and its four dependencies passed.
+
+Three narrow adjustments outside the named callers were mechanically required for this coherent slice.
+`bin/dev-ports.sh` defaults to `apps/wbs` because `bin/dev.sh` invokes that real path without
+an override. The tool-devsync Dockerfile input, Bun-pin list and clean-candidate fixture name
+the moved backend file so the owning cache and candidate suite can run; no Dockerfile or image
+build implementation from Task 3.4 changed. The root-fast-tier test now expects the qualified
+backend/frontend names already introduced by Task 3.1. No Task 3.4 image, migration or hook
+consumer was otherwise implemented.
+
 ## Deferred verification
 
-Sections 3.3–4, the full workspace/browser gate, image builds, migration transition probes,
-production dry-run, publication and archive remain intentionally open. Section 3.1 proves
-the coordinated project/configuration move, and Section 3.2 proves frontend and cross-tree
-consumers through their moved production paths.
+Sections 3.4–4, the full workspace/browser gate, image builds, migration transition probes,
+production dry-run, publication and archive remain intentionally open. Sections 3.1–3.3 prove
+the coordinated project/configuration move and its frontend, development and sync consumers.

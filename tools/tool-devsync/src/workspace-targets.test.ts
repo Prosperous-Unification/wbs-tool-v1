@@ -741,7 +741,7 @@ describe('every project says which ring, scope and runtime it is', () => {
 describe('the root fast tier discovers every eligible project', () => {
   it('requires a test:unit target independently of target presence', async () => {
     const projects = await projectsOnDisk();
-    const requiredNonLibraries = new Set(['be-01', 'fe-01']);
+    const requiredNonLibraries = new Set(['wbs-be-01', 'wbs-fe-01']);
     const missing: string[] = [];
     const unexpected: string[] = [];
     for (const { dir, config } of projects) {

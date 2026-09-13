@@ -4,7 +4,7 @@
 #
 # **Why a preflight rather than four servers reporting their own clash.** A held
 # port does not read as a held port from the nx summary: `fe-01`'s vite sets
-# `strictPort` (`apps/fe-01/vite.config.ts`, and deliberately, so the browser
+# `strictPort` (`apps/wbs/fe-01/vite.config.ts`, and deliberately, so the browser
 # gate cannot silently measure 4201), so it exits in under a second and nx lists
 # it as a task that *completed* in 710ms beside three that are Continuous — the
 # shape of a finished build, not of a refusal. One orphaned vite from a previous
@@ -166,7 +166,7 @@ free_port() {
 }
 
 mode=check
-apps_dir=$repo_root/apps
+apps_dir=$repo_root/apps/wbs
 while (($# > 0)); do
   case $1 in
     --resolve)

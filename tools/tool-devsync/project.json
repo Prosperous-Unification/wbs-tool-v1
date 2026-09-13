@@ -33,7 +33,7 @@
         "{workspaceRoot}/tools/**/src/**/*.ts",
         "{workspaceRoot}/.bun-version",
         "{workspaceRoot}/.github/workflows/ci.yml",
-        "{workspaceRoot}/apps/*/Dockerfile",
+        "{workspaceRoot}/apps/**/Dockerfile",
         "{workspaceRoot}/deploy/dev-src/Dockerfile"
       ],
       "options": {

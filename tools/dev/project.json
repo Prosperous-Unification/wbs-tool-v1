@@ -7,6 +7,13 @@
   "targets": {
     "test": {
       "executor": "nx:run-commands",
+      "inputs": [
+        "default",
+        "^production",
+        "{workspaceRoot}/apps/wbs/*/.env.example",
+        "{workspaceRoot}/libs/wbs/adapters/solver-py/requirements*.lock",
+        "{workspaceRoot}/libs/wbs/domain/contracts/solver/fixtures/request/valid-quantised-baseline.json"
+      ],
       "options": {
         "command": "bun test --preload ../test/scratch/preload.ts",
         "cwd": "tools/dev"

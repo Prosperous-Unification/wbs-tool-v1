@@ -63,7 +63,7 @@ Names below refer to the old root before slice 3 and its mapped destination afte
       typecheck/build resolve the moved files. Negative: restore one old alias target and
       one omitted moved root lint input; observe the actual build/lint target fail with a
       deliberate source fault in the omitted file. Remove injected faults before proceeding.
-- [ ] 3.3 Rewrite development setup/environment and solver paths in `tools/dev`, all four
+- [x] 3.3 Rewrite development setup/environment and solver paths in `tools/dev`, all four
       project selectors in `bin/dev.sh` and its test, MCP remote preflight path in
       `bin/dev-deploy.sh`, sync restart/solver-compatibility paths and tests. Test: setup
       operates in a temporary moved-layout fixture, supervisor still selects four apps,

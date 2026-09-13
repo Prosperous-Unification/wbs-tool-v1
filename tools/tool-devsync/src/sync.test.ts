@@ -14,6 +14,7 @@ import {
   devSolverMappingOf,
   devSyncFailureMessage,
   LOCK_BUSY_EXIT_CODE,
+  MCP_ENV,
   needsRestart,
   preflightSolver,
   RECREATE_PATHS,
@@ -53,14 +54,16 @@ describe('needsRestart', () => {
   // sees it. Without this, dev serves new code against the old schema and
   // reports success -- be-01 sets migrationsApplied=true regardless.
   it('restarts when a migration appeared', () => {
-    expect(needsRestart({ 'apps/be-01/drizzle': 'a' }, { 'apps/be-01/drizzle': 'b' })).toBe(true);
+    expect(needsRestart({ 'apps/wbs/be-01/drizzle': 'a' }, { 'apps/wbs/be-01/drizzle': 'b' })).toBe(
+      true,
+    );
   });
 
   // The Nx supervisor reads these once at startup. A changed port, command or
   // serve target leaves the old topology running while HEAD moves on.
   it('restarts when a serve target changed', () => {
     expect(
-      needsRestart({ 'apps/be-01/project.json': 'a' }, { 'apps/be-01/project.json': 'b' }),
+      needsRestart({ 'apps/wbs/be-01/project.json': 'a' }, { 'apps/wbs/be-01/project.json': 'b' }),
     ).toBe(true);
   });
 
@@ -88,9 +91,9 @@ describe('needsRestart', () => {
 
   it('watches the paths that cannot reach a running process any other way', () => {
     expect(RESTART_PATHS).toContain('bun.lock');
-    expect(RESTART_PATHS).toContain('apps/be-01/drizzle');
+    expect(RESTART_PATHS).toContain('apps/wbs/be-01/drizzle');
     expect(RESTART_PATHS).toContain('package.json');
-    expect(RESTART_PATHS).toContain('apps/fe-01/vite.config.ts');
+    expect(RESTART_PATHS).toContain('apps/wbs/fe-01/vite.config.ts');
   });
 });
 
@@ -109,9 +112,13 @@ describe('RESTART_PATHS coverage', () => {
     }
   });
 
-  it('names every app tsconfig, which is read once at process start', () => {
-    for (const app of ['be-01', 'gw-01', 'fe-01', 'mcp-01']) {
-      expect(RESTART_PATHS).toContain(`apps/${app}/tsconfig.json`);
+  it('names every app tsconfig, which is read once at process start', async () => {
+    const apps = (await readProjects(WORKSPACE)).filter((project) =>
+      project.root.startsWith('apps/'),
+    );
+    expect(apps).toHaveLength(4);
+    for (const app of apps) {
+      expect(RESTART_PATHS).toContain(`${app.root}/tsconfig.json`);
     }
     expect(RESTART_PATHS).toContain('tsconfig.base.json');
   });
@@ -119,10 +126,10 @@ describe('RESTART_PATHS coverage', () => {
   it('names every app project.json, whose serve target the supervisor reads once', async () => {
     const apps = (await readProjects(WORKSPACE))
       .filter((project) => project.root.startsWith('apps/'))
-      .map((project) => project.name);
-    expect(apps).toContain('mcp-01');
+      .map((project) => project.root);
+    expect(apps).toContain('apps/wbs/mcp-01');
     for (const app of apps) {
-      expect(RESTART_PATHS).toContain(`apps/${app}/project.json`);
+      expect(RESTART_PATHS).toContain(`${app}/project.json`);
     }
   });
 });
@@ -139,8 +146,8 @@ describe('dev supervisor', () => {
   // `dev` script that names nothing at all, which is the fault this test exists
   // to catch wearing the new arrangement's clothes.
   //
-  // Proof: dropping mcp-01 from `bin/dev.sh`'s `--projects=` list failed this
-  // case on `- "mcp-01", · Expected - 1 · Received + 0`. Pointing the read back
+  // Proof: dropping wbs-mcp-01 from `bin/dev.sh`'s `--projects=` list failed this
+  // case on `- "wbs-mcp-01", · Expected - 1 · Received + 0`. Pointing the read back
   // at `package.json`'s `dev` script instead passes with that same tier gone,
   // because the script no longer names any project.
   it('names every tier in the dev stack, for both dev modes', async () => {
@@ -150,7 +157,12 @@ describe('dev supervisor', () => {
     expect(projects).toBeDefined();
     // One list serves both `serve` and `serve-local-solver`, so a tier missing
     // here is missing from both modes at once.
-    expect(projects?.split(',').sort()).toEqual(['be-01', 'fe-01', 'gw-01', 'mcp-01']);
+    expect(projects?.split(',').sort()).toEqual([
+      'wbs-be-01',
+      'wbs-fe-01',
+      'wbs-gw-01',
+      'wbs-mcp-01',
+    ]);
 
     const pkg = JSON.parse(
       await readFile(new URL('../../../package.json', import.meta.url), 'utf8'),
@@ -160,7 +172,10 @@ describe('dev supervisor', () => {
   });
 
   it('binds the dev mapping to the solver sources and package image', () => {
-    expect(SOLVER_COMPATIBILITY_PATHS).toEqual(['libs/solver-py', 'apps/be-01/Dockerfile']);
+    expect(SOLVER_COMPATIBILITY_PATHS).toEqual([
+      'libs/wbs/adapters/solver-py',
+      'apps/wbs/be-01/Dockerfile',
+    ]);
     expect(
       devSolverMappingOf(
         JSON.stringify({
@@ -173,8 +188,14 @@ describe('dev supervisor', () => {
       assertDevSolverSourceCompatible([]);
     }).not.toThrow();
     expect(() => {
-      assertDevSolverSourceCompatible(['libs/solver-py/src/wbs_solver/solve.py']);
+      assertDevSolverSourceCompatible(['libs/wbs/adapters/solver-py/src/wbs_solver/solve.py']);
     }).toThrow(/mapping is stale.*publish the backend image/);
+  });
+
+  it('checks the namespaced MCP environment before moving the live checkout', () => {
+    // Proof: restoring sync.ts's default to `src/apps/mcp-01/.env` failed this
+    // exact production default assertion before any live remote file was read.
+    expect(MCP_ENV).toBe('/home/puni1/wbs-dev/src/apps/wbs/mcp-01/.env');
   });
 
   it('routes the solver target after fetch and before deployed HEAD is believed', async () => {
@@ -193,7 +214,7 @@ describe('dev supervisor', () => {
     const changedEvents: string[] = [];
     await deploySolverTarget('c'.repeat(40), {
       currentSha: () => Promise.resolve('b'.repeat(40)),
-      changedPaths: () => Promise.resolve(['libs/solver-py/src/wbs_solver/solve.py']),
+      changedPaths: () => Promise.resolve(['libs/wbs/adapters/solver-py/src/wbs_solver/solve.py']),
       compatibilityIdentity: () => Promise.resolve('d'.repeat(64)),
       readState: () => Promise.resolve(undefined),
       prepare: (target, state) => {
@@ -234,13 +255,18 @@ describe('dev supervisor', () => {
     const directory = await scratchAsync('wbs-devsync-source-repository-');
     const sourceRepository = join(directory, 'source');
     const exportedRuntime = join(directory, 'bin', 'sync.target');
-    await mkdir(join(sourceRepository, 'libs', 'solver-py'), { recursive: true });
-    await mkdir(join(sourceRepository, 'apps', 'be-01'), { recursive: true });
+    await mkdir(join(sourceRepository, 'libs', 'wbs', 'adapters', 'solver-py'), {
+      recursive: true,
+    });
+    await mkdir(join(sourceRepository, 'apps', 'wbs', 'be-01'), { recursive: true });
     await mkdir(exportedRuntime, { recursive: true });
-    await writeFile(join(sourceRepository, 'libs', 'solver-py', 'solver.py'), 'version = 1\n');
-    await writeFile(join(sourceRepository, 'apps', 'be-01', 'Dockerfile'), 'FROM scratch\n');
+    await writeFile(
+      join(sourceRepository, 'libs', 'wbs', 'adapters', 'solver-py', 'solver.py'),
+      'version = 1\n',
+    );
+    await writeFile(join(sourceRepository, 'apps', 'wbs', 'be-01', 'Dockerfile'), 'FROM scratch\n');
     await $`git -C ${sourceRepository} init --quiet`;
-    await $`git -C ${sourceRepository} add libs/solver-py apps/be-01/Dockerfile`;
+    await $`git -C ${sourceRepository} add libs/wbs/adapters/solver-py apps/wbs/be-01/Dockerfile`;
     await $`git -C ${sourceRepository} -c user.name=devsync-test -c user.email=devsync@example.invalid commit --quiet -m compatibility`;
     const compatibilitySha = (await $`git -C ${sourceRepository} rev-parse HEAD`.text()).trim();
     const dependencies = solverTargetDependencies({
@@ -287,7 +313,7 @@ describe('dev supervisor', () => {
       }).compatibilityIdentity('a'.repeat(40)),
     );
     expect(message).toContain(`git repository ${missingRepository}`);
-    expect(message).toContain(`${'a'.repeat(40)}:libs/solver-py`);
+    expect(message).toContain(`${'a'.repeat(40)}:libs/wbs/adapters/solver-py`);
   });
 
   it('validates every injected solver path before constructing host dependencies', () => {
@@ -339,7 +365,8 @@ describe('dev supervisor', () => {
           'c'.repeat(40),
           {
             currentSha: () => Promise.resolve('b'.repeat(40)),
-            changedPaths: () => Promise.resolve(['libs/solver-py/src/wbs_solver/solve.py']),
+            changedPaths: () =>
+              Promise.resolve(['libs/wbs/adapters/solver-py/src/wbs_solver/solve.py']),
             readConfig: () => {
               configReads += 1;
               return Promise.resolve(undefined);
@@ -370,7 +397,7 @@ describe('dev supervisor', () => {
             expect(to).toBe(targetSha);
             expect(from).toBe(changedPathReads === 1 ? deployedSha : futureMappingSha);
             return Promise.resolve(
-              changedPathReads === 1 ? [] : ['libs/solver-py/src/wbs_solver/solve.py'],
+              changedPathReads === 1 ? [] : ['libs/wbs/adapters/solver-py/src/wbs_solver/solve.py'],
             );
           },
           readConfig: () => Promise.resolve(solverConfigBytes(futureMappingSha)),
@@ -400,7 +427,7 @@ describe('dev supervisor', () => {
             changedPathReads += 1;
             expect(to).toBe(targetSha);
             expect(from).toBe(changedPathReads === 1 ? deployedSha : mappingSha);
-            return Promise.resolve(['libs/solver-py/src/wbs_solver/solve.py']);
+            return Promise.resolve(['libs/wbs/adapters/solver-py/src/wbs_solver/solve.py']);
           },
           readConfig: () => Promise.resolve(solverConfigBytes(mappingSha)),
           requireHost: () => {
@@ -425,7 +452,7 @@ describe('dev supervisor', () => {
       currentSha: () => Promise.resolve(deployedSha),
       changedPaths: () => {
         changedPathReads += 1;
-        return Promise.resolve(changedPathReads === 1 ? ['apps/be-01/Dockerfile'] : []);
+        return Promise.resolve(changedPathReads === 1 ? ['apps/wbs/be-01/Dockerfile'] : []);
       },
       readConfig: () => Promise.resolve(solverConfigBytes(mappingSha)),
       requireHost: (image) => {

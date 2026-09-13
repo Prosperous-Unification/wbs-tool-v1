@@ -1,5 +1,5 @@
 /**
- * `nx run solver-py:setup-macos` — build and prove the local solver environment.
+ * `nx run wbs-solver-py:setup-macos` — build and prove the local solver environment.
  *
  * Separate from `dev:setup`, which seeds `.env` files and must keep working on a
  * machine that will never run a solver. This one is opt-in for the local

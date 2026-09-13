@@ -52,7 +52,7 @@ echo "[dev-deploy] $BRANCH @ ${SHA:0:8} -> dev"
 # cannot bypass its environment prerequisite. Its one-byte result comes from a
 # persistent h2puni marker, so every post-cutover deploy runs semantic MCP health.
 MCP_EXPOSURE_EXPECTED=$(ssh h2puni \
-  "bash -s -- /home/puni1/wbs-dev/src/apps/mcp-01/.env /home/puni1/wbs-dev/state/mcp-exposure" \
+  "bash -s -- /home/puni1/wbs-dev/src/apps/wbs/mcp-01/.env /home/puni1/wbs-dev/state/mcp-exposure" \
   < "$(dirname "${BASH_SOURCE[0]}")/dev-mcp-preflight.sh")
 export MCP_EXPOSURE_EXPECTED
 

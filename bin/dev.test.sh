@@ -183,8 +183,11 @@ tmp=$(mktemp -d)
 run_case "$tmp" 0 "$tmp/dev.log" --local-solver
 check 'local solver target' 'serve-local-solver' "$(asked_target "$tmp")"
 check 'local solver keeps one nx invocation' '1' "$(wc -l <"$tmp/bin/argv" | tr -d ' ')"
+# Proof: restoring bin/dev.sh's four pre-move Nx selectors made the host-permitted
+# suite report `FAIL local solver runs all four tiers · expected: yes · actual: no`
+# while the fake Nx still ran (2026-09-13).
 check 'local solver runs all four tiers' 'yes' \
-  "$(grep -q -- '--projects=be-01,gw-01,fe-01,mcp-01' "$tmp/bin/argv" && echo yes || echo no)"
+  "$(grep -q -- '--projects=wbs-be-01,wbs-gw-01,wbs-fe-01,wbs-mcp-01' "$tmp/bin/argv" && echo yes || echo no)"
 rm -rf "$tmp"
 
 # 6. No argument is still the ordinary supervised dev stack, because that path

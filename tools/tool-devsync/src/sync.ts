@@ -316,14 +316,14 @@ export async function runDevSyncLock(
  * Paths whose change a running dev environment cannot pick up by itself.
  *
  * - `bun.lock` -- `bun install` cannot run inside a live watcher.
- * - `apps/be-01/drizzle` -- migrations are not imported by any watched module,
+ * - `apps/wbs/be-01/drizzle` -- migrations are not imported by any watched module,
  *   so `bun --watch` never sees them. be-01 migrates at boot in dev
  *   (MIGRATE_ON_STARTUP=true) and reports migrationsApplied=true either way,
  *   so a missed restart means new code on an old schema, reported healthy.
  * - `package.json`, `nx.json`, `apps/<tier>/project.json` -- the Nx supervisor
  *   reads the serve targets once, at startup. A changed port, command or
  *   project list leaves the old topology running while HEAD moves on.
- * - `apps/fe-01/vite.config.ts` -- Vite reloads app code, not its own config.
+ * - `apps/wbs/fe-01/vite.config.ts` -- Vite reloads app code, not its own config.
  *
  * Not covered, deliberately, because they need more than a restart: the
  * Dockerfile and compose.yml (rebuild/recreate), and the gitignored per-tier
@@ -333,47 +333,49 @@ export const RESTART_PATHS: readonly string[] = [
   'bun.lock',
   'package.json',
   'nx.json',
-  'apps/be-01/drizzle',
-  'apps/be-01/project.json',
-  'apps/gw-01/project.json',
-  'apps/fe-01/project.json',
-  'apps/mcp-01/project.json',
-  'apps/fe-01/vite.config.ts',
+  // Proof: restoring the pre-move app and library entries failed sync.test.ts
+  // first on the missing `apps/wbs/be-01/drizzle` production restart path.
+  'apps/wbs/be-01/drizzle',
+  'apps/wbs/be-01/project.json',
+  'apps/wbs/gw-01/project.json',
+  'apps/wbs/fe-01/project.json',
+  'apps/wbs/mcp-01/project.json',
+  'apps/wbs/fe-01/vite.config.ts',
   // TypeScript config is read once, at process start. A moved path alias
   // resolves against the old mapping in three already-running processes while
   // HEAD says otherwise, which presents as an import that exists in the editor
   // and not at runtime.
   'tsconfig.base.json',
-  'apps/be-01/tsconfig.json',
-  'apps/gw-01/tsconfig.json',
-  'apps/fe-01/tsconfig.json',
-  'apps/mcp-01/tsconfig.json',
+  'apps/wbs/be-01/tsconfig.json',
+  'apps/wbs/gw-01/tsconfig.json',
+  'apps/wbs/fe-01/tsconfig.json',
+  'apps/wbs/mcp-01/tsconfig.json',
   // A library's project.json can change what its serve-time build resolves to,
   // and the Nx supervisor read the project graph at startup like the rest.
   // Listed per library rather than as `libs`, which would restart on every
   // source edit and defeat the watchers. `sync.test.ts` fails if a library on
   // disk is missing from this list, so adding one cannot silently skip it.
-  'libs/auth/project.json',
-  'libs/config/project.json',
-  'libs/conformance/project.json',
-  'libs/contracts/project.json',
+  'libs/wbs/adapters/auth/project.json',
+  'libs/wbs/adapters/config/project.json',
+  'libs/wbs/application/conformance/project.json',
+  'libs/wbs/domain/contracts/project.json',
   // Proof: removing this nested entry failed `names every library project.json`
-  // on `Expected to contain: "libs/contracts/solver/supervisor-protocol/project.json"`.
-  'libs/contracts/solver/supervisor-protocol/project.json',
-  'libs/core/project.json',
-  'libs/domain/project.json',
-  'libs/observability/project.json',
-  'libs/realtime/project.json',
+  // on `Expected to contain: "libs/wbs/adapters/solver-supervisor-protocol/project.json"`.
+  'libs/wbs/adapters/solver-supervisor-protocol/project.json',
+  'libs/wbs/application/core/project.json',
+  'libs/wbs/domain/domain/project.json',
+  'libs/wbs/adapters/observability/project.json',
+  'libs/wbs/adapters/realtime/project.json',
   // Proof: removing this entry failed `names every library project.json that exists on disk`
-  // on `Expected to contain: "libs/runtime-portable/project.json"`.
-  'libs/runtime-portable/project.json',
-  'libs/store-memory/project.json',
+  // on `Expected to contain: "libs/wbs/adapters/runtime-portable/project.json"`.
+  'libs/wbs/adapters/runtime-portable/project.json',
+  'libs/wbs/adapters/store-memory/project.json',
   // Proof: recursive project discovery first failed the restart coverage test
   // on conformance, then store-memory, then store-sqlite as each preceding
   // omission was restored. Watched 2026-09-10.
-  'libs/store-sqlite/project.json',
-  'libs/validation/project.json',
-  'libs/solver-py/project.json',
+  'libs/wbs/adapters/store-sqlite/project.json',
+  'libs/wbs/domain/validation/project.json',
+  'libs/wbs/adapters/solver-py/project.json',
 ];
 
 /**
@@ -412,7 +414,9 @@ export function needsRestart(before: Fingerprint, after: Fingerprint): boolean {
   return false;
 }
 
-export async function assertMcpEnv(path = `${SRC}/apps/mcp-01/.env`): Promise<void> {
+export const MCP_ENV = `${SRC}/apps/wbs/mcp-01/.env`;
+
+export async function assertMcpEnv(path = MCP_ENV): Promise<void> {
   if (!(await Bun.file(path).exists())) {
     throw new Error(`missing ${path}; seed the gitignored mcp-01 environment before deploying`);
   }

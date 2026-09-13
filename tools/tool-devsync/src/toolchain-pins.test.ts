@@ -17,15 +17,16 @@ import { describe, expect, it } from 'bun:test';
  * Every file this suite reads from outside its own project is named in
  * `tool-devsync:test`'s `inputs`, and that is not bookkeeping: Nx caches the
  * target, and a read it does not know about is a change it cannot see.
- * Measured 2026-09-06: with `{workspaceRoot}/apps/*\/Dockerfile` declared, a
- * Dockerfile put back to 1.3.14 re-ran this suite and failed it; with that
- * line removed, the same edit answered `nx run tool-devsync:test [local
- * cache]` — green, having run nothing. `workspace-targets.test.ts` cannot see
- * these reads (it looks for `'../../../…'` literals), so the list is kept by hand.
+ * Measured 2026-09-13: with the namespaced recursive application Dockerfile
+ * input declared, a Dockerfile put back to 1.3.14 re-ran this suite and failed
+ * it; restoring the pre-move one-level application-Dockerfile input made the same
+ * edit answer `nx run tool-devsync:test [local cache]` — green, having run
+ * nothing. `workspace-targets.test.ts` cannot see these reads (it looks for
+ * `'../../../…'` literals), so the list is kept by hand.
  *
- * Proof: with `apps/be-01/Dockerfile`'s first stage put back to
- * `oven/bun:1.3.14-alpine`, `every Bun image tag equals .bun-version` failed
- * on `- []` / `+ [ "apps/be-01/Dockerfile: 1.3.14" ]` (2026-09-06). And with
+ * Proof: with `apps/wbs/be-01/Dockerfile`'s first stage put back to
+ * `oven/bun:1.3.14`, `every Bun image tag equals .bun-version` failed on
+ * `- []` / `+ [ "apps/wbs/be-01/Dockerfile: 1.3.14" ]` (2026-09-13). And with
  * `bun-version: 1.3.14` put back in place of `bun-version-file` in the
  * `pixels` job, `CI reads the file rather than a literal` failed on
  * `Expected: 0 · Received: 1`.
@@ -38,9 +39,9 @@ async function read(path: string): Promise<string> {
 
 /** Every Dockerfile that starts from a Bun image. Listed, so a new one is added here on the day it is written. */
 const BUN_DOCKERFILES = [
-  'apps/be-01/Dockerfile',
-  'apps/gw-01/Dockerfile',
-  'apps/fe-01/Dockerfile',
+  'apps/wbs/be-01/Dockerfile',
+  'apps/wbs/gw-01/Dockerfile',
+  'apps/wbs/fe-01/Dockerfile',
   'deploy/dev-src/Dockerfile',
 ] as const;
 

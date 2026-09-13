@@ -1,14 +1,14 @@
 /**
  * Provision and verify the macOS development solver environment.
  *
- * **Why this exists.** `libs/solver-py/requirements.lock` installs on Linux
+ * **Why this exists.** `libs/wbs/adapters/solver-py/requirements.lock` installs on Linux
  * x86_64 and nowhere else, and says so in its own header; the Python suite has
- * therefore been CI-only, and `solver-py:test` on a Mac resolves bare `python3`
+ * therefore been CI-only, and `wbs-solver-py:test` on a Mac resolves bare `python3`
  * to whatever the developer has first on PATH — here an Anaconda 3.13 with no
  * OR-Tools, so the target fails before it reaches a single assertion. This
  * builds the one interpreter-and-wheels environment that both the suite and the
  * local solver use, from
- * `libs/solver-py/requirements.macos-arm64.lock`, hash-verified.
+ * `libs/wbs/adapters/solver-py/requirements.macos-arm64.lock`, hash-verified.
  *
  * **One environment object, both uses.** {@link solverEnvironment} returns the
  * absolute paths, and every consumer takes them from here rather than
@@ -40,7 +40,7 @@ export function solverEnvironment(repoRoot: string): SolverEnvironment {
     root,
     python: join(root, 'bin', 'python'),
     bin: join(root, 'bin'),
-    lock: resolve(repoRoot, 'libs/solver-py/requirements.macos-arm64.lock'),
+    lock: resolve(repoRoot, 'libs/wbs/adapters/solver-py/requirements.macos-arm64.lock'),
   };
 }
 
@@ -135,7 +135,7 @@ export function assertLocksAgree(linuxLockText: string, macLockText: string): vo
 export function provisionSolverEnvironment(repoRoot: string): SolverEnvironment {
   const environment = solverEnvironment(repoRoot);
   assertLocksAgree(
-    readFileSync(resolve(repoRoot, 'libs/solver-py/requirements.lock'), 'utf8'),
+    readFileSync(resolve(repoRoot, 'libs/wbs/adapters/solver-py/requirements.lock'), 'utf8'),
     readFileSync(environment.lock, 'utf8'),
   );
 
@@ -162,7 +162,7 @@ export function provisionSolverEnvironment(repoRoot: string): SolverEnvironment 
     'install',
     '--quiet',
     '--no-deps',
-    resolve(repoRoot, 'libs/solver-py'),
+    resolve(repoRoot, 'libs/wbs/adapters/solver-py'),
   ]);
   if (distribution.status !== 0) {
     throw new Error(`wbs-solver install failed: ${distribution.stderr.trim()}`);
@@ -246,7 +246,10 @@ export function solverChildPath(environment: SolverEnvironment): string {
 /** Run one golden request through the real console script, as the final readiness proof. */
 export function solveGoldenRequest(repoRoot: string, environment: SolverEnvironment): string {
   const request = readFileSync(
-    resolve(repoRoot, 'libs/contracts/solver/fixtures/request/valid-quantised-baseline.json'),
+    resolve(
+      repoRoot,
+      'libs/wbs/domain/contracts/solver/fixtures/request/valid-quantised-baseline.json',
+    ),
     'utf8',
   );
   const solved = spawnSync(join(environment.bin, 'wbs-solver'), [], {

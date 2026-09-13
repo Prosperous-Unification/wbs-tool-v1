@@ -33,12 +33,12 @@ describe('the solver compatibility identity', () => {
     const solverTreeB = '2'.repeat(40);
     const dockerfile = '3'.repeat(40);
     const objects = new Map([
-      [`${SOURCE_SHA}:libs/solver-py`, solverTreeA],
-      [`${SOURCE_SHA}:apps/be-01/Dockerfile`, dockerfile],
-      [`${OTHER_SOURCE_SHA}:libs/solver-py`, solverTreeA],
-      [`${OTHER_SOURCE_SHA}:apps/be-01/Dockerfile`, dockerfile],
-      [`${'e'.repeat(40)}:libs/solver-py`, solverTreeB],
-      [`${'e'.repeat(40)}:apps/be-01/Dockerfile`, dockerfile],
+      [`${SOURCE_SHA}:libs/wbs/adapters/solver-py`, solverTreeA],
+      [`${SOURCE_SHA}:apps/wbs/be-01/Dockerfile`, dockerfile],
+      [`${OTHER_SOURCE_SHA}:libs/wbs/adapters/solver-py`, solverTreeA],
+      [`${OTHER_SOURCE_SHA}:apps/wbs/be-01/Dockerfile`, dockerfile],
+      [`${'e'.repeat(40)}:libs/wbs/adapters/solver-py`, solverTreeB],
+      [`${'e'.repeat(40)}:apps/wbs/be-01/Dockerfile`, dockerfile],
     ]);
     const reads: string[] = [];
     const objectIdAt = (sourceSha: string, path: string): Promise<string> => {
@@ -65,7 +65,7 @@ describe('the solver compatibility identity', () => {
         solverCompatibilityIdentityAt(SOURCE_SHA, {
           repository: '/srv/wbs/source',
           objectIdAt: (_sourceSha, path) =>
-            path === 'libs/solver-py'
+            path === 'libs/wbs/adapters/solver-py'
               ? Promise.resolve('1'.repeat(40))
               : Promise.resolve('(missing)'),
         }),

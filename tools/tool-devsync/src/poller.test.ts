@@ -128,6 +128,9 @@ describe('durable dev poller', () => {
     const deploy = await readFile(new URL('../../../bin/dev-deploy.sh', import.meta.url), 'utf8');
     expect(deploy).toContain('< "$(dirname "${BASH_SOURCE[0]}")/dev-poll-sync.sh"');
     expect(deploy).not.toContain('/home/puni1/wbs-dev/bin/dev-poll-sync.sh');
+    // Proof: restoring the remote preflight argument to `src/apps/mcp-01/.env`
+    // failed this production-script oracle on the exact namespaced environment path.
+    expect(deploy).toContain('/home/puni1/wbs-dev/src/apps/wbs/mcp-01/.env');
   });
 
   it('names the managed Bun installation remedy before reading the target', async () => {
@@ -586,7 +589,7 @@ if [ "$1" = --version ]; then echo ${Bun.version}; exit 0; fi
 if [ "$1" = build ] || [ "$1" = -e ]; then exec ${process.execPath} "$@"; fi
 target_root=$(cd "$(dirname "$1")/../../.." && pwd)
 [ "$PWD" = "$target_root" ] || { echo "wrong cwd: $PWD" >&2; exit 41; }
-for required in apps/be-01/Dockerfile bin/publish-release.sh deploy/solver-supervisor/wbs-solver-supervisor.service bun.lock; do
+for required in apps/wbs/be-01/Dockerfile bin/publish-release.sh deploy/solver-supervisor/wbs-solver-supervisor.service bun.lock; do
   [ -f "$target_root/$required" ] || { echo "missing target file: $required" >&2; exit 42; }
 done
 [ "$(git -C "$target_root" rev-parse HEAD)" = "$2" ] || { echo 'wrong target HEAD' >&2; exit 43; }
@@ -607,7 +610,7 @@ printf '%s\n' "$target_root" > "$POLL_TARGET_PROBE"
 
     // Proof, each watched failing on the merged loader (2026-09-09), all as
     // `Received` stderr on the `toEqual` below: the pre-TASK-326 `git archive`
-    // of tools/libs/root configs — `missing target file: apps/be-01/Dockerfile`;
+    // of tools/libs/root configs — `missing target file: apps/wbs/be-01/Dockerfile`;
     // `cd "$SRC"` restored before the exec — `wrong cwd: <the source checkout>`;
     // the guard's `rm -rf` of its scratch removed — `target tree is dirty`;
     // restoring `git clone --shared` — `target objects still borrow source
