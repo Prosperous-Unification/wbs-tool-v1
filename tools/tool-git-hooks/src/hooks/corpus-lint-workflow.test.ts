@@ -56,6 +56,16 @@ const corpusLintStep = (workflow: Workflow): WorkflowStep => {
 };
 
 describe('the CI corpus-version-lint boundary', () => {
+  test('installs the solver package from its moved lock', () => {
+    const workflow = readFileSync(workflowPath, 'utf8');
+    expect(workflow).toContain(
+      'cache-dependency-path: libs/wbs/adapters/solver-py/requirements.lock',
+    );
+    expect(workflow).toContain(
+      'python3 -m pip install --require-hashes -r libs/wbs/adapters/solver-py/requirements.lock',
+    );
+  });
+
   test('subscribes to exactly the events the production selector supports', () => {
     // Proof: removed `merge_group:` from the workflow. This failed with the
     // subscribed set missing `merge_group`; the earlier inline-arm companion

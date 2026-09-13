@@ -759,6 +759,6 @@ CONTENT=SAME`),
     // Proof: moving the smoke command into the steps script without following that production
     // call failed here on `Expected to contain: WBS_RUN_SOLVER_ORPHAN_PROC=1`.
     expect(steps).toContain('WBS_RUN_SOLVER_ORPHAN_PROC=1');
-    expect(steps).toContain('bunx nx run be-01:solver-image-smoke');
+    expect(steps).toContain('bunx nx run wbs-be-01:solver-image-smoke');
   });
 });

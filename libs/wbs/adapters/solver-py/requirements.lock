@@ -1,7 +1,7 @@
 # The lock (tasks.md 5.1). Hash-verified, fully pinned, transitive closure
 # included. Install with:
 #
-#     python3 -m pip install --require-hashes -r libs/solver-py/requirements.lock
+#     python3 -m pip install --require-hashes -r libs/wbs/adapters/solver-py/requirements.lock
 #
 # HOW IT WAS MADE, so the next person can reproduce it rather than guess:
 #

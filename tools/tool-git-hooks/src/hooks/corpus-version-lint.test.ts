@@ -424,9 +424,12 @@ describe('unreadable inputs fail closed, because a check that skips itself is th
 
 describe('the fixture list is the one the corpora actually ship', () => {
   it('names both checked-in golden corpora and nothing else', () => {
+    // Proof: restoring Fast's old libs/domain fixture path failed this
+    // production list oracle with the exact old/new path diff. Observed
+    // 2026-09-13 and restored.
     expect([...CORPUS_FIXTURES]).toEqual([
-      'libs/domain/fixtures/fast-golden-corpus.json',
-      'libs/domain/fixtures/solver-quantum-golden-corpus.json',
+      'libs/wbs/domain/domain/fixtures/fast-golden-corpus.json',
+      'libs/wbs/domain/domain/fixtures/solver-quantum-golden-corpus.json',
     ]);
   });
 });

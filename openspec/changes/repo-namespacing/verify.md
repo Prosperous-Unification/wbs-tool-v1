@@ -295,8 +295,75 @@ Fresh merge evidence:
 - The corresponding seven-project `lint` matrix passed with cache disabled.
 - Python syntax compilation passed for the two changed solver tests. The owning Python runtime suite remains unavailable in this checkout: fresh `python3` import failed with `ModuleNotFoundError: No module named 'jsonschema'`, and `.venv-solver` is absent. Task 3.4 still owns solver installation/package consumers.
 
+## Section 3.4 image, migration and corpus consumers
+
+The three production Dockerfiles, Dagger's Dockerfile map and portable entrypoints now use
+the namespaced application roots. The backend solver stage installs the same pinned package
+from `libs/wbs/adapters/solver-py`; its container workdir is `/app/apps/wbs/be-01`, preserving
+the migration CLIs' existing `./drizzle` argument. The frontend stage invokes the qualified Nx
+project and copies `dist/apps/wbs/fe-01`. Image-smoke host/container paths, CI solver install,
+the canonical smoke target, corpus paths and the staged SQL glob follow the same mapping.
+
+Migration discovery now probes the old and namespaced migration roots at each revision. Exactly
+one must be a Git tree: an unreadable revision, neither root, both roots or unexpected listing
+output throws before the deploy can interpret it as zero migrations. The root waiver receives
+the workspace root explicitly from the hook entrypoint and validates the migration belongs to
+that root's namespaced backend tree.
+
+| Check                             | Fault injected                                                   | Production-path observer                                     | Observed failure                                                                   |
+| --------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| Revision-sensitive migration root | Forced every revision to list only `apps/wbs/be-01/drizzle`      | `migrationsAtSha` across old and rename-only fixture commits | Rename-only comparison failed with expected `[]`, received `["0001_init"]`.        |
+| Candidate Docker input            | Restored backend `COPY apps/be-01 ./apps/be-01`                  | Dagger candidate COPY-input preflight                        | Named `Dockerfile:39` and missing `apps/be-01`.                                    |
+| Migration hook reach              | Restored lefthook's old `apps/be-01/drizzle/**/*.sql` glob       | Production hook configuration oracle                         | Failed with the complete configuration naming the stale glob.                      |
+| Root waiver location              | Retained the old four-level ascent in the moved checkout fixture | `lintMigration` waiver path                                  | Reported the present root script absent.                                           |
+| Workspace ownership               | Supplied a different workspace root for a waived migration       | `lintMigration` waiver boundary                              | Old implementation reported a missing script instead of naming the unrelated root. |
+| Corpus reader                     | Restored Fast's old `libs/domain/fixtures` path                  | Corpus production fixture-list oracle                        | Failed with the exact old/new fixture path diff.                                   |
+
+Fresh focused evidence before the owning targets:
+
+- Dagger path/candidate tests: 9 passed, 0 failed, 26 expectations.
+- Deploy migration transition tests: 14 passed, 0 failed, including rename-only, later addition,
+  absent root, ambiguous roots and migration-flag refusal.
+- The production Git reader resolved 44 migration ids from the current namespaced `HEAD`, from
+  `20260426171432_talented_smiling_tiger` through `20260912120000_add_work_item_facts`.
+- Migration/corpus/workflow hook tests: 53 passed, 0 failed, 94 expectations; the moved waiver
+  still refuses missing `down.sql`, missing root script and unrelated workspace roots.
+- Moved backend migration CLI fixtures: 3 passed, 0 failed, 13 expectations; apply, status and
+  rollback kept their relative CLI paths under the moved working directory.
+- Canonical gate wiring: 1 passed, 0 failed; shellcheck passed for image-smoke, orphan fixture
+  and gate-step scripts.
+- Focused ESLint passed; cache-disabled typechecks passed for `tool-dagger`, `tool-deploy` and
+  `tool-git-hooks` after one observed nullable `PathLike` type error was narrowed and rerun.
+- A blob-id comparison between pre-move `1a2a7bb0714a068360cd452aad755548f6a9e7ba:apps/be-01/drizzle`
+  and current `HEAD:apps/wbs/be-01/drizzle` found 92 entries on each side and no differences.
+  A diff of deployment identity sources against integrated base `404d83021fc301b9861d6e9866cbabc0e98c138f`
+  was empty; owning publish/deploy contract suites remain the runtime identity oracle.
+
+Fresh owning evidence after restoring the two full-suite integration findings:
+
+- `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx run <project>:test --skip-nx-cache
+--output-style=stream` passed for `tool-dagger` (61 tests, 103 expectations), `tool-deploy`
+  (88 tests, 162 expectations), `tool-git-hooks` (114 tests, 305 expectations) and host-permitted
+  `tool-devsync` (164 tests, 544 expectations). The first sandboxed devsync run exposed the
+  missing lefthook input and duplicated tier union, then also had loopback `EPERM` and fixture
+  hardlink `EXDEV`; after the two implementation defects were fixed, the unrestricted rerun passed.
+- Cache-disabled `lint` and `typecheck` targets passed for all five relevant projects:
+  `tool-dagger`, `tool-deploy`, `tool-git-hooks`, `tool-devsync` and `wbs-be-01`.
+- `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx format:check --files=<Task 3.4 files>`,
+  `git diff --check` and strict repo-namespacing OpenSpec validation passed after the final edits.
+- `docker build --check` completed with no warnings for all three production application
+  Dockerfiles. The orphan fixture's same check refuses `InvalidDefaultArgInFrom` because its
+  required `SOLVER_BASE_IMAGE` deliberately has no default; supplying the build argument does
+  not suppress that static rule, so an orphan fixture image build is not claimed.
+
+Host prerequisites were inspected without installing solver dependencies. Docker client/server
+29.7.2, ShellCheck and Python 3.14.7 are present; the sandbox denied the daemon socket but the
+approved read-only host check succeeded. The Dagger CLI is absent, Python cannot import
+`jsonschema`, and `.venv-solver` remains absent. Therefore no container image build, Dagger
+publish or Python solver suite is claimed in this slice.
+
 ## Deferred verification
 
-Sections 3.4–4, the full workspace/browser gate, image builds, migration transition probes,
-production dry-run, publication and archive remain intentionally open. Sections 3.1–3.3 prove
-the coordinated project/configuration move and its frontend, development and sync consumers.
+Sections 3.5–4, the full workspace/browser gate, image builds, production dry-run, publication
+and archive remain intentionally open. Sections 3.1–3.4 prove the coordinated project/configuration
+move and its frontend, development, image, migration, corpus and sync consumers.

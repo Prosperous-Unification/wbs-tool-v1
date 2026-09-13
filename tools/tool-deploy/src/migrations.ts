@@ -48,27 +48,74 @@ export function assertStopTheWorldNotImplemented(stopTheWorld: boolean): void {
   );
 }
 
-const MIGRATIONS_DIR = 'apps/be-01/drizzle';
+const MIGRATION_DIRS = ['apps/be-01/drizzle', 'apps/wbs/be-01/drizzle'] as const;
+
+function git(repository: string, args: string[], description: string): string {
+  const process = Bun.spawnSync(['git', '-C', repository, ...args]);
+  if (process.exitCode !== 0) {
+    throw new Error(
+      `${description} failed: ${process.stderr.toString('utf8').trim() || 'git returned no diagnostic'}`,
+    );
+  }
+  return process.stdout.toString('utf8');
+}
 
 /**
- * Thin git plumbing boundary for `hasNewMigrations`: lists migration folder
- * names present in `apps/be-01/drizzle` at a given commit-ish. Kept separate
- * from the pure comparison above so that function stays trivially testable
- * without shelling out to git.
+ * Lists migration folder names at a revision while the repository transitions
+ * between its two supported backend layouts. The working tree cannot select
+ * the path: the deployed SHA may predate the namespace move.
+ *
+ * Exactly one root must be a tree at the revision. An empty result would mean
+ * "no migrations" to the deploy guard, so absence, ambiguity and unreadable
+ * revisions are refused rather than converted into that valid domain value.
  */
-export function migrationsAtSha(sha: string, dir: string = MIGRATIONS_DIR): string[] {
-  const proc = Bun.spawnSync(['git', 'ls-tree', '-r', '--name-only', sha, '--', dir]);
-  if (proc.exitCode !== 0) {
-    throw new Error(`git ls-tree ${sha} -- ${dir} failed: ${proc.stderr.toString('utf8').trim()}`);
+export function migrationsAtSha(sha: string, repository: string = process.cwd()): string[] {
+  git(repository, ['cat-file', '-e', `${sha}^{tree}`], `git revision ${sha}`);
+  const rootOutput = git(
+    repository,
+    ['ls-tree', '-d', '--name-only', sha, '--', ...MIGRATION_DIRS],
+    `migration-root discovery at ${sha}`,
+  );
+  const roots = rootOutput
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
+  const supportedRoots = new Set<string>(MIGRATION_DIRS);
+  const unknown = roots.find((root) => !supportedRoots.has(root));
+  if (unknown !== undefined) {
+    throw new Error(`migration-root discovery at ${sha} returned unexpected path ${unknown}`);
   }
+  const uniqueRoots = [...new Set(roots)];
+  if (uniqueRoots.length === 0) {
+    throw new Error(
+      `revision ${sha} has neither supported migration root: ${MIGRATION_DIRS.join(' or ')}`,
+    );
+  }
+  if (uniqueRoots.length !== 1) {
+    throw new Error(
+      `revision ${sha} has both supported migration roots: ${MIGRATION_DIRS.join(' and ')}`,
+    );
+  }
+  const migrationDir = uniqueRoots[0];
+  const files = git(
+    repository,
+    ['ls-tree', '-r', '--name-only', sha, '--', migrationDir],
+    `migration listing at ${sha} for ${migrationDir}`,
+  );
   const ids = new Set<string>();
-  const prefix = `${dir}/`;
-  for (const raw of proc.stdout.toString('utf8').split('\n')) {
+  const prefix = `${migrationDir}/`;
+  for (const raw of files.split('\n')) {
     const line = raw.trim();
-    if (!line.startsWith(prefix)) continue;
+    if (line === '') continue;
+    if (!line.startsWith(prefix)) {
+      throw new Error(`migration listing at ${sha} returned unexpected path ${line}`);
+    }
     const rest = line.slice(prefix.length);
     const id = rest.split('/')[0];
-    if (id) ids.add(id);
+    if (id === '') {
+      throw new Error(`migration listing at ${sha} returned malformed path ${line}`);
+    }
+    ids.add(id);
   }
   return [...ids].sort();
 }

@@ -59,15 +59,15 @@ import ts from 'typescript';
  */
 
 /** Where the constant is declared. One path, spelled out, never searched for. */
-export const CONTRACT_VERSION_PATH = 'libs/domain/src/contract-version.ts';
+export const CONTRACT_VERSION_PATH = 'libs/wbs/domain/domain/src/contract-version.ts';
 
 /**
  * The version-keyed fixtures. Both, because the hole this closes was identical
  * in both and a list of one would leave the other exactly as it was.
  */
 export const CORPUS_FIXTURES = [
-  'libs/domain/fixtures/fast-golden-corpus.json',
-  'libs/domain/fixtures/solver-quantum-golden-corpus.json',
+  'libs/wbs/domain/domain/fixtures/fast-golden-corpus.json',
+  'libs/wbs/domain/domain/fixtures/solver-quantum-golden-corpus.json',
 ] as const;
 
 /**

@@ -11,4 +11,4 @@ bunx nx format:check --all
 bunx nx run-many -t test lint typecheck build --parallel=2 --skip-nx-cache --exclude=tool-wiki
 bunx nx run-many -t test typecheck build -p tool-wiki --parallel=2 --skip-nx-cache
 bunx nx run tool-wiki:lint:source --skip-nx-cache
-WBS_RUN_SOLVER_ORPHAN_PROC=1 bunx nx run be-01:solver-image-smoke
+WBS_RUN_SOLVER_ORPHAN_PROC=1 bunx nx run wbs-be-01:solver-image-smoke

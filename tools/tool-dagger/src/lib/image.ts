@@ -11,13 +11,13 @@ export const DEFAULT_IMAGES: Record<ImageSpec['tier'], ImageSpec> = {
   be: {
     tier: 'be',
     baseImage: 'oven/bun:1.2-debian',
-    entrypoint: ['bun', 'run', 'apps/be-01/src/main.ts'],
+    entrypoint: ['bun', 'run', 'apps/wbs/be-01/src/main.ts'],
     workdir: '/app',
   },
   gw: {
     tier: 'gw',
     baseImage: 'oven/bun:1.2-debian',
-    entrypoint: ['bun', 'run', 'apps/gw-01/src/main.ts'],
+    entrypoint: ['bun', 'run', 'apps/wbs/gw-01/src/main.ts'],
     workdir: '/app',
   },
   fe: {

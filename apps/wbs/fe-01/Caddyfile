@@ -1,4 +1,4 @@
-# apps/fe-01/Caddyfile
+# apps/wbs/fe-01/Caddyfile
 :80 {
 	root * /srv/www
 	try_files {path} /index.html

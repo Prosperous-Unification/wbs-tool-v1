@@ -1,7 +1,7 @@
-# apps/fe-01/Dockerfile
+# apps/wbs/fe-01/Dockerfile
 #
 # Build from the repo root:
-#   docker build -f apps/fe-01/Dockerfile \
+#   docker build -f apps/wbs/fe-01/Dockerfile \
 #     --build-arg VITE_BE_URL=... --build-arg VITE_GW_URL=... --build-arg VITE_WS_URL=... \
 #     -t wbs-fe-01:local .
 #
@@ -12,7 +12,7 @@ COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 COPY tsconfig.base.json nx.json ./
 COPY libs ./libs
-COPY apps/fe-01 ./apps/fe-01
+COPY apps/wbs/fe-01 ./apps/wbs/fe-01
 ARG VITE_BE_URL
 ARG VITE_GW_URL
 ARG VITE_WS_URL
@@ -33,9 +33,9 @@ ENV VITE_WS_URL=$VITE_WS_URL
 # behavior-neutral (it only affects Bun's own execution, not the emitted
 # assets) and keeps the build reproducible across native and emulated hosts.
 ENV BUN_JSC_useJIT=0
-RUN bunx nx run fe-01:build
+RUN bunx nx run wbs-fe-01:build
 
 FROM caddy:2-alpine AS runtime
-COPY --from=build /app/dist/apps/fe-01 /srv/www
-COPY apps/fe-01/Caddyfile /etc/caddy/Caddyfile
+COPY --from=build /app/dist/apps/wbs/fe-01 /srv/www
+COPY apps/wbs/fe-01/Caddyfile /etc/caddy/Caddyfile
 EXPOSE 80

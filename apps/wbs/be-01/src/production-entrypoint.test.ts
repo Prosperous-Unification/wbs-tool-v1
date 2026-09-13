@@ -4,7 +4,7 @@ import { describe, expect, it } from 'bun:test';
  * What the production entrypoint can execute, asked of the entrypoint rather
  * than of a reader.
  *
- * `apps/be-01/Dockerfile` runs `bun run src/main.ts`, so the code a production
+ * `apps/wbs/be-01/Dockerfile` runs `bun run src/main.ts`, so the code a production
  * process can reach is exactly `main.ts`'s import graph. Bundling that graph
  * and reading it is therefore not a proxy for the artifact — it IS the
  * reachable module set, and the only thing the image adds is files that nothing

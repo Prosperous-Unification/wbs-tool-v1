@@ -2,9 +2,9 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-repo_root="$(cd "$script_dir/../../.." && pwd)"
+repo_root="$(cd "$script_dir/../../../.." && pwd)"
 image="wbs-be-01:solver-smoke"
-request="$repo_root/libs/contracts/solver/fixtures/request/valid-quantised-baseline.json"
+request="$repo_root/libs/wbs/domain/contracts/solver/fixtures/request/valid-quantised-baseline.json"
 registry_name="wbs-solver-smoke-registry-$$"
 caller_name="wbs-solver-smoke-caller-$$"
 attempt_token="$(cat /proc/sys/kernel/random/uuid)"
@@ -24,7 +24,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-docker build --file "$repo_root/apps/be-01/Dockerfile" --tag "$image" "$repo_root"
+docker build --file "$repo_root/apps/wbs/be-01/Dockerfile" --tag "$image" "$repo_root"
 
 docker run --rm --interactive --entrypoint wbs-solver "$image" <"$request" >/dev/null
 
@@ -74,9 +74,9 @@ done
 docker run --rm --name "$caller_name" \
   --volume "$socket_directory:/run/wbs-solver:ro" \
   --entrypoint bun "$solver_image" \
-  /app/apps/be-01/scripts/solver-supervisor-image-client.ts \
+  /app/apps/wbs/be-01/scripts/solver-supervisor-image-client.ts \
   /run/wbs-solver/supervisor.sock \
-  /app/libs/contracts/solver/fixtures/request/valid-quantised-baseline.json \
+  /app/libs/wbs/domain/contracts/solver/fixtures/request/valid-quantised-baseline.json \
   "$attempt_token"
 
 # CI runs the portable launcher half above. The canonical h2puni gate sets this
@@ -85,7 +85,7 @@ docker run --rm --name "$caller_name" \
 if [ "${WBS_RUN_SOLVER_ORPHAN_PROC:-0}" = '1' ]; then
   orphan_registry_tag="$registry/wbs-be-01:solver-orphan"
   docker build \
-    --file "$repo_root/apps/be-01/scripts/solver-orphan-fixture.Dockerfile" \
+    --file "$repo_root/apps/wbs/be-01/scripts/solver-orphan-fixture.Dockerfile" \
     --build-arg "SOLVER_BASE_IMAGE=$solver_image" \
     --tag "$orphan_registry_tag" \
     "$repo_root"
@@ -100,6 +100,6 @@ if [ "${WBS_RUN_SOLVER_ORPHAN_PROC:-0}" = '1' ]; then
   fi
   WBS_SOLVER_ORPHAN_IMAGE="${orphan_digests[0]}" \
     bun test \
-      apps/be-01/src/service/optimization-orphan.proc.db.test.ts \
+      apps/wbs/be-01/src/service/optimization-orphan.proc.db.test.ts \
       tools/tool-remote-scripts/src/lib/solver-supervisor-lifecycle.proc.test.ts
 fi

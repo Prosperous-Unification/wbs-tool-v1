@@ -1,7 +1,7 @@
 # The macOS arm64 development lock, beside `requirements.lock` rather than
 # inside it. Install with:
 #
-#     python3.14 -m pip install --require-hashes -r libs/solver-py/requirements.macos-arm64.lock
+#     python3.14 -m pip install --require-hashes -r libs/wbs/adapters/solver-py/requirements.macos-arm64.lock
 #
 # WHY A SECOND FILE. `requirements.lock` says it in its own words: "A second
 # target platform needs its own lock file beside this one — NOT a widened hash
@@ -11,7 +11,7 @@
 #
 # HOW IT WAS MADE, by the same recipe as the Linux lock plus one constraint:
 #
-#     grep -oE '^[a-zA-Z0-9._-]+==[^ \]+' libs/solver-py/requirements.lock > constraints.txt
+#     grep -oE '^[a-zA-Z0-9._-]+==[^ \]+' libs/wbs/adapters/solver-py/requirements.lock > constraints.txt
 #     python3.14 -m pip install --dry-run --ignore-installed --only-binary=:all: \
 #         -c constraints.txt --report report.json \
 #         "ortools==9.15.6755" "jsonschema==4.26.0"

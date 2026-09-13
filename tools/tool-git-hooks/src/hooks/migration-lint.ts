@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 /**
  * Blue and green run against one SQLite file, so a migration that removes or
@@ -92,15 +92,24 @@ const WAIVERS = new Map<string, Waiver>([
 ]);
 
 /**
- * Where the gate script must sit, given a migration file.
- *
- * The layout is fixed and spelled out rather than searched for:
- * `<root>/apps/be-01/drizzle/<folder>/migration.sql`, so the root is four
- * levels above the file. A search upward for a `bin/` directory would find the
- * wrong root inside a nested checkout and report a missing gate as present.
+ * Resolve a waiver script from the workspace root supplied by the hook
+ * entrypoint. The migration must first prove that it belongs to the moved
+ * backend tree; a nested checkout cannot lend its `bin/` directory to another
+ * tree's migration.
  */
-function gateScriptPath(file: string, gateScript: string): string {
-  return join(dirname(file), '..', '..', '..', '..', gateScript);
+function gateScriptPath(file: string, workspaceRoot: string, gateScript: string): string | null {
+  const migrationRoot = resolve(workspaceRoot, 'apps/wbs/be-01/drizzle');
+  const migrationPath = resolve(file);
+  const fromMigrationRoot = relative(migrationRoot, migrationPath);
+  if (
+    fromMigrationRoot === '' ||
+    fromMigrationRoot.startsWith(`..${sep}`) ||
+    fromMigrationRoot === '..' ||
+    isAbsolute(fromMigrationRoot)
+  ) {
+    return null;
+  }
+  return resolve(workspaceRoot, gateScript);
 }
 
 export interface MigrationIssue {
@@ -173,7 +182,10 @@ export function lintDownScriptPresence(file: string): MigrationIssue | null {
   };
 }
 
-export async function lintMigration(file: string): Promise<MigrationIssue | null> {
+export async function lintMigration(
+  file: string,
+  workspaceRoot: string = process.cwd(),
+): Promise<MigrationIssue | null> {
   if (!file.endsWith('.sql')) return null;
   const missingDown = lintDownScriptPresence(file);
   if (missingDown) return missingDown;
@@ -194,7 +206,15 @@ export async function lintMigration(file: string): Promise<MigrationIssue | null
   }
   const folder = basename(dirname(file));
   const waiver = WAIVERS.get(folder);
-  if (waiver !== undefined && !existsSync(gateScriptPath(file, waiver.gateScript))) {
+  const waiverScript =
+    waiver === undefined ? undefined : gateScriptPath(file, workspaceRoot, waiver.gateScript);
+  if (waiver !== undefined && waiverScript === null) {
+    return {
+      file,
+      reason: `${file} is outside workspace root ${workspaceRoot}'s apps/wbs/be-01/drizzle tree, so its waiver cannot be resolved.`,
+    };
+  }
+  if (waiver !== undefined && typeof waiverScript === 'string' && !existsSync(waiverScript)) {
     return {
       file,
       reason:
@@ -232,7 +252,7 @@ async function main(): Promise<void> {
   const files = process.argv.slice(2);
   const issues: MigrationIssue[] = [];
   for (const f of files) {
-    const hit = await lintMigration(f);
+    const hit = await lintMigration(f, process.cwd());
     if (hit) issues.push(hit);
   }
   if (issues.length > 0) {

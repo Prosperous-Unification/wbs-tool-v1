@@ -1,10 +1,18 @@
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { scratchSync } from '@wbs/tool-test-scratch';
 import { afterAll, describe, expect, it } from 'bun:test';
 
 import { lintMigration } from './migration-lint';
+
+it('wires the production hook to the moved SQL tree', () => {
+  const config = readFileSync(new URL('../../../../lefthook.yml', import.meta.url), 'utf8');
+  // Proof: restoring the old apps/be-01 glob made this production wiring
+  // oracle fail with the complete hook configuration naming the stale tree.
+  // Observed 2026-09-13 and restored.
+  expect(config).toContain("glob: 'apps/wbs/be-01/drizzle/**/*.sql'");
+});
 
 describe('down script rules', () => {
   const dir = scratchSync('wbs-migration-lint-');
@@ -119,7 +127,7 @@ describe('down script rules', () => {
  * `RENAME COLUMN`, and the condition it is waived on.
  *
  * The folders here are built at the real depth —
- * `<root>/apps/be-01/drizzle/<folder>/migration.sql` — because that is what
+ * `<root>/apps/wbs/be-01/drizzle/<folder>/migration.sql` — because that is what
  * the lint resolves `bin/assert-no-prod-release.sh` against. A shallower
  * fixture would test a path the hook never walks.
  */
@@ -134,10 +142,17 @@ describe('the role -> step rename waiver', () => {
   const RENAME_SQL = 'ALTER TABLE `estimate` RENAME COLUMN `role_id` TO `step_id`;';
 
   /** A checkout-shaped tree, with the gate script present only when asked for. */
-  function checkout(folder: string, up: string, opts: { gate: boolean }): string {
+  function checkout(
+    folder: string,
+    up: string,
+    opts: { gate: boolean },
+  ): {
+    file: string;
+    root: string;
+  } {
     const root = scratchSync('wbs-rename-waiver-');
     roots.push(root);
-    const migrationDir = join(root, 'apps', 'be-01', 'drizzle', folder);
+    const migrationDir = join(root, 'apps', 'wbs', 'be-01', 'drizzle', folder);
     mkdirSync(migrationDir, { recursive: true });
     writeFileSync(join(migrationDir, 'migration.sql'), up);
     writeFileSync(join(migrationDir, 'down.sql'), 'SELECT 1;');
@@ -145,12 +160,15 @@ describe('the role -> step rename waiver', () => {
       mkdirSync(join(root, 'bin'), { recursive: true });
       writeFileSync(join(root, 'bin', 'assert-no-prod-release.sh'), '#!/usr/bin/env bash\n');
     }
-    return join(migrationDir, 'migration.sql');
+    return { file: join(migrationDir, 'migration.sql'), root };
   }
 
   it('lets the rename migration through while its gate script is in the tree', async () => {
-    const file = checkout(RENAME, RENAME_SQL, { gate: true });
-    expect(await lintMigration(file)).toBeNull();
+    // Proof: retaining the old four-level gate-script ascent after moving this
+    // fixture made the production lint report that the present root script was
+    // absent. Observed 2026-09-13 and restored with the explicit workspace root.
+    const { file, root } = checkout(RENAME, RENAME_SQL, { gate: true });
+    expect(await lintMigration(file, root)).toBeNull();
   });
 
   // Proof: the `existsSync(gateScriptPath(...))` requirement removed from
@@ -159,8 +177,8 @@ describe('the role -> step rename waiver', () => {
   // at all for a rename migration with no gate script beside it.
   // Observed 2026-08-31.
   it('refuses the rename migration when its gate script is absent', async () => {
-    const file = checkout(RENAME, RENAME_SQL, { gate: false });
-    const issue = await lintMigration(file);
+    const { file, root } = checkout(RENAME, RENAME_SQL, { gate: false });
+    const issue = await lintMigration(file, root);
     expect(issue?.reason).toMatch(/assert-no-prod-release\.sh/);
     expect(issue?.reason).toMatch(/rests on nothing/);
   });
@@ -168,16 +186,27 @@ describe('the role -> step rename waiver', () => {
   // The waiver lifts one label and no others. A rename migration that also
   // dropped a table would be a different change with a different argument.
   it('still refuses a DROP TABLE inside the waived migration', async () => {
-    const file = checkout(RENAME, `${RENAME_SQL}\nDROP TABLE role;`, { gate: true });
-    const issue = await lintMigration(file);
+    const { file, root } = checkout(RENAME, `${RENAME_SQL}\nDROP TABLE role;`, { gate: true });
+    const issue = await lintMigration(file, root);
     expect(issue?.reason).toMatch(/DROP TABLE/);
   });
 
   // Proof that the waiver is keyed on the folder and not on the statement:
   // any other migration writing the same SQL is refused, gate script or not.
   it('refuses the same RENAME COLUMN in any other migration', async () => {
-    const file = checkout('20260901000000_some_other_change', RENAME_SQL, { gate: true });
-    const issue = await lintMigration(file);
+    const { file, root } = checkout('20260901000000_some_other_change', RENAME_SQL, { gate: true });
+    const issue = await lintMigration(file, root);
     expect(issue?.reason).toMatch(/RENAME COLUMN/);
+  });
+
+  it('refuses a waiver when the supplied workspace root does not own the migration', async () => {
+    // Proof: before the ownership validation, this fault was misreported as a
+    // missing waiver script and never named the unrelated workspace boundary.
+    // Observed 2026-09-13 and restored.
+    const { file } = checkout(RENAME, RENAME_SQL, { gate: true });
+    const unrelatedRoot = scratchSync('wbs-unrelated-root-');
+    roots.push(unrelatedRoot);
+    const issue = await lintMigration(file, unrelatedRoot);
+    expect(issue?.reason).toMatch(/outside workspace root/);
   });
 });

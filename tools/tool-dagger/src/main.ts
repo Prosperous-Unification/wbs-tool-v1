@@ -1,4 +1,4 @@
-import { readFileSync, statfsSync } from 'node:fs';
+import { existsSync, readFileSync, statfsSync } from 'node:fs';
 import { availableParallelism, loadavg } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
 
@@ -15,10 +15,36 @@ import {
 } from './lib/publish';
 
 const DOCKERFILE: Record<Tier, string> = {
-  be: 'apps/be-01/Dockerfile',
-  gw: 'apps/gw-01/Dockerfile',
-  fe: 'apps/fe-01/Dockerfile',
+  be: 'apps/wbs/be-01/Dockerfile',
+  gw: 'apps/wbs/gw-01/Dockerfile',
+  fe: 'apps/wbs/fe-01/Dockerfile',
 };
+
+export function dockerfileFor(tier: Tier): string {
+  return DOCKERFILE[tier];
+}
+
+/** Refuse a candidate before engine setup when a local Docker COPY source is absent. */
+export function assertDockerfileInputs(repository: string, tier: Tier): void {
+  const dockerfile = resolve(repository, dockerfileFor(tier));
+  const source = readFileSync(dockerfile, 'utf8');
+  for (const [index, raw] of source.split('\n').entries()) {
+    const line = raw.trim();
+    if (!line.startsWith('COPY ') || line.startsWith('COPY --from=')) continue;
+    const fields = line.slice('COPY '.length).trim().split(/\s+/);
+    if (fields.length < 2) {
+      throw new Error(`${dockerfile}:${String(index + 1)} has a malformed COPY instruction`);
+    }
+    for (const input of fields.slice(0, -1)) {
+      if (input.startsWith('--')) continue;
+      if (!existsSync(resolve(repository, input))) {
+        throw new Error(
+          `${dockerfile}:${String(index + 1)} COPY input ${input} does not exist in candidate source`,
+        );
+      }
+    }
+  }
+}
 
 const PUBLIC_URL = process.env['WBS_PUBLIC_URL'] ?? 'https://wbs.bulletpoints.club';
 const REGISTRY = process.env['REGISTRY'] ?? 'registry.infra.bulletpoints.club';
@@ -403,7 +429,7 @@ export async function runAdmittedPublish<T>(
 // linux/amd64 is pinned explicitly so a client running on arm64 (a dev laptop,
 // or a build host) produces the same image the amd64 production host runs.
 // When the engine isn't natively amd64 it builds this under QEMU emulation —
-// that's what apps/fe-01/Dockerfile's BUN_JSC_useJIT=0 works around; that
+// that's what apps/wbs/fe-01/Dockerfile's BUN_JSC_useJIT=0 works around; that
 // workaround lives in the Dockerfile itself, so it carries over unchanged
 // regardless of who invokes the build (docker CLI or Dagger).
 const TARGET_PLATFORM = 'linux/amd64' as Platform;
@@ -525,6 +551,7 @@ export function assertCleanTree(repository = '.'): void {
 }
 
 export async function publishAll(tiers: Tier[], sha: string): Promise<ReleaseRecord> {
+  for (const tier of tiers) assertDockerfileInputs('.', tier);
   applyRunnerHostAlias(process.env);
   const registryPassword = requireRegistryPassword(process.env);
   const record: ReleaseRecord = {};
