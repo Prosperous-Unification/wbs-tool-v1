@@ -182,4 +182,24 @@ describe('the effective production and test boundaries', () => {
       );
     }
   });
+
+  it('keeps generated product boundaries in production and every test override', async () => {
+    for (const path of [
+      'libs/core/src/index.ts',
+      'libs/core/src/example.test.ts',
+      'libs/core/src/testing/example.ts',
+      'libs/store-memory/src/source.test.ts',
+    ]) {
+      const config: unknown = await lint.calculateConfigForFile(path);
+      const boundary = boundaryOf(config);
+      const options = boundary[1];
+      if (!isRecord(options) || !Array.isArray(options['depConstraints'])) {
+        throw new Error(`ESLint returned malformed boundary options for ${path}`);
+      }
+      expect(options['depConstraints'], path).toContainEqual({
+        sourceTag: 'product:wbs',
+        onlyDependOnLibsWithTags: ['product:wbs', 'product:shared'],
+      });
+    }
+  });
 });

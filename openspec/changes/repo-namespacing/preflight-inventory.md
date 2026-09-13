@@ -597,3 +597,32 @@ frontend development default PORT = 4200
 ```
 
 The project move must not change these values, the public alias keys above, `be-01.internal`, container/colour names, registry repositories, state paths, or environment filenames.
+
+## Section 2 product-axis activation
+
+The product dependency rule cannot be exercised against the actual repository while some
+WBS projects have no product tag. With explicit authorization, Section 2 therefore pulls
+forward only the tag portion of Task 3.1: add `product:wbs` to the 13 manifests that lacked
+it. Their roots, names, targets, outputs and pre-existing tag order remain byte-identical.
+No path or Nx identity moves in this slice.
+
+```text
+apps/be-01/project.json
+apps/fe-01/project.json
+apps/gw-01/project.json
+apps/mcp-01/project.json
+libs/auth/project.json
+libs/config/project.json
+libs/contracts/project.json
+libs/contracts/solver/supervisor-protocol/project.json
+libs/domain/project.json
+libs/observability/project.json
+libs/realtime/project.json
+libs/solver-py/project.json
+libs/validation/project.json
+```
+
+`libs/conformance`, `libs/core`, `libs/runtime-portable`, `libs/store-memory` and
+`libs/store-sqlite` already carried `product:wbs` at the pinned base. The pre-move product
+totality oracle covers all 18 app/library manifests, and the real Nx graph proves every
+internal dependency satisfies the generated production constraint after activation.

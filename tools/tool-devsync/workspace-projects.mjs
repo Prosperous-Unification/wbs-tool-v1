@@ -21,6 +21,14 @@ const EXCLUDED_DIRECTORIES = new Set(['.git', '.nx', 'coverage', 'dist', 'node_m
  *   root: string;
  *   name: string;
  *   tags: readonly string[];
+ * }>} NamespaceProject
+ */
+
+/**
+ * @typedef {Readonly<{
+ *   root: string;
+ *   name: string;
+ *   tags: readonly string[];
  *   targets: ProjectTargets;
  * }>} WorkspaceProject
  */
@@ -206,4 +214,165 @@ export async function readProjects(workspace) {
     rootsByName.set(project.name, project.root);
   }
   return projects;
+}
+
+/**
+ * Build Nx dependency constraints for every product present in the project
+ * graph. Product infrastructure stays untagged and therefore contributes no
+ * rule; shared product code may depend only on other shared product code.
+ *
+ * @param {readonly WorkspaceProject[]} projects
+ * @returns {readonly Readonly<{
+ *   sourceTag: string;
+ *   onlyDependOnLibsWithTags: readonly string[];
+ * }>[]}
+ */
+export function productConstraints(projects) {
+  /** @type {Set<string>} */
+  const products = new Set();
+  for (const project of projects) {
+    for (const tag of project.tags) {
+      if (tag.startsWith('product:')) products.add(tag.slice('product:'.length));
+    }
+  }
+
+  return [...products].sort().map((product) => ({
+    sourceTag: `product:${product}`,
+    // Proof: dropping only `product:probe` made the actual fixture Nx lint
+    // accept its `@wbs/core` production import; the negative then received
+    // exit 0. Allowing WBS here for shared did the same in the shared-source
+    // case. Both were watched through Nx on 2026-09-13.
+    onlyDependOnLibsWithTags:
+      product === 'shared' ? ['product:shared'] : [`product:${product}`, 'product:shared'],
+  }));
+}
+
+/** @param {NamespaceProject} project @param {string} axis */
+function tagsOn(project, axis) {
+  return project.tags.filter((tag) => tag.startsWith(axis));
+}
+
+/**
+ * Find every disagreement between a discovered project and the final product
+ * namespace. The caller decides when to enforce the returned violations so a
+ * pre-move fixture can prove the final rules before the coordinated rename.
+ *
+ * @param {readonly NamespaceProject[]} projects
+ * @returns {readonly string[]}
+ */
+export function findNamespaceLayoutViolations(projects) {
+  /** @type {string[]} */
+  const violations = [];
+  for (const project of projects) {
+    const scopes = tagsOn(project, 'scope:');
+    const rings = tagsOn(project, 'ring:');
+    const runtimes = tagsOn(project, 'runtime:');
+    for (const [axis, tags] of [
+      ['scope:', scopes],
+      ['ring:', rings],
+      ['runtime:', runtimes],
+    ]) {
+      // Proof: replacing this guard with `false` made the Nx test target fail
+      // first on the absent scope fixture, which returned no violation (2026-09-13).
+      if (tags.length !== 1) {
+        violations.push(
+          `${project.root}: expected exactly one ${axis} tag, found ${String(tags.length)}`,
+        );
+      }
+    }
+
+    const products = tagsOn(project, 'product:');
+    if (project.root.startsWith('tools/')) {
+      // Proof: disabling these three checks made the Nx test target return no
+      // violations for the shared/domain/product:wbs tool fixture (2026-09-13).
+      if (scopes.length === 1 && scopes[0] !== 'scope:infra') {
+        violations.push(`${project.root}: tools require scope:infra, found ${scopes[0]}`);
+      }
+      if (rings.length === 1 && rings[0] !== 'ring:adapter') {
+        violations.push(`${project.root}: tools require ring:adapter, found ${rings[0]}`);
+      }
+      if (products.length > 0) {
+        violations.push(
+          `${project.root}: tools must not carry a product tag, found ${products.join(', ')}`,
+        );
+      }
+      continue;
+    }
+
+    // Proof: disabling this check made packages/probe fall through to a library-
+    // shape error, failing the Nx target's exact root-boundary oracle (2026-09-13).
+    if (!project.root.startsWith('apps/') && !project.root.startsWith('libs/')) {
+      violations.push(`${project.root}: project root must begin with apps/, libs/ or tools/`);
+      continue;
+    }
+    // Proof: replacing this guard with `false` made the Nx test target return no
+    // violation for an absent product tag (2026-09-13).
+    if (products.length !== 1) {
+      violations.push(
+        `${project.root}: expected exactly one product: tag, found ${String(products.length)}`,
+      );
+    }
+
+    const segments = project.root.split('/');
+    if (project.root.startsWith('apps/')) {
+      // Proof: disabling the app shape check replaced its expected refusal with
+      // nonsensical product/name errors in the Nx test target (2026-09-13).
+      if (segments.length !== 3) {
+        violations.push(`${project.root}: applications require apps/<product>/<project>`);
+        continue;
+      }
+      // Proof: disabling these app correlation checks made the Nx target omit
+      // its ring, product and qualified-name violations (2026-09-13).
+      if (rings.length === 1 && rings[0] !== 'ring:adapter') {
+        violations.push(`${project.root}: applications require ring:adapter, found ${rings[0]}`);
+      }
+      if (products.length === 1 && products[0] !== `product:${segments[1]}`) {
+        violations.push(
+          `${project.root}: directory product ${segments[1]} disagrees with ${products[0]}`,
+        );
+      }
+      const expectedName = `${segments[1]}-${segments[2]}`;
+      if (project.name !== expectedName) {
+        violations.push(
+          `${project.root}: project name must be ${expectedName}, found ${project.name}`,
+        );
+      }
+      continue;
+    }
+
+    /** @type {Readonly<Record<string, string>>} */
+    const ringByDirectory = {
+      domain: 'ring:domain',
+      application: 'ring:application',
+      adapters: 'ring:adapter',
+    };
+    const expectedRing = ringByDirectory[segments[2]];
+    // Proof: disabling both shape guards replaced their two named refusals with
+    // derived undefined product/ring/name errors in the Nx target (2026-09-13).
+    if (segments.length !== 4 || expectedRing === undefined) {
+      violations.push(
+        `${project.root}: libraries require libs/<product>/<domain|application|adapters>/<project>`,
+      );
+      continue;
+    }
+    // Proof: disabling these three library correlation checks made the Nx target
+    // omit the product, adapters-ring and qualified-name violations (2026-09-13).
+    if (products.length === 1 && products[0] !== `product:${segments[1]}`) {
+      violations.push(
+        `${project.root}: directory product ${segments[1]} disagrees with ${products[0]}`,
+      );
+    }
+    if (rings.length === 1 && rings[0] !== expectedRing) {
+      violations.push(
+        `${project.root}: directory ${segments[2]} requires ${expectedRing}, found ${rings[0]}`,
+      );
+    }
+    const expectedName = `${segments[1]}-${segments[3]}`;
+    if (project.name !== expectedName) {
+      violations.push(
+        `${project.root}: project name must be ${expectedName}, found ${project.name}`,
+      );
+    }
+  }
+  return violations;
 }

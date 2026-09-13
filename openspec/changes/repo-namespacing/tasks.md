@@ -27,7 +27,7 @@ refer to the old root before slice 3 and its mapped destination afterward.
 
 ## 2. Prove the product and layout rules before moving source
 
-- [ ] 2.1 Implement `productConstraints(projects)` and use it in both relevant ESLint rule
+- [x] 2.1 Implement `productConstraints(projects)` and use it in both relevant ESLint rule
       sets; tests remain exempt only from ring rules. In a temporary fixture workspace with
       installed dependencies referenced from this checkout, add `product:probe` projects
       importing own/shared/WBS aliases. Test: actual
@@ -36,7 +36,7 @@ refer to the old root before slice 3 and its mapped destination afterward.
       own/shared controls pass. Negative: remove only the generated probe constraint and
       observe the forbidden-import oracle fail because lint passed; restore it. Also prove
       a shared-product lib cannot depend on WBS. No second product is committed.
-- [ ] 2.2 Add `src/namespace-layout.test.ts` and the layout validator using enumerated
+- [x] 2.2 Add `src/namespace-layout.test.ts` and the layout validator using enumerated
       projects. Exercise directory/ring disagreement, directory/product disagreement,
       unqualified Nx name, absent/duplicate scope/ring/runtime/product tags and product tags
       on tools. Watch each fault through the tool-devsync test target with that check

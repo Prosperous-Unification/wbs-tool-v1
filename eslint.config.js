@@ -13,6 +13,14 @@ import jsdoc from 'eslint-plugin-jsdoc';
 import prettier from 'eslint-config-prettier';
 import nxPlugin from '@nx/eslint-plugin';
 
+import { productConstraints, readProjects } from './tools/tool-devsync/workspace-projects.mjs';
+
+const productRules = productConstraints(await readProjects(import.meta.dirname));
+// Proof: deleting the product rules from production, the general test override,
+// and the store-memory test override failed the effective-config oracle on
+// `libs/core/src/index.ts`, `libs/core/src/example.test.ts`, and
+// `libs/store-memory/src/source.test.ts`, respectively (2026-09-13).
+
 const browserAdapterConstraint = {
   allSourceTags: ['ring:adapter', 'runtime:browser'],
   onlyDependOnLibsWithTags: ['ring:domain', 'runtime:browser'],
@@ -67,6 +75,7 @@ const nxRules = {
           onlyDependOnLibsWithTags: ['ring:domain', 'ring:application', 'ring:adapter'],
         },
         browserAdapterConstraint,
+        ...productRules,
         ...scopeConstraints,
         ...runtimeConstraints,
       ],
@@ -590,7 +599,12 @@ export default [
           enforceBuildableLibDependency: true,
           allow: [],
           ignoredCircularDependencies: [['core', 'store-memory']],
-          depConstraints: [browserAdapterConstraint, ...scopeConstraints, ...runtimeConstraints],
+          depConstraints: [
+            browserAdapterConstraint,
+            ...productRules,
+            ...scopeConstraints,
+            ...runtimeConstraints,
+          ],
         },
       ],
     },
@@ -608,7 +622,12 @@ export default [
           enforceBuildableLibDependency: true,
           allow: ['@wbs/conformance', '@wbs/conformance/*'],
           ignoredCircularDependencies: [['core', 'store-memory']],
-          depConstraints: [browserAdapterConstraint, ...scopeConstraints, ...runtimeConstraints],
+          depConstraints: [
+            browserAdapterConstraint,
+            ...productRules,
+            ...scopeConstraints,
+            ...runtimeConstraints,
+          ],
         },
       ],
     },

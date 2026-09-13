@@ -3,9 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'bun:test';
-import { createProjectGraphAsync } from 'nx/src/devkit-exports';
+import { createProjectGraphAsync, type ProjectGraph } from 'nx/src/devkit-exports';
 
-import { readProjects } from '../workspace-projects.mjs';
+import { productConstraints, readProjects } from '../workspace-projects.mjs';
 
 const WORKSPACE = new URL('../../../', import.meta.url);
 
@@ -90,22 +90,26 @@ async function runNxProjectNames(): Promise<string[]> {
   return names;
 }
 
-async function nxProjectPairs(): Promise<(readonly [string, string])[]> {
+async function nxProjectGraph(): Promise<ProjectGraph> {
   const inheritedDaemon = process.env['NX_DAEMON'];
   const inheritedIsolation = process.env['NX_ISOLATE_PLUGINS'];
   process.env['NX_DAEMON'] = 'false';
   process.env['NX_ISOLATE_PLUGINS'] = 'false';
   try {
-    const graph = await createProjectGraphAsync({ exitOnError: true });
-    return Object.values(graph.nodes)
-      .map(({ name, data: { root } }) => [root, name] as const)
-      .sort(([left], [right]) => left.localeCompare(right));
+    return await createProjectGraphAsync({ exitOnError: true });
   } finally {
     if (inheritedDaemon === undefined) delete process.env['NX_DAEMON'];
     else process.env['NX_DAEMON'] = inheritedDaemon;
     if (inheritedIsolation === undefined) delete process.env['NX_ISOLATE_PLUGINS'];
     else process.env['NX_ISOLATE_PLUGINS'] = inheritedIsolation;
   }
+}
+
+async function nxProjectPairs(): Promise<(readonly [string, string])[]> {
+  const graph = await nxProjectGraph();
+  return Object.values(graph.nodes)
+    .map(({ name, data: { root } }) => [root, name] as const)
+    .sort(([left], [right]) => left.localeCompare(right));
 }
 
 async function failureMessageOf(reading: Promise<readonly unknown[]>): Promise<string> {
@@ -136,6 +140,17 @@ describe('readProjects', () => {
       .map(({ root, name }) => [root, name] as const);
 
     expect(wbsProjects).toEqual([...EXPECTED_WBS_PROJECTS]);
+  });
+
+  it('activates the WBS product axis on every pre-move app and library', async () => {
+    const projects = await readProjects(WORKSPACE);
+    const products = projects
+      .filter(({ root }) => root.startsWith('apps/') || root.startsWith('libs/'))
+      .map(({ root, tags }) => [root, tags.filter((tag) => tag.startsWith('product:'))] as const);
+
+    // Proof: deleting `product:wbs` from libs/contracts/project.json made this
+    // assertion report that root with an empty product-tag array (2026-09-13).
+    expect(products).toEqual(EXPECTED_WBS_PROJECTS.map(([root]) => [root, ['product:wbs']]));
   });
 
   it('discovers projects below another project and ignores only named generated trees', async () => {
@@ -285,5 +300,66 @@ describe('readProjects', () => {
     } finally {
       await chmod(manifest, 0o600);
     }
+  });
+});
+
+describe('productConstraints', () => {
+  it('generates one same-or-shared dependency rule for every discovered product', () => {
+    const project = (name: string, tags: readonly string[]) => ({
+      root: `libs/${name}`,
+      name,
+      tags,
+      targets: { lint: {} },
+    });
+
+    expect(
+      productConstraints([
+        project('wbs-core', ['product:wbs']),
+        project('probe-core', ['product:probe']),
+        project('shared-core', ['product:shared']),
+        project('infra', ['scope:infra']),
+        project('wbs-adapter', ['product:wbs']),
+      ]),
+    ).toEqual([
+      {
+        sourceTag: 'product:probe',
+        onlyDependOnLibsWithTags: ['product:probe', 'product:shared'],
+      },
+      { sourceTag: 'product:shared', onlyDependOnLibsWithTags: ['product:shared'] },
+      {
+        sourceTag: 'product:wbs',
+        onlyDependOnLibsWithTags: ['product:wbs', 'product:shared'],
+      },
+    ]);
+  });
+
+  it('is satisfiable by every internal dependency in the actual repository graph', async () => {
+    const projects = await readProjects(WORKSPACE);
+    const constraints = productConstraints(projects);
+    const graph = await nxProjectGraph();
+    const violations: string[] = [];
+    for (const project of projects) {
+      const sourceProduct = project.tags.find((tag) => tag.startsWith('product:'));
+      if (sourceProduct === undefined) continue;
+      const constraint = constraints.find(({ sourceTag }) => sourceTag === sourceProduct);
+      if (constraint === undefined)
+        throw new Error(`missing product constraint for ${sourceProduct}`);
+      for (const dependency of graph.dependencies[project.name] ?? []) {
+        if (!Object.hasOwn(graph.nodes, dependency.target)) continue;
+        const target = graph.nodes[dependency.target];
+        if (
+          !constraint.onlyDependOnLibsWithTags.some((allowed) =>
+            target.data.tags?.includes(allowed),
+          )
+        ) {
+          violations.push(`${project.name} -> ${target.name}`);
+        }
+      }
+    }
+
+    // Proof: deleting `product:wbs` from libs/contracts/project.json made this
+    // production-graph oracle report ten product:wbs -> contracts edges,
+    // including core, all four apps, and store-sqlite (2026-09-13).
+    expect(violations).toEqual([]);
   });
 });
