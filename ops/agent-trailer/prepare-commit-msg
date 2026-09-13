@@ -43,10 +43,25 @@ merge_head=$(git rev-parse --git-path MERGE_HEAD 2>/dev/null) || merge_head=""
 [ -n "$merge_head" ] && [ -f "$merge_head" ] && exit 0
 squash_msg=$(git rev-parse --git-path SQUASH_MSG 2>/dev/null) || squash_msg=""
 comment_prefix_auto=0
-# Both names feed the same Git setting. Config precedence is therefore the last
-# occurrence across the combined stream, not commentString unconditionally.
+comment_string_supported=0
+git_version=$(git version 2>/dev/null) || git_version=""
+git_version=${git_version#git version }
+git_major=${git_version%%.*}
+git_version_tail=${git_version#*.}
+git_minor=${git_version_tail%%.*}
+case "$git_major:$git_minor" in
+	*[!0-9:]*|:*|*:) ;;
+	*) [ "$git_major" -gt 2 ] || { [ "$git_major" -eq 2 ] && [ "$git_minor" -ge 45 ]; } && comment_string_supported=1 ;;
+esac
+# Git 2.45+ makes both names feed the same setting, with the last occurrence
+# winning. Older Git ignores commentString, so do the same on its fallback path.
 comment_prefix=$(git config --get-regexp '^core\.comment(char|string)$' 2>/dev/null |
-	awk '{ key = $1; sub(/^[^ \t]+[ \t]*/, ""); value = $0 } END { if (key != "") print value }') || comment_prefix=""
+	awk -v allow_string="$comment_string_supported" '
+		{ key = tolower($1); sub(/^[^ \t]+[ \t]*/, "") }
+		key == "core.commentstring" && allow_string != 1 { next }
+		{ selected = 1; value = $0 }
+		END { if (selected) print value }
+	') || comment_prefix=""
 case "$comment_prefix" in
 	"") comment_prefix="#" ;;
 	auto) comment_prefix=""; comment_prefix_auto=1 ;;
@@ -146,19 +161,23 @@ if awk -v trailer="Agent-Authored-By: $label" '
 	function is_blank(line) { return line ~ /^[ \t]*$/ }
 	function is_comment(line) {
 		return (prefix != "" && index(line, prefix) == 1) ||
-			(auto == 1 && index("#;@!$%^&|:", substr(line, 1, 1)) != 0)
+			(auto == 1 && length(line) > 0 && index("#;@!$%^&|:", substr(line, 1, 1)) != 0)
 	}
 	function is_trailer(line) { return line ~ /^[A-Za-z0-9][A-Za-z0-9-]*:[ \t]/ }
 	function is_continuation(line) { return line ~ /^[ \t]+[^ \t]/ }
-	function emit_before(boundary,   content_end, paragraph_start, paragraph_ok, i) {
+	function emit_before(boundary,   content_end, paragraph_start, paragraph_ok, prior_content, i) {
 		content_end = boundary - 1
 		while (content_end > 0 && (is_blank(clean[content_end]) || is_comment(clean[content_end]))) content_end--
 		paragraph_start = content_end
 		while (paragraph_start > 0 && !is_blank(clean[paragraph_start])) paragraph_start--
 		paragraph_start++
-		# A subject like `fix: text` is trailer-shaped but cannot be a trailer
-		# paragraph until an earlier blank line has separated it from the title.
-		paragraph_ok = content_end >= paragraph_start && paragraph_start > 1
+		prior_content = 0
+		for (i = 1; i < paragraph_start; i++) {
+			if (!is_blank(clean[i]) && !is_comment(clean[i])) prior_content = 1
+		}
+		# A subject like `fix: text` is trailer-shaped. It is only a trailer
+		# paragraph when a prior non-comment content paragraph precedes it.
+		paragraph_ok = content_end >= paragraph_start && prior_content
 		for (i = paragraph_start; i <= content_end && paragraph_ok; i++) {
 			if (!is_trailer(clean[i]) && !(i > paragraph_start && is_continuation(clean[i]))) paragraph_ok = 0
 		}
@@ -168,12 +187,14 @@ if awk -v trailer="Agent-Authored-By: $label" '
 		for (i = content_end + 1; i < boundary; i++) print lines[i]
 	}
 	{
-		lines[NR] = $0
 		clean[NR] = $0
+		if (clean[NR] ~ /\r$/) document_crlf = 1
 		sub(/\r$/, "", clean[NR])
+		lines[NR] = clean[NR]
 		if (!boundary && is_scissors(clean[NR])) boundary = NR
 	}
 	END {
+		ORS = document_crlf ? "\r\n" : "\n"
 		if (!boundary) boundary = NR + 1
 		emit_before(boundary)
 		for (i = boundary; i <= NR; i++) print lines[i]

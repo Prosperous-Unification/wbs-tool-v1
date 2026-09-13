@@ -261,6 +261,33 @@ describe('agent trailer hook integration', () => {
     ).toBe(0);
     expect(readFileSync(generated, 'utf8')).not.toContain('Agent-Authored-By:');
 
+    expect(git(['config', '--unset-all', 'core.commentChar'], humanEnv).exitCode).toBe(0);
+    expect(git(['config', '--unset-all', 'core.commentString'], humanEnv).exitCode).toBe(0);
+    expect(git(['config', 'core.commentChar', ';'], humanEnv).exitCode).toBe(0);
+    expect(git(['config', 'core.commentString', '//'], humanEnv).exitCode).toBe(0);
+    const realGit = Bun.spawnSync(['sh', '-c', 'command -v git'], { env: humanEnv })
+      .stdout.toString()
+      .trim();
+    const git245Bin = join(repository, 'git-245-bin');
+    mkdirSync(git245Bin);
+    writeFileSync(
+      join(git245Bin, 'git'),
+      `#!/bin/sh\nif [ "\${1:-}" = version ]; then echo "git version 2.45.0"; exit 0; fi\nexec ${JSON.stringify(realGit)} "$@"\n`,
+    );
+    chmodSync(join(git245Bin, 'git'), 0o755);
+    const stringLast = join(repository, 'STRING_LAST_EDITMSG');
+    writeFileSync(
+      stringLast,
+      'generated squash subject\n\n// ------------------------ >8 ------------------------\ndiff --git a/a b/a\n',
+    );
+    expect(
+      Bun.spawnSync(['sh', hook, stringLast], {
+        cwd: repository,
+        env: { ...agentEnv, PATH: `${git245Bin}:${humanEnv.PATH ?? ''}` },
+      }).exitCode,
+    ).toBe(0);
+    expect(readFileSync(stringLast, 'utf8')).not.toContain('Agent-Authored-By:');
+
     expect(git(['config', '--unset-all', 'core.commentString'], humanEnv).exitCode).toBe(0);
     expect(git(['config', 'core.commentChar', 'auto'], humanEnv).exitCode).toBe(0);
     const automatic = join(repository, 'AUTO_EDITMSG');
@@ -325,6 +352,17 @@ describe('agent trailer hook integration', () => {
     expect(readFileSync(plainMessage, 'utf8')).toBe(
       'fix: one-line conventional subject\n\nAgent-Authored-By: openai/gpt-5.6-sol\n',
     );
+
+    const offsetMessage = join(repository, 'OFFSET_COMMIT_EDITMSG');
+    writeFileSync(offsetMessage, '\n# template\n\nfix: offset conventional subject\n');
+    const offsetResult = Bun.spawnSync(['sh', hook, offsetMessage], {
+      cwd: repository,
+      env: { ...agentEnv, PATH: `${fakeBin}:${humanEnv.PATH ?? ''}` },
+    });
+    expect(offsetResult.exitCode).toBe(0);
+    expect(readFileSync(offsetMessage, 'utf8')).toEndWith(
+      'fix: offset conventional subject\n\nAgent-Authored-By: openai/gpt-5.6-sol\n',
+    );
   });
 
   it('places the legacy fallback above a CRLF multi-character scissors marker', () => {
@@ -353,7 +391,7 @@ describe('agent trailer hook integration', () => {
     const text = readFileSync(message, 'utf8');
     expect(text.match(/^Agent-Authored-By:/gm)).toHaveLength(1);
     expect(text).toStartWith(
-      'fix: multi-prefix fallback\r\n\nAgent-Authored-By: openai/gpt-5.6-sol\n// ------------------------ >8 ------------------------\r\n',
+      'fix: multi-prefix fallback\r\n\r\nAgent-Authored-By: openai/gpt-5.6-sol\r\n// ------------------------ >8 ------------------------\r\n',
     );
     expect(text.indexOf('Agent-Authored-By:')).toBeLessThan(
       text.indexOf('// ------------------------ >8'),
