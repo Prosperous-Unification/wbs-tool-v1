@@ -227,6 +227,16 @@ describe('agent trailer hook integration', () => {
   it('recognises a CRLF scissors line with a multi-character comment string', () => {
     const { agentEnv, git, repository } = makeRepository();
     expect(git(['config', 'core.commentString', '//'], humanEnv).exitCode).toBe(0);
+    const realGit = Bun.spawnSync(['sh', '-c', 'command -v git'], { env: humanEnv })
+      .stdout.toString()
+      .trim();
+    const fakeBin = join(repository, 'git-245-bin');
+    mkdirSync(fakeBin);
+    writeFileSync(
+      join(fakeBin, 'git'),
+      `#!/bin/sh\nif [ "\${1:-}" = version ]; then echo "git version 2.45.0"; exit 0; fi\nexec ${JSON.stringify(realGit)} "$@"\n`,
+    );
+    chmodSync(join(fakeBin, 'git'), 0o755);
     writeFileSync(join(repository, '.git', 'SQUASH_MSG'), 'generated squash subject\n');
     const message = join(repository, 'COMMIT_EDITMSG');
     writeFileSync(
@@ -235,7 +245,7 @@ describe('agent trailer hook integration', () => {
     );
     const result = Bun.spawnSync(['sh', hook, message], {
       cwd: repository,
-      env: agentEnv,
+      env: { ...agentEnv, PATH: `${fakeBin}:${humanEnv.PATH ?? ''}` },
       stderr: 'pipe',
       stdout: 'pipe',
     });
@@ -268,6 +278,26 @@ describe('agent trailer hook integration', () => {
     const realGit = Bun.spawnSync(['sh', '-c', 'command -v git'], { env: humanEnv })
       .stdout.toString()
       .trim();
+    const git244Bin = join(repository, 'git-244-bin');
+    mkdirSync(git244Bin);
+    writeFileSync(
+      join(git244Bin, 'git'),
+      `#!/bin/sh\nif [ "\${1:-}" = version ]; then echo "git version 2.44.0"; exit 0; fi\nexec ${JSON.stringify(realGit)} "$@"\n`,
+    );
+    chmodSync(join(git244Bin, 'git'), 0o755);
+    const charOnOldGit = join(repository, 'CHAR_OLD_GIT_EDITMSG');
+    writeFileSync(
+      charOnOldGit,
+      'generated squash subject\n\n; ------------------------ >8 ------------------------\ndiff --git a/a b/a\n',
+    );
+    expect(
+      Bun.spawnSync(['sh', hook, charOnOldGit], {
+        cwd: repository,
+        env: { ...agentEnv, PATH: `${git244Bin}:${humanEnv.PATH ?? ''}` },
+      }).exitCode,
+    ).toBe(0);
+    expect(readFileSync(charOnOldGit, 'utf8')).not.toContain('Agent-Authored-By:');
+
     const git245Bin = join(repository, 'git-245-bin');
     mkdirSync(git245Bin);
     writeFileSync(
@@ -328,7 +358,7 @@ describe('agent trailer hook integration', () => {
     mkdirSync(fakeBin);
     writeFileSync(
       join(fakeBin, 'git'),
-      `#!/bin/sh\nif [ "\${1:-}" = interpret-trailers ]; then exit 1; fi\nexec ${JSON.stringify(realGit)} "$@"\n`,
+      `#!/bin/sh\nif [ "\${1:-}" = version ]; then echo "git version 2.45.0"; exit 0; fi\nif [ "\${1:-}" = interpret-trailers ]; then exit 1; fi\nexec ${JSON.stringify(realGit)} "$@"\n`,
     );
     chmodSync(join(fakeBin, 'git'), 0o755);
     const message = join(repository, 'COMMIT_EDITMSG');
@@ -375,7 +405,7 @@ describe('agent trailer hook integration', () => {
     mkdirSync(fakeBin);
     writeFileSync(
       join(fakeBin, 'git'),
-      `#!/bin/sh\nif [ "\${1:-}" = interpret-trailers ]; then exit 1; fi\nexec ${JSON.stringify(realGit)} "$@"\n`,
+      `#!/bin/sh\nif [ "\${1:-}" = version ]; then echo "git version 2.45.0"; exit 0; fi\nif [ "\${1:-}" = interpret-trailers ]; then exit 1; fi\nexec ${JSON.stringify(realGit)} "$@"\n`,
     );
     chmodSync(join(fakeBin, 'git'), 0o755);
     const message = join(repository, 'COMMIT_EDITMSG');
