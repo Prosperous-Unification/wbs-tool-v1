@@ -267,8 +267,37 @@ describe('agent trailer hook integration', () => {
     );
   });
 
-  it('falls open with attribution when mktemp fails and cleans up an awk failure', () => {
-    for (const failedTool of ['mktemp', 'awk']) {
+  it('places the legacy fallback above a CRLF multi-character scissors marker', () => {
+    const { agentEnv, git, repository } = makeRepository();
+    expect(git(['config', 'core.commentString', '//'], humanEnv).exitCode).toBe(0);
+    const realGit = Bun.spawnSync(['sh', '-c', 'command -v git'], { env: humanEnv })
+      .stdout.toString()
+      .trim();
+    const fakeBin = join(repository, 'fake-bin');
+    mkdirSync(fakeBin);
+    writeFileSync(
+      join(fakeBin, 'git'),
+      `#!/bin/sh\nif [ "\${1:-}" = interpret-trailers ]; then exit 1; fi\nexec ${JSON.stringify(realGit)} "$@"\n`,
+    );
+    chmodSync(join(fakeBin, 'git'), 0o755);
+    const message = join(repository, 'COMMIT_EDITMSG');
+    writeFileSync(
+      message,
+      'fix: multi-prefix fallback\r\n\r\n// ------------------------ >8 ------------------------\r\ndiff --git a/a b/a\r\n',
+    );
+    const result = Bun.spawnSync(['sh', hook, message], {
+      cwd: repository,
+      env: { ...agentEnv, PATH: `${fakeBin}:${humanEnv.PATH ?? ''}` },
+    });
+    expect(result.exitCode).toBe(0);
+    const text = readFileSync(message, 'utf8');
+    expect(text.indexOf('Agent-Authored-By:')).toBeLessThan(
+      text.indexOf('// ------------------------ >8'),
+    );
+  });
+
+  it('falls open with attribution on mktemp failure and cleans up rewrite failures', () => {
+    for (const failedTool of ['mktemp', 'awk', 'mv']) {
       const { agentEnv, repository } = makeRepository();
       const realGit = Bun.spawnSync(['sh', '-c', 'command -v git'], { env: humanEnv })
         .stdout.toString()
