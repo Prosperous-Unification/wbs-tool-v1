@@ -3,10 +3,32 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'bun:test';
+import { createProjectGraphAsync } from 'nx/src/devkit-exports';
 
 import { readProjects } from '../workspace-projects.mjs';
 
 const WORKSPACE = new URL('../../../', import.meta.url);
+
+const EXPECTED_WBS_PROJECTS = [
+  ['apps/be-01', 'be-01'],
+  ['apps/fe-01', 'fe-01'],
+  ['apps/gw-01', 'gw-01'],
+  ['apps/mcp-01', 'mcp-01'],
+  ['libs/auth', 'auth'],
+  ['libs/config', 'config'],
+  ['libs/conformance', 'conformance'],
+  ['libs/contracts', 'contracts'],
+  ['libs/contracts/solver/supervisor-protocol', 'solver-supervisor-protocol'],
+  ['libs/core', 'core'],
+  ['libs/domain', 'domain'],
+  ['libs/observability', 'observability'],
+  ['libs/realtime', 'realtime'],
+  ['libs/runtime-portable', 'runtime-portable'],
+  ['libs/solver-py', 'solver-py'],
+  ['libs/store-memory', 'store-memory'],
+  ['libs/store-sqlite', 'store-sqlite'],
+  ['libs/validation', 'validation'],
+] as const;
 
 interface ProjectManifest {
   readonly name: string;
@@ -43,12 +65,18 @@ async function writeManifest(
 }
 
 async function runNxProjectNames(): Promise<string[]> {
-  const nxRun = Bun.spawn(['bunx', 'nx', 'show', 'projects', '--json'], {
-    cwd: new URL(WORKSPACE).pathname,
-    env: { ...process.env, NX_DAEMON: 'false' },
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
+  // `bunx nx` invoked through Bun.spawn exited 0 with empty stdout while the
+  // installed executable returned the graph. Calling that same pinned Nx CLI
+  // directly keeps empty output an observable failure instead of a parse race.
+  const nxRun = Bun.spawn(
+    [process.execPath, 'node_modules/.bin/nx', 'show', 'projects', '--json'],
+    {
+      cwd: new URL(WORKSPACE).pathname,
+      env: { ...process.env, NX_DAEMON: 'false', NX_ISOLATE_PLUGINS: 'false' },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+  );
   const [stdout, stderr, code] = await Promise.all([
     new Response(nxRun.stdout).text(),
     new Response(nxRun.stderr).text(),
@@ -60,6 +88,24 @@ async function runNxProjectNames(): Promise<string[]> {
     throw new Error('Nx project graph did not return a string array');
   }
   return names;
+}
+
+async function nxProjectPairs(): Promise<(readonly [string, string])[]> {
+  const inheritedDaemon = process.env['NX_DAEMON'];
+  const inheritedIsolation = process.env['NX_ISOLATE_PLUGINS'];
+  process.env['NX_DAEMON'] = 'false';
+  process.env['NX_ISOLATE_PLUGINS'] = 'false';
+  try {
+    const graph = await createProjectGraphAsync({ exitOnError: true });
+    return Object.values(graph.nodes)
+      .map(({ name, data: { root } }) => [root, name] as const)
+      .sort(([left], [right]) => left.localeCompare(right));
+  } finally {
+    if (inheritedDaemon === undefined) delete process.env['NX_DAEMON'];
+    else process.env['NX_DAEMON'] = inheritedDaemon;
+    if (inheritedIsolation === undefined) delete process.env['NX_ISOLATE_PLUGINS'];
+    else process.env['NX_ISOLATE_PLUGINS'] = inheritedIsolation;
+  }
 }
 
 async function failureMessageOf(reading: Promise<readonly unknown[]>): Promise<string> {
@@ -76,9 +122,20 @@ describe('readProjects', () => {
   it('matches the Nx graph and includes its nested supervisor protocol project', async () => {
     const projects = await readProjects(WORKSPACE);
     const names = projects.map((project) => project.name).sort();
+    const pairs = projects.map(({ root, name }) => [root, name] as const);
 
     expect(names).toContain('solver-supervisor-protocol');
     expect(names).toEqual((await runNxProjectNames()).sort());
+    expect(pairs).toEqual(await nxProjectPairs());
+  });
+
+  it('pins every pre-move WBS root and Nx identity in the destination map', async () => {
+    const projects = await readProjects(WORKSPACE);
+    const wbsProjects = projects
+      .filter(({ root }) => root.startsWith('apps/') || root.startsWith('libs/'))
+      .map(({ root, name }) => [root, name] as const);
+
+    expect(wbsProjects).toEqual([...EXPECTED_WBS_PROJECTS]);
   });
 
   it('discovers projects below another project and ignores only named generated trees', async () => {
@@ -86,13 +143,21 @@ describe('readProjects', () => {
     await Promise.all([
       writeManifest(workspace, 'libs/outer', manifestOf('outer')),
       writeManifest(workspace, 'libs/outer/nested/protocol', manifestOf('protocol')),
+      writeManifest(workspace, 'libs/probe/application/nested/core', manifestOf('probe-core')),
       writeManifest(workspace, 'libs/outer/node_modules/hidden', manifestOf('dependency-copy')),
       writeManifest(workspace, 'libs/outer/dist/hidden', manifestOf('generated-copy')),
+      writeManifest(workspace, 'libs/outer/.nx/hidden', manifestOf('nx-copy')),
+      writeManifest(workspace, 'libs/outer/coverage/hidden', manifestOf('coverage-copy')),
+      writeManifest(workspace, 'libs/outer/.git/hidden', manifestOf('git-copy')),
     ]);
 
     expect(await readProjects(workspace)).toEqual([
       expect.objectContaining({ root: 'libs/outer', name: 'outer' }),
       expect.objectContaining({ root: 'libs/outer/nested/protocol', name: 'protocol' }),
+      expect.objectContaining({
+        root: 'libs/probe/application/nested/core',
+        name: 'probe-core',
+      }),
     ]);
   });
 
@@ -180,7 +245,18 @@ describe('readProjects', () => {
     await symlink(source, join(workspace, 'libs', 'linked'));
 
     expect(await failureMessageOf(readProjects(workspace))).toBe(
-      'project directory is symlinked: libs/linked',
+      'directory is symlinked: libs/linked',
+    );
+  });
+
+  it('rejects every symlinked directory even when it has no manifest', async () => {
+    const workspace = await createWorkspace();
+    const source = join(workspace, 'ordinary-source');
+    await mkdir(source, { recursive: true });
+    await symlink(source, join(workspace, 'apps', 'linked'));
+
+    expect(await failureMessageOf(readProjects(workspace))).toBe(
+      'directory is symlinked: apps/linked',
     );
   });
 

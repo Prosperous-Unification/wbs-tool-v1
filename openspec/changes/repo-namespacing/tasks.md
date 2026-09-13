@@ -5,7 +5,7 @@ refer to the old root before slice 3 and its mapped destination afterward.
 
 ## 1. Pin scope and make nested projects visible
 
-- [ ] 1.1 Pin the post-extraction commit, clean isolated worktree and complete Nx/project/alias
+- [x] 1.1 Pin the post-extraction commit, clean isolated worktree and complete Nx/project/alias
       inventory. Record all tracked literal and constructed app/lib paths, project selectors,
       wildcard cache inputs and cross-root relative reads in this change's implementation
       evidence. Check the nested supervisor project and all new extracted libs explicitly.
@@ -13,7 +13,7 @@ refer to the old root before slice 3 and its mapped destination afterward.
       tier ports and public alias keys. Test: the inventory matches
       `bunx nx show projects --json` and every table row in `design.md`;
       no fixed minimum count is an oracle.
-- [ ] 1.2 Reuse core extraction's recursive discovery, consolidate the shared entrypoint
+- [x] 1.2 Reuse core extraction's recursive discovery, consolidate the shared entrypoint
       as `tools/tool-devsync/workspace-projects.mjs` and extend its fixture suite
       `src/workspace-projects.test.ts`; migrate any remaining shallow walks in
       `workspace-targets.test.ts` and `sync.test.ts`, including outside-read and deploy-union

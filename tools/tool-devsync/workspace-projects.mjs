@@ -1,9 +1,11 @@
-import { lstat, readFile, readdir, stat } from 'node:fs/promises';
+import { readFile, readdir, stat } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PROJECT_GROUPS = ['apps', 'libs', 'tools'];
-const EXCLUDED_DIRECTORIES = new Set(['.nx', 'coverage', 'dist', 'node_modules']);
+// Proof: omitting `.git` failed the generated-tree fixture with the unexpected
+// project `libs/outer/.git/hidden` (2026-09-13).
+const EXCLUDED_DIRECTORIES = new Set(['.git', '.nx', 'coverage', 'dist', 'node_modules']);
 
 /**
  * @typedef {Readonly<{
@@ -125,13 +127,13 @@ async function readProject(directory, root) {
 }
 
 /**
- * A symlink is never traversed. If it points at a directory containing a
- * manifest, it is a project directory whose physical ownership is ambiguous.
+ * A directory symlink is never traversed because its physical ownership is
+ * ambiguous even when it does not currently contain a project manifest.
  *
  * @param {string} path
  * @param {string} root
  */
-async function rejectSymlinkedProject(path, root) {
+async function rejectSymlinkedDirectory(path, root) {
   let target;
   try {
     target = await stat(path);
@@ -139,16 +141,10 @@ async function rejectSymlinkedProject(path, root) {
     throw new Error(`cannot inspect symlink ${relativePath(path, root)}`, { cause: failure });
   }
   if (!target.isDirectory()) return;
-
-  try {
-    await lstat(join(path, 'project.json'));
-  } catch (failure) {
-    if (errorCode(failure) === 'ENOENT') return;
-    throw new Error(`cannot inspect ${relativePath(join(path, 'project.json'), root)}`, {
-      cause: failure,
-    });
-  }
-  throw new Error(`project directory is symlinked: ${relativePath(path, root)}`);
+  // Proof: accepting a directory symlink whose target had no manifest failed
+  // `rejects every symlinked directory even when it has no manifest` on
+  // `readProjects unexpectedly succeeded` (2026-09-13).
+  throw new Error(`directory is symlinked: ${relativePath(path, root)}`);
 }
 
 /**
@@ -176,7 +172,7 @@ async function scanDirectory(directory, root, projects) {
     if (entry.isSymbolicLink()) {
       // Proof: skipping this rejection failed the symlink case on
       // `readProjects unexpectedly succeeded` (2026-09-09).
-      await rejectSymlinkedProject(child, root);
+      await rejectSymlinkedDirectory(child, root);
       continue;
     }
     // Proof: replacing this recursion with `continue` failed the nested-project

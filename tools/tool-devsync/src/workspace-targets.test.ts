@@ -716,6 +716,8 @@ describe('every project says which ring, scope and runtime it is', () => {
     // Proof: after the focused Nx target returned a 1/1 cache hit, removing the
     // nested ring forced the target to execute and fail here with that path,
     // proving the recursive manifest input invalidates its cache. Watched 2026-09-10.
+    // Repeated through `tool-devsync:test --skip-nx-cache` on 2026-09-13: the
+    // removed nested ring was reported at its complete recursively found path.
     expect(wrong).toEqual([]);
   });
 
