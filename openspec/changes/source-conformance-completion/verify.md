@@ -2225,3 +2225,85 @@ uncached `test`, `lint`, and `typecheck` targets for conformance, memory, and
 SQLite all passed: nine successful targets in 1m16s. Strict validation of this
 OpenSpec change and `git diff --check` also passed. Task 7.3 remains unchecked
 because the canonical h2puni workspace gate has not run for this commit.
+
+### 2026-09-14 task 7.3 closeout before the immutable gate
+
+The clean source baseline was fast-forwarded, without merge commit or rebase,
+from `d9e82a3f28569a2c54303fe5f36d2e2b95cadbbf` to refreshed
+`origin/main` at `8779208a38b5312cae949d9706c650a392f33415`. The manifest's
+last source revision is `cdce7b2cdcee95f72f258d2e04666ee5e75053b3`; both terminal
+source files' last source revision is
+`41908dcd763dc7f13768872099ec7d577679f9a4`. Exact content hashes at the
+tested checkout were:
+
+- case manifest: `b2fb1c906da6bb5bfd4b32a61e69bc57fce174bcda992d8261995f3b39969189`;
+- closed fault-variant registry: `40c76d38cc62df015a53eb35fb632e1cbf97c6e464b8fac04c79d5dba4388838`;
+- memory terminal source: `f76bc041884cee48279bd6a7e57ce58e7cbd7bb4d83721d7d536fbd176238a50`;
+- SQLite terminal source: `16c210676483151f0bbec46e6096e02f186f030fa878d6170b71e7cfd6c191d9`.
+
+Both unfilterable source targets ran every actual shared-case baseline, every
+adapter-applicable named matrix mutation, the mutation-removal reversals and
+the setup/effect-window refusal probes. Their exact-inventory tests admit no
+missing or duplicate registered variant: 48 variants apply to both sources
+and four additional variants apply only to SQLite. The family-level matrix
+outcomes below are assertions made by the passing terminal tests, not inferred
+from their process exit codes.
+
+| Shared-case fault group                                        | Actual shared-case observation under the armed mutation                                                                                                     | Diagnostic/reversal reviewed                                                                                                                                          | Restored source            |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| projects, users, capacity, priority bands and calendar markers | every applicable proof was `observed` only after its named phase                                                                                            | wrong steps/scope/actor or identity, complete map/ladder mismatch, marker order/scope/literal-date mismatch; neutral mutation becomes `assertion-passed`              | both source targets passed |
+| migrated steps, estimates, directory and event log             | changed/missing public value, missing removal/range/prune, broad assignment deletion or retained maximum was observed through the original shared case      | the terminal files retain exact case IDs and require setup before reach; removed mutation is rejected by the reversal assertions                                      | both source targets passed |
+| work items, actuals, measures, progress and dependencies       | all row/fact/key/ownership/atomicity mutations were `observed` against complete public snapshots                                                            | premature or incomplete setup remains `phase-failed`; neutral mutations become `assertion-passed`; settlement diagnostics include the escaped or missing exact rows   | both source targets passed |
+| subtree complete copy and late failure                         | disconnected dependency/measure state and escaped uncommitted writes were observed only through ordinary source readers                                     | pre-write or missing populated prerequisites remain `phase-failed`; transaction/staged-state restoration passes                                                       | both source targets passed |
+| journal and plan events                                        | retained preconditions, wrong restamp direction, independent/late history, collateral redo/depth damage, ignored filters and inclusive cutoff were observed | complete journal/history snapshots expose each mutation; no-op or pre-phase mutations remain `phase-failed`                                                           | both source targets passed |
+| saved-plan values, quota, ownership and late bodies            | distinct UTF-8, header-only, altered-body/hash, principal, unknown-touch, persisted-refusal, stale-window and split-write faults were observed              | missing real writes, wrong target/content/phase, premature calls and removed reach cannot count; SQLite's zero affected-row guard has its separate registered variant | both source targets passed |
+| capture and independent history                                | omitted/null/detachment/epoch faults and command-owned history faults were observed through the shared capture/history cases                                | mutation reversals pass; wrong target, missing second read, failed writer and unentered phase remain refused                                                          | both source targets passed |
+
+Terminal certification sets at checkout revision
+`8779208a38b5312cae949d9706c650a392f33415`:
+
+| Source | Families offered | Absent | Gaps / `not-offered` | Passed | Failed | Incomplete |
+| ------ | ---------------: | -----: | -------------------: | -----: | -----: | ---------: |
+| memory |               19 |      0 |                    6 |     64 |      0 |          0 |
+| SQLite |               19 |      0 |                    0 |     70 |      0 |          0 |
+
+Memory's six exact gaps remain
+`actuals.set:unknown_step`, `capacity.set:missing-reference`,
+`estimates.set:unknown_step`, `measures.set:unknown_step`,
+`priorityBands.replace:missing-project`, and
+`progress.set:unknown_step`; their bypass diagnostics remain embedded in the
+printed certificate. SQLite has no exclusions. Neither source has an absent
+family.
+
+Source-specific mechanisms were exercised rather than normalized away:
+
+- staged memory admitted the independent history write as `written`, retained
+  its exact saved ID across both command-batch commit and rollback, serialized
+  the competing quota writer against the history owner, and injected late
+  faults inside staged writes;
+- SQLite settled the competing history attempt as `snapshot_busy` before the
+  held command batch was released, retained the separately prewritten saved ID
+  across commit and rollback, returned immediate busy for the quota rival, and
+  injected atomicity faults inside its real transaction/connection seams.
+
+Fresh pre-gate commands and results:
+
+| Command                                                                                                       | Result                                                                                                                                                                                                                                                           |
+| ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx run store-memory:test:conformance --skip-nx-cache`          | 72 passed, 0 failed, 4,813 assertions; exact memory certificate printed                                                                                                                                                                                          |
+| `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx run store-sqlite:test:conformance --skip-nx-cache`          | 72 passed, 0 failed, 6,180 assertions; exact SQLite certificate printed                                                                                                                                                                                          |
+| `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx run conformance:test --skip-nx-cache`                       | 33 passed, 0 failed, 58 assertions across eight files                                                                                                                                                                                                            |
+| `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx run store-memory:test --skip-nx-cache`                      | 95 passed, 0 failed, 5,027 assertions across four files                                                                                                                                                                                                          |
+| `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx run store-sqlite:test --skip-nx-cache`                      | 723 passed, 0 failed, 8,220 assertions across 60 files                                                                                                                                                                                                           |
+| `bun test src/source-conformance.test.ts` from `libs/store-memory`                                            | unit-of-work conformance: 6 passed, 0 failed, 18 assertions                                                                                                                                                                                                      |
+| `bun test src/sqlite-unit-of-work.db.test.ts` from `libs/store-sqlite`                                        | unit-of-work conformance: 6 passed, 0 failed, 18 assertions                                                                                                                                                                                                      |
+| `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx run core:test:portable --skip-nx-cache`                     | restricted sandbox reproduced Chromium `sandbox_host_linux.cc:41` EPERM after bundling 369 modules; the identical approved run outside that sandbox passed 1/0, bundle SHA-256 `38ae0a909d349233cfbd17c5d067929be0b5d6e8e35eb263bf14fb176eefd27b`, 922,839 bytes |
+| `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate source-conformance-completion --strict --json` | 1 passed, 0 failed                                                                                                                                                                                                                                               |
+| `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate --all --json`                                  | 83 passed, 0 failed: 72 changes and 11 specs                                                                                                                                                                                                                     |
+
+Independent Astra task/epic reviews and their decisive mutation reversals are
+recorded beside each slice above. The final source review's two enumeration
+findings were repaired before the terminal source files at `41908dcd`; the
+subsequent latest-main integration changed neither terminal source file nor
+the manifest. The only remaining task 7.3 evidence is the committed-SHA
+canonical h2puni gate.
