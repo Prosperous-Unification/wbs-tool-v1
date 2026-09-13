@@ -156,7 +156,9 @@ if awk -v trailer="Agent-Authored-By: $label" '
 		paragraph_start = content_end
 		while (paragraph_start > 0 && !is_blank(clean[paragraph_start])) paragraph_start--
 		paragraph_start++
-		paragraph_ok = content_end >= paragraph_start
+		# A subject like `fix: text` is trailer-shaped but cannot be a trailer
+		# paragraph until an earlier blank line has separated it from the title.
+		paragraph_ok = content_end >= paragraph_start && paragraph_start > 1
 		for (i = paragraph_start; i <= content_end && paragraph_ok; i++) {
 			if (!is_trailer(clean[i]) && !(i > paragraph_start && is_continuation(clean[i]))) paragraph_ok = 0
 		}
