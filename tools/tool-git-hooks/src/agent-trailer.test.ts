@@ -169,10 +169,7 @@ describe('agent trailer hook integration', () => {
     expect(committed.stderr.toString()).toBe('');
     expect(committed.exitCode).toBe(0);
     expect(stages(trace)).toEqual(['prepare-commit-msg', 'commit-msg']);
-    expect(stageRecords(trace)).toEqual([
-      'prepare-commit-msg:present',
-      'commit-msg:present',
-    ]);
+    expect(stageRecords(trace)).toEqual(['prepare-commit-msg:present', 'commit-msg:present']);
     expect(body(git).match(/^Agent-Authored-By:/gm)).toHaveLength(1);
     expect(body(git)).not.toContain('diff --git');
   });
@@ -293,13 +290,9 @@ describe('agent trailer hook integration', () => {
       });
       expect(result.exitCode).toBe(0);
       if (failedTool === 'mktemp') {
-        expect(readFileSync(message, 'utf8')).toContain(
-          'Agent-Authored-By: openai/gpt-5.6-sol',
-        );
+        expect(readFileSync(message, 'utf8')).toContain('Agent-Authored-By: openai/gpt-5.6-sol');
       }
-      expect(readdirSync(repository).some((name) => name.includes('.agent-trailer.'))).toBe(
-        false,
-      );
+      expect(readdirSync(repository).some((name) => name.includes('.agent-trailer.'))).toBe(false);
     }
   });
 
