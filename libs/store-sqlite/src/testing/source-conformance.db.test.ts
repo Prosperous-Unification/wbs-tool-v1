@@ -473,9 +473,8 @@ async function openSqliteHistoryBatchCase(
   routeThroughCommandCoordinator = false,
   lifecycle?: {
     readonly rejectAt?: 'update' | 'readback' | 'settlement';
-    readonly rejectCleanup?: boolean;
     readonly onOpen?: (directory: string) => void;
-    readonly onClose?: (directory: string) => void;
+    readonly closeResources?: typeof closeSqliteResources;
   },
 ): Promise<HistoryBatchFixture> {
   const { source, directory } = await seedSqliteSource();
@@ -505,9 +504,7 @@ async function openSqliteHistoryBatchCase(
   return {
     fixtureId: `sqlite:${caseId}`,
     port,
-    journalAppender: source.stores.journal,
     seed: DETERMINISTIC_SEED,
-    readers: readersOf(source),
     scenario: {
       kind: 'batch-settlement',
       async begin() {
@@ -567,10 +564,7 @@ async function openSqliteHistoryBatchCase(
         }
       }
       try {
-        lifecycle?.onClose?.(directory);
-        await closeSqliteResources(source, directory);
-        if (lifecycle?.rejectCleanup === true)
-          throw new Error('injected SQLite history cleanup failure');
+        await (lifecycle?.closeResources ?? closeSqliteResources)(source, directory);
       } catch (cleanupFailure) {
         if (operationFailure !== undefined)
           throw new AggregateError(
@@ -6378,14 +6372,16 @@ describe('SQLite existing source conformance', () => {
             historyBatch: (caseId) =>
               openSqliteHistoryBatchCase(caseId, false, {
                 rejectAt,
-                rejectCleanup: rejectAt === 'settlement',
                 onOpen: (openedDirectory) => {
                   directory = openedDirectory;
                 },
-                onClose: (openedDirectory) => {
+                closeResources: async (source, openedDirectory) => {
                   closeCalls += 1;
                   if (openedDirectory !== directory)
                     throw new Error('SQLite history fixture closed a different directory');
+                  await closeSqliteResources(source, openedDirectory);
+                  if (rejectAt === 'settlement')
+                    throw new Error('injected SQLite history cleanup failure');
                 },
               }),
           },
@@ -6414,7 +6410,9 @@ describe('SQLite existing source conformance', () => {
       process.off('unhandledRejection', observeUnhandled);
     }
     // Proof: restoring either admission's unconditional `await entered` made its
-    // bounded row time out; restoring cleanup's early throw left its temp directory.
+    // bounded row time out. Omitting or duplicating the fixture's
+    // `closeSqliteResources()` call made this boundary oracle receive 0 or 2;
+    // moving rejection before the real boundary left the temp directory behind.
     expect(
       observations.map(({ rejectAt, closeCalls, directoryExists, status, phase }) => ({
         rejectAt,

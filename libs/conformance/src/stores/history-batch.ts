@@ -11,7 +11,10 @@ import type { CaseFixture, ScenarioControl } from '../source-declaration';
 
 type BatchScenario = Extract<ScenarioControl, { readonly kind: 'batch-settlement' }>;
 
-export interface HistoryBatchFixture extends Omit<CaseFixture<SavedPlanStore>, 'scenario'> {
+export interface HistoryBatchFixture extends Pick<
+  CaseFixture<SavedPlanStore>,
+  'fixtureId' | 'port' | 'seed' | 'close'
+> {
   readonly scenario: BatchScenario;
 }
 
@@ -224,7 +227,10 @@ async function assertBatchCase(
   const ownerId = fixture.seed.ownerIds[1];
   let attempt: Awaited<ReturnType<typeof writePlan>> | undefined;
   let bounded: BoundedWrite | undefined;
+  let didOperationFail = false;
   let operationFailure: unknown;
+  let didSettlementFail = false;
+  let settlementFailure: unknown;
   await fixture.scenario.begin();
   await fixture.scenario.entered;
   const write = writePlan(fixture.port, attemptLiteral, projectId, ownerId);
@@ -232,14 +238,37 @@ async function assertBatchCase(
     bounded = await observeWrite(write);
     if (bounded.kind === 'settled') attempt = bounded.value;
   } catch (cause) {
+    didOperationFail = true;
     operationFailure = cause;
-  } finally {
-    await fixture.scenario.settle(decision);
   }
-  if (operationFailure !== undefined)
+  try {
+    await fixture.scenario.settle(decision);
+  } catch (cause) {
+    didSettlementFail = true;
+    settlementFailure = cause;
+  }
+  if (bounded?.kind === 'pending') {
+    try {
+      attempt = await write;
+    } catch (cause) {
+      didOperationFail = true;
+      operationFailure = cause;
+    }
+  }
+  if (didOperationFail && didSettlementFail)
+    throw new AggregateError(
+      [operationFailure, settlementFailure],
+      'history batch write and settlement failed',
+      { cause: operationFailure },
+    );
+  if (didOperationFail)
     throw operationFailure instanceof Error
       ? operationFailure
       : new Error('history batch operation failed', { cause: operationFailure });
+  if (didSettlementFail)
+    throw settlementFailure instanceof Error
+      ? settlementFailure
+      : new Error('history batch settlement failed', { cause: settlementFailure });
   attempt ??= await write;
 
   const attempted =

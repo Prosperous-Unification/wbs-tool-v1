@@ -486,13 +486,12 @@ async function openMemoryHistoryBatchCase(
     | 'staged-owner-wrong-body',
   lifecycle?: {
     readonly rejectAt?: 'update' | 'readback' | 'settlement';
-    readonly rejectCleanup?: boolean;
-    readonly onClose?: () => void;
+    readonly openSource?: OpenSource;
     readonly onStagedLoss?: (id: string, stored: StoredSavedPlan | null) => void;
     readonly stageProof?: { reach(phase: 'complete-staged-write'): boolean };
   },
 ): Promise<HistoryBatchFixture> {
-  const source = await seedMemorySource();
+  const source = await seedMemorySource(lifecycle?.openSource);
   const base = source.history.savedPlans;
   let stagedOutcome: SavedPlanWriteOutcome<unknown> | undefined;
   const port: SavedPlanStore =
@@ -533,9 +532,7 @@ async function openMemoryHistoryBatchCase(
   return {
     fixtureId: `memory:${caseId}`,
     port,
-    journalAppender: source.journal,
     seed: DETERMINISTIC_SEED,
-    readers: readersOf(source),
     scenario: {
       kind: 'batch-settlement',
       async begin() {
@@ -633,10 +630,7 @@ async function openMemoryHistoryBatchCase(
       }
       source.discardCommandHistoryStage();
       try {
-        lifecycle?.onClose?.();
         await source.close();
-        if (lifecycle?.rejectCleanup === true)
-          throw new Error('injected memory history cleanup failure');
       } catch (cleanupFailure) {
         if (operationFailure !== undefined)
           throw new AggregateError(
@@ -5800,9 +5794,17 @@ describe('memory existing source conformance', () => {
           historyBatch: (caseId) =>
             openMemoryHistoryBatchCase(caseId, undefined, {
               rejectAt,
-              rejectCleanup: rejectAt === 'settlement',
-              onClose: () => {
-                closeCalls += 1;
+              openSource: () => {
+                const source = openConformanceMemorySource();
+                return {
+                  ...source,
+                  async close() {
+                    closeCalls += 1;
+                    await source.close();
+                    if (rejectAt === 'settlement')
+                      throw new Error('injected memory history cleanup failure');
+                  },
+                };
               },
             }),
         });
@@ -5829,7 +5831,8 @@ describe('memory existing source conformance', () => {
       process.off('unhandledRejection', observeUnhandled);
     }
     // Proof: restoring either admission's unconditional `await entered` made its
-    // bounded row time out; restoring cleanup's early throw skipped the close probe.
+    // bounded row time out. Omitting or duplicating the fixture's `source.close()`
+    // call made this actual-close oracle receive 0 or 2 instead of 1.
     expect(
       observations.map(({ rejectAt, closeCalls, status, phase }) => ({
         rejectAt,

@@ -43,8 +43,11 @@ Implement after core-lib-extraction's source composition and staged-memory prere
       Final review repair registered the staged-owner mutant, made reach conditional on
       the exact complete staged plan and `written`, and required exact-ID null loss
       after settlement. Both adapters reject pre-admission update/readback failures
-      without waiting and always dispose after failed batch settlement; bounded
-      lifecycle reversals and exact results are recorded in `verify.md`.
+      without waiting and always dispose after failed batch settlement. The shared
+      case drains a pending writer and preserves writer, settlement and cleanup
+      causes in that order. Typed probes wrap the actual memory close and SQLite
+      close-plus-directory-removal boundary; bounded lifecycle reversals and exact
+      results are recorded in `verify.md`.
 
 ## 7. Certify offered capabilities and integrate
 
