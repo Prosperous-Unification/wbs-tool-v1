@@ -1,5 +1,5 @@
-Sections 1–2 are implemented on the coordinated namespace candidate. Sections 3–4 remain
-blocked on current path ownership. Read `design.md`'s mapping before assigning ownership.
+Sections 1–2 and Tasks 3.1–3.4 are implemented on the coordinated namespace candidate.
+Task 3.5 and Section 4 remain future work. Read `design.md`'s mapping before assigning ownership.
 Names below refer to the old root before slice 3 and its mapped destination afterward.
 
 ## 1. Pin scope and make nested projects visible
