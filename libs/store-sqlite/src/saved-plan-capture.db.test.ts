@@ -173,6 +173,8 @@ describe('capturing a project’s plan input', () => {
         maxParallel: 1,
         startNoEarlierThanReason: null,
         deadline: null,
+        factStart: null,
+        factEnd: null,
         revision: 0,
       },
       [],

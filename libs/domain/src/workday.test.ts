@@ -9,6 +9,7 @@ import {
   firstWorkdayOf,
   isIsoDate,
   isMonday,
+  isoDateOfInstant,
   isWeekend,
   lastWorkdayOf,
   nextWorkday,
@@ -346,5 +347,19 @@ describe('deadlineOffsetOf', () => {
   it('refuses a value that is not a calendar date at either end', () => {
     expect(() => deadlineOffsetOf(MONDAY, '2026-02-31')).toThrow(/not a calendar date/);
     expect(() => deadlineOffsetOf('not-a-date', MONDAY)).toThrow(/not a calendar date/);
+  });
+});
+
+describe('isoDateOfInstant', () => {
+  it('reads the UTC calendar day off an epoch instant', () => {
+    expect(isoDateOfInstant(Date.UTC(2026, 8, 12, 23, 30))).toBe('2026-09-12');
+    expect(isoDateOfInstant(Date.UTC(2026, 8, 13, 0, 0))).toBe('2026-09-13');
+  });
+
+  it('refuses a stamp that is not an instant', () => {
+    // Proof: the guard deleted and this fails with `RangeError: Invalid time
+    // value` out of `toISOString` — an untyped throw from inside the date
+    // library where a named refusal is owed; watched 2026-09-12.
+    expect(() => isoDateOfInstant(Number.NaN)).toThrow('not an instant');
   });
 });

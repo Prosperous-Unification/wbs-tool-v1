@@ -1,7 +1,7 @@
 import { useCardOpenOn } from '../cell-card-store';
 import { PICKER_PANEL_STYLE } from '../creatable-picker';
 import { REFUSAL_SUFFIX } from '../dep-picker';
-import { DependsCard, dependsLine } from '../depends-card';
+import { DependsCard, dependsLine, statusStripStyle } from '../depends-card';
 import { cellKey } from '../editable-grid';
 import { commandChordIn, escapesAnOpenList } from '../keyboard-bindings';
 import { DEP_EDGE_FADE, DEP_LIST_WIDTH } from '../plan-cell-props';
@@ -689,6 +689,7 @@ export function createDependsColumn({ live }: { live: PlanLive }) {
                   id={`dep-option-${entry.id}`}
                   role="option"
                   aria-selected={entry.id === activeOption?.id}
+                  data-status={entry.status}
                   // Shown and refused, rather than quietly absent: a row
                   // that vanishes from the list reads as a bug in the tool,
                   // and one that says why it cannot be picked teaches the
@@ -712,6 +713,10 @@ export function createDependsColumn({ live }: { live: PlanLive }) {
                     cursor: entry.refusal === undefined ? 'pointer' : 'default',
                     whiteSpace: 'nowrap',
                     color: entry.refusal === undefined ? undefined : 'var(--muted-foreground)',
+                    // A finished predecessor wears the status strip here as on
+                    // the card (`statusStripStyle`); the border replaces the
+                    // left padding so the text stays where it was.
+                    ...statusStripStyle(entry.status),
                     // No `background` here at all any more. `#e8f0fe` was
                     // an inline style that outranked the stylesheet's own
                     // `[data-grid] [role='option'][aria-selected='true']`

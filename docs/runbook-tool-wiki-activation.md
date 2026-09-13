@@ -35,9 +35,12 @@ authority snapshot.
 Copy the same digest-pinned archive to a versioned directory on h2puni. The base-owned
 `trusted-wiki` workflow downloads its operator-configured HTTPS archive into runner temporary
 storage, verifies the configured SHA-256 before extraction, and refuses missing URL, digest, or
-version configuration. The archive root contains `selected.json` beside its selected version
-directory; paths in both the selector and the package role descriptors are relative so the same
-archive can be extracted under a host version directory or runner temporary storage. The preserved
+version configuration. While **none** of the three repository variables is set the job is
+skipped rather than failed: skipped is not certified, admission stays pending, and setting any
+one of them makes the job run and refuse the rest that are missing. The archive root contains
+`selected.json` beside its selected version directory; paths in both the selector and the package
+role descriptors are relative so the same archive can be extracted under a host version directory
+or runner temporary storage. The preserved
 launcher verifies the selected manifest identity, checksum-list identity, and every role artifact
 before reading a descriptor. The separately administered required-workflow/ruleset remains an
 external prerequisite; candidate YAML cannot activate it.

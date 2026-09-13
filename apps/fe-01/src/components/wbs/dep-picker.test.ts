@@ -8,7 +8,7 @@ const row = (
   name: string,
   parentId: string | null = null,
   dependsOn: readonly string[] = [],
-): PickableRow => ({ id, parentId, number, name, dependsOn });
+): PickableRow => ({ id, parentId, number, name, dependsOn, status: 'unknown' });
 
 const rows = [
   row('a', '010', 'Design API'),
@@ -18,6 +18,19 @@ const rows = [
 ];
 
 describe('pickerEntries', () => {
+  it('carries each row’s status onto its entry, so a finished predecessor can be marked', () => {
+    const finished = [
+      { ...row('a', '010', 'Design API'), status: 'done' as const },
+      row('b', '020', 'Build gateway'),
+      row('c', '030', 'Smoke test'),
+    ];
+    const offered = pickerEntries(finished, { id: 'b', dependsOn: [] }, '');
+    expect(offered.map((r) => [r.id, r.status])).toEqual([
+      ['a', 'done'],
+      ['c', 'unknown'],
+    ]);
+  });
+
   it('offers every other row when nothing is typed', () => {
     const offered = pickerEntries(rows, { id: 'b', dependsOn: [] }, '');
     expect(offered.map((r) => r.id)).toEqual(['a', 'c', 'd']);

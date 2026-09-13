@@ -176,6 +176,8 @@ export function inMemoryWorkItems(
             ? existing.startNoEarlierThanReason
             : patch.startNoEarlierThanReason,
         deadline: patch.deadline === undefined ? existing.deadline : patch.deadline,
+        factStart: patch.factStart === undefined ? existing.factStart : patch.factStart,
+        factEnd: patch.factEnd === undefined ? existing.factEnd : patch.factEnd,
         priority: patch.priority === undefined ? existing.priority : patch.priority,
         serviceTeamId:
           wantedTeamIds !== undefined

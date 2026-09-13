@@ -227,8 +227,22 @@ const journal = () => journalStore.entriesFor(projectId, ownerId);
 
 const DRAFT: PlanCommand[] = [
   { kind: 'createWorkItem', ref: 'strip', parentId: null, afterId: null, name: 'Strip' },
-  { kind: 'createWorkItem', ref: 'sand', parentId: null, afterRef: 'strip', name: 'Sand' },
-  { kind: 'createWorkItem', ref: 'paint', parentId: null, afterRef: 'sand', name: 'Paint' },
+  {
+    kind: 'createWorkItem',
+    ref: 'sand',
+    parentId: null,
+    afterId: null,
+    afterRef: 'strip',
+    name: 'Sand',
+  },
+  {
+    kind: 'createWorkItem',
+    ref: 'paint',
+    parentId: null,
+    afterId: null,
+    afterRef: 'sand',
+    name: 'Paint',
+  },
   { kind: 'setEstimate', workItemRef: 'strip', stepId: 'STEP', days: DAYS },
   { kind: 'setEstimate', workItemRef: 'sand', stepId: 'STEP', days: DAYS },
   { kind: 'addDependency', workItemRef: 'sand', predecessorRef: 'strip' },
@@ -256,6 +270,50 @@ describe('a command batch', () => {
       (await estimateStore.listByProject(projectId)).map((each) => each.workItemId).sort(),
     ).toEqual([sand, strip].sort());
     expect(await dependencyStore.listByProject(projectId)).toHaveLength(1);
+  });
+
+  it('creates by ref then estimates the minted row', async () => {
+    const days = { optimistic: 2, realistic: 5, pessimistic: 9 };
+    const previousId = applied(
+      await run([
+        {
+          kind: 'createWorkItem',
+          ref: 'previous',
+          parentId: null,
+          afterId: null,
+          name: 'Previous raw id',
+        },
+      ]),
+    ).get('previous');
+    if (previousId === undefined) throw new Error('the previous work item minted no id');
+    const outcome = await run([
+      {
+        kind: 'createWorkItem',
+        ref: 'named',
+        parentId: null,
+        afterId: null,
+        name: 'Named by the store',
+      },
+      {
+        kind: 'setEstimate',
+        workItemId: previousId,
+        workItemRef: 'named',
+        stepId: dev(),
+        days,
+      },
+    ]);
+    if (!outcome.ok) throw new Error(`batch refused: ${outcome.reason}`);
+    const named = (await workItemStore.listByProject(projectId)).find(
+      (row) => row.name === 'Named by the store',
+    );
+    if (named === undefined) throw new Error('the named work item was not stored');
+
+    // Proof: resolving setEstimate from its previous raw id instead of the competing ref made
+    // this receive that earlier row's id rather than the independently found named row's id.
+    // Proof: binding setEstimate to clearEstimate made this receive an empty estimate list.
+    expect(await estimateStore.listByProject(projectId)).toEqual([
+      { workItemId: named.id, stepId: dev(), ...days },
+    ]);
   });
 
   it('leaves the first two unwritten when the third is refused', async () => {
@@ -377,12 +435,28 @@ describe('a command batch', () => {
     // the create went through with the literal word as its parent id and was
     // refused as `not_found` instead. Watched, 2026-08-29.
     expect(
-      await run([{ kind: 'createWorkItem', parentRef: 'nope', afterId: null, name: 'Orphan' }]),
+      await run([
+        {
+          kind: 'createWorkItem',
+          parentId: null,
+          parentRef: 'nope',
+          afterId: null,
+          name: 'Orphan',
+        },
+      ]),
     ).toEqual({ ok: false, at: 0, kind: 'createWorkItem', reason: 'unknown_ref' });
+    // Proof: moving the duplicate check after create made the invalid parent win with
+    // `not_found` instead of `duplicate_ref` at index 1.
     expect(
       await run([
         { kind: 'createWorkItem', ref: 'a', parentId: null, afterId: null, name: 'A' },
-        { kind: 'createWorkItem', ref: 'a', parentId: null, afterId: null, name: 'B' },
+        {
+          kind: 'createWorkItem',
+          ref: 'a',
+          parentId: 'no-such-parent',
+          afterId: null,
+          name: 'B',
+        },
       ]),
     ).toEqual({ ok: false, at: 1, kind: 'createWorkItem', reason: 'duplicate_ref' });
     expect(await names()).toEqual([]);
@@ -435,12 +509,28 @@ describe('a command batch', () => {
     expect((await directoryStore.listTeams()).map((each) => each.name)).toEqual(['Platform']);
     expect(await journal()).toHaveLength(0);
 
+    const refs = applied(
+      await run([
+        {
+          kind: 'createWorkItem',
+          ref: 'plan-row',
+          parentId: null,
+          afterId: null,
+          name: 'Plan row',
+        },
+      ]),
+    );
+    const planRow = refs.get('plan-row');
+    if (planRow === undefined) throw new Error('the plan row minted no id');
+
+    // Proof: bypassing registry scope admission returned ok with both the tag and unfreeze
+    // applied, instead of `project_required` for the real plan row at index 1.
     expect(
       await runner.runDirectory(ownerId, [
         { kind: 'createTag', name: 'x' },
-        { kind: 'createWorkItem', name: 'Orphan' },
+        { kind: 'unfreezeWorkItem', workItemId: planRow },
       ]),
-    ).toEqual({ ok: false, at: 1, kind: 'createWorkItem', reason: 'project_required' });
+    ).toEqual({ ok: false, at: 1, kind: 'unfreezeWorkItem', reason: 'project_required' });
     // All or none here too: the tag went with the refusal.
     expect(await directoryStore.listTags()).toHaveLength(0);
   });

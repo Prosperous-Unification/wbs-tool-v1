@@ -47,17 +47,19 @@ const LAID_OUT_BEFORE_AT_1280 = 1445.33;
 // retain the measured cross-platform high-water mark rather than failing on a
 // fractional glyph advance that added no control.
 //
-// **Moved from 1268.5 to 1303.5 by `arrange-by-schedule` on 2026-09-11**, which
-// is the "named margin for exactly one more control" this file's comment
-// promised, spent. The control is `Arrange by schedule`, an icon button, and it
-// cost **34.77px** — 1303.265625 measured here against 1268.46875 before it.
+// **Corrected from 1303.5 to 1306.5 on 2026-09-12.** `arrange-by-schedule`
+// moved the pin from 1268.5 to 1303.5 on 2026-09-11, spending the "named margin
+// for exactly one more control" this file's comment promised, but charged 35px.
+// `Arrange by schedule` costs **38px** in this measurement: the 32px control
+// and the 6px gap its new child adds. The same Chromium measured 1306.46875
+// with it and 1268.46875 when that one control and gap are subtracted.
 //
 // Re-pinned rather than loosened, and the figure that matters was measured
 // alongside: `rows` is **2**, exactly what it was, so the bar wraps no further
 // than it already did and `gantt.spec.ts:2605` still watches the wrap it is
 // about. The margin is now genuinely gone — the next control to reach this bar
 // has to take width away from something.
-const LAID_OUT_NOW_AT_1280 = 1303.5;
+const LAID_OUT_NOW_AT_1280 = 1306.5;
 const ROWS_BEFORE_AT_1280 = 2;
 
 /** Registers a throwaway account and opens an empty project. */
@@ -135,17 +137,15 @@ test.describe('the project settings control, in a browser', () => {
     // Re-watched in Chromium153 on Linux, 2026-09-08, after moving the
     // cross-platform pin to the measured high-water mark.
     //
-    // Re-watched on 2026-09-11 against the pin `arrange-by-schedule` moved it
-    // to, because a raised ceiling is a check that has to be proved again —
-    // **and the two-button fault no longer reaches this line.** The bar is
-    // 35px wider now, so two extra labelled buttons overshoot the loose
+    // On 2026-09-11 the two-button fault no longer reached this line after the
+    // arrange control joined the toolbar: two extra labelled buttons overshot the loose
     // `BEFORE` assertion above first: `Expected: <= 1447.33 · Received:
     // 1466.015625`. That is a real failure and a proof about the wrong line.
     //
-    // **One** extra labelled button is the fault this pin is for, and it was
-    // watched failing here on `1370px of controls to lay out, against the
-    // 1303.5px this change left · Expected: <= 1305.5 · Received:
-    // 1369.96875`.
+    // **One** extra labelled button is the fault this pin is for. Re-watched on
+    // 2026-09-12 after correcting the arrange cost to its 32px control plus 6px
+    // gap, it failed here on `1371px of controls to lay out, against the
+    // 1306.5px this change left · Expected: <= 1308.5 · Received: 1371.171875`.
     expect(
       measured.laidOut,
       `${String(Math.round(measured.laidOut))}px of controls to lay out, against the ${String(

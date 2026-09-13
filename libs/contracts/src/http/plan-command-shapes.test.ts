@@ -20,6 +20,7 @@ const commands: PlanCommandWire[] = [
   { kind: 'clearActual', stepId: 's' },
   { kind: 'setProgress', stepId: 's', state: 'done' },
   { kind: 'clearProgress', stepId: 's' },
+  { kind: 'setStatus', status: 'done' },
   { kind: 'setMeasure', stepId: 's', metric: 'future', value: -1 },
   { kind: 'clearMeasure', stepId: 's', metric: 'future' },
   { kind: 'setAssignee', stepId: 's' },
@@ -48,8 +49,8 @@ const commands: PlanCommandWire[] = [
   { kind: 'deleteWorkItemType' },
 ];
 
-test('validates all 37 structural wire arms without applying semantic defaults or a batch cap', async () => {
-  expect(commands).toHaveLength(37);
+test('validates all 38 structural wire arms without applying semantic defaults or a batch cap', async () => {
+  expect(commands).toHaveLength(38);
   for (const command of commands) {
     expect(await validateSchema(planCommandSchema, command)).toEqual({ value: command });
   }
@@ -134,6 +135,7 @@ test('rejects malformed structures and nested extras including derived numbering
 
 test('emits inline MCP-readable command branches with real nested patch and estimate properties', () => {
   interface Descriptor {
+    description?: string;
     properties?: Record<string, Descriptor>;
     items?: Descriptor;
     anyOf?: Descriptor[];
@@ -144,10 +146,14 @@ test('emits inline MCP-readable command branches with real nested patch and esti
   const descriptor = planCommandsBody.jsonSchema as Descriptor;
   expect(JSON.stringify(descriptor)).not.toContain('"$ref"');
   const branches = descriptor.properties?.['commands']?.items?.anyOf;
-  expect(branches).toHaveLength(37);
+  expect(branches).toHaveLength(38);
   if (branches === undefined) throw new Error('Missing command alternatives');
   const find = (kind: string) =>
     branches.find((branch) => branch.properties?.['kind']?.const === kind);
+  // Proof: emptying the production createWorkItem description failed here with received "".
+  expect(find('createWorkItem')?.description).toBe(
+    'Add a work item. `ref` names it for the rest of this batch.',
+  );
   expect(
     find('patchWorkItem')?.properties?.['patch']?.properties?.['externalRefs']?.items?.properties,
   ).toEqual({

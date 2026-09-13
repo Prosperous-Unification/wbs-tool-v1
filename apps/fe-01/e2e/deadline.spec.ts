@@ -192,12 +192,15 @@ function expectDeadlineColumns(headers: string[], row: string[]): void {
   expect(deadline, `${DEADLINE_COLUMN} is absent`).toBeGreaterThan(1);
   // Proof: renaming the shipped unreachable header to `Unreachable` made the
   // CSV download fail here with that exact fourth field. Watched 2026-09-09.
+  // `Status` follows since `work-item-status-and-facts`: the row's status and
+  // its two facts sit between the two constraints and the computed dates, in
+  // the export as in the table. CI watched this pin fail on `Starts` first.
   expect(headers.slice(deadline - 2, deadline + 3)).toEqual([
     'Not before',
     'Not before because',
     DEADLINE_COLUMN,
     UNREACHABLE_COLUMN,
-    'Starts',
+    'Status',
   ]);
   expect(row[deadline]).toBe(WORK_ITEM_DEADLINE);
   expect(row[deadline + 1]).toBe(UNREACHABLE_CELL);

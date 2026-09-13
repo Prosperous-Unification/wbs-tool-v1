@@ -164,7 +164,7 @@ describe('StepProgressRepository', () => {
     const db = openDatabase(path);
     try {
       db.run('PRAGMA foreign_keys = ON');
-      for (const state of ['not_started', 'blocked', 'cancelled', '']) {
+      for (const state of ['not_started', 'unknown', 'blocked', 'cancelled', '']) {
         expect(() => {
           db.run(
             `INSERT INTO step_progress (work_item_id, step_id, state, stated_at) VALUES ('${stripId}', '${devId}', '${state}', 1)`,

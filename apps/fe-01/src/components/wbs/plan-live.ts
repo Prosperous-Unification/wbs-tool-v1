@@ -1,3 +1,5 @@
+import type { SettableStatus } from '@wbs/domain/progress';
+import type { IsoDate } from '@wbs/domain/workday';
 import type * as React from 'react';
 
 import { type ProjectApi } from '@/lib/wbs-api';
@@ -73,12 +75,35 @@ export interface PlanLiveValues {
   setNotBefore: (id: string, day: string | null, reason?: string | null) => void;
   setNotBeforeReason: (id: string, typed: string) => void;
   setDeadline: (id: string, day: string | null) => void;
+  /**
+   * Sets or clears one fact date — the day the work began or finished — as an
+   * ordinary field edit. `null` takes the record off.
+   */
+  setFactStart: (id: string, day: string | null) => void;
+  setFactEnd: (id: string, day: string | null) => void;
+  /**
+   * Sets the row's status as one act: `done` writes every step and fills an
+   * empty fact end with the reader's day, `unknown` takes every statement back.
+   * `in_progress` is not offered here — it is a step's statement.
+   */
+  /**
+   * Sets the row's status as one act, on the day given. `done` reaches this
+   * only through the completion prompt, which is where the day comes from;
+   * `unknown` sends the reader's day and be-01 ignores it.
+   */
+  setStatus: (id: string, status: SettableStatus, on: IsoDate) => Promise<CommitOutcome>;
+  /** Opens the completion prompt over a row: `Done` is asked about before it is written. */
+  openCompletionPrompt: (rowId: string) => void;
   setPriority: (id: string, typed: string) => Promise<CommitOutcome>;
   setParallelism: (id: string, typed: string) => Promise<CommitOutcome>;
   openNotBefore: (rowId: string) => void;
   closeNotBefore: (rowId: string) => void;
   openDeadline: (rowId: string) => void;
   closeDeadline: (rowId: string) => void;
+  openFactStart: (rowId: string) => void;
+  closeFactStart: (rowId: string) => void;
+  openFactEnd: (rowId: string) => void;
+  closeFactEnd: (rowId: string) => void;
   setRefsEditing: React.Dispatch<React.SetStateAction<string | null>>;
   setTeamOf: (id: string, teamIds: readonly string[]) => Promise<CommitOutcome>;
   setTagsOf: (id: string, tagIds: readonly string[]) => Promise<CommitOutcome>;

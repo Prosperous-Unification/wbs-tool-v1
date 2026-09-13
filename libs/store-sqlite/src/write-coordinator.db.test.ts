@@ -221,7 +221,14 @@ afterEach(() => {
 /** Two creates and a refusal: the second create is where the batch suspends. */
 const REFUSED_BATCH: PlanCommand[] = [
   { kind: 'createWorkItem', ref: 'strip', parentId: null, afterId: null, name: 'Strip' },
-  { kind: 'createWorkItem', ref: 'sand', parentId: null, afterRef: 'strip', name: 'Sand' },
+  {
+    kind: 'createWorkItem',
+    ref: 'sand',
+    parentId: null,
+    afterId: null,
+    afterRef: 'strip',
+    name: 'Sand',
+  },
   {
     kind: 'setEstimate',
     workItemRef: 'strip',

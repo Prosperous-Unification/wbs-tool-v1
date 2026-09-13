@@ -113,8 +113,14 @@ describe('the resolved frame layout', () => {
       let running = 0;
       for (const id of PINNED_COLUMN_IDS) {
         const resolved = layout.columns.find((column) => column.id === id);
-        expect(layout.pinned.get(id)).toEqual({ left: running, width: resolved?.colWidth });
-        if (resolved?.colWidth === undefined) {
+        // A pinned column that is hidden (`status`, by default) is not in the
+        // table model at all, so it is not pinned either and adds no width.
+        if (resolved === undefined) {
+          expect(layout.pinned.get(id)).toBeUndefined();
+          continue;
+        }
+        expect(layout.pinned.get(id)).toEqual({ left: running, width: resolved.colWidth });
+        if (resolved.colWidth === undefined) {
           // Only the last pinned column may be flexible; see the refusal below.
           expect(id).toBe(PINNED_COLUMN_IDS.at(-1));
           continue;
@@ -144,6 +150,32 @@ describe('the resolved frame layout', () => {
     // for: it used to sit between Number and Name.
     expect(pinned.get('depends')).toBeUndefined();
     expect(pinnedCellStyle(frameLayout(RENDERED, DATED), 'depends', 'body')).toBeUndefined();
+  });
+
+  it('holds Status as the third pin when it is shown, and moves Links and Name 28px for it', () => {
+    const shown = [...RENDERED.slice(0, 2), 'status', ...RENDERED.slice(2)];
+    const { pinned } = frameLayout(shown, DATED);
+
+    // Proof: `status` taken out of `PINNED_COLUMN_IDS`, and this fails on the
+    // first line with `expected undefined to deeply equal { left: 121, width:
+    // 28 }` — a column between two pins that scrolls under the second while
+    // Name's offset is a sum 28px short; watched 2026-09-13.
+    expect(pinned.get('status')).toEqual({ left: 121, width: 28 });
+    expect(pinned.get('refs')).toEqual({ left: 149, width: 40 });
+    expect(pinned.get('name')).toEqual({ left: 189, width: undefined });
+  });
+
+  it('paints a pinned body cell with the tint layer over the row colour, and a heading without', () => {
+    const body = pinnedCellStyle(frameLayout(RENDERED, DATED), 'number', 'body');
+    const header = pinnedCellStyle(frameLayout(RENDERED, DATED), 'number', 'header');
+    if (body === undefined || header === undefined) throw new Error('number is not pinned');
+    // Proof: the gradient layer dropped from `ROW_BACKGROUND`, and this fails
+    // on the first line — the pinned cells of a done row painted the row colour
+    // alone while the cells beside them carried the tint; watched 2026-09-13.
+    expect(body.background).toBe(
+      'linear-gradient(var(--row-tint, transparent), var(--row-tint, transparent)), var(--cell-bg, var(--background))',
+    );
+    expect(header.background).toBe('var(--cell-bg, var(--muted))');
   });
 
   it('removes the hidden Links width from both the minimum and Name’s pinned offset', () => {
@@ -501,7 +533,11 @@ describe('a pinned cell', () => {
     // The row's own colour, with an opaque fallback behind it: the shade is
     // `styles.css`'s to decide per row — banded, hovered, armed — and the
     // fallback is what keeps this cell opaque with that stylesheet deleted.
-    expect(body?.background).toBe('var(--cell-bg, var(--background))');
+    // Under a second layer since `status-at-a-glance`: the done tint, or
+    // `transparent`, so a done row's pinned cells are tinted like the rest.
+    expect(body?.background).toBe(
+      'linear-gradient(var(--row-tint, transparent), var(--row-tint, transparent)), var(--cell-bg, var(--background))',
+    );
     expect(body?.boxSizing).toBe('border-box');
     expect(body?.zIndex).toBe(1);
 
@@ -722,7 +758,16 @@ describe('how wide the steps make the table', () => {
     // assertions under it are only why it is true.
     expect(foldedTableMinWidth([], DATED)).toBe(1035);
     expect(foldedTableMinWidth(['step-dev', 'step-qa'], DATED)).toBe(1227);
-    expect(INITIAL_HIDDEN_COLUMNS).toEqual(['refs', 'team', 'service', 'type', 'deadline']);
+    expect(INITIAL_HIDDEN_COLUMNS).toEqual([
+      'refs',
+      'team',
+      'service',
+      'type',
+      'deadline',
+      'status',
+      'fact-start',
+      'fact-end',
+    ]);
     expect(DEFAULT_COLUMN_SET).toContain('tag');
     expect(DEFAULT_COLUMN_SET).not.toContain('team');
     expect(DEFAULT_COLUMN_SET).not.toContain('service');
@@ -810,7 +855,15 @@ describe('how wide the steps make the table', () => {
     expect(INITIAL_HIDDEN_COLUMNS).toContain('refs');
     expect(DEFAULT_COLUMN_SET).not.toContain('refs');
     expect(resetHiddenColumns(false)).toEqual(INITIAL_HIDDEN_COLUMNS);
-    expect(resetHiddenColumns(true)).toEqual(['team', 'service', 'type', 'deadline']);
+    expect(resetHiddenColumns(true)).toEqual([
+      'team',
+      'service',
+      'type',
+      'deadline',
+      'status',
+      'fact-start',
+      'fact-end',
+    ]);
   });
 
   it('subtracts what the reader has hidden, a whole step included', () => {
@@ -827,9 +880,17 @@ describe('how wide the steps make the table', () => {
     // the assertion would be about a reader nobody described. `deadline` is the
     // fourth, added by `work-item-deadline` 9.1 for the same reason `type` was
     // added: 84px the folded budget at 1280 does not have.
-    expect(foldedTableMinWidth([], DATED, ['refs', 'service', 'type', 'deadline'])).toBe(
-      1035 + widthFor('team', DATED),
-    );
+    expect(
+      foldedTableMinWidth([], DATED, [
+        'refs',
+        'service',
+        'type',
+        'deadline',
+        'status',
+        'fact-start',
+        'fact-end',
+      ]),
+    ).toBe(1035 + widthFor('team', DATED));
     // A hidden step takes its folded column with it, and nothing else.
     expect(
       foldedTableMinWidth(['step-dev', 'step-qa'], DATED, [...INITIAL_HIDDEN_COLUMNS, 'step-qa']),
@@ -846,6 +907,7 @@ describe('how wide the steps make the table', () => {
     // columns do.
     expect(hideableColumnIds(['step-dev', 'step-qa'])).toEqual([
       'refs',
+      'status',
       'depends',
       'priority',
       'team',
@@ -858,6 +920,8 @@ describe('how wide the steps make the table', () => {
       'final-total',
       'not-before',
       'deadline',
+      'fact-start',
+      'fact-end',
       'start',
       'finish',
       'float',

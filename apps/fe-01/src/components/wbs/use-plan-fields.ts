@@ -1,3 +1,5 @@
+import type { SettableStatus } from '@wbs/domain/progress';
+import type { IsoDate } from '@wbs/domain/workday';
 import type * as React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -189,6 +191,43 @@ export function usePlanFields({
   );
 
   /**
+   * Sets or clears one fact date, as the single field it is — the deadline's
+   * shape, for the deadline's reason: a fact has no reason column beside it and
+   * nothing is guarded here. be-01 refuses a non-date at its boundary, and an
+   * end before a start is a typo the two cells show side by side.
+   */
+  const setFactStart = useCallback(
+    (id: string, day: string | null) => {
+      void run(() => api.patchWorkItem(id, { factStart: day }));
+    },
+    [api, run],
+  );
+  const setFactEnd = useCallback(
+    (id: string, day: string | null) => {
+      void run(() => api.patchWorkItem(id, { factEnd: day }));
+    },
+    [api, run],
+  );
+
+  /**
+   * Sets the row's status as one act, sending the day the caller names as the
+   * day it happened.
+   *
+   * Always sent, never left for be-01 to fill: be-01 has no calendar of its own
+   * and would take the UTC day of the act, which after 21:00 in Kyiv is
+   * yesterday. For `done` the day is the one the completion prompt confirmed
+   * — today offered, in the reader's own calendar (`isoToday`), or whatever
+   * they typed; for `unknown` the caller sends today and be-01 reads nothing
+   * from it. Answers the commit's outcome so the prompt's wiring can follow a
+   * landed mark with the `patch` a changed held day needs, and skip it after a
+   * refusal.
+   */
+  const setStatus = useCallback(
+    (id: string, status: SettableStatus, on: IsoDate) => run(() => api.setStatus(id, status, on)),
+    [api, run],
+  );
+
+  /**
    * Sets or clears one work item's priority, from what was typed into its cell.
    *
    * An ordering, which be-01 honours in its leveller's queue — never a
@@ -295,6 +334,16 @@ export function usePlanFields({
     open: openDeadline,
     close: closeDeadline,
   } = useDateCellEditor('deadline', gridElement);
+  const {
+    editing: editingFactStart,
+    open: openFactStart,
+    close: closeFactStart,
+  } = useDateCellEditor('fact-start', gridElement);
+  const {
+    editing: editingFactEnd,
+    open: openFactEnd,
+    close: closeFactEnd,
+  } = useDateCellEditor('fact-end', gridElement);
   return {
     setNotBefore,
     setNotBeforeReason,
@@ -307,5 +356,14 @@ export function usePlanFields({
     editingDeadline,
     openDeadline,
     closeDeadline,
+    setFactStart,
+    setFactEnd,
+    setStatus,
+    editingFactStart,
+    openFactStart,
+    closeFactStart,
+    editingFactEnd,
+    openFactEnd,
+    closeFactEnd,
   };
 }

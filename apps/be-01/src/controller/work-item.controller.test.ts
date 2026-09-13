@@ -2563,12 +2563,12 @@ describe('saying where a step’s work has got to', () => {
     expect(((await res.json()) as { results: unknown[] }).results).toEqual([{ index: 0 }]);
     expect(await rowOf(send, token, projectId, 'Sockets')).toMatchObject({
       progress: { [devId]: 'done' },
-      state: 'done',
+      status: 'done',
     });
     // Folded on the parent, never stored there.
     expect(await rowOf(send, token, projectId, 'Strip')).toMatchObject({
       progress: { [devId]: 'done' },
-      state: 'done',
+      status: 'done',
     });
   });
 
@@ -2604,7 +2604,7 @@ describe('saying where a step’s work has got to', () => {
 
     expect(await rowOf(send, token, projectId, 'Strip')).toMatchObject({
       progress: {},
-      state: 'not_started',
+      status: 'unknown',
     });
   });
 
@@ -2690,7 +2690,7 @@ describe('saying where a step’s work has got to', () => {
     expect([first.status, again.status]).toEqual([200, 200]);
     expect(((await first.json()) as { results: unknown[] }).results).toEqual([{ index: 0 }]);
     // The other step is untouched and the cleared one is **absent** rather than
-    // `not_started`.
+    // `unknown`.
     //
     // The row still reads `done`, and that is the rule rather than a leak: Dev
     // has no estimate and no recorded day on this row, so retracting the only
@@ -2700,7 +2700,7 @@ describe('saying where a step’s work has got to', () => {
     // `service/progress.test.ts`.
     expect(await rowOf(send, token, projectId, 'Strip')).toMatchObject({
       progress: { [qaId]: 'done' },
-      state: 'done',
+      status: 'done',
     });
   });
 
@@ -2804,5 +2804,115 @@ describe('a JSON array body on the work-item routes', () => {
     // Nothing was written, structurally rather than by a second read: the
     // route is `commands.run(id, user, parseBatch(body))`, so a refusal
     // `parseBatch` throws happens before the service is called at all.
+  });
+});
+
+describe('setting a row’s status as one act', () => {
+  interface Row {
+    name: string;
+    progress: Record<string, string>;
+    status: string;
+    factStart: string | null;
+    factEnd: string | null;
+  }
+  const rowOf = async (send: Send, token: string, projectId: string, name: string) => {
+    const tree = await send(`/api/projects/${projectId}/work-items`, token);
+    const body = (await tree.json()) as { workItems: Row[] };
+    return body.workItems.find((w) => w.name === name);
+  };
+
+  it('marks a row done: every step, the status, and the fact end, in one command', async () => {
+    const { token, send, projectId, devId, qaId } = await setup();
+    const strip = await addWorkItem(send, token, projectId, { parentId: null, name: 'Strip' });
+
+    const res = await command(send, token, projectId, {
+      kind: 'setStatus',
+      workItemId: strip,
+      status: 'done',
+      on: '2026-09-12',
+    });
+
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { results: unknown[] }).results).toEqual([{ index: 0 }]);
+    expect(await rowOf(send, token, projectId, 'Strip')).toMatchObject({
+      progress: { [devId]: 'done', [qaId]: 'done' },
+      status: 'done',
+      factStart: null,
+      factEnd: '2026-09-12',
+    });
+  });
+
+  it('refuses a status outside unknown and done, in_progress and not_started included', async () => {
+    // The shape guards the keys and this guards the value (`AGENTS.md`): the
+    // ArkType arm names `'unknown' | 'done'`, but a mistyped value reaches the
+    // parser, and `parseStatus` is what answers it.
+    //
+    // Proof: `parseStatus` replaced by a cast, and `in_progress` answers 200 —
+    // a row-level statement the vocabulary reserves for a step, written on
+    // every step of the row; watched 2026-09-12.
+    const { token, send, projectId } = await setup();
+    const strip = await addWorkItem(send, token, projectId, { parentId: null, name: 'Strip' });
+
+    for (const status of ['in_progress', 'not_started', 'finished', 7, null]) {
+      const res = await command(send, token, projectId, {
+        kind: 'setStatus',
+        workItemId: strip,
+        status,
+      });
+      expect([status, res.status]).toEqual([status, 400]);
+      expect(await res.json()).toEqual({ error: 'invalid_status', at: 0, kind: 'setStatus' });
+    }
+    expect(await rowOf(send, token, projectId, 'Strip')).toMatchObject({
+      progress: {},
+      status: 'unknown',
+      factEnd: null,
+    });
+  });
+
+  it('refuses an on that is not a date', async () => {
+    const { token, send, projectId } = await setup();
+    const strip = await addWorkItem(send, token, projectId, { parentId: null, name: 'Strip' });
+
+    const res = await command(send, token, projectId, {
+      kind: 'setStatus',
+      workItemId: strip,
+      status: 'done',
+      on: 'yesterday',
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'on_must_be_a_date', at: 0, kind: 'setStatus' });
+    expect(await rowOf(send, token, projectId, 'Strip')).toMatchObject({ status: 'unknown' });
+  });
+
+  it('writes the two facts through the ordinary patch and refuses a non-date', async () => {
+    const { token, send, projectId } = await setup();
+    const strip = await addWorkItem(send, token, projectId, { parentId: null, name: 'Strip' });
+
+    const written = await command(send, token, projectId, {
+      kind: 'patchWorkItem',
+      workItemId: strip,
+      patch: { factStart: '2026-09-08', factEnd: '2026-09-12' },
+    });
+    expect(written.status).toBe(200);
+    expect(await rowOf(send, token, projectId, 'Strip')).toMatchObject({
+      factStart: '2026-09-08',
+      factEnd: '2026-09-12',
+    });
+
+    const refused = await command(send, token, projectId, {
+      kind: 'patchWorkItem',
+      workItemId: strip,
+      patch: { factStart: 'yesterday' },
+    });
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toEqual({
+      error: 'factStart_must_be_a_date',
+      at: 0,
+      kind: 'patchWorkItem',
+    });
+    expect(await rowOf(send, token, projectId, 'Strip')).toMatchObject({
+      factStart: '2026-09-08',
+    });
   });
 });

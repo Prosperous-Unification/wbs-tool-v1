@@ -233,6 +233,7 @@ function commandCode(refusal: RefusalOf<'postApiProjectsByIdCommands'>): string 
     case 'invalid_actual':
     case 'invalid_measure':
     case 'invalid_progress':
+    case 'invalid_status':
     case 'invalid_estimate':
     case 'cannot_send_both_teamIds_and_serviceTeamId':
     case 'unknown_kind':
@@ -295,6 +296,9 @@ function commandCode(refusal: RefusalOf<'postApiProjectsByIdCommands'>): string 
     case 'tagRefs_must_be_at_most_50':
     case 'startNoEarlierThan_must_be_a_date':
     case 'deadline_must_be_a_date':
+    case 'on_must_be_a_date':
+    case 'factStart_must_be_a_date':
+    case 'factEnd_must_be_a_date':
     case 'priority_must_be_a_whole_number_from_1':
     case 'maxParallel_must_be_a_whole_number_from_1':
     case 'size_must_be_a_whole_number_from_1':

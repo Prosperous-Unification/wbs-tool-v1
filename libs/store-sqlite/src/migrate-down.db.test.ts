@@ -275,6 +275,14 @@ const WORK_ITEM_DEADLINE = '20260906090000_add_work_item_deadline';
  * rollback order that no longer exists.
  */
 const EXTERNAL_REF_NAME = '20260909120000_add_external_ref_name';
+/**
+ * The newest: `work_item.fact_start` and `work_item.fact_end`, the two nullable
+ * date-only columns `work-item-status-and-facts` adds. Additive forward and two
+ * `DROP COLUMN`s on the way back, so it heads every descending reversal list and
+ * tails every ascending one, exactly as {@link EXTERNAL_REF_NAME} did while it
+ * was newest.
+ */
+const WORK_ITEM_FACTS = '20260912120000_add_work_item_facts';
 const AUDIT_COLUMNS = '20260901120000_add_audit_columns';
 
 function tempDb(): { path: string; cleanup: () => void } {
@@ -604,6 +612,7 @@ describe('readMigrationFolders', () => {
       READ_ORDER_INDEX,
       WORK_ITEM_DEADLINE,
       EXTERNAL_REF_NAME,
+      WORK_ITEM_FACTS,
     ]);
     for (const f of folders) expect(f.downSql.trim()).not.toBe('');
   });
@@ -720,11 +729,13 @@ describe('rollbackTo, against a real database', () => {
         READ_ORDER_INDEX,
         WORK_ITEM_DEADLINE,
         EXTERNAL_REF_NAME,
+        WORK_ITEM_FACTS,
       ]);
 
       const reversed = rollbackTo(db.path, FOLDER, INIT);
 
       expect(reversed).toEqual([
+        WORK_ITEM_FACTS,
         EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
@@ -833,6 +844,7 @@ describe('rollbackTo, against a real database', () => {
         READ_ORDER_INDEX,
         WORK_ITEM_DEADLINE,
         EXTERNAL_REF_NAME,
+        WORK_ITEM_FACTS,
       ]);
     } finally {
       db.cleanup();
@@ -903,6 +915,7 @@ describe('rollbackTo, against a real database', () => {
       const reversed = rollbackTo(db.path, FOLDER, ROLLBACK_ALL);
 
       expect(reversed).toEqual([
+        WORK_ITEM_FACTS,
         EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
@@ -991,6 +1004,7 @@ describe('rollbackTo, against a real database', () => {
       expect(newest).toBeDefined();
       expect(rollbackTo(db.path, FOLDER, newest ?? '')).toEqual([]);
       expect(rollbackTo(db.path, FOLDER, AUDIT_COLUMNS)).toEqual([
+        WORK_ITEM_FACTS,
         EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
@@ -1064,6 +1078,7 @@ describe('rollbackTo, against a real database', () => {
       // Descending — newest reversed first — so the audit columns come off
       // before the rename they were written against.
       expect(rollbackTo(db.path, FOLDER, WEIGHTS_AND_ROUNDING)).toEqual([
+        WORK_ITEM_FACTS,
         EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,

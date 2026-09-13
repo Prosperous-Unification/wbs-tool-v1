@@ -1,6 +1,6 @@
 ## Why
 
-The same 36 command kinds are described by an ArkType wire union, a backend command union, a semantic parser and a dispatcher. A new kind still needs coordinated edits despite the shared HTTP contract already supplying schemas and MCP tools. One definition per kind should make omissions fail where commands are bound.
+The same 37 command kinds are described by an ArkType wire union, a backend command union, a semantic parser and a dispatcher. A new kind still needs coordinated edits despite the shared HTTP contract already supplying schemas and MCP tools. One definition per kind should make omissions fail where commands are bound.
 
 ## What Changes
 

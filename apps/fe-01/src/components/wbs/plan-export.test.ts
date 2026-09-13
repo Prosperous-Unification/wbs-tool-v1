@@ -112,6 +112,9 @@ const row = (over: Partial<ExportRow> & Pick<ExportRow, 'id' | 'number'>): Expor
   // — which is neither a date nor the absence of one, and is exactly how the
   // Priority column came to export the literal text `undefined`.
   deadline: null,
+  factStart: null,
+  factEnd: null,
+  status: 'unknown',
   dates: null,
   schedule: { earliestStart: 0, earliestFinish: 0, float: 0, critical: false },
   assignees: {},
@@ -315,6 +318,9 @@ describe('the columns', () => {
       'Not before because',
       'Work item deadline',
       'Work item deadline unreachable',
+      'Status',
+      'Fact start',
+      'Fact end',
       'Starts',
       'Ends',
       'Slack',

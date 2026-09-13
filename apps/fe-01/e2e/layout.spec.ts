@@ -92,7 +92,13 @@ const SCROLLED = 150;
 const NARROW = { width: 900, height: 900 } as const;
 
 /** The columns held at the left edge, and the offsets they are held at. */
-const PINNED_IDS = PINNED_COLUMN_IDS;
+/**
+ * The pinned columns the seeded plan renders — Links shown, as
+ * `LINKS_SHOWN_HIDDEN_COLUMNS` says. `status` is pinned but hidden there
+ * (`status-at-a-glance`), and a hidden column is not in the table model, so
+ * it is not pinned either and adds nothing to the offsets behind it.
+ */
+const PINNED_IDS = PINNED_COLUMN_IDS.filter((id) => !LINKS_SHOWN_HIDDEN_COLUMNS.includes(id));
 
 /**
  * Where the pinned column with this id is declared to sit, in px from the
@@ -108,11 +114,16 @@ const PINNED_IDS = PINNED_COLUMN_IDS;
  * @throws When asked about a column that is not pinned, which would otherwise
  * compare a measured offset against nothing at all.
  */
-function declaredLeft(columnId: string, state: FrameLayoutState = SEEDED_PLAN): number {
+function declaredLeft(
+  columnId: string,
+  state: FrameLayoutState = SEEDED_PLAN,
+  rendered: readonly string[] = PINNED_IDS,
+): number {
   // Resolved from the pinned columns alone, which is all an offset is: each is
   // the sum of the declared widths in front of it, and every column in front
-  // of a pinned one is itself pinned.
-  const geometry = frameLayout(PINNED_COLUMN_IDS, state).pinned.get(columnId);
+  // of a pinned one is itself pinned. `rendered` is the pinned set on screen —
+  // the fresh plan's by default, all five once Status is shown.
+  const geometry = frameLayout(rendered, state).pinned.get(columnId);
   if (geometry === undefined) throw new Error(`${columnId} is not a pinned column`);
   return geometry.left;
 }
@@ -1432,6 +1443,30 @@ test.describe('the table, measured by a browser', () => {
       refs: declaredLeft('refs'),
       name: declaredLeft('name'),
     });
+  });
+
+  test('puts Status in the pinned block where it is declared, once it is shown', async ({
+    page,
+  }) => {
+    // `status-at-a-glance` made Status the third pin, between `#` and Links.
+    // Shown, it moves the two pins behind it by its own 28px — the sum
+    // `frameLayout` derives from the same widths the `<colgroup>` declares, and
+    // the one place a column laid out wider than declared would show.
+    await page.getByText('Columns', { exact: true }).click();
+    await page.getByRole('checkbox', { name: 'Status' }).check();
+    await expect(page.locator('thead th[data-column="status"]')).toHaveCount(1);
+    await page.getByText('Columns', { exact: true }).click();
+    await scrollFrameTo(page, 0);
+
+    const measured = await measuredLefts(page, PINNED_COLUMN_IDS);
+    expect(measured).toEqual(
+      Object.fromEntries(
+        PINNED_COLUMN_IDS.map((id) => [id, declaredLeft(id, SEEDED_PLAN, PINNED_COLUMN_IDS)]),
+      ),
+    );
+    expect(measured['refs'] - measured['number']).toBe(
+      widthFor('number', SEEDED_PLAN) + widthFor('status', SEEDED_PLAN),
+    );
   });
 
   test('holds the pinned columns there once the table is scrolled sideways', async ({ page }) => {

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import {
   defineEndpointShape,
   documentFromShapes,
+  httpShapes,
   requestSchema,
   responseSchema,
   type SchemaShape,
@@ -101,6 +102,40 @@ it('keeps both nested command alternatives usable in the derived MCP input schem
         },
       ],
     },
+  });
+});
+
+it('carries production command descriptors through the generated MCP input', () => {
+  const tool = toolsFromDocument(documentFromShapes(httpShapes)).find(
+    (candidate) => candidate.name === 'postApiProjectsByIdCommands',
+  );
+  if (tool === undefined) throw new Error('Generated project command tool missing');
+  const branches = (
+    tool.inputSchema.properties['commands'] as {
+      items: {
+        anyOf: {
+          description: string;
+          properties: Record<string, unknown>;
+          required?: string[];
+        }[];
+      };
+    }
+  ).items.anyOf;
+  const find = (kind: string) =>
+    branches.find(
+      (branch) => (branch.properties['kind'] as { const?: string } | undefined)?.const === kind,
+    );
+  // Proof: emptying the production createWorkItem description failed this generated descriptor with received description "".
+  expect(find('createWorkItem')).toMatchObject({
+    description: 'Add a work item. `ref` names it for the rest of this batch.',
+    properties: {
+      kind: { const: 'createWorkItem' },
+      name: { type: 'string' },
+      notes: { type: 'string' },
+      priority: { anyOf: [{ type: 'number' }, { type: 'null' }] },
+      ref: { type: 'string' },
+    },
+    required: ['kind'],
   });
 });
 

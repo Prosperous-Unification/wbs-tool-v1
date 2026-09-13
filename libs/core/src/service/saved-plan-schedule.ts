@@ -33,7 +33,15 @@ import { NO_DEADLINES, slicesOf } from './work-item.service';
  * row nothing to test.
  */
 export function scheduleInputOfCaptured(reads: PlanInputReads): ScheduleInput {
-  const rows = reads.workItems;
+  // A snapshot holds no facts — `saved-plan-input.ts` says why — and the
+  // schedule reads none, so the captured rows are widened to the row shape
+  // `slicesOf` takes with both absent. Nothing below this line can read a fact
+  // that was never captured; this is the type saying so.
+  const rows = reads.workItems.map((row) => ({
+    ...row,
+    factStart: null,
+    factEnd: null,
+  }));
   const rule: EstimateRule = {
     method: reads.project.estimateMethod,
     pertWeights: reads.project.pertWeights,

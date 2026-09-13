@@ -9,6 +9,7 @@ import type {
 
 import { type PickableEntry, type PickerOption } from './creatable-picker';
 import { type PickerEntry } from './dep-picker';
+import type { DependsEntry } from './depends-card';
 import { type TrioProblem } from './estimate-draft';
 import { type ServiceLabel, type ServiceTeamLabel, type TagLabel } from './gantt-geometry';
 import { type CardAssignee } from './plan-cards';
@@ -43,8 +44,10 @@ export interface PlanRowReadings {
   actionsOpen: boolean;
   busy: boolean;
   editingDeadline: boolean;
+  editingFactEnd: boolean;
+  editingFactStart: boolean;
   editingNotBefore: boolean;
-  dependencies: { id: string; number: string; name: string }[];
+  dependencies: DependsEntry[];
   dependencyEntries: PickerEntry[];
   dependencyPicker: { rowId: string; typed: string; highlightId: string | null } | null;
   externalSystems: ExternalSystemView[];

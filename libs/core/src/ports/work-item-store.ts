@@ -31,6 +31,22 @@ export interface WorkItem {
    */
   deadline: IsoDate | null;
   /**
+   * The day work on this row actually began, or null where nobody has said.
+   *
+   * A record beside the constraints above it: read by no engine, typed by the
+   * planner, drawn as the start of a done row's single bar. See `schema.ts` and
+   * ADR 0024.
+   */
+  factStart: IsoDate | null;
+  /**
+   * The day work on this row actually finished, or null where nobody has said.
+   *
+   * Filled with the day of the act by {@link WorkItemService.setStatus} when a
+   * row is marked done holding none, and never overwritten by it; otherwise the
+   * planner's. Where a done row's bar stops. See `schema.ts` and ADR 0024.
+   */
+  factEnd: IsoDate | null;
+  /**
    * How important this work is — an integer of 1 or more, smaller being more
    * important — or null for "nobody has said".
    *
@@ -311,6 +327,17 @@ export interface WorkItemPatch {
    * project as well as the payload; that one is a 422.
    */
   deadline?: IsoDate | null;
+  /**
+   * The day the work actually began, or `null` to take the record off.
+   *
+   * Any `IsoDate` or `null`; the controller refuses a value that is not a date
+   * through the malformed-payload path (`fact_start_must_be_a_date`). Nothing
+   * else is refused: an end before a start is a typo the two cells show side by
+   * side, not a fact the store has an opinion about.
+   */
+  factStart?: IsoDate | null;
+  /** The day the work actually finished, or `null` to take the record off — {@link factStart}'s rules. */
+  factEnd?: IsoDate | null;
   /**
    * An integer of 1 or more, or `null` to leave this work with no priority.
    *

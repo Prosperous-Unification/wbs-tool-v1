@@ -62,13 +62,45 @@ describe('the dependency-card pointer bridge', () => {
     expect(dependencyPointerRegion({ x: 50, y: 20 }, owner, rows, null)).toEqual({ kind: 'owner' });
   });
 
+  itDom(
+    'marks a finished predecessor with the status strip, and lines the others up with it',
+    () => {
+      render(
+        <DependsCard
+          number="030"
+          entries={[
+            { id: 'w1', number: '010', name: 'Strip', status: 'done' },
+            { id: 'w2', number: '020', name: 'Sand', status: 'in_progress' },
+          ]}
+          depLights={createDepLights()}
+          rowId="row"
+          onPointEntry={() => undefined}
+          onPointerOutside={() => undefined}
+        />,
+      );
+
+      const targets = screen.getAllByTestId('depends-card-target');
+      expect(targets).toHaveLength(2);
+      const [done, going] = targets;
+      // Dany, 2026-09-13: "in the dependency list mark the done items by a green
+      // strip before the item". Proof: `statusStripStyle` made to answer the
+      // same transparent border for every status, and this fails on `expected
+      // '3px solid transparent' to be '3px solid var(--status-done)'`; watched
+      // 2026-09-13.
+      expect(done.getAttribute('data-status')).toBe('done');
+      expect(done.style.borderLeft).toBe('3px solid var(--status-done)');
+      expect(going.style.borderLeft).toBe('3px solid transparent');
+      expect(going.style.paddingLeft).toBe(done.style.paddingLeft);
+    },
+  );
+
   itDom('keeps the surface passive and only the unfocusable rows interactive', () => {
     render(
       <DependsCard
         number="030"
         entries={[
-          { id: 'w1', number: '010', name: 'Strip' },
-          { id: 'w2', number: '020', name: 'Sand' },
+          { id: 'w1', number: '010', name: 'Strip', status: 'unknown' },
+          { id: 'w2', number: '020', name: 'Sand', status: 'unknown' },
         ]}
         depLights={createDepLights()}
         rowId="row"
@@ -94,8 +126,8 @@ describe('the dependency-card pointer bridge', () => {
               <DependsCard
                 number="030"
                 entries={[
-                  { id: 'w1', number: '010', name: 'Strip' },
-                  { id: 'w2', number: '020', name: 'Sand' },
+                  { id: 'w1', number: '010', name: 'Strip', status: 'unknown' },
+                  { id: 'w2', number: '020', name: 'Sand', status: 'unknown' },
                 ]}
                 depLights={createDepLights()}
                 rowId="row"
@@ -149,7 +181,7 @@ describe('the dependency-card pointer bridge', () => {
     const { unmount } = render(
       <DependsCard
         number="030"
-        entries={[{ id: 'w1', number: '010', name: 'Strip' }]}
+        entries={[{ id: 'w1', number: '010', name: 'Strip', status: 'unknown' }]}
         depLights={createDepLights()}
         rowId="row"
         onPointEntry={() => undefined}
@@ -168,7 +200,7 @@ describe('the dependency-card pointer bridge', () => {
     render(
       <DependsCard
         number="030"
-        entries={[{ id: 'w1', number: '010', name: 'Strip' }]}
+        entries={[{ id: 'w1', number: '010', name: 'Strip', status: 'unknown' }]}
         depLights={createDepLights()}
         rowId="row"
         onPointEntry={() => undefined}

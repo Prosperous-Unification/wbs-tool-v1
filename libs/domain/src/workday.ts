@@ -446,3 +446,18 @@ export function deadlineOffsetOf(projectStart: IsoDate, deadline: IsoDate): Dead
   if (at.getTime() < dayZero.getTime()) return { kind: 'before-project-start' };
   return { kind: 'offset', offset: workdayIndexOf(at) - workdayIndexOf(dayZero) };
 }
+
+/**
+ * The calendar day an instant falls on, in UTC.
+ *
+ * What be-01 writes as a fact end when a row is marked done and the client sent
+ * no day of its own: the act's one write stamp (ADR 0012) read as a date, so
+ * the fill and the journal entry that carries it cannot name two days. UTC
+ * because be-01 has no calendar of its own — a client that has one sends `on`
+ * and this is never consulted. Throws on a stamp that is not a finite instant,
+ * which is R5's answer to a clock that answered nothing.
+ */
+export function isoDateOfInstant(epochMs: number): IsoDate {
+  if (!Number.isFinite(epochMs)) throw new Error(`not an instant: ${String(epochMs)}`);
+  return asIso(new Date(epochMs));
+}

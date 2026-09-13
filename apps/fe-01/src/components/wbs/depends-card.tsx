@@ -1,4 +1,5 @@
-import { useEffect, useRef, useSyncExternalStore } from 'react';
+import type { WorkItemStatus } from '@wbs/domain/progress';
+import { type CSSProperties, useEffect, useRef, useSyncExternalStore } from 'react';
 
 import type { DepLights } from './dep-light-store';
 import { HoverCard } from './hover-card';
@@ -9,7 +10,21 @@ export interface DependsEntry {
   id: string;
   number: string;
   name: string;
+  /** The predecessor's status: a done one wears the status strip on its line. */
+  status: WorkItemStatus;
 }
+
+/**
+ * The status strip, on a list line: the same 3px of `--status-done` the row
+ * wears at its left edge, so a finished predecessor reads as finished wherever
+ * it is named (Dany, 2026-09-13: "in the dependency list mark the done items by
+ * a green strip before the item"). Every line carries the border so the text
+ * lines up; only a done one colours it.
+ */
+export const statusStripStyle = (status: WorkItemStatus): CSSProperties => ({
+  borderLeft: `3px solid ${status === 'done' ? 'var(--status-done)' : 'transparent'}`,
+  paddingLeft: 5,
+});
 
 /**
  * One dependency as it is written wherever this list appears: `010 - Strip the
@@ -254,6 +269,7 @@ export function DependsCard({
           }}
           data-testid="depends-card-target"
           data-depends-card-target={entry.id}
+          data-status={entry.status}
           onPointerEnter={() => {
             onPointEntry(entry.id);
           }}
@@ -282,8 +298,9 @@ export function DependsCard({
                   borderRadius: 4,
                   padding: '1px 4px',
                   margin: '-1px -4px',
+                  ...statusStripStyle(entry.status),
                 }
-              : { pointerEvents: 'auto' }
+              : { pointerEvents: 'auto', ...statusStripStyle(entry.status) }
           }
         >
           {dependsLine(entry)}

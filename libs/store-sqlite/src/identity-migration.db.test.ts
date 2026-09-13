@@ -75,6 +75,14 @@ const WORK_ITEM_DEADLINE = '20260906090000_add_work_item_deadline';
  * {@link WORK_ITEM_DEADLINE} did while it was newest.
  */
 const EXTERNAL_REF_NAME = '20260909120000_add_external_ref_name';
+/**
+ * The newest: `work_item.fact_start` and `work_item.fact_end`, the two nullable
+ * date-only columns `work-item-status-and-facts` adds. Additive forward and two
+ * `DROP COLUMN`s on the way back, so it heads every descending reversal list and
+ * tails every ascending one, exactly as {@link EXTERNAL_REF_NAME} did while it
+ * was newest.
+ */
+const WORK_ITEM_FACTS = '20260912120000_add_work_item_facts';
 const AUDIT_COLUMNS = '20260901120000_add_audit_columns';
 
 function tempDb(): { path: string; cleanup: () => void } {
@@ -90,6 +98,7 @@ function tempDb(): { path: string; cleanup: () => void } {
 function beforeIdentity(dbPath: string): void {
   runMigrations(dbPath, FOLDER);
   expect(rollbackTo(dbPath, FOLDER, PERSON_KIND)).toEqual([
+    WORK_ITEM_FACTS,
     EXTERNAL_REF_NAME,
     WORK_ITEM_DEADLINE,
     READ_ORDER_INDEX,
@@ -190,6 +199,7 @@ describe('the OIDC identity migration', () => {
       beforeIdentity(db.path);
       runMigrations(db.path, FOLDER);
       expect(rollbackTo(db.path, FOLDER, PERSON_KIND)).toEqual([
+        WORK_ITEM_FACTS,
         EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
@@ -255,6 +265,7 @@ describe('the OIDC identity migration', () => {
       }
 
       expect(rollbackTo(db.path, FOLDER, PERSON_KIND)).toEqual([
+        WORK_ITEM_FACTS,
         EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,

@@ -42,11 +42,11 @@ export class BadCapacity extends Error {
  * deleted with the integer guard left in: `refuses a capacity above what a plan
  * can mean` failed with `status: 200` and the pair coming back `size: 1001`.
  */
+export function capacityOf(body: { readonly size: unknown }): number | null;
 export function capacityOf(body: unknown): number | null {
   if (typeof body !== 'object' || body === null) throw new BadCapacity('expected_object');
-  const raw = body as Record<string, unknown>;
-  if (!('size' in raw)) throw new BadCapacity('size_required');
-  const value = raw['size'];
+  if (!('size' in body)) throw new BadCapacity('size_required');
+  const value = body.size;
   if (value === null) return null;
   // `Number.isSafeInteger` covers the fraction, the `NaN`, the infinity and the
   // value beyond what an integer column can hold in one question — which is why

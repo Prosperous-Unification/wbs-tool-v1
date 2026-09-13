@@ -194,6 +194,17 @@ export const MARK_GAP_PX = 2;
 export const MARK_BOX_PX = 12;
 
 /**
+ * How wide `count` marks stand, laid out by {@link markStyle}: the marks and
+ * the gaps between them, nothing either side. The marks box takes exactly this
+ * width so the cell can centre it (Dany, 2026-09-13: "can you also center
+ * these dots"); a box the cell's full width left the marks against its left
+ * edge.
+ */
+export function marksBoxWidth(count: number): number {
+  return count <= 0 ? 0 : count * MARK_PX + (count - 1) * MARK_GAP_PX;
+}
+
+/**
  * Where and how one mark is drawn — the fill/ring split of design D3, placed
  * out of flow.
  *

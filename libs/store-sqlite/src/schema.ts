@@ -484,6 +484,30 @@ export const workItem = sqliteTable(
      */
     deadline: text('deadline'),
     /**
+     * The day work on this row actually began, or null where nobody has said.
+     *
+     * A record, not a constraint: `startNoEarlierThan` above asks the schedule
+     * for something, this says what the world did. Read by no engine — the
+     * scheduler still places the row by its forecast — and drawn by the Gantt
+     * panel as the start of a done row's single bar (ADR 0024). Date-only for
+     * `deadline`'s reason; per work item and not per step because the chart
+     * clips a work item and a planner records when a task began, not when Dev
+     * handed to QA. Typed by the planner, never filled by the tool.
+     */
+    factStart: text('fact_start'),
+    /**
+     * The day work on this row actually finished, or null where nobody has said.
+     *
+     * The one fact the tool fills: marking a row done through
+     * `WorkItemService.setStatus` writes the day of the act here when the row
+     * holds none, journalled with the statements so one undo takes both away. A
+     * date somebody typed is never overwritten by the mark. Where a done row's
+     * bar stops, whatever the estimate says — the drawing's rule and not the
+     * engine's, which keeps placing successors after the forecast. The migration
+     * argues the shape; ADR 0024 the decision.
+     */
+    factEnd: text('fact_end'),
+    /**
      * How important this work is, or null for "nobody has said" — an integer of
      * 1 or more, smaller being more important.
      *
@@ -822,7 +846,7 @@ export type ActualRow = typeof actual.$inferSelect;
  * **Three states, two of them stored.** `in_progress` and `done` are rows;
  * **"not started" is the absence of one**, never a stored value — the rule
  * {@link projectTeamCapacity} and {@link actual} both follow. A stored
- * `not_started` would be a second spelling of "nobody has said" and every reader
+ * `unknown` would be a second spelling of "nobody has said" and every reader
  * would then have to handle both. There is no `blocked` and no `cancelled`:
  * each is a question the engine must answer the day it reads this, and it does
  * not read this yet.
@@ -832,7 +856,7 @@ export type ActualRow = typeof actual.$inferSelect;
  * source of truth about the same subject and the disagreement it produces is
  * exactly "the item says done and a step has no actual". **A work item's own
  * state is derived from its steps on every read and never stored** — `agree` and
- * `stateOf` in `@wbs/domain`, where `done` is unanimous across the steps that
+ * `statusOf` in `@wbs/domain`, where `done` is unanimous across the steps that
  * have work on the row, and any disagreement reads as `in_progress`.
  *
  * **Rows exist only for leaves**, exactly as estimates and actuals do: a

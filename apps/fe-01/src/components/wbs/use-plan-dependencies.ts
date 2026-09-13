@@ -71,7 +71,9 @@ export function usePlanDependencies({
     (ids: readonly string[]) =>
       ids.flatMap((id) => {
         const found = rowsById.get(id);
-        return found === undefined ? [] : [{ id, number: found.number, name: found.name }];
+        return found === undefined
+          ? []
+          : [{ id, number: found.number, name: found.name, status: found.status }];
       }),
     [rowsById],
   );

@@ -273,7 +273,65 @@ describe('toolsFromDocument, on the generated document', () => {
     // and `be-01`, and `mcp-01` was the project that noticed. Its `describe`
     // reads "Put every sibling group in the order its bars start.", which is
     // what the loop below is checking is there to read.
-    expect(list.items.anyOf).toHaveLength(37);
+    const expectedKinds = [
+      'createWorkItem',
+      'patchWorkItem',
+      'moveWorkItem',
+      'duplicateWorkItem',
+      'deleteWorkItem',
+      'setEstimate',
+      'clearEstimate',
+      'setActual',
+      'clearActual',
+      'setProgress',
+      'clearProgress',
+      'setStatus',
+      'setMeasure',
+      'clearMeasure',
+      'setAssignee',
+      'addDependency',
+      'removeDependency',
+      'arrangeBySchedule',
+      'freezeProject',
+      'unfreezeProject',
+      'unfreezeWorkItem',
+      'setCapacity',
+      'setPriorityBands',
+      'createTeam',
+      'patchTeam',
+      'deleteTeam',
+      'createPerson',
+      'patchPerson',
+      'deletePerson',
+      'createTag',
+      'patchTag',
+      'deleteTag',
+      'createService',
+      'patchService',
+      'deleteService',
+      'createWorkItemType',
+      'patchWorkItemType',
+      'deleteWorkItemType',
+    ];
+    const emittedKinds = list.items.anyOf.map((variant) => variant.properties.kind.const);
+    const emittedCounts = Object.fromEntries(
+      expectedKinds.map((kind) => [
+        kind,
+        emittedKinds.filter((emitted) => emitted === kind).length,
+      ]),
+    );
+    const expectedCounts = Object.fromEntries(expectedKinds.map((kind) => [kind, 1]));
+    // Proof: substituting createTeam for the production clearMeasure discriminator kept 37 arms but failed with clearMeasure 0 and createTeam 2.
+    expect(emittedCounts).toEqual(expectedCounts);
+    // Proof: removing the production clearMeasure definition failed this generated-input assertion with clearMeasure omitted.
+    expect(new Set(emittedKinds)).toEqual(new Set(expectedKinds));
+    expect(emittedKinds).toHaveLength(expectedKinds.length);
+    const createWorkItem = list.items.anyOf.find(
+      (variant) => variant.properties.kind.const === 'createWorkItem',
+    );
+    if (createWorkItem === undefined) throw new Error('createWorkItem tool input missing');
+    // Proof: emptying createWorkItem's production description failed here with received length 0.
+    expect(createWorkItem.description.length).toBeGreaterThan(10);
     for (const variant of list.items.anyOf) {
       expect(variant.description.length).toBeGreaterThan(10);
       expect(typeof variant.properties.kind.const).toBe('string');

@@ -1,0 +1,42 @@
+-- Two facts beside the forecast: the day work on a work item actually began
+-- and the day it actually finished.
+--
+-- `start_no_earlier_than` and `deadline` are constraints — what a planner asks
+-- of the schedule. These two are records — what the world answered. The
+-- scheduler reads neither: a successor still waits on the forecast, the Start
+-- and End columns keep the forecast, and a parent's bracket stays be-01's
+-- projection. What reads them is the drawing: a work item whose status is done
+-- draws one bar from `fact_start` to `fact_end` in place of its slices, and that
+-- bar never reaches past the fact end whatever the estimate says — ADR 0024,
+-- `docs/adr/0024-a-done-work-item-draws-its-facts-not-its-slices.md`.
+--
+-- **Per work item, not per step.** `step_progress` is keyed on the pair because
+-- an actual is; a fact date is keyed on the row because the chart clips a work
+-- item and a planner records when a task began and ended, not when Dev handed to
+-- QA. `step_progress`'s own comment named this column pair as "a separate
+-- change, because a stored date that disagrees with the scheduled one needs a
+-- decision about which of the two a chart draws"; the ADR is that decision.
+--
+-- **Nullable, no default, and that is what makes it additive.** Blue and green
+-- share one SQLite file mid-swap, and the outgoing release's
+-- `INSERT INTO work_item (...)` does not name either column, so every row it
+-- writes gets NULL — "nobody has said", which is what every row on the server
+-- means today. Nothing is seeded: a fact is somebody's record of what happened,
+-- and inventing one would be the tool testifying on a planner's behalf. The one
+-- fill the tool does make — `fact_end` taking the day of the act when a row is
+-- marked done holding none — is a write the planner asked for at that moment,
+-- journalled with the mark so one undo takes it away again.
+--
+-- **Date-only text, in the format every other date in this table uses.** No
+-- time, no zone, no instant: the calendar axis is days, and an instant would let
+-- the reader's zone decide which day the work finished on. "Now", when a row is
+-- marked done, is the day of the act — the reader's own calendar day when the
+-- client sends one, be-01's UTC day when it does not.
+--
+-- **Nothing here reads the columns at this commit.** `WORK_ITEM_COLUMNS` names
+-- them so a restored subtree carries them back, the patch writes them, the read
+-- reports them, and the chart draws them; none of that is a date moving.
+-- `fast-golden-corpus.test.ts` proves byte identity for the same reason it did
+-- for `deadline`'s first slice: no argument to `schedule()` changed.
+ALTER TABLE `work_item` ADD `fact_start` text;--> statement-breakpoint
+ALTER TABLE `work_item` ADD `fact_end` text;

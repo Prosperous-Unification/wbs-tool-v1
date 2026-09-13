@@ -1,6 +1,12 @@
 import { useCardOpenOn } from '../cell-card-store';
 import { cellKey } from '../editable-grid';
-import { MARK_BOX_PX, markStyle, refMarksOf, refMarksSentence } from '../external-ref-marks';
+import {
+  MARK_BOX_PX,
+  marksBoxWidth,
+  markStyle,
+  refMarksOf,
+  refMarksSentence,
+} from '../external-ref-marks';
 import { ExternalRefsCard } from '../external-refs-card';
 import type { PlanLive } from '../plan-live';
 import { LinkIcon } from '../toolbar-icons';
@@ -115,6 +121,11 @@ export function createRefsColumn({ live }: { live: PlanLive }) {
             style={{
               display: 'flex',
               alignItems: 'center',
+              // Centred, since `column-rules-and-add-buttons`: the marks box
+              // below is exactly the marks' width (`marksBoxWidth`), so the
+              // dots sit in the middle of the cell rather than against its
+              // left edge (Dany, 2026-09-13: "can you also center these dots").
+              justifyContent: 'center',
               // The whole of the span above, which is the whole of the cell.
               // Percentages resolve here because the span has a definite size —
               // it is absolutely positioned with `inset: 0`.
@@ -146,7 +157,7 @@ export function createRefsColumn({ live }: { live: PlanLive }) {
               style={{
                 position: 'relative',
                 display: 'block',
-                width: '100%',
+                width: marksBoxWidth(marks.length),
                 height: MARK_BOX_PX,
                 flexShrink: 0,
               }}

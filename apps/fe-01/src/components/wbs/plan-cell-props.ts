@@ -2,6 +2,7 @@ import { type ComponentProps } from 'react';
 
 import { type CellCards } from './cell-card-store';
 import { type DepLights } from './dep-light-store';
+import type { DependsEntry } from './depends-card';
 import { cellKey } from './editable-grid';
 import { REFERENCE_SET_EDGE_FADE } from './reference-set-field';
 import type { PrintedDay } from './short-date';
@@ -21,7 +22,7 @@ export function createPlanCellProps({
   depPicker,
   cellCards,
 }: {
-  dependenciesOf: (ids: readonly string[]) => { id: string; number: string; name: string }[];
+  dependenciesOf: (ids: readonly string[]) => DependsEntry[];
   depLights: DepLights;
   depPicker: { rowId: string; typed: string; highlightId: string | null } | null;
   cellCards: CellCards;
@@ -266,6 +267,11 @@ export const POPOVER_COLUMNS: ReadonlySet<string> = new Set([
   'actions',
   'not-before',
   'deadline',
+  // The Status cell's two-line list and the two fact date editors, for the
+  // deadline's reason: each opens something wider than its own cell.
+  'status',
+  'fact-start',
+  'fact-end',
   // The ref cell's hover card, which is the whole list of links hanging off a
   // 40px column: without the exemption it is cut at the cell edge and a reader
   // sees five characters of a URL.

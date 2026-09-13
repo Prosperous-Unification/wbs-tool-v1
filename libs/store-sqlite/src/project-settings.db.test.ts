@@ -32,6 +32,14 @@ const WORK_ITEM_DEADLINE = '20260906090000_add_work_item_deadline';
  * {@link WORK_ITEM_DEADLINE} did while it was newest.
  */
 const EXTERNAL_REF_NAME = '20260909120000_add_external_ref_name';
+/**
+ * The newest: `work_item.fact_start` and `work_item.fact_end`, the two nullable
+ * date-only columns `work-item-status-and-facts` adds. Additive forward and two
+ * `DROP COLUMN`s on the way back, so it heads every descending reversal list and
+ * tails every ascending one, exactly as {@link EXTERNAL_REF_NAME} did while it
+ * was newest.
+ */
+const WORK_ITEM_FACTS = '20260912120000_add_work_item_facts';
 
 /** The one below it, which is where every rollback here stops. */
 const OPTIMIZER_TABLES = '20260904100000_add_optimizer_tables';
@@ -160,6 +168,7 @@ describe('the project settings migration', () => {
       // cannot make: a migration that also dropped a column would still pass
       // every line above.
       expect(rollbackTo(db.path, FOLDER, OPTIMIZER_TABLES)).toEqual([
+        WORK_ITEM_FACTS,
         EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
@@ -196,6 +205,7 @@ describe('the project settings migration', () => {
     try {
       runMigrations(db.path, FOLDER);
       expect(rollbackTo(db.path, FOLDER, OPTIMIZER_TABLES)).toEqual([
+        WORK_ITEM_FACTS,
         EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
@@ -275,6 +285,7 @@ describe('the project settings migration', () => {
       const migratedDdl = projectDdl(db.path);
 
       expect(rollbackTo(db.path, FOLDER, OPTIMIZER_TABLES)).toEqual([
+        WORK_ITEM_FACTS,
         EXTERNAL_REF_NAME,
         WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,

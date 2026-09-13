@@ -14,7 +14,7 @@ import {
   rollUpFinals,
   rollUpMeasures,
   rollUpProgress,
-  rollUpWorkItemStates,
+  rollUpWorkItemStatuses,
   workedStepsOf,
 } from './roll-up';
 
@@ -322,7 +322,7 @@ function fold(
   stated: readonly StoredProgress[],
 ) {
   const byStep = rollUpProgress(rows, stated, workedStepsOf(estimates, actuals, stated));
-  return { byStep, states: rollUpWorkItemStates(rows, byStep) };
+  return { byStep, states: rollUpWorkItemStatuses(rows, byStep) };
 }
 
 describe('rollUpProgress', () => {
@@ -338,8 +338,8 @@ describe('rollUpProgress', () => {
 
     expect(byStep.get('a')?.get('dev')).toBe('done');
     // The step with an estimate and no statement: present in the fold as
-    // `not_started`, which is what keeps the item off `done`.
-    expect(byStep.get('a')?.get('qa')).toBe('not_started');
+    // `unknown`, which is what keeps the item off `done`.
+    expect(byStep.get('a')?.get('qa')).toBe('unknown');
     expect(states.get('a')).toBe('in_progress');
   });
 
@@ -349,7 +349,7 @@ describe('rollUpProgress', () => {
     const { byStep, states } = fold(rows, [], [], []);
 
     expect(byStep.get('a')?.size).toBe(0);
-    expect(states.get('a')).toBe('not_started');
+    expect(states.get('a')).toBe('unknown');
   });
 
   it('counts a step with only a recorded day as work still to be spoken about', () => {
@@ -407,7 +407,7 @@ describe('rollUpProgress', () => {
     // it — `{dev: done}` is all it answers. The item state is folded over the
     // children instead, and that is where the silence is counted.
     //
-    // Proof: `rollUpWorkItemStates` folded from the parent's own step map, and this
+    // Proof: `rollUpWorkItemStatuses` folded from the parent's own step map, and this
     // fails with `done` — a finished branch over an untouched row; watched
     // 2026-08-18.
     const rows = [item('parent', null), item('one', 'parent'), item('empty', 'parent')];
@@ -425,7 +425,7 @@ describe('rollUpProgress', () => {
 
     const { states } = fold(rows, [], [], [said('gone', 'dev', 'done')]);
 
-    expect(states.get('a')).toBe('not_started');
+    expect(states.get('a')).toBe('unknown');
     expect(states.has('gone')).toBe(false);
   });
 });

@@ -74,6 +74,43 @@ test('mounted command classification preserves derived numbering and legacy sema
   expect(run).not.toHaveBeenCalled();
 });
 
+test('mounted semantic classification preserves eager common and branch field precedence', async () => {
+  const f = fixture();
+  const run = spyOn(f.runner, 'run');
+  const cases = [
+    [
+      { kind: 'createWorkItem', priority: 0, parentRef: 7 },
+      { error: 'priority_must_be_a_whole_number_from_1', at: 0, kind: 'createWorkItem' },
+    ],
+    [
+      { kind: 'createWorkItem', name: 7, parentRef: 7 },
+      { error: 'name_must_be_text', at: 0, kind: 'createWorkItem' },
+    ],
+    [
+      { kind: 'patchWorkItem', workItemId: 7, patch: null },
+      { error: 'workItemId_must_be_an_id', at: 0, kind: 'patchWorkItem' },
+    ],
+    [
+      { kind: 'moveWorkItem', parentRef: 7, afterId: 7 },
+      { error: 'afterId_must_be_id_or_null', at: 0, kind: 'moveWorkItem' },
+    ],
+    [
+      { kind: 'freezeProject', workItemId: 7 },
+      { error: 'workItemId_must_be_an_id', at: 0, kind: 'freezeProject' },
+    ],
+  ] as const;
+  const outcomes = [];
+  for (const [command] of cases) {
+    const response = await f.call({ commands: [command] });
+    const body: unknown = await response.json();
+    outcomes.push({ status: response.status, body });
+  }
+  // Proof: without eager common validation and the old create/move field order, this received
+  // parentRef_must_be_an_id twice, expected_object, parentRef_must_be_an_id and bare invalid_body.
+  expect(outcomes).toEqual(cases.map(([, body]) => ({ status: 400, body })));
+  expect(run).not.toHaveBeenCalled();
+});
+
 test('mounted command results erase internal kind after validating producer-specific requirements', async () => {
   const f = fixture();
   const run = spyOn(f.runner, 'run');
@@ -169,6 +206,63 @@ test('mounted command admission rejects structural extras and unknown kind befor
   expect(run).not.toHaveBeenCalled();
 });
 
+test('mounted parsing preserves priority absence and null while defaulting assignee absence', async () => {
+  const f = fixture();
+  const run = spyOn(f.runner, 'run');
+  run.mockResolvedValueOnce({
+    ok: true,
+    results: [],
+    undoable: false,
+    redoable: false,
+  });
+
+  const response = await f.call({
+    commands: [
+      { kind: 'createWorkItem' },
+      { kind: 'createWorkItem', priority: null },
+      { kind: 'setAssignee', stepId: 's' },
+      { kind: 'setAssignee', stepId: 's', personId: null },
+    ],
+  });
+
+  expect(response.status).toBe(200);
+  // Proof: defaulting an absent create priority to null in the production parser failed this
+  // assertion with the first received create command gaining `"priority": null`.
+  expect(run).toHaveBeenCalledWith('p', 'owner', [
+    { kind: 'createWorkItem', parentId: null, afterId: null },
+    { kind: 'createWorkItem', parentId: null, afterId: null, priority: null },
+    { kind: 'setAssignee', stepId: 's', personId: null },
+    { kind: 'setAssignee', stepId: 's', personId: null },
+  ]);
+});
+
+test('mounted create without priority uses the project middle-band default', async () => {
+  const f = fixture();
+  await f.plan.stores.projects.create(projectRow({ id: 'p', ownerId: 'owner' }), [], {
+    at: 1,
+    by: 'owner',
+  });
+  await f.plan.stores.priorityBands.replace(
+    'p',
+    [
+      { startsAt: 1, defaultValue: 3, label: 'Now' },
+      { startsAt: 6, defaultValue: 8, label: 'Soon' },
+      { startsAt: 20, defaultValue: 47, label: 'Ordinary' },
+      { startsAt: 60, defaultValue: 70, label: 'Later' },
+      { startsAt: 90, defaultValue: 99, label: 'Eventually' },
+    ],
+    { at: 2, by: 'owner' },
+  );
+
+  const response = await f.call({ commands: [{ kind: 'createWorkItem', name: 'Unstated' }] });
+
+  expect(response.status).toBe(200);
+  const rows = await f.plan.stores.workItems.listByProject('p');
+  expect(rows).toHaveLength(1);
+  // Proof: defaulting the normalizer's absent priority to null failed here with Received: null.
+  expect(rows[0]?.priority).toBe(47);
+});
+
 test('mounted command policies precede body parsing and bodyless undo refuses bytes', async () => {
   const f = fixture();
   const response = await f.app.handle(
@@ -200,10 +294,12 @@ test('mounted batches parse all commands before the cap and retain directory pro
     kind: 'freezeProject',
   });
   const invalid = await f.call({
-    commands: [...commands, { kind: 'setActual', stepId: 's', days: -1 }],
+    commands: [...commands.slice(0, -1), { kind: 'setActual', stepId: 's', days: -1 }],
   });
   expect(invalid.status).toBe(400);
-  expect(await invalid.json()).toEqual({ error: 'invalid_actual', at: 201, kind: 'setActual' });
+  // Proof: moving the cap ahead of semantic parsing at the mounted handler failed here with
+  // `error: "too_many_commands"` instead of `error: "invalid_actual"` at index 200.
+  expect(await invalid.json()).toEqual({ error: 'invalid_actual', at: 200, kind: 'setActual' });
   const directory = await f.call(
     { commands: [{ kind: 'freezeProject' }] },
     '/api/directory/commands',

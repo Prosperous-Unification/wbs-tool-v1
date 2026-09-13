@@ -44,6 +44,7 @@ import type { PriorityBand } from '@wbs/domain/priority-band';
 // build time. It is here rather than restated as `string` because a marker's
 // date being absolute — never a workday number — is the whole of task 7.4, and
 // a `string` on this seam would be the one place that claim is not written down.
+import type { SettableStatus, WorkItemStatus } from '@wbs/domain/progress';
 import type { IsoDate } from '@wbs/domain/workday';
 
 import { browserClient, unreachable } from './http';
@@ -321,6 +322,26 @@ export interface WorkItemView {
    * plan was actually built with.
    */
   deadline: string | null;
+  /**
+   * What this work item reads as — `unknown`, `in_progress` or `done` — folded
+   * by be-01 from its steps' progress and, for a parent, from its children.
+   * Never stored and never computed here: the Status cell shows it, and setting
+   * it goes through {@link ProjectApi.setStatus}, which writes every step.
+   */
+  status: WorkItemStatus;
+  /**
+   * The day work on this item actually began, or null where nobody has said.
+   * Date-only like the two constraints above it; read by no engine, drawn as the
+   * start of a done row's bar (ADR 0024).
+   */
+  factStart: IsoDate | null;
+  /**
+   * The day work on this item actually finished, or null where nobody has said.
+   * Filled with the reader's day by {@link ProjectApi.setStatus} when a row is
+   * marked done holding none; where a done row's bar stops, whatever the
+   * estimate says.
+   */
+  factEnd: IsoDate | null;
   /**
    * How important this work is — 1 upward, smaller first — or null where
    * nobody has said.
@@ -1417,6 +1438,13 @@ export interface ProjectApi {
      */
     input: { parentId: string | null; afterId?: string | null; name?: string },
   ): Promise<{ id: string }>;
+  /**
+   * Sets one work item's status as one act — `done` writes every step of it, or
+   * of every leaf beneath a parent, and fills an empty fact end with `on`;
+   * `unknown` takes every statement back. `on` is the reader's own calendar
+   * day, always sent (`use-plan-fields.ts` says why). One journal entry, one undo.
+   */
+  setStatus(id: string, status: SettableStatus, on: IsoDate): Promise<void>;
   patchWorkItem(
     id: string,
     patch: {
@@ -1459,6 +1487,10 @@ export interface ProjectApi {
        * at `work-item.controller.test.ts`'s `expect(early.status).toBe(422)`.
        */
       deadline?: string | null;
+      /** The day the work actually began, or `null` to take the record off; refused unless a date. */
+      factStart?: string | null;
+      /** The day the work actually finished, or `null` to take the record off; refused unless a date. */
+      factEnd?: string | null;
       /** An integer of 1 or more, or `null` to leave the work with no priority. */
       priority?: number | null;
       /**
@@ -2544,6 +2576,9 @@ export function httpProjectApi(token: string): ProjectApi {
         },
         workItemId: id,
       });
+    },
+    async setStatus(id, status, on) {
+      await onRow(id, { kind: 'setStatus', workItemId: id, status, on });
     },
     async moveWorkItem(id, parentId, afterId) {
       await onRow(id, { kind: 'moveWorkItem', workItemId: id, parentId, afterId });

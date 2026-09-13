@@ -387,6 +387,15 @@ const COLUMN_WIDTHS = new Map<string, number>([
   // The default table is therefore the table it was, to the pixel, and the
   // folded-width budget at 1280 does not move.
   ['deadline', 84],
+  // The row's status as one glyph (`○ ◐ ✓`, `status-cell.tsx`) — 28 is the
+  // glyph and the cell's padding, measured against the drag column's 16 for a
+  // one-character cell — and the two facts at the date columns' width, all
+  // three off by default (see INITIAL_HIDDEN_COLUMNS). It was 88 while the cell
+  // read a word; `status-at-a-glance` moved it between `#` and Links, where a
+  // word would not fit and a column that wide would push Name off the screen.
+  ['status', 28],
+  ['fact-start', DATE_COLUMN_WIDTH],
+  ['fact-end', DATE_COLUMN_WIDTH],
   // No `notes`: a work item's notes are typed under its name, in the Name
   // cell, and the column they had of their own is gone. 260px of a table that
   // has to lose about 500 to stop scrolling sideways at 1280.
@@ -483,6 +492,14 @@ export const INITIAL_HIDDEN_COLUMNS: readonly string[] = [
   // minority of rows carry. `work-item-deadline` 9.1 asks for the cell, not for
   // a column every project pays width for.
   'deadline',
+  // Status and the two facts, hidden for deadline's reason: the folded table at
+  // 1280 has no room for three more columns, and the rows they matter on are
+  // the ones somebody has finished. A row still says its status with them
+  // hidden — the status strip at its left edge, the done tint, the strike on
+  // a done name and the mark on its bar (`status-at-a-glance`).
+  'status',
+  'fact-start',
+  'fact-end',
 ];
 
 /** The one-time column target chosen by the full-table Reset layout action. */
@@ -525,6 +542,11 @@ export function hideableColumnIds(stepIds: readonly string[]): readonly string[]
     // where this list has to put it — the Columns control lists these in the
     // order the table renders them.
     'refs',
+    // Third pin, between Links and Name since `status-at-a-glance`; listed
+    // here where it renders, which is the whole rule of this list (Dany,
+    // 2026-09-13: "fix the order of columns in the columns selector drop down
+    // to the real order of columns").
+    'status',
     'depends',
     'priority',
     'team',
@@ -539,6 +561,12 @@ export function hideableColumnIds(stepIds: readonly string[]): readonly string[]
     // it: the two days a planner states about a row sit together, and the days
     // be-01 worked out follow them.
     'deadline',
+    // The two facts `work-item-status-and-facts` added, after the two
+    // constraints and before the computed dates: what a planner **records**
+    // about a row sits beside what a planner **asks** of it, and the engine's
+    // answer follows both. Status sat here too until it moved to the pins.
+    'fact-start',
+    'fact-end',
     'start',
     'finish',
     'float',
@@ -851,8 +879,14 @@ export function sizableColumn(columnId: string, state: FrameLayoutState): boolea
  * every offset behind it — Name's — is a sum 40px short of where the browser
  * really lays the cell out. `external-refs` design D5 chose the placement and
  * did not follow it here; this is where it lands.
+ *
+ * **`status` is here for the same reason**, since `status-at-a-glance`: Dany
+ * put the glyph column after `#` and before Links, and the contiguity rule
+ * makes the third pin the only place it can sit. Hidden by default, so on the
+ * default table the sums are what they were; shown, it moves `refs` and `name`
+ * 28px right — which `frameLayout` derives and `e2e/layout.spec.ts` measures.
  */
-export const PINNED_COLUMN_IDS: readonly string[] = ['drag', 'number', 'refs', 'name'];
+export const PINNED_COLUMN_IDS: readonly string[] = ['drag', 'number', 'status', 'refs', 'name'];
 
 /**
  * Every width one render declares, resolved from the columns on screen and the
@@ -1202,7 +1236,19 @@ export const NUMBER_ENVELOPE = `010${'.1'.repeat(NUMBER_ENVELOPE_LEVELS - 1)}`;
  * stylesheet's grid layer costs the banding and nothing else.
  */
 const HEADER_BACKGROUND = 'var(--cell-bg, var(--muted))';
-const ROW_BACKGROUND = 'var(--cell-bg, var(--background))';
+/**
+ * Two layers, not one: the done tint (`--row-tint`, set per row by
+ * `styles.css`) painted over the row colour. The tint has to be a layer of its
+ * own because `--cell-bg` is chosen by a chain of row states — band, hover, the
+ * lights, a drop — and a done row is any of those as well; a tint mixed *into*
+ * `--cell-bg` would need every rule in that chain written twice. A gradient of
+ * one colour is how CSS spells "a flat layer of this colour", and the layer is
+ * `transparent` on every row that is not done, so nothing else moves.
+ * `status-at-a-glance` D2; the stylesheet's `[data-grid] td` paints the same
+ * pair for the unpinned cells.
+ */
+const ROW_BACKGROUND =
+  'linear-gradient(var(--row-tint, transparent), var(--row-tint, transparent)), var(--cell-bg, var(--background))';
 
 /**
  * Which sticky cell paints over which. A pinned header cell is sticky on both

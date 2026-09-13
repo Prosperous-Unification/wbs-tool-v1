@@ -1,7 +1,6 @@
 # Planned refactoring execution
 
-**Implementation ledger last reconciled at `refactor/core-lib-extraction` @ `1212c159`,
-2026-09-10.**
+**Implementation ledger last reconciled at `main` @ `e3c8aac3`, 2026-09-13.**
 R10's completed PR #353 packet is preserved unchanged during integration.
 Design preparation completed 2026-09-08, inspecting `339708fa` through `aca7a5c9`;
 see [execution readiness](execution-readiness.md) for scope, assumptions and evidence limits.
@@ -93,10 +92,13 @@ Nothing below has an owning task in the external queue (`backlog/tasks/task-NNN 
       identities while moving project paths/names/tags, migrations and build/gate consumers.
       Other packets use pre-namespacing paths; finish overlapping moves first or explicitly
       remap their exact file/target references at landing.
-- [ ] **W4-3 [plan-command-registry](../../openspec/changes/plan-command-registry/tasks.md)** —
-      after core. Shared `SchemaShape` already pairs ArkType validation with generated
-      JSON Schema; the historical Elysia-export probe is no longer a blocker. Preserve
-      structural/semantic parsing order and generated MCP/client contracts.
+- [x] **W4-3 [plan-command-registry](../../openspec/changes/plan-command-registry/tasks.md)** —
+      **merged in #430 as `e3c8aac3`, 2026-09-13**, 10/10 tasks. The contracts registry now
+      owns all command kinds and structural descriptors; core derives semantic normalizers,
+      normalized commands and kind-correlated bindings from it. HTTP refusal shapes and MCP
+      tool generation consume the same registry while independently pinned kind inventories
+      detect omissions and duplicates. The exact implementation head passed the provisioned
+      h2puni workspace gate; PR checks recorded CodeQL and all four pixel shards green.
 - [ ] **W2-3 [live-plan-snapshot](../../openspec/changes/live-plan-snapshot/tasks.md)** —
       after core and command registry. One `WorkingPlan` belongs to the admitted batch;
       refresh affected projections after each mutation, including same-command reads.
@@ -115,10 +117,13 @@ Nothing below has an owning task in the external queue (`backlog/tasks/task-NNN 
       approved, unimplemented; existing owner Dany. After core and scheduler capability,
       preserving atomic import, authored settings/directory closure and generated bindings.
 - [ ] **[agent-scalable-llm-wiki](../../openspec/changes/agent-scalable-llm-wiki/tasks.md)** —
-      Radical Modularity is separate additive scope, all five phases: measured module
-      indexes, finite trusted evidence, full-tree lint, shared-Git admission and multi-model
-      trials at 1/2/4/8 workers. Capture baselines before policy rollout; reconcile stable
-      module identities across namespacing. Experimental benefit remains unestablished.
+      19/29 tasks are checked through combined integration and recovery 5.2. Measured module
+      indexes, finite trusted evidence, full-tree lint and shared-Git fenced admission are in
+      place; trusted external binding, exhaustive catch-up and multi-model trials at 1/2/4/8
+      workers remain. Reconcile stable module identities across namespacing. Experimental
+      benefit remains unestablished.
+      Precedents, Drift anchors and the extraction trigger:
+      [plan](../plans/2026-09-13-tool-wiki-precedents-and-extraction.md).
 
 ## R1–R9 archival closeout
 

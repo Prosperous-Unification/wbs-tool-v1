@@ -36,6 +36,8 @@ const TREE = (projectId: string, ids: string[]): string =>
       startNoEarlierThan: null,
       startNoEarlierThanReason: null,
       deadline: null,
+      factStart: null,
+      factEnd: null,
       priority: null,
       serviceTeamId: null,
       serviceId: null,
@@ -51,7 +53,7 @@ const TREE = (projectId: string, ids: string[]): string =>
       rolledUp: false,
       actuals: {},
       progress: {},
-      state: 'not_started',
+      status: 'unknown',
       measures: {},
       dependsOn: [],
       finalDays: {},
@@ -1331,5 +1333,29 @@ describe('what a full-scope read puts on the wire', () => {
 
     expect([...requests].sort()).toEqual([...FULL_SCOPE_PUTS_ON_THE_WIRE].sort());
     expect([...first, ...second].filter((read) => read.status === 'rejected')).toEqual([]);
+  });
+});
+
+describe('setting a row’s status', () => {
+  it('sends the status and the reader’s day as one command', async () => {
+    const fetched = stub((path) =>
+      response(
+        200,
+        path.endsWith('/work-items')
+          ? TREE('p1', ['w1'])
+          : JSON.stringify({ results: [{ index: 0 }], undoable: true, redoable: false }),
+      ),
+    );
+    const api = httpProjectApi('t');
+    await api.tree('p1');
+    await api.setStatus('w1', 'done', '2026-09-12');
+
+    expect(fetched.mock.calls[1]?.[0]).toBe('/api/projects/p1/commands');
+    expect(fetched.mock.calls[1]?.[1]).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify({
+        commands: [{ kind: 'setStatus', workItemId: 'w1', status: 'done', on: '2026-09-12' }],
+      }),
+    });
   });
 });

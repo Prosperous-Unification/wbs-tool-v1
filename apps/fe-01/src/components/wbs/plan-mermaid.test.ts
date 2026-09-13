@@ -55,6 +55,9 @@ const row = (over: Partial<ExportRow> & Pick<ExportRow, 'id' | 'number'>): Expor
       // `Partial` spread satisfies a field the base object omits, so an
       // omission compiles and every row in the file carries `undefined`.
       deadline: null,
+      factStart: null,
+      factEnd: null,
+      status: 'unknown',
       priority: null,
       dates: null,
       schedule: { earliestStart: 0, earliestFinish: 0, float: 0, critical: false },

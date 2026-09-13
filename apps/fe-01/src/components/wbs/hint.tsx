@@ -53,6 +53,23 @@ export const HINT_ATTRIBUTE = 'data-hint';
  * nearest-wins rule exists for.
  */
 export const FACT_ATTRIBUTE = 'data-fact';
+/**
+ * The words of a fact that are drawn **bold** — its lead, `Unknown` in
+ * `Status: Unknown. …` — so a card that names a state names it at a glance.
+ * Optional; a fact without one is drawn as plain words. The lead must occur in
+ * the fact's words, and the first occurrence is the one emphasised.
+ */
+export const FACT_LEAD_ATTRIBUTE = 'data-fact-lead';
+/**
+ * The colour the lead is drawn in. `done` is the one tone today: the table's
+ * `--status-done`, so `Done` on the card is the green the strip and the tick
+ * wear (Dany, 2026-09-13: "mark Unknown and Done statuses in bold + make Done
+ * green color").
+ */
+export const FACT_TONE_ATTRIBUTE = 'data-fact-tone';
+export type FactTone = 'done';
+const FACT_TONE_COLOR: Readonly<Record<FactTone, string>> = { done: 'var(--status-done)' };
+const isFactTone = (value: string | null): value is FactTone => value === 'done';
 
 /**
  * How long a pointer rests on a control before its tool hint is drawn.
@@ -95,6 +112,8 @@ export interface Hintable {
  */
 export interface Factable {
   [FACT_ATTRIBUTE]?: string;
+  'data-fact-lead'?: string;
+  'data-fact-tone'?: FactTone;
 }
 
 /** The selector {@link HintLayer} finds a hinted or facted mark by. */
@@ -137,6 +156,9 @@ interface OpenHint {
   node: HTMLElement;
   /** Whether these words wait — true for a tool hint, false for a project fact. */
   waits: boolean;
+  /** The lead word drawn bold, or null for plain words. */
+  lead: string | null;
+  tone: FactTone | null;
 }
 
 /** Where the ring is drawn, in viewport coordinates. */
@@ -279,6 +301,27 @@ function WaitRing({ at }: { at: RingAt }): React.JSX.Element {
  * same node-identity check the pointer path uses: a focus that lands on the
  * mark already being attended changes nothing.
  */
+/**
+ * A fact's words with its lead drawn bold and, with a tone, in that tone's
+ * colour; plain words for a mark that set no lead.
+ */
+function factWords({ words, lead, tone }: OpenHint): React.ReactNode {
+  if (lead === null) return words;
+  const at = words.indexOf(lead);
+  return (
+    <>
+      {words.slice(0, at)}
+      <strong
+        data-fact-lead-word=""
+        style={tone === null ? undefined : { color: FACT_TONE_COLOR[tone] }}
+      >
+        {lead}
+      </strong>
+      {words.slice(at + lead.length)}
+    </>
+  );
+}
+
 export function HintLayer(): React.JSX.Element {
   const [open, setOpen] = useState<OpenHint | null>(null);
   const [ring, setRing] = useState<RingAt | null>(null);
@@ -344,8 +387,15 @@ export function HintLayer(): React.JSX.Element {
       // reason is only there while it is off, say — and is not a fault: the
       // attribute is written from a value that may be absent. No card.
       if (words === null || words === '') return null;
+      const lead = fact === null ? null : node.getAttribute(FACT_LEAD_ATTRIBUTE);
+      const tone = node.getAttribute(FACT_TONE_ATTRIBUTE);
       return {
         words,
+        // A lead that is not in the words is a mark whose two attributes have
+        // come apart — drawn plain rather than thrown, because a card is not
+        // the place a fault in a data attribute should take the page down.
+        lead: lead !== null && lead !== '' && words.includes(lead) ? lead : null,
+        tone: isFactTone(tone) ? tone : null,
         placement: placementOf(node),
         // Narrowed rather than cast: an `SVGElement` is an `HTMLElement` for
         // everything used here — `setAttribute`, `removeAttribute` — but the
@@ -563,6 +613,38 @@ export function HintLayer(): React.JSX.Element {
     const escaped = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') clear();
     };
+    /**
+     * The mark being attended has just opened a list of its own: its card
+     * comes down.
+     *
+     * The Status cell's glyph carries a fact — `Status: Unknown. …` — and is a
+     * combobox whose list opens on a click or Enter; left alone, the list and
+     * the card stood one over the other, the card saying the word the list was
+     * offering. Dany, 2026-09-13: _"when i click the status to select new value
+     * i want dropdown to remove the hint pop-up"_. The press path above cannot
+     * do it — it deliberately leaves a fact's card alone, because a press on
+     * most facts opens nothing — so this reads the **outcome** instead: after
+     * the click or the key has been handled, is the mark expanded? Read on
+     * `click` and `keyup` rather than on the press, and in a microtask, so
+     * React has committed the `aria-expanded` the handler set. Any combobox
+     * mark gets this, the priority cell's included, and a mark that opens
+     * nothing is untouched — `aria-expanded` is the one signal, and a control
+     * that lacks it or leaves it `false` keeps its card.
+     *
+     * `clear()` rather than `stopWaiting()`: this is a card to close, and the
+     * mark is forgotten with it, so the list's own lines — outside the mark —
+     * open nothing as the hand moves down them. {@link pressedAt} stands, so
+     * the redraw the opening causes under a still cursor is not read as the
+     * reader moving.
+     */
+    const reconsidered = (): void => {
+      queueMicrotask(() => {
+        const mark = attending;
+        if (mark === null) return;
+        if (mark.closest('[aria-expanded]')?.getAttribute('aria-expanded') !== 'true') return;
+        clear();
+      });
+    };
 
     document.addEventListener('pointerover', pointed);
     document.addEventListener('pointerdown', pressed);
@@ -570,6 +652,8 @@ export function HintLayer(): React.JSX.Element {
     document.addEventListener('focusin', focused);
     document.addEventListener('focusout', blurred);
     document.addEventListener('keydown', escaped);
+    document.addEventListener('click', reconsidered);
+    document.addEventListener('keyup', reconsidered);
     // Capture, because the scroll that matters is the table frame's and a
     // scroll event does not bubble. See {@link settled} for why this is not
     // `left`.
@@ -582,6 +666,8 @@ export function HintLayer(): React.JSX.Element {
       document.removeEventListener('focusin', focused);
       document.removeEventListener('focusout', blurred);
       document.removeEventListener('keydown', escaped);
+      document.removeEventListener('click', reconsidered);
+      document.removeEventListener('keyup', reconsidered);
       document.removeEventListener('scroll', settled, true);
       window.removeEventListener('resize', settled);
       // The wait outlives the listeners otherwise: a timer already scheduled
@@ -630,7 +716,7 @@ export function HintLayer(): React.JSX.Element {
             way. What it does not do is preserve **leading** spaces, which is
             why the cue's own lines carry none.
           */}
-          <span style={{ whiteSpace: 'pre-line' }}>{open.words}</span>
+          <span style={{ whiteSpace: 'pre-line' }}>{factWords(open)}</span>
         </HoverCard>
       )}
     </>

@@ -20,6 +20,7 @@ import type { CalendarMarkerView, NewCalendarMarkerView, PriorityBandView } from
 import { useGanttDetail } from './gantt-detail';
 import {
   CAPACITY_LINK_COLOR,
+  DONE_BAR_STROKE,
   droppedLinkWords,
   type EstimateTrio,
   type GanttBar,
@@ -549,6 +550,9 @@ const CHART_CHIP_OFF = 'border-dashed text-muted-foreground/60 line-through';
  */
 const PRIORITY_CAP_PX = 3;
 
+/** The done mark's box, in CSS pixels: a tick this tall and this wide at the end of a done bar. */
+const DONE_MARK_PX = 12;
+
 /**
  * A dependency arrow's approach and its head, in CSS pixels — turned into the
  * user space's two units where they are used.
@@ -729,6 +733,15 @@ function arrowRoute(
 const ASSUMED_BAR_CLASSES = '[fill-opacity:0.35] [stroke-dasharray:3_2]';
 
 /**
+ * How a **done bar** is painted beyond its own colour: a little translucent, so
+ * the row light and the weekend bands read through finished work, with a solid
+ * stroke — deliberately **not** the assumed span's dotted signature, which says
+ * "guessed" where this says "over". The done mark the panel draws on top is
+ * the rest of the saying.
+ */
+const DONE_BAR_CLASSES = '[fill-opacity:0.75] [stroke-width:2]';
+
+/**
  * The classes a bar carries beyond its two colours, and the two facts they say.
  *
  * The critical path is a ring rather than a fill, because the fill is the
@@ -745,10 +758,14 @@ const ASSUMED_BAR_CLASSES = '[fill-opacity:0.35] [stroke-dasharray:3_2]';
  * `vector-effect="non-scaling-stroke"`, so 2 is 2 CSS pixels at any zoom of a
  * user space measured in workdays.
  */
-function barClasses(critical: boolean, estimated: boolean): string {
+function barClasses(critical: boolean, estimated: boolean, done = false): string {
   return [
-    critical ? 'stroke-foreground [stroke-width:2]' : '',
+    // A done bar's ring is the green outline ({@link DONE_BAR_STROKE}) and not
+    // the critical ring: finished work is not on anybody's critical path any
+    // more, and two rings on one bar would say two things in one stroke.
+    critical && !done ? 'stroke-foreground [stroke-width:2]' : '',
     estimated ? '' : ASSUMED_BAR_CLASSES,
+    done ? DONE_BAR_CLASSES : '',
   ]
     .filter((part) => part !== '')
     .join(' ');
@@ -766,6 +783,16 @@ function barClasses(critical: boolean, estimated: boolean): string {
  * follows the font it measures.
  */
 const LABEL_PAD_PX = 3;
+/**
+ * The label's own left pad, wider than {@link LABEL_PAD_PX}: the words start
+ * clear of the bar's rounded corner and its 2px done outline (Dany,
+ * 2026-09-13: "a little more padding - from the left edge of a slice to the
+ * text"). The right pad stays at {@link LABEL_PAD_PX}, and the fit arithmetic
+ * in {@link barText} keeps its symmetric pair — a label that is a few pixels
+ * short of fitting is an ellipsis a few pixels sooner, which is what
+ * `text-ellipsis` is for.
+ */
+const LABEL_PAD_LEFT_PX = 6;
 const LABEL_CHAR_PX = 5;
 
 /**
@@ -1665,6 +1692,7 @@ export function barFacts(
     // to include 'Tags Compliance, Rework'`. Watched on h2puni, 2026-08-20.
     tagWords(bar.tags),
     `${spanWords(startDate, bar.start, bar.finish, today)} · ${durationWords(bar)}`,
+    bar.done ? 'Done — drawn over what happened, not over the estimate' : null,
     // A line of its own rather than a word tucked into the duration: the bar is
     // drawn a width nobody gave it, and the sentence that says so has to be as
     // findable as the dates above it. See {@link ASSUMED_SLICE_WORKDAYS}.
@@ -2473,7 +2501,7 @@ function buildStandaloneGanttSvg(input: StandaloneGanttSvgInput): SVGSVGElement 
     clip.appendChild(svgRect(barLeft, barTop, width * dayPx, BAR_HEIGHT * ROW_PX, '#000'));
     labelClips.appendChild(clip);
 
-    const left = barLeft + LABEL_PAD_PX;
+    const left = barLeft + LABEL_PAD_LEFT_PX;
     const top = ROW_PX + (bar.rowIndex + BAR_INSET) * ROW_PX + (BAR_HEIGHT * ROW_PX) / 2 + 3;
     const label = svgText(left, top, shown, {
       fontSize: 9,
@@ -4593,6 +4621,11 @@ function GanttChart({
             // and three on `expected null to be 'true'` /
             // `expected +0 to be 1`. Watched 2026-08-12.
             {...(bar.estimated ? {} : { 'data-assumed': 'true' })}
+            // The bar that is a done row's fact span, findable as such: the
+            // browser gate measures where it stops against the fact end's axis
+            // cell, and has to tell it from a slice first. Never beside
+            // `data-assumed` — a done bar is not a guess.
+            {...(bar.done ? { 'data-done': 'true' } : {})}
             x={x}
             // The **drawn** span in calendar days — the end reading of
             // the drawn finish less the start reading of the start, so a
@@ -4615,8 +4648,11 @@ function GanttChart({
             // already saying who. A ring in the foreground colour rather
             // than the destructive one: `#d62728` is the fourth person's
             // colour, and a red ring on a red bar is no ring at all.
-            stroke={bar.critical ? undefined : bar.personColor}
-            className={barClasses(bar.critical, bar.estimated)}
+            // A done bar wears the status green as its outline instead
+            // (`status-polish`; Dany: "add smth like a green outline to the
+            // gantt chart slices").
+            stroke={bar.done ? DONE_BAR_STROKE : bar.critical ? undefined : bar.personColor}
+            className={barClasses(bar.critical, bar.estimated, bar.done)}
             vectorEffect="non-scaling-stroke"
             // A control, because it is one: it takes the keyboard, it has
             // a name, and Enter and Space act on it. The step is what
@@ -4766,6 +4802,43 @@ function GanttChart({
         })}
 
         {/*
+              The done mark: a tick at the right end of every done bar, in the
+              SVG so the standalone export keeps it — the HTML labels over the
+              chart are not cloned into that document. Drawn in pixels through
+              the same scale the priority cap is, after the bars so it paints
+              over them, and `pointer-events: none` for the cap's reason: the
+              bar keeps the hover, the focus and the accessible name. Skipped on
+              a bar too narrow to hold it, where the fill and the aria-label
+              still say done.
+            */}
+        {drawnBars.flatMap(({ bar, x, width }) => {
+          if (!bar.done || width * dayPx < DONE_MARK_PX + 6) return [];
+          // `DONE_MARK_PX` user units across are that many pixels, and the 12
+          // units down are the bar's height, whatever the zoom.
+          const at = `translate(${String(x + width - (DONE_MARK_PX + 3) / dayPx)}, ${String(bar.rowIndex + BAR_INSET)}) scale(${String(1 / dayPx)}, ${String(BAR_HEIGHT / DONE_MARK_PX)})`;
+          return [
+            <path
+              key={`${bar.sliceId}-done`}
+              data-done-mark={bar.sliceId}
+              d="M1.5 6 L4.5 9 L10.5 2.5"
+              transform={at}
+              fill="none"
+              // The label's own ink — dark on a light bar, white on a dark one
+              // — so the tick reads on whichever of the eight person colours
+              // the bar wears. The green is the outline's to say; a green tick
+              // blended into slate and a white pill under it looked bolted on
+              // (Dany, 2026-09-13, two screenshots).
+              stroke={inkOn(bar.personColor)}
+              strokeWidth={2.5}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+              pointerEvents="none"
+            />,
+          ];
+        })}
+
+        {/*
               A slice **estimated** at no days is a real answer — somebody
               costed this work at nothing — and a zero-width rect draws nothing
               at all, so the tick is where it starts and the row does not read as
@@ -4902,8 +4975,16 @@ function GanttChart({
                 width: width * dayPx,
                 height: BAR_HEIGHT * ROW_PX,
                 lineHeight: `${String(BAR_HEIGHT * ROW_PX)}px`,
-                paddingLeft: LABEL_PAD_PX,
-                paddingRight: LABEL_PAD_PX,
+                paddingLeft: LABEL_PAD_LEFT_PX,
+                // A done bar's label stops short of its tick, so the ellipsis
+                // lands before the mark instead of under it (Dany, 2026-09-13:
+                // "on the small slices the checkmark overlaps with text").
+                // The same threshold the tick is drawn at, so a bar too narrow
+                // for a tick keeps the whole width for its words.
+                paddingRight:
+                  bar.done && width * dayPx >= DONE_MARK_PX + 6
+                    ? LABEL_PAD_PX + DONE_MARK_PX + 3
+                    : LABEL_PAD_PX,
               }}
             >
               {shown}

@@ -123,6 +123,15 @@
    * highlight rather than as a shade of the page.
    */
   --highlight: oklch(0.905 0.147 96);
+  /*
+   * The two statuses that are said in colour — on the status strip at a row's
+   * left edge, in the glyph of the Status cell, and (done only) as the tint
+   * across a done row. Unknown has no colour: it is the absence of a saying.
+   * Green for finished and amber for under way are the two readings nobody
+   * has to learn; neither is a shade the grid already uses for anything else.
+   */
+  --status-done: oklch(0.6 0.16 148);
+  --status-in-progress: oklch(0.72 0.15 72);
 }
 
 .dark {
@@ -148,6 +157,8 @@
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.551 0.027 264.364);
   --highlight: oklch(0.62 0.12 96);
+  --status-done: oklch(0.72 0.15 148);
+  --status-in-progress: oklch(0.8 0.14 78);
 
   /*
    * **Nothing re-points a `--grid-*` token here, and that is a rule rather than
@@ -258,6 +269,16 @@
      moved, not the decision: both surfaces take the same one, as above. */
   --grid-dep-lit: color-mix(in oklab, var(--ring) 20%, var(--background));
   --card-dep-lit: color-mix(in oklab, var(--ring) 20%, var(--popover));
+  /*
+   * The done row's tint, mixed toward `transparent` and not toward the page:
+   * it is painted as a layer **over** `--cell-bg` (see `--row-tint` below), so
+   * the band, the hover and the lights under it stay what they were and the
+   * green is the same dose on each. 7% is faint on purpose — a whole row of
+   * it, on every finished row of a finished plan, has to stay a page you can
+   * read; 12% was the first cut and Dany asked for it "a little bit fader"
+   * (2026-09-13).
+   */
+  --grid-done-tint: color-mix(in oklab, var(--status-done) 7%, transparent);
 }
 
 /*
@@ -513,6 +534,20 @@
    */
   [data-grid] {
     --cell-bg: var(--background);
+    /*
+     * The second layer every cell paints, over `--cell-bg`: the done tint on a
+     * done row and `transparent` everywhere else. A property of its own rather
+     * than a mix into `--cell-bg` because that property is *chosen* by the
+     * chain of row states below, and a done row is also banded, hovered, lit
+     * or a drop target — one layer on top says "and it is done" without a
+     * second copy of the chain. `table-frame.ts`'s `ROW_BACKGROUND` paints the
+     * same pair inline for the pinned cells.
+     */
+    --row-tint: transparent;
+  }
+
+  [data-grid] tbody tr[data-row-status='done'] {
+    --row-tint: var(--grid-done-tint);
   }
 
   /*
@@ -631,9 +666,16 @@
     vertical-align: middle;
   }
 
+  [data-grid] th {
+    background: var(--cell-bg);
+  }
+
+  [data-grid] td {
+    background: linear-gradient(var(--row-tint), var(--row-tint)), var(--cell-bg);
+  }
+
   [data-grid] th,
   [data-grid] td {
-    background: var(--cell-bg);
     /* Long enough to read as a fade, short enough that the row is lit by the
        time the pointer has stopped. */
     transition: background-color 100ms ease;
@@ -650,7 +692,7 @@
   }
 
   [data-grid] thead th {
-    box-shadow: inset 0 -1px 0 var(--border);
+    box-shadow: inset -1px -1px 0 var(--border);
     color: var(--muted-foreground);
     font-size: 10px;
     font-weight: 600;
@@ -795,19 +837,39 @@
    * were one undivided field.
    */
   [data-grid] tbody td {
-    box-shadow: inset 0 -1px 0 var(--border);
-  }
-
-  [data-grid] td[data-column='number'],
-  [data-grid] td[data-column='refs'],
-  [data-grid] td[data-column='name'],
-  [data-grid] td[data-column='depends'],
-  [data-grid] th[data-column='number'],
-  [data-grid] th[data-column='refs'],
-  [data-grid] th[data-column='name'],
-  [data-grid] th[data-column='depends'] {
     box-shadow: inset -1px -1px 0 var(--border);
   }
+
+  /*
+   * The **status strip**: the row's status said at its left edge, before the
+   * drag handle, whether or not the Status column is on screen. Drawn as an
+   * inset shadow on the drag cell — the same medium as every separator in
+   * this table, so it occupies no space and moves no pixel — and drawn in one
+   * declaration with the row separator above, because a second `box-shadow`
+   * rule replaces the first rather than adding to it. Unknown draws nothing:
+   * it is the absence of a saying, and a strip for it would be a colour for
+   * "nobody knows". On a drop-target row the drop rules further down win for
+   * the length of the drag; accepted (`status-at-a-glance` D2).
+   */
+  [data-grid] tbody tr[data-row-status='done'] td[data-column='drag'] {
+    box-shadow:
+      inset 3px 0 0 var(--status-done),
+      inset -1px -1px 0 var(--border);
+  }
+
+  [data-grid] tbody tr[data-row-status='in_progress'] td[data-column='drag'] {
+    box-shadow:
+      inset 3px 0 0 var(--status-in-progress),
+      inset -1px -1px 0 var(--border);
+  }
+
+  /*
+   * The right-edge rule is every column's since `column-rules-and-add-buttons`
+   * (Dany, 2026-09-13: "add column delimiters to all columns"): `tbody td` and
+   * `thead th` above draw it, so the list that named the pinned columns and
+   * Depends on as the only ruled ones is gone. The figures to the right of
+   * Depends on used to sit in one undivided field.
+   */
 
   /*
    * Every box a cell is typed into: nothing at rest but the row's own colour,
@@ -1090,7 +1152,18 @@
    * pixel — the chips set the strip's line box, and an affordance taller than
    * one would make every deps row taller than every other row in the table.
    */
-  [data-grid] td[data-column='depends'] button[data-dep-add] {
+  /*
+   * **One `+`, four columns.** Depends on, Tags, Services and Types each open
+   * their picker from a `+` on the strip's leading edge, and until
+   * `column-rules-and-add-buttons` only Depends on's was styled here — the
+   * other three fell back to the platform button: black, square, `1px 6px` of
+   * padding (measured in Chromium, 2026-09-13). Dany: "i want the + btn in the
+   * depends on col and tags col (and types, services) be similar in design,
+   * now they feel different". Every add button carries `data-reference-add`,
+   * so that is the selector, and the Depends on rule that said the same about
+   * `[data-dep-add]` alone is folded in.
+   */
+  [data-grid] button[data-reference-add] {
     border: 0;
     border-radius: var(--radius-sm);
     background: none;
@@ -1098,6 +1171,11 @@
     padding: 0 4px;
     line-height: 1.5;
     cursor: pointer;
+  }
+
+  [data-grid] button[data-reference-add]:hover {
+    background: color-mix(in oklab, var(--foreground) 7%, var(--cell-bg));
+    color: var(--foreground);
   }
 
   /*
@@ -1178,11 +1256,6 @@
     padding: 0 4px;
     line-height: 1.5;
     font-variant-numeric: tabular-nums;
-  }
-
-  [data-grid] td[data-column='depends'] button[data-dep-add]:hover {
-    background: color-mix(in oklab, var(--foreground) 7%, var(--cell-bg));
-    color: var(--foreground);
   }
 
   /* The derived figures. Tabular, so a column of them lines up on the decimal
@@ -1530,4 +1603,18 @@
     display: flex;
     align-items: center;
   }
+}
+
+/*
+ * A **done** row (`data-row-done`, written by `wbs-table.tsx`'s `PlanRow` off
+ * the row's status): its name reads struck through and muted, and its number
+ * with it. Ink only — this touches no `--cell-bg`, so every stripe, the pointed
+ * row's light and a dependency light paint under it exactly as they did, and
+ * the `:not()` chain above it has nothing new to exclude. What a done row looks
+ * like is a fact about the row at rest, not about where the pointer is.
+ */
+[data-grid] tbody tr[data-row-done='true'] td[data-column='name'] [data-cell],
+[data-grid] tbody tr[data-row-done='true'] [data-number] {
+  text-decoration: line-through;
+  color: var(--muted-foreground);
 }

@@ -194,6 +194,7 @@ const PROJECT_API_OPERATIONS = {
   removeStep: 'deleteApiProjectsByIdStepsByStepId',
   createWorkItem: 'postApiProjectsByIdCommands',
   patchWorkItem: 'postApiProjectsByIdCommands',
+  setStatus: 'postApiProjectsByIdCommands',
   listTeams: 'getApiTeams',
   listTags: 'getApiTags',
   listServices: 'getApiServices',
@@ -263,7 +264,6 @@ function planWire(projectId: string, plan: PlanRead) {
       serviceId: null,
       actuals: {},
       progress: {},
-      state: 'not_started' as const,
       measures: {},
       ...row,
       // Proof: nullish fallback turned tagIds: null into []; the focused tree test
@@ -1137,6 +1137,20 @@ function checkedAnswers(answers: Partial<ProjectApi>): Partial<ProjectApi> {
         () => VOID_COMMAND_RESULT,
       );
     };
+  }
+
+  const setStatusAnswer = answers.setStatus;
+  if (setStatusAnswer !== undefined) {
+    checked.setStatus = (workItemId, status, on) =>
+      throughProjectCommand(
+        FAKE_PROJECT_ID,
+        { kind: 'setStatus', workItemId, status, on },
+        // `on` off the call rather than off the normalised command: the wire
+        // shape has it optional, this client always sends it, and the fake's
+        // answer wants the day as a string.
+        (_normalizedProjectId, normalized) => setStatusAnswer(normalized.workItemId, status, on),
+        () => VOID_COMMAND_RESULT,
+      );
   }
 
   const assignPersonAnswer = answers.assignPerson;

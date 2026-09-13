@@ -861,11 +861,13 @@ describe('a person’s memberships', () => {
 
     await waitFor(() => {
       expect(screen.queryByLabelText('Remove Payments from Kat')).toBeNull();
+      // The chip it left, not the top of the page: a removal that dropped the
+      // focus would leave a keyboard reader with nothing to carry on from.
+      // Proof: with the effect's `node.focus()` removed, this retry timed out on
+      // `expected <body> to be <button aria-label="Remove Design from Kat">`.
+      expect(document.activeElement).toBe(screen.getByLabelText('Remove Design from Kat'));
     });
     expect(api.patched).toEqual([{ id: 'p1', patch: { teamIds: ['t1', 't3'] } }]);
-    // The chip it left, not the top of the page: a removal that dropped the
-    // focus would leave a keyboard reader with nothing to carry on from.
-    expect(document.activeElement).toBe(screen.getByLabelText('Remove Design from Kat'));
   });
 
   itDom('keep the picker’s combobox contract', async () => {

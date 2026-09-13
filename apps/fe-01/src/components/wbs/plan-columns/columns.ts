@@ -6,6 +6,7 @@ import { createDeadlineColumn } from './deadline';
 import { createDependsColumn } from './depends';
 import { createDragColumn } from './drag';
 import { createEstimatesColumns } from './estimates';
+import { createFactEndColumn, createFactStartColumn } from './fact-date';
 import { createFinalTotalColumn } from './final-total';
 import { createFinishColumn } from './finish';
 import { createFloatColumn } from './float';
@@ -17,6 +18,7 @@ import { createPriorityColumn } from './priority';
 import { createRefsColumn } from './refs';
 import { createServiceColumn } from './service';
 import { createStartColumn } from './start';
+import { createStatusColumn } from './status';
 import { createTagColumn } from './tag';
 import { createTeamColumn } from './team';
 import { createTypeColumn } from './type';
@@ -32,6 +34,9 @@ export function createPlanColumns(
     [
       createDragColumn({ live }),
       createNumberColumn(),
+      // Between `#` and Links, pinned with them (`PINNED_COLUMN_IDS`): one glyph
+      // the eye reads before the name, where Dany asked for it (`status-at-a-glance`).
+      createStatusColumn({ live }),
       createRefsColumn({ live }),
       createNameColumn({ live }),
       createDependsColumn({ live }),
@@ -45,6 +50,8 @@ export function createPlanColumns(
       createFinalTotalColumn(),
       createNotBeforeColumn({ live }),
       createDeadlineColumn({ live }),
+      createFactStartColumn({ live }),
+      createFactEndColumn({ live }),
       createStartColumn({ live }),
       createFinishColumn(),
       createFloatColumn(),

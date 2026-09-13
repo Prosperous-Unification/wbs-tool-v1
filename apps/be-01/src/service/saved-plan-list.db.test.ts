@@ -53,6 +53,8 @@ describe("listing a project's saved plans", () => {
     maxParallel: 1,
     startNoEarlierThanReason: null,
     deadline: null,
+    factStart: null,
+    factEnd: null,
     revision: 0,
   });
 

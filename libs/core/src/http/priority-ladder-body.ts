@@ -12,6 +12,18 @@ export class BadLadder extends Error {
   }
 }
 
+interface PriorityLadderBody {
+  readonly bands: readonly {
+    readonly startsAt: unknown;
+    readonly defaultValue: unknown;
+    readonly label: unknown;
+  }[];
+}
+
+function isUnknownArray(value: unknown): value is unknown[] {
+  return Array.isArray(value);
+}
+
 /**
  * The five bands a request is asking this project's ladder to become.
  *
@@ -44,32 +56,31 @@ export class BadLadder extends Error {
  * would have produced a line later. R5 #7 is the proof that the ladder check
  * itself can fail.
  */
+export function ladderOf(body: PriorityLadderBody): PriorityBand[];
 export function ladderOf(body: unknown): PriorityBand[] {
   if (typeof body !== 'object' || body === null) throw new BadLadder('expected_object');
-  const raw = body as Record<string, unknown>;
-  if (!('bands' in raw)) throw new BadLadder('bands_required');
-  const given = raw['bands'];
-  if (!Array.isArray(given)) throw new BadLadder('bands_must_be_an_array');
+  if (!('bands' in body)) throw new BadLadder('bands_required');
+  const given = body.bands;
+  if (!isUnknownArray(given)) throw new BadLadder('bands_must_be_an_array');
   if (given.length !== PRIORITY_BAND_COUNT) {
     throw new BadLadder(`bands_must_number_${String(PRIORITY_BAND_COUNT)}`);
   }
   const bands: PriorityBand[] = [];
-  for (const each of given as unknown[]) {
+  for (const each of given) {
     if (typeof each !== 'object' || each === null) throw new BadLadder('bands_must_be_objects');
-    const band = each as Record<string, unknown>;
-    if (typeof band['startsAt'] !== 'number') {
+    if (!('startsAt' in each) || typeof each.startsAt !== 'number') {
       throw new BadLadder('band_start_must_be_a_whole_number_from_1');
     }
-    if (typeof band['defaultValue'] !== 'number') {
+    if (!('defaultValue' in each) || typeof each.defaultValue !== 'number') {
       throw new BadLadder('band_default_must_be_a_whole_number_from_1');
     }
-    if (typeof band['label'] !== 'string') {
+    if (!('label' in each) || typeof each.label !== 'string') {
       throw new BadLadder(`band_label_must_be_1_to_${String(LONGEST_BAND_LABEL)}_characters`);
     }
     bands.push({
-      startsAt: band['startsAt'],
-      label: band['label'],
-      defaultValue: band['defaultValue'],
+      startsAt: each.startsAt,
+      label: each.label,
+      defaultValue: each.defaultValue,
     });
   }
   // The one guard on what a ladder is, and the one call to it. See

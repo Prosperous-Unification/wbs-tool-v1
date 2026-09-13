@@ -119,6 +119,15 @@ export const DEADLINE_EFFECT_HINT =
  * and a `Record<string, string>` would type every miss as a `string` and the
  * refusal below as dead code.
  */
+/**
+ * The Status column's own sentence, exported because the cell's list and its
+ * `data-fact` read the same words the heading does.
+ */
+export const STATUS_HINT =
+  'Where this work item’s work has got to: unknown until somebody says, in progress while its ' +
+  'steps disagree, done when every step says so. Choosing Done asks for the day it finished ' +
+  'and marks every step; Unknown takes every statement back, and the day with it.';
+
 const COLUMN_HINTS = new Map<string, string>([
   [
     'drag',
@@ -193,6 +202,18 @@ const COLUMN_HINTS = new Map<string, string>([
       'its dependencies and its team can still push it later, never earlier.',
   ],
   ['deadline', DEADLINE_EFFECT_HINT],
+  ['status', STATUS_HINT],
+  [
+    'fact-start',
+    'The day work on this item actually began, as you record it. A fact beside the forecast: ' +
+      'it moves no date, and it is where a done row’s bar starts on the chart.',
+  ],
+  [
+    'fact-end',
+    'The day work on this item actually finished. Marking a row done asks for it, with today ' +
+      'offered; taking a done row back clears it. A done row’s bar stops here whatever the ' +
+      'estimate says.',
+  ],
   [
     'float',
     'Days this work item can slip before the plan’s end moves. A row marked critical has none: ' +

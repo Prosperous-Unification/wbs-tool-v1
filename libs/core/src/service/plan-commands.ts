@@ -1,3 +1,5 @@
+import type { PlanCommandKind } from '@wbs/contracts';
+
 import type {
   Person,
   PersonWithTeams,
@@ -8,6 +10,7 @@ import type { Decision, Scope, UnitOfWork } from '../ports/unit-of-work';
 import type { Service, Tag, WorkItemType } from '../ports/work-item-store';
 import { AnnouncementCollector, type Broadcaster } from './broadcast';
 import type { CapacityService } from './capacity.service';
+import { applyCommand, bindCommands, CommandContext, CommandRefused } from './command-bindings';
 import type {
   DirectoryOutcome,
   DirectoryRefusal,
@@ -15,7 +18,7 @@ import type {
 } from './directory.service';
 import type { DirectoryService } from './directory.service';
 import type { DirectoryUsage } from './directory-usage';
-import { MOST_COMMANDS_IN_A_BATCH, type PlanCommand, type PlanCommandKind } from './plan-command';
+import { MOST_COMMANDS_IN_A_BATCH, type PlanCommand } from './plan-command';
 import type { PriorityBandService } from './priority-band.service';
 import type { WorkItemRefusal } from './work-item.service';
 import type { Collected, UndoOutcome, WorkItemService } from './work-item.service';
@@ -34,7 +37,7 @@ export interface PlanCommandServices {
  * the browser's `addTeam`/`renameTag` answer with the row, and a second read
  * for what the batch just wrote would be the round trip this route removes.
  */
-interface AppliedBase {
+export interface AppliedBase {
   index: number;
   ref?: string;
   id?: string;
@@ -57,7 +60,7 @@ type EntityKind = keyof CommandEntities;
 type PlainKind = Exclude<PlanCommandKind, EntityKind>;
 type MintedKind = 'createWorkItem' | 'duplicateWorkItem' | Extract<EntityKind, `create${string}`>;
 // Proof: making minted id optional produced two TS2578 diagnostics in the created-result fixtures.
-type MintedBase = AppliedBase & { id: string };
+export type MintedBase = AppliedBase & { id: string };
 /** Internal kind identifies the producer's exact entity contract; controllers erase it from the unchanged wire. */
 export type AppliedCommand =
   | (AppliedBase & { kind: Exclude<PlainKind, MintedKind>; entity?: never })
@@ -78,7 +81,7 @@ type PlainReason =
   | 'unknown_ref'
   | 'missing_id'
   | 'duplicate_ref';
-type Refusal =
+export type Refusal =
   | { reason: PlainReason; detail?: never }
   | {
       reason: 'deadline_before_project_start';
@@ -88,7 +91,7 @@ type Refusal =
   | { reason: 'in_use'; detail: { usage: DirectoryUsage } };
 /** A runtime refusal always carries its command index and recognized kind. */
 export type BatchRefusal = { ok: false; at: number; kind: PlanCommandKind } & Refusal;
-type ServiceRefusal =
+export type ServiceRefusal =
   | { ok: false; reason: PlainReason }
   | {
       ok: false;
@@ -135,25 +138,6 @@ export interface PlanCommandRunnerOptions {
   announcements: Broadcaster;
 }
 
-/** The kinds that need no project: the directory's. */
-const DIRECTORY_KINDS: ReadonlySet<PlanCommandKind> = new Set([
-  'createTeam',
-  'patchTeam',
-  'deleteTeam',
-  'createPerson',
-  'patchPerson',
-  'deletePerson',
-  'createTag',
-  'createWorkItemType',
-  'patchWorkItemType',
-  'deleteWorkItemType',
-  'patchTag',
-  'deleteTag',
-  'createService',
-  'patchService',
-  'deleteService',
-]);
-
 /** Commands that can lengthen or reorder the placed plan's calendar horizon. */
 const CALENDAR_AFFECTING_KINDS: ReadonlySet<PlanCommandKind> = new Set([
   'patchWorkItem',
@@ -164,26 +148,16 @@ const CALENDAR_AFFECTING_KINDS: ReadonlySet<PlanCommandKind> = new Set([
   'setCapacity',
 ]);
 
-/** Thrown inside a batch to stop it; caught by `run`, never seen outside. */
-class Refused extends Error {
-  constructor(
-    readonly at: number,
-    readonly kind: PlanCommandKind,
-    readonly refusal: Refusal,
-  ) {
-    super(`${kind} at ${String(at)}: ${refusal.reason}`);
-  }
-}
-
 /**
  * Applies a {@link Command batch}: every step through the service it belongs
  * to, as one {@link Unit of work} — one {@link Turn} at the source's write
  * coordinator, and every write settled together — then
  * one journal entry and one broadcast — `plan-commands` D2–D4 and ADR 0007.
  *
- * Refs are the runner's: a create's id is remembered under its `ref`, and any
- * `…Ref` field is replaced by that id before the service sees the step. A ref
- * nobody minted, or minted twice, refuses the batch at that step.
+ * Refs are the batch's {@link CommandContext}: a create's id is remembered
+ * under its `ref`, and any `…Ref` field is replaced by that id before the
+ * bound service sees the step. A ref nobody minted, or minted twice, refuses
+ * the batch at that step.
  *
  * Undo and redo run through here too, for the same reason a batch does: a
  * batch's inverse is many steps, and only the outer transaction can make a
@@ -299,7 +273,7 @@ export class PlanCommandRunner {
           applied = collected;
         }
       } catch (cause) {
-        if (cause instanceof Refused) {
+        if (cause instanceof CommandRefused) {
           applied = { ok: false, at: cause.at, kind: cause.kind, ...cause.refusal };
         } else throw cause;
       }
@@ -384,481 +358,17 @@ export class PlanCommandRunner {
 
   private async applyAll(
     graph: PlanCommandServices,
-    scope: string | null,
+    projectId: string | null,
     actorId: string,
     commands: readonly PlanCommand[],
   ): Promise<AppliedCommand[]> {
     const refs = new Map<string, string>();
-    const results: AppliedCommand[] = [];
+    const bindings = bindCommands(graph);
+    const applied: AppliedCommand[] = [];
     for (const [index, command] of commands.entries()) {
-      // A plan command in a batch with no project has nowhere to land.
-      const projectId: string = (() => {
-        if (scope !== null || DIRECTORY_KINDS.has(command.kind)) return scope ?? '';
-        throw new Refused(index, command.kind, { reason: 'project_required' });
-      })();
-      // Typed on the binding, not inferred from the arrow: TypeScript narrows
-      // after a call only when the callee's `never` is declared on the name.
-      const refuse: (refusal: Refusal) => never = (refusal) => {
-        throw new Refused(index, command.kind, refusal);
-      };
-      const id = (given: string | null | undefined, ref: string | undefined): string | null => {
-        if (ref !== undefined) {
-          const minted = refs.get(ref);
-          if (minted === undefined) refuse({ reason: 'unknown_ref' });
-          return minted;
-        }
-        return given ?? null;
-      };
-      const required = (given: string | undefined, ref: string | undefined): string => {
-        const found = id(given, ref);
-        if (found === null) refuse({ reason: 'missing_id' });
-        return found;
-      };
-      const ids = (given: readonly string[] | undefined, named: readonly string[] | undefined) => [
-        ...(given ?? []),
-        ...(named ?? []).map((ref) => required(undefined, ref)),
-      ];
-      const mint = (ref: string | undefined, created: string): MintedBase => {
-        if (ref !== undefined) {
-          if (refs.has(ref)) refuse({ reason: 'duplicate_ref' });
-          refs.set(ref, created);
-        }
-        return { index, ref, id: created };
-      };
-      const plain = (): AppliedBase => ({ index });
-      const { workItems, directory, capacity, priorityBands } = graph;
-      const refuseOutcome = (outcome: ServiceRefusal): never => {
-        if (outcome.reason === 'taken')
-          return refuse({ reason: 'taken', detail: { name: outcome.name } });
-        if (outcome.reason === 'in_use')
-          return refuse({ reason: 'in_use', detail: { usage: outcome.usage } });
-        if (outcome.reason === 'deadline_before_project_start') {
-          // Proof: deleting this guard threw Malformed deadline refusal resolved in the runner negative.
-          if (typeof outcome.workItemId !== 'string' || typeof outcome.projectDayZero !== 'string')
-            throw new Error('Deadline refusal requires work item and project day zero');
-          return refuse({
-            reason: outcome.reason,
-            detail: { workItemId: outcome.workItemId, projectDayZero: outcome.projectDayZero },
-          });
-        }
-        return refuse({ reason: outcome.reason });
-      };
-      const reasonOf = <T>(outcome: { ok: true; value: T } | ServiceRefusal): T =>
-        outcome.ok ? outcome.value : refuseOutcome(outcome);
-      const done = <K extends PlainKind>(kind: K, outcome: { ok: true } | ServiceRefusal) => {
-        if (!outcome.ok) refuseOutcome(outcome);
-        return { index, kind };
-      };
-      const entity = <K extends EntityKind, B extends AppliedBase>(
-        kind: K,
-        applied: B,
-        value: CommandEntities[K],
-      ) => ({ ...applied, kind, entity: value });
-
-      switch (command.kind) {
-        case 'createWorkItem': {
-          if (command.ref !== undefined && refs.has(command.ref))
-            refuse({ reason: 'duplicate_ref' });
-          const created = reasonOf(
-            await workItems.create(projectId, actorId, {
-              parentId: id(command.parentId, command.parentRef),
-              afterId: id(command.afterId, command.afterRef),
-              ...(command.name === undefined ? {} : { name: command.name }),
-              ...(command.notes === undefined ? {} : { notes: command.notes }),
-              // Absent stays absent, exactly as `name` and `notes` do above, so
-              // the service sees the three states the command carries: a number
-              // written as given, an explicit `null` for an unprioritised row,
-              // and nothing at all for the project's middle rung.
-              ...(command.priority === undefined ? {} : { priority: command.priority }),
-            }),
-          );
-          results.push({ ...mint(command.ref, created.id), kind: command.kind });
-          break;
-        }
-        case 'patchWorkItem': {
-          const { serviceRefs, tagRefs, teamRefs, typeRefs, ...patch } = command.patch;
-          const resolved = {
-            ...patch,
-            ...(serviceRefs === undefined
-              ? {}
-              : { serviceIds: ids(patch.serviceIds, serviceRefs) }),
-            ...(tagRefs === undefined ? {} : { tagIds: ids(patch.tagIds, tagRefs) }),
-            ...(teamRefs === undefined ? {} : { teamIds: ids(patch.teamIds, teamRefs) }),
-            ...(typeRefs === undefined ? {} : { typeIds: ids(patch.typeIds, typeRefs) }),
-          };
-          reasonOf(
-            await workItems.patch(
-              required(command.workItemId, command.workItemRef),
-              actorId,
-              resolved,
-            ),
-          );
-          results.push({ ...plain(), kind: command.kind });
-          break;
-        }
-        case 'moveWorkItem':
-          reasonOf(
-            await workItems.move(required(command.workItemId, command.workItemRef), actorId, {
-              parentId: id(command.parentId, command.parentRef),
-              afterId: id(command.afterId, command.afterRef),
-            }),
-          );
-          results.push({ ...plain(), kind: command.kind });
-          break;
-        case 'duplicateWorkItem': {
-          if (command.ref !== undefined && refs.has(command.ref))
-            refuse({ reason: 'duplicate_ref' });
-          const copy = reasonOf(
-            await workItems.duplicate(required(command.workItemId, command.workItemRef), actorId),
-          );
-          results.push({ ...mint(command.ref, copy.id), kind: command.kind });
-          break;
-        }
-        case 'deleteWorkItem':
-          reasonOf(
-            await workItems.remove(
-              required(command.workItemId, command.workItemRef),
-              actorId,
-              command.strategy ?? null,
-            ),
-          );
-          results.push({ ...plain(), kind: command.kind });
-          break;
-        case 'setEstimate':
-          reasonOf(
-            await workItems.setEstimate(
-              required(command.workItemId, command.workItemRef),
-              actorId,
-              command.stepId,
-              command.days,
-            ),
-          );
-          results.push({ ...plain(), kind: command.kind });
-          break;
-        case 'clearEstimate':
-          reasonOf(
-            await workItems.clearEstimate(
-              required(command.workItemId, command.workItemRef),
-              actorId,
-              command.stepId,
-            ),
-          );
-          results.push({ ...plain(), kind: command.kind });
-          break;
-        case 'setActual':
-          reasonOf(
-            await workItems.setActual(
-              required(command.workItemId, command.workItemRef),
-              actorId,
-              command.stepId,
-              command.days,
-            ),
-          );
-          results.push({ ...plain(), kind: command.kind });
-          break;
-        case 'clearActual':
-          reasonOf(
-            await workItems.clearActual(
-              required(command.workItemId, command.workItemRef),
-              actorId,
-              command.stepId,
-            ),
-          );
-          results.push({ ...plain(), kind: command.kind });
-          break;
-        case 'setProgress':
-          reasonOf(
-            await workItems.setProgress(
-              required(command.workItemId, command.workItemRef),
-              actorId,
-              command.stepId,
-              command.state,
-            ),
-          );
-          results.push({ ...plain(), kind: command.kind });
-          break;
-        case 'clearProgress':
-          reasonOf(
-            await workItems.clearProgress(
-              required(command.workItemId, command.workItemRef),
-              actorId,
-              command.stepId,
-            ),
-          );
-          results.push({ ...plain(), kind: command.kind });
-          break;
-        case 'setMeasure':
-          reasonOf(
-            await workItems.setMeasure(
-              required(command.workItemId, command.workItemRef),
-              actorId,
-              command.stepId,
-              command.metric,
-              command.value,
-            ),
-          );
-          results.push({ ...plain(), kind: command.kind });
-          break;
-        case 'clearMeasure':
-          reasonOf(
-            await workItems.clearMeasure(
-              required(command.workItemId, command.workItemRef),
-              actorId,
-              command.stepId,
-              command.metric,
-            ),
-          );
-          results.push({ ...plain(), kind: command.kind });
-          break;
-        case 'setAssignee':
-          reasonOf(
-            await workItems.assign(
-              required(command.workItemId, command.workItemRef),
-              actorId,
-              command.stepId,
-              id(command.personId, command.personRef),
-            ),
-          );
-          results.push({ ...plain(), kind: command.kind });
-          break;
-        case 'addDependency':
-          reasonOf(
-            await workItems.addDependency(
-              required(command.workItemId, command.workItemRef),
-              actorId,
-              required(command.predecessorId, command.predecessorRef),
-            ),
-          );
-          results.push({ ...plain(), kind: command.kind });
-          break;
-        case 'removeDependency':
-          reasonOf(
-            await workItems.removeDependency(
-              required(command.workItemId, command.workItemRef),
-              actorId,
-              required(command.predecessorId, command.predecessorRef),
-            ),
-          );
-          results.push({ ...plain(), kind: command.kind });
-          break;
-        case 'arrangeBySchedule':
-          reasonOf(await workItems.arrangeBySchedule(projectId, actorId));
-          results.push({ ...plain(), kind: command.kind });
-          break;
-        case 'freezeProject':
-          reasonOf(await workItems.freeze(projectId, actorId));
-          results.push({ ...plain(), kind: command.kind });
-          break;
-        case 'unfreezeProject':
-          reasonOf(await workItems.unfreezeProject(projectId, actorId));
-          results.push({ ...plain(), kind: command.kind });
-          break;
-        case 'unfreezeWorkItem':
-          reasonOf(
-            await workItems.unfreeze(required(command.workItemId, command.workItemRef), actorId),
-          );
-          results.push({ ...plain(), kind: command.kind });
-          break;
-        case 'setCapacity':
-          reasonOf(
-            await capacity.set(
-              projectId,
-              actorId,
-              required(command.teamId, command.teamRef),
-              command.size,
-            ),
-          );
-          results.push({ ...plain(), kind: command.kind });
-          break;
-        case 'setPriorityBands':
-          reasonOf(await priorityBands.set(projectId, actorId, command.bands));
-          results.push({ ...plain(), kind: command.kind });
-          break;
-        case 'createTeam': {
-          if (command.ref !== undefined && refs.has(command.ref))
-            refuse({ reason: 'duplicate_ref' });
-          const team = await directory.addTeam(actorId, command.name);
-          if (team === null) refuse({ reason: 'name_required' });
-          results.push(entity(command.kind, mint(command.ref, team.id), team));
-          break;
-        }
-        case 'patchTeam':
-          results.push(
-            entity(
-              command.kind,
-              plain(),
-              reasonOf(
-                await directory.patchTeam(
-                  required(command.teamId, command.teamRef),
-                  actorId,
-                  command.patch,
-                ),
-              ),
-            ),
-          );
-          break;
-        case 'deleteTeam':
-          results.push(
-            done(
-              command.kind,
-              await directory.removeTeam(
-                required(command.teamId, command.teamRef),
-                actorId,
-                command.cascade ?? false,
-              ),
-            ),
-          );
-          break;
-        case 'createPerson': {
-          if (command.ref !== undefined && refs.has(command.ref))
-            refuse({ reason: 'duplicate_ref' });
-          const person = reasonOf(
-            await directory.addPerson(
-              actorId,
-              command.name,
-              ids(command.teamIds, command.teamRefs),
-            ),
-          );
-          results.push(entity(command.kind, mint(command.ref, person.id), person));
-          break;
-        }
-        case 'patchPerson':
-          results.push(
-            entity(
-              command.kind,
-              plain(),
-              reasonOf(
-                await directory.patchPerson(
-                  required(command.personId, command.personRef),
-                  actorId,
-                  command.patch,
-                ),
-              ),
-            ),
-          );
-          break;
-        case 'deletePerson':
-          results.push(
-            done(
-              command.kind,
-              await directory.removePerson(
-                required(command.personId, command.personRef),
-                actorId,
-                command.cascade ?? false,
-              ),
-            ),
-          );
-          break;
-        case 'createTag': {
-          if (command.ref !== undefined && refs.has(command.ref))
-            refuse({ reason: 'duplicate_ref' });
-          const tag = await directory.addTag(actorId, command.name);
-          if (tag === null) refuse({ reason: 'name_required' });
-          results.push(entity(command.kind, mint(command.ref, tag.id), tag));
-          break;
-        }
-        case 'patchTag':
-          results.push(
-            entity(
-              command.kind,
-              plain(),
-              reasonOf(
-                await directory.renameTag(
-                  required(command.tagId, command.tagRef),
-                  actorId,
-                  command.name,
-                ),
-              ),
-            ),
-          );
-          break;
-        case 'deleteTag':
-          results.push(
-            done(
-              command.kind,
-              await directory.removeTag(
-                required(command.tagId, command.tagRef),
-                actorId,
-                command.cascade ?? false,
-              ),
-            ),
-          );
-          break;
-        // The tag trio, one dimension over, line for line — including
-        // `createWorkItemType` refusing a duplicate ref before it writes, so a
-        // batch naming one ref twice cannot mint two rows under one name.
-        case 'createWorkItemType': {
-          if (command.ref !== undefined && refs.has(command.ref))
-            refuse({ reason: 'duplicate_ref' });
-          const workItemType = await directory.addWorkItemType(actorId, command.name);
-          if (workItemType === null) refuse({ reason: 'name_required' });
-          results.push(entity(command.kind, mint(command.ref, workItemType.id), workItemType));
-          break;
-        }
-        case 'patchWorkItemType':
-          results.push(
-            entity(
-              command.kind,
-              plain(),
-              reasonOf(
-                await directory.renameWorkItemType(
-                  required(command.typeId, command.typeRef),
-                  actorId,
-                  command.name,
-                ),
-              ),
-            ),
-          );
-          break;
-        case 'deleteWorkItemType':
-          results.push(
-            done(
-              command.kind,
-              await directory.removeWorkItemType(
-                required(command.typeId, command.typeRef),
-                actorId,
-                command.cascade ?? false,
-              ),
-            ),
-          );
-          break;
-        case 'createService': {
-          if (command.ref !== undefined && refs.has(command.ref))
-            refuse({ reason: 'duplicate_ref' });
-          const service = await directory.addService(actorId, command.name);
-          if (service === null) refuse({ reason: 'name_required' });
-          results.push(entity(command.kind, mint(command.ref, service.id), service));
-          break;
-        }
-        case 'patchService':
-          results.push(
-            entity(
-              command.kind,
-              plain(),
-              reasonOf(
-                await directory.renameService(
-                  required(command.serviceId, command.serviceRef),
-                  actorId,
-                  command.name,
-                ),
-              ),
-            ),
-          );
-          break;
-        case 'deleteService':
-          results.push(
-            done(
-              command.kind,
-              await directory.removeService(
-                required(command.serviceId, command.serviceRef),
-                actorId,
-                command.cascade ?? false,
-              ),
-            ),
-          );
-          break;
-      }
+      const context = new CommandContext(actorId, projectId, index, command.kind, refs);
+      applied.push(await applyCommand(bindings, command, context));
     }
-    return results;
+    return applied;
   }
 }

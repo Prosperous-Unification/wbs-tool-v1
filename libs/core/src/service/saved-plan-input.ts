@@ -93,6 +93,11 @@ export function planInputRowsOf(reads: PlanInputReads): PlanInputRows {
       serviceId: row.serviceId,
       startNoEarlierThan: row.startNoEarlierThan,
       startNoEarlierThanReason: row.startNoEarlierThanReason,
+      // `factStart` and `factEnd` are deliberately not captured, for the ref
+      // name's reason above: a fact moves no date, orders no queue and is read by
+      // nothing in `libs/domain`, so a snapshot that carried one would compare
+      // two schedules by a record neither of them was computed from. A compare of
+      // planned against happened is a different surface (ADR 0024).
     })),
     steps: reads.steps.map((row) => ({ id: row.id, name: row.name, position: row.position })),
     stepValues: stepValuesOf(reads, rule),

@@ -110,6 +110,10 @@ export const WORK_ITEM_COLUMNS = {
   // a delete puts back as null. `tasks.md` 1.3 made that a precondition of the
   // write path rather than a follow-up to it.
   deadline: workItem.deadline,
+  // Both facts, for `deadline`'s reason one line up: a column missing here is a
+  // column an undo of a delete puts back as null.
+  factStart: workItem.factStart,
+  factEnd: workItem.factEnd,
   priority: workItem.priority,
   serviceTeamId: workItem.serviceTeamId,
   serviceId: workItem.serviceId,
@@ -365,6 +369,13 @@ export class WorkItemRepository implements WorkItemStore {
         // back` failing on `Expected: "2026-03-31" / Received: null`, which is
         // the not-before line's own red one column over.
         patch.deadline === undefined &&
+        // Proof: these two lines deleted, so a patch naming only a fact date is
+        // taken as naming nothing — the store answers `ok` with the row it read
+        // and neither column is written. Watched with `writes both fact dates and
+        // reads them back` failing on `Expected: "2026-09-08" / Received: null`,
+        // the deadline line's own red, two columns over.
+        patch.factStart === undefined &&
+        patch.factEnd === undefined &&
         patch.priority === undefined &&
         patch.serviceTeamId === undefined &&
         patch.teamIds === undefined &&

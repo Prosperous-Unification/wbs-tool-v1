@@ -62,6 +62,7 @@ export * from './service/broadcast';
 export * from './service/calendar-marker.service';
 export * from './service/capacity.service';
 export * from './service/clean-name';
+export * from './service/command-bindings';
 export * from './service/compensating';
 export * from './service/dependency';
 export * from './service/directory.service';

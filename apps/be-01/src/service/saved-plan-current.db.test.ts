@@ -84,6 +84,8 @@ describe('projecting the live plan as a comparison side', () => {
     maxParallel: 1,
     startNoEarlierThanReason: null,
     deadline: null,
+    factStart: null,
+    factEnd: null,
     revision: 0,
   });
 

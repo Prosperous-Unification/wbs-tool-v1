@@ -1,5 +1,6 @@
 import { ASSUMED_SLICE_WORKDAYS } from '@wbs/domain/assumed-duration';
 import type { DependencyReach } from '@wbs/domain/dependency-reach';
+import type { WorkItemStatus } from '@wbs/domain/progress';
 import {
   addWorkdays,
   calendarDaysBetween,
@@ -95,6 +96,23 @@ export const PERSON_BAR_COLORS = [
  * eleventh one.
  */
 export const UNASSIGNED_BAR_COLOR = '#94a3b8';
+
+/**
+ * The one colour a **done bar** is painted, whoever was on the work.
+ *
+ * Not a person's colour: a done row draws one bar for every step and every
+ * person it had (ADR 0024), so "who is on it" has no single answer there, and
+ * a bar painted as one of them would be a claim about the others. Slate-600 —
+ * darker than {@link UNASSIGNED_BAR_COLOR}, so the two greys read apart — and
+ * carrying the done mark the panel draws over it.
+ */
+/**
+ * The done bar's outline and its tick: the table's `--status-done` green, as a
+ * hex because the chart is exported as a standalone SVG where no custom
+ * property resolves. Dany, 2026-09-13: "add smth like a green outline to the
+ * gantt chart slices … make [the checkmark] green same as in table".
+ */
+export const DONE_BAR_STROKE = '#16a34a';
 
 /**
  * The colour every pool wait is drawn in — see {@link GanttCapacityLink}.
@@ -320,6 +338,26 @@ export interface GanttRow {
   schedule: { earliestStart: number; earliestFinish: number };
   /** The workday its manual start date holds at, or null when it has none. */
   notBeforeOffset: number | null;
+  /**
+   * What the row reads as — be-01's fold of its steps' progress, carried rather
+   * than derived here (there are no statements on this chart to fold). `done`
+   * is what turns a leaf's slices into one done bar; see {@link GanttBar.done}.
+   */
+  status: WorkItemStatus;
+  /**
+   * The workday the row's fact start stands on, or null where it has none or
+   * the plan has no calendar to place it on — `notBeforeOffset`'s conversion,
+   * for a day that is a record rather than a floor.
+   */
+  factStartOffset: number | null;
+  /**
+   * Where the row's fact end **stops**: the offset just past the last workday
+   * the work was still on — a finish in the engine's exclusive sense, so a bar
+   * running `start → factEndStop` is drawn through the fact end's whole day.
+   * Rolled backward off a weekend, `0` for a day before the plan began, null
+   * where the row has no fact end or the plan no calendar.
+   */
+  factEndStop: number | null;
   /**
    * Why that date is there, in the planner's own words, or null where nobody
    * has said.
@@ -685,6 +723,13 @@ export interface GanttBar {
    * `tags` is kept out of it by, one line further down in the bar's assembly.
    */
   lateBy: number | null;
+  /**
+   * Whether this is a **done bar**: one bar for a done leaf, drawn over its fact
+   * span in place of its slices (ADR 0024). Painted in its first slice's person colour, outlined {@link DONE_BAR_STROKE}
+   * with the done mark, never as an assumed span, and registered under every
+   * slice id of its leaf so a person or capacity link still finds it.
+   */
+  done: boolean;
 }
 
 /**
@@ -1916,6 +1961,17 @@ export function layOutGantt(plan: GanttPlan): GanttGeometry {
       return;
     }
     const own = slicesByWorkItem.get(row.id) ?? [];
+    if (row.status === 'done' && own.length > 0) {
+      // One bar for the whole row, over what happened rather than what was
+      // planned: the slices are forecasts the fact has overtaken (ADR 0024).
+      // Registered under every slice id so a link that names any of them
+      // lands on this bar.
+      const ordered = inStepOrder(own, stepsById);
+      const bar = doneBarOf(row, rowIndex, ordered, plan.personNames, colorFor);
+      bars.push(bar);
+      for (const { slice } of ordered) barBySliceId.set(slice.id, bar);
+      return;
+    }
     for (const { slice, stepName } of inStepOrder(own, stepsById)) {
       const predecessor = predecessorOf.get(slice.id);
       const personName = personNameOf(slice, plan.personNames);
@@ -1990,6 +2046,7 @@ export function layOutGantt(plan: GanttPlan): GanttGeometry {
         // subtracted its own finish from a date it fetched separately would be
         // a second answer to the lateness the plan was built with.
         lateBy: slice.lateBy,
+        done: false,
       };
       bars.push(bar);
       barBySliceId.set(slice.id, bar);
@@ -2116,6 +2173,17 @@ export function layOutGantt(plan: GanttPlan): GanttGeometry {
         `dependency ${predecessorId} → ${successorId}: ${leafId} has no slice in this ` +
         `payload, so the arrow has no slice to leave from`,
     );
+    // The **drawn** bar where the reached slice has one on this chart, so an
+    // arrow leaving a done leaf leaves its done bar's stop rather than the
+    // engine's finish out in the empty space past it. Identical for every other
+    // bar, whose start and finish are the slice's own.
+    //
+    // Proof: this lookup removed, and `leaves the arrow from the done bar’s stop,
+    // not from the slice’s finish` fails on `expected [ [ 11, 15 ] ] to deeply
+    // equal [ [ 8, 12 ] ]` — the arrow leaving the reached slice's own span out
+    // in the empty space past the bar; watched 2026-09-12.
+    const drawn = barBySliceId.get(reached.slice.id);
+    if (drawn !== undefined) return { start: drawn.start, finish: drawn.finish };
     return { start: reached.slice.earliestStart, finish: reached.slice.earliestFinish };
   };
 
@@ -2712,4 +2780,87 @@ function inStepOrderSafely(
     if (!(error instanceof GanttDataError)) throw error;
     return null;
   }
+}
+
+/**
+ * The one bar a done leaf draws — its fact span — built from the slices it
+ * replaces (ADR 0024).
+ *
+ * **Where it stops** is the fact end's stop where the row has one and the
+ * latest slice finish where it has none; **where it starts** is the fact start
+ * where the row has one and the earliest slice start where it has none, and
+ * never at or past the stop: a plan that drifted whole past the fact draws the
+ * one day the fact end names, so the row keeps a bar to read. A fact end before
+ * the plan began stops at `0` and is drawn on day zero for the same reason.
+ *
+ * What the bar says about itself is the row's, summed where the slices had one
+ * figure each: every step's name, every person's name, the effort and the
+ * duration added up, the least float, critical if any slice was, the latest
+ * lateness if any slice was late. `estimated` is true — a done bar is never an
+ * assumed span, whatever its slices were — and `trio` is null, because one
+ * bar over two steps has no single trio to quote.
+ *
+ * Proof: the `wanted < stop` clamp deleted, and `draws the fact’s one day when
+ * the whole plan drifted past it` fails on `expected [ 20, 12, -8 ] to deeply
+ * equal [ 11, 12, 1 ]` — a bar of negative width, which the panel draws as
+ * nothing; watched 2026-09-12.
+ */
+function doneBarOf(
+  row: GanttRow,
+  rowIndex: number,
+  ordered: readonly PlacedSlice[],
+  personNames: ReadonlyMap<string, string>,
+  colorFor: (personId: string | null) => BarColor,
+): GanttBar {
+  const slices = ordered.map((each) => each.slice);
+  const earliest = Math.min(...slices.map((slice) => slice.earliestStart));
+  const latest = Math.max(...slices.map((slice) => slice.earliestFinish));
+  const stop = Math.max(row.factEndStop ?? latest, 1);
+  const wanted = row.factStartOffset ?? earliest;
+  const start = wanted < stop ? wanted : stop - 1;
+  const people = [
+    ...new Set(
+      slices
+        .map((slice) => personNameOf(slice, personNames))
+        .filter((name): name is string => name !== null),
+    ),
+  ];
+  const lateBy = slices
+    .map((slice) => slice.lateBy)
+    .filter((late): late is number => late !== null);
+  if (slices.length === 0) throw new Error(`${row.id} is done with no slice to draw`);
+  const [first] = slices;
+  return {
+    sliceId: first.id,
+    rowIndex,
+    start,
+    finish: stop,
+    duration: slices.reduce((sum, slice) => sum + slice.duration, 0),
+    drawnSpan: stop - start,
+    float: Math.min(...slices.map((slice) => slice.float)),
+    critical: slices.some((slice) => slice.critical),
+    estimated: true,
+    workItemNumber: row.number,
+    workItemName: row.name,
+    stepName: ordered.map((each) => each.stepName ?? 'No step').join(' + '),
+    personName: people.length === 0 ? null : people.join(' & '),
+    // The first slice's person, as an ordinary bar would be painted: who did
+    // the work is information the chart carries in colour, and a flat "done"
+    // colour threw it away (slate until 2026-09-13, then a pale green for an
+    // hour). Dany: "how do we keep the original coloring scheme of the gantt
+    // chart for the Done slices which is also meaningful". Done is said by the
+    // green outline and the ticked badge instead.
+    personColor: colorFor(first.personId),
+    floorWords: 'Done — drawn over what happened, not over the estimate',
+    team: row.team,
+    tags: row.tags,
+    width: Math.max(...slices.map((slice) => slice.width)),
+    maxParallel: row.maxParallel,
+    effort: slices.reduce((sum, slice) => sum + slice.effort, 0),
+    trio: null,
+    waitsFor: row.waitsFor,
+    priority: row.priority,
+    lateBy: lateBy.length === 0 ? null : Math.max(...lateBy),
+    done: true,
+  };
 }

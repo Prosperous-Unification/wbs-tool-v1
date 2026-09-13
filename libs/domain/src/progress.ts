@@ -1,5 +1,5 @@
 /**
- * Where the work has got to: three states, per step, and the one rule that
+ * Where the work has got to: three statuses, per step, and the one rule that
  * turns a row's steps into a reading of the row.
  *
  * Dany, 2026-08-18: _"maybe we should augment actual days by completion
@@ -11,15 +11,16 @@
  *
  * It lives in `@wbs/domain` rather than in be-01 because it is a **rule both
  * apps share**, in the sense `effectiveTeamsOf` is: the API derives an item's
- * state for its payload, and a face that folds a subset of rows — a filtered
+ * status for its payload, and a face that folds a subset of rows — a filtered
  * table, a collapsed branch, a card — has to derive the same answer from the
  * same fold or the two disagree on screen about a plan neither of them changed.
  */
 
 /**
- * What one step has said about its own work on one work item.
+ * What one step has said about its own work on one work item — its
+ * **progress**, in `CONTEXT.md`'s word.
  *
- * **Two values, because the third is the absence of a row.** "Not started" is
+ * **Two values, because the third is the absence of a row.** "Unknown" is
  * never stored: it is what a work item with no `step_progress` row for that step
  * reads as, exactly as an unstated capacity and an unrecorded actual are
  * absences rather than zeroes (`project_team_capacity` and `actual` in be-01's
@@ -37,21 +38,41 @@
 export type StepState = 'in_progress' | 'done';
 
 /**
- * What a **work item** reads as. Derived from its steps on every read and never
- * stored, for the reason every derived figure in this tool is: two spellings of
- * one fact is how "the item says done and a step has no actual" happens.
+ * What a **work item** reads as — its **status**. Derived from its steps on
+ * every read and never stored, for the reason every derived figure in this tool
+ * is: two spellings of one fact is how "the item says done and a step has no
+ * actual" happens. The row's cell that sets it writes every step instead
+ * (`WorkItemService.setStatus`, ADR 0024), so the fold and the cell cannot
+ * disagree.
+ *
+ * `unknown` was spelled `not_started` until 2026-09-12, when the status got a
+ * face: nothing had ever stored the value, and "not started" claims to know
+ * something about work nobody has spoken about. Dany's word, and the honest one.
  */
-export type WorkItemState = 'not_started' | StepState;
+export type WorkItemStatus = 'unknown' | StepState;
 
 /** The two states a step may be stored in, in the order a face should offer them. */
 export const STEP_STATES: readonly StepState[] = ['in_progress', 'done'];
 
 /** Nothing has been said about this work, by anybody, for any step. */
-export const NOT_STARTED = 'not_started';
+export const UNKNOWN = 'unknown';
+
+/**
+ * The two statuses a row's Status cell offers, in the order it offers them.
+ * `in_progress` is not among them: it is a step's statement and arises on a row
+ * only from the fold — see {@link agree}.
+ */
+export const SETTABLE_STATUSES = ['unknown', 'done'] as const;
+export type SettableStatus = (typeof SETTABLE_STATUSES)[number];
 
 /** Whether a value off the wire is one of the two states a step may be put in. */
 export function isStepState(value: unknown): value is StepState {
   return value === 'in_progress' || value === 'done';
+}
+
+/** Whether a value off the wire is a status a row's cell may set. */
+export function isSettableStatus(value: unknown): value is SettableStatus {
+  return value === 'unknown' || value === 'done';
 }
 
 /**
@@ -70,26 +91,26 @@ export function isStepState(value: unknown): value is StepState {
  * completion state exists to stop somebody making by accident.
  *
  * Associative, commutative and idempotent, which is what lets a parent be
- * folded from its children's states rather than from every leaf step beneath it:
- * both routes reach the same answer, so there is no ordering of the tree that
- * changes what a branch reads as.
+ * folded from its children's statuses rather than from every leaf step beneath
+ * it: both routes reach the same answer, so there is no ordering of the tree
+ * that changes what a branch reads as.
  */
-export function agree(a: WorkItemState, b: WorkItemState): WorkItemState {
+export function agree(a: WorkItemStatus, b: WorkItemStatus): WorkItemStatus {
   return a === b ? a : 'in_progress';
 }
 
 /**
- * The state a collection reads as: {@link agree} across all of it, and
- * {@link NOT_STARTED} when there is nothing in it.
+ * The status a collection reads as: {@link agree} across all of it, and
+ * {@link UNKNOWN} when there is nothing in it.
  *
  * Empty means nobody has said anything — an item with no steps, a branch with no
- * leaves, a plan on its first day. Reading that as "not started" rather than as
+ * leaves, a plan on its first day. Reading that as "unknown" rather than as
  * "done vacuously" is the same choice `rollUp` makes when it leaves an
  * unestimated step absent instead of zero: an empty statement is not a
  * statement.
  */
-export function stateOf(states: Iterable<WorkItemState>): WorkItemState {
-  let answer: WorkItemState | null = null;
-  for (const state of states) answer = answer === null ? state : agree(answer, state);
-  return answer ?? NOT_STARTED;
+export function statusOf(statuses: Iterable<WorkItemStatus>): WorkItemStatus {
+  let answer: WorkItemStatus | null = null;
+  for (const status of statuses) answer = answer === null ? status : agree(answer, status);
+  return answer ?? UNKNOWN;
 }

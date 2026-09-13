@@ -56,7 +56,7 @@ export type CompensatingCommand =
   | { do: 'clear_measure'; workItemId: string; stepId: string; metric: MeasureMetric }
   /**
    * Where the work has got to, as one of the two states a step may be **stored**
-   * in. There is no `set_progress` carrying `not_started`: the way to say that
+   * in. There is no `set_progress` carrying `unknown`: the way to say that
    * is `clear_progress`, because the absence of a row is how it is spelled in
    * the table and a command that could write it would be a second spelling.
    *
@@ -142,7 +142,7 @@ export interface DeleteSubtree {
    * the same rule as {@link DeleteSubtree.setActuals}.
    *
    * The branch's folded reading rather than its rows — a deleted child that is
-   * itself a parent holds no rows of its own — and `not_started` is never in
+   * itself a parent holds no rows of its own — and `unknown` is never in
    * here, because that is the absence of a row. Carried with the newest
    * `statedAt` in the branch, since the parent's reading is now the whole
    * branch's.

@@ -41,6 +41,11 @@ export const rowAt = (
   leaf: true,
   schedule: { earliestStart, earliestFinish },
   notBeforeOffset: null,
+  // Unknown with no facts, which is every row until somebody marks it: the
+  // done-bar cases name all three.
+  status: 'unknown',
+  factStartOffset: null,
+  factEndStop: null,
   priority: null,
   maxParallel: 1,
   // The facts a row is enriched with before the chart is drawn. Absent by

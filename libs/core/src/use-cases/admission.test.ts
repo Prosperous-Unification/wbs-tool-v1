@@ -59,7 +59,14 @@ describe('runCommandBatch', () => {
       await runCommandBatch(runner, {
         projectId: 'p1',
         actor: absent,
-        commands: [{ kind: 'createWorkItem', name: 'Must not exist' }],
+        commands: [
+          {
+            kind: 'createWorkItem',
+            parentId: null,
+            afterId: null,
+            name: 'Must not exist',
+          },
+        ],
       }),
     ).toEqual({ ok: false, at: 0, kind: 'createWorkItem', reason: 'forbidden' });
     // Proof: replacing absent.id with "owner" returned ok:true and created one work item.

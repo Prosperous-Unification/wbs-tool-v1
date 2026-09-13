@@ -53,6 +53,8 @@ const newItem = (
   maxParallel: 1,
   startNoEarlierThanReason: null,
   deadline: null,
+  factStart: null,
+  factEnd: null,
   revision: 0,
 });
 

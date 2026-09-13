@@ -219,6 +219,20 @@ const applied = (entity: unknown) => ({ status: 200, body: { results: [{ index: 
 /** What an applied single-command removal answers: its one result, and nothing beside the index. */
 const removed = { status: 200, body: { results: [{ index: 0 }] } };
 
+it('routes work item type creation only to the work item type vocabulary', async () => {
+  // Proof: routing `createWorkItemType` through `DirectoryService.addTag` failed here with
+  // `Expected: ["Incident"] · Received: []` for the real work-item-type store.
+  const name = 'Incident';
+
+  const answer = await command({ kind: 'createWorkItemType', name });
+
+  expect(answer.status).toBe(200);
+  expect((await store.listWorkItemTypes()).map((workItemType) => workItemType.name)).toEqual([
+    name,
+  ]);
+  expect((await store.listTags()).map((tag) => tag.name)).toEqual([]);
+});
+
 describe('GET /api/teams', () => {
   it('answers a team as an id and a name, and never the retired global size', async () => {
     // The one route the retired column could still reach the wire through, and

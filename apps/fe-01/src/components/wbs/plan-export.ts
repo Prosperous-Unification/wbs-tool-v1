@@ -2,10 +2,12 @@ import { type EffectiveServices, effectiveServicesOf } from '@wbs/domain/effecti
 import { type EffectiveTags, effectiveTagsOf } from '@wbs/domain/effective-tag';
 import { type EffectiveTeams, effectiveTeamsOf } from '@wbs/domain/effective-team';
 import { priorityBandOf } from '@wbs/domain/priority-band';
+import type { WorkItemStatus } from '@wbs/domain/progress';
 
 import type { EstimateMethod, PriorityBandView, SliceView } from '@/lib/wbs-api';
 
 import { DEADLINE_UNREACHABLE_CELL, deadlineBeforeProjectStart } from './deadline-impossible';
+import { STATUS_LABEL } from './status-cell';
 
 /** One estimate's three points, as a row carries them into an export. */
 export interface ExportTrio {
@@ -102,6 +104,12 @@ export interface ExportRow {
    * asymmetry is what made it a defect rather than a scope choice.
    */
   deadline: string | null;
+  /** What the row reads as — `unknown`, `in_progress`, `done` — be-01's fold. */
+  status: WorkItemStatus;
+  /** The day work actually began, or null where nobody has said. */
+  factStart: string | null;
+  /** The day work actually finished, or null where nobody has said. */
+  factEnd: string | null;
   /** The priority somebody gave this work — 1 upward, smaller first — or null. */
   priority: number | null;
   /**
@@ -826,6 +834,9 @@ function columnsOf(plan: PlanExport, markSums: boolean): ExportColumn[] {
       cell: (row) =>
         deadlineBeforeProjectStart(plan.startDate, row.deadline) ? DEADLINE_UNREACHABLE_CELL : '',
     },
+    { header: 'Status', cell: (row) => STATUS_LABEL[row.status] },
+    { header: 'Fact start', cell: (row) => row.factStart ?? '' },
+    { header: 'Fact end', cell: (row) => row.factEnd ?? '' },
     { header: 'Starts', cell: (row) => startsCell(plan, row) },
     { header: 'Ends', cell: (row) => endsCell(plan, row) },
     {

@@ -3,9 +3,9 @@ import {
   agree,
   type EstimateRule,
   finalDays,
-  NOT_STARTED,
-  stateOf,
-  type WorkItemState,
+  statusOf,
+  UNKNOWN,
+  type WorkItemStatus,
 } from '@wbs/domain';
 
 import type { StoredActual } from '../ports/actual-store';
@@ -235,14 +235,14 @@ export function workedStepsOf(
 }
 
 /**
- * Every work item's state **by step**, folded through the same traversal the
+ * Every work item's status **by step**, folded through the same traversal the
  * two figures are — with `agree` as the combine rather than addition.
  *
  * The one thing this does that neither figure roll-up does: a leaf's map is
  * filled out over **every step that has work on that row**, not only the steps
  * somebody has stated. `worked` is that set — the steps with an estimate, an
  * actual or a statement — and a step in it that nobody has spoken about reads as
- * {@link NOT_STARTED}.
+ * {@link UNKNOWN}.
  *
  * That is what makes `done` mean something. Without it, a leaf where Dev says
  * done and QA has an estimate and has said nothing would fold to `{dev: done}`
@@ -264,11 +264,11 @@ export function rollUpProgress(
   rows: readonly WorkItem[],
   stated: readonly StoredProgress[],
   worked: ReadonlyMap<string, ReadonlySet<string>>,
-): Map<string, Map<string, WorkItemState>> {
-  const ownOf = new Map<string, Map<string, WorkItemState>>();
+): Map<string, Map<string, WorkItemStatus>> {
+  const ownOf = new Map<string, Map<string, WorkItemStatus>>();
   for (const [workItemId, stepIds] of worked) {
-    const byStep = new Map<string, WorkItemState>();
-    for (const stepId of stepIds) byStep.set(stepId, NOT_STARTED);
+    const byStep = new Map<string, WorkItemStatus>();
+    for (const stepId of stepIds) byStep.set(stepId, UNKNOWN);
     ownOf.set(workItemId, byStep);
   }
   for (const said of stated) {
@@ -277,7 +277,7 @@ export function rollUpProgress(
     // never invents an entry. Written defensively anyway: a stale read that
     // dropped one would otherwise silently lose the statement rather than the
     // row, and losing a `done` is the direction that lies.
-    const byStep = ownOf.get(said.workItemId) ?? new Map<string, WorkItemState>();
+    const byStep = ownOf.get(said.workItemId) ?? new Map<string, WorkItemStatus>();
     byStep.set(said.stepId, said.state);
     ownOf.set(said.workItemId, byStep);
   }
@@ -285,8 +285,8 @@ export function rollUpProgress(
 }
 
 /**
- * What each work item reads as: a leaf, {@link stateOf} across the steps it
- * holds work for; a parent, {@link stateOf} across its **children's** readings.
+ * What each work item reads as: a leaf, {@link statusOf} across the steps it
+ * holds work for; a parent, {@link statusOf} across its **children's** readings.
  *
  * Derived here and **never stored**, which is the decision the whole change
  * rests on. A stored item state beside per-step states is two sources of truth
@@ -304,7 +304,7 @@ export function rollUpProgress(
  * step level already follows: silence keeps the thing in progress.
  *
  * The consequence is worth stating because it looks like an inconsistency and is
- * not: such a branch reports `progress: {dev: done}` and `state: in_progress` at
+ * not: such a branch reports `progress: {dev: done}` and `status: in_progress` at
  * once. Both are true — Dev has finished everywhere Dev has work, and the branch
  * is not finished because one of its rows has never been spoken about.
  *
@@ -312,29 +312,29 @@ export function rollUpProgress(
  * `a branch is not done while one of its rows has never been spoken about` fails
  * with `done` — a finished branch over an untouched row; watched 2026-08-18.
  */
-export function rollUpWorkItemStates(
+export function rollUpWorkItemStatuses(
   rows: readonly WorkItem[],
-  byStep: ReadonlyMap<string, ReadonlyMap<string, WorkItemState>>,
-): Map<string, WorkItemState> {
+  byStep: ReadonlyMap<string, ReadonlyMap<string, WorkItemStatus>>,
+): Map<string, WorkItemStatus> {
   const childrenOf = new Map<string | null, WorkItem[]>();
   for (const row of rows) {
     const group = childrenOf.get(row.parentId) ?? [];
     group.push(row);
     childrenOf.set(row.parentId, group);
   }
-  const answers = new Map<string, WorkItemState>();
-  const stateFor = (id: string): WorkItemState => {
+  const answers = new Map<string, WorkItemStatus>();
+  const statusFor = (id: string): WorkItemStatus => {
     const cached = answers.get(id);
     if (cached !== undefined) return cached;
     const children = childrenOf.get(id) ?? [];
     const answer =
       children.length === 0
-        ? stateOf(byStep.get(id)?.values() ?? [])
-        : stateOf(children.map((child) => stateFor(child.id)));
+        ? statusOf(byStep.get(id)?.values() ?? [])
+        : statusOf(children.map((child) => statusFor(child.id)));
     answers.set(id, answer);
     return answer;
   };
-  for (const row of rows) stateFor(row.id);
+  for (const row of rows) statusFor(row.id);
   return answers;
 }
 export type { Days } from './numbered-work-item';
