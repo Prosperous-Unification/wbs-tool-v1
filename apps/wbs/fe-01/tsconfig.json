@@ -1,0 +1,37 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "types": ["vite/client"],
+    "paths": {
+      "@/*": ["./src/*"],
+      "@wbs/domain/workday": ["../../../libs/wbs/domain/domain/src/workday.ts"],
+      "@wbs/domain/deadline-offsets": ["../../../libs/wbs/domain/domain/src/deadline-offsets.ts"],
+      "@wbs/domain/progress": ["../../../libs/wbs/domain/domain/src/progress.ts"],
+      "@wbs/domain/assumed-duration": ["../../../libs/wbs/domain/domain/src/assumed-duration.ts"],
+      "@wbs/domain/effective-team": ["../../../libs/wbs/domain/domain/src/effective-team.ts"],
+      "@wbs/domain/effective-tag": ["../../../libs/wbs/domain/domain/src/effective-tag.ts"],
+      "@wbs/domain/effective-service": ["../../../libs/wbs/domain/domain/src/effective-service.ts"],
+      "@wbs/domain/label-mismatch": ["../../../libs/wbs/domain/domain/src/label-mismatch.ts"],
+      "@wbs/domain/marker-color": ["../../../libs/wbs/domain/domain/src/marker-color.ts"],
+      "@wbs/contracts/ws-frames": ["../../../libs/wbs/domain/contracts/src/ws-frames.ts"],
+      "@wbs/contracts": ["../../../libs/wbs/domain/contracts/src/index.ts"],
+      "@wbs/validation": ["../../../libs/wbs/domain/validation/src/index.ts"],
+      "@wbs/domain/is-within": ["../../../libs/wbs/domain/domain/src/is-within.ts"],
+      "@wbs/domain/derive-numbers": ["../../../libs/wbs/domain/domain/src/derive-numbers.ts"],
+      "@wbs/domain/tree-order": ["../../../libs/wbs/domain/domain/src/tree-order.ts"],
+      "@wbs/domain/arrange-siblings": ["../../../libs/wbs/domain/domain/src/arrange-siblings.ts"],
+      "@wbs/domain/priority-band": ["../../../libs/wbs/domain/domain/src/priority-band.ts"],
+      "@wbs/domain/dependency-reach": ["../../../libs/wbs/domain/domain/src/dependency-reach.ts"],
+      "@wbs/domain/external-system": ["../../../libs/wbs/domain/domain/src/external-system.ts"]
+    }
+  },
+  "files": [],
+  "include": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.spec.json" },
+    { "path": "./tsconfig.e2e.json" }
+  ]
+}

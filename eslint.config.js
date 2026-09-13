@@ -18,8 +18,8 @@ import { productConstraints, readProjects } from './tools/tool-devsync/workspace
 const productRules = productConstraints(await readProjects(import.meta.dirname));
 // Proof: deleting the product rules from production, the general test override,
 // and the store-memory test override failed the effective-config oracle on
-// `libs/core/src/index.ts`, `libs/core/src/example.test.ts`, and
-// `libs/store-memory/src/source.test.ts`, respectively (2026-09-13).
+// `libs/wbs/application/core/src/index.ts`, `libs/wbs/application/core/src/example.test.ts`, and
+// `libs/wbs/adapters/store-memory/src/source.test.ts`, respectively (2026-09-13).
 
 const browserAdapterConstraint = {
   allSourceTags: ['ring:adapter', 'runtime:browser'],
@@ -56,7 +56,7 @@ const nxRules = {
       // project graph across production and tests, so that permitted test edge
       // otherwise makes the adapter's required production edge back to core
       // look circular. Production core imports remain blocked by the ring rule.
-      ignoredCircularDependencies: [['core', 'store-memory']],
+      ignoredCircularDependencies: [['wbs-core', 'wbs-store-memory']],
       depConstraints: [
         // The rings, and the direction the whole ports-and-adapters split is
         // for: a domain lib may reach nothing but another domain lib, an
@@ -91,6 +91,9 @@ export default [
       '**/coverage/**',
       '**/node_modules/**',
       '**/*.gen.ts',
+      // This historical capture pin intentionally cannot compile against the
+      // current ports; its sibling tsconfig documents the preserved exemption.
+      'apps/wbs/be-01/tools/capture-capacity-oracle.ts',
       '**/vite.config.*.timestamp*',
       '**/vitest.config.*.timestamp*',
     ],
@@ -176,7 +179,7 @@ export default [
   },
 
   {
-    files: ['apps/fe-01/**/*.{ts,tsx}', 'libs/realtime/**/*.{ts,tsx}'],
+    files: ['apps/wbs/fe-01/**/*.{ts,tsx}', 'libs/wbs/adapters/realtime/**/*.{ts,tsx}'],
     plugins: {
       react,
       'react-hooks': reactHooks,
@@ -223,7 +226,7 @@ export default [
   },
 
   {
-    files: ['libs/store-sqlite/src/**/*.ts'],
+    files: ['libs/wbs/adapters/store-sqlite/src/**/*.ts'],
     plugins: { drizzle },
     rules: {
       'drizzle/enforce-delete-with-where': 'error',
@@ -232,8 +235,8 @@ export default [
   },
 
   {
-    files: ['apps/be-01/src/**/*.ts'],
-    ignores: ['apps/be-01/src/repository/**'],
+    files: ['apps/wbs/be-01/src/**/*.ts'],
+    ignores: ['apps/wbs/be-01/src/repository/**'],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -267,11 +270,11 @@ export default [
   // compiler-adjacent tooling enforce it instead of a comment. Type-only
   // imports stay allowed — they cannot open a connection.
   // Proof: a production `direct-open-probe.ts` importing `Database` from
-  // `bun:sqlite` failed `store-sqlite:lint` at 1:1 with this rule's
+  // `bun:sqlite` failed `wbs-store-sqlite:lint` at 1:1 with this rule's
   // "Open connections through openDatabase() in store-sqlite/db.ts" diagnostic.
   {
-    files: ['apps/be-01/src/**/*.ts', 'libs/store-sqlite/src/**/*.ts'],
-    ignores: ['libs/store-sqlite/src/db.ts'],
+    files: ['apps/wbs/be-01/src/**/*.ts', 'libs/wbs/adapters/store-sqlite/src/**/*.ts'],
+    ignores: ['libs/wbs/adapters/store-sqlite/src/db.ts'],
     rules: {
       '@typescript-eslint/no-restricted-imports': [
         'error',
@@ -296,7 +299,7 @@ export default [
   //
   // `http/route.ts` claimed an ESLint boundary held the line for the whole of
   // the be-01 hexagonal refactor. There was none: the check was
-  // `git grep -l elysia apps/be-01/src/controller`, run by hand, and it stayed
+  // `git grep -l elysia apps/wbs/be-01/src/controller`, run by hand, and it stayed
   // green only because nobody ran it. Deleted schema and body-document helpers
   // under `http/elysia/` grew controller imports, so seven route modules loaded
   // the framework transitively for fourteen chunks while the acceptance
@@ -315,7 +318,7 @@ export default [
   // because flat config replaces a rule's options per file rather than merging
   // them — without the repeat, controllers would silently lose it.
   {
-    files: ['apps/be-01/src/controller/**/*.ts'],
+    files: ['apps/wbs/be-01/src/controller/**/*.ts'],
     rules: {
       '@typescript-eslint/no-restricted-imports': [
         'error',
@@ -354,7 +357,7 @@ export default [
   // still too narrow — it left every other directory under `src/` (`service/`,
   // `repository/`, `openapi/`, `realtime/`) unfenced, so a controller importing
   // a service that imports the framework passed both blocks. **The fence is now
-  // the whole of `apps/be-01/src`, by exception rather than by inclusion** — so
+  // the whole of `apps/wbs/be-01/src`, by exception rather than by inclusion** — so
   // no module under `src/` can name the framework in a static specifier unless
   // it is one of the three exceptions below, with no graph to walk and no second
   // tool to maintain.
@@ -409,12 +412,12 @@ export default [
   // flat config replaces a rule's options per file rather than merging them, so
   // without the repeat every module under `src/` would silently lose it.
   {
-    files: ['apps/be-01/src/**/*.ts'],
+    files: ['apps/wbs/be-01/src/**/*.ts'],
     ignores: [
-      'apps/be-01/src/controller/**',
-      'apps/be-01/src/http/elysia/**',
-      'apps/be-01/src/app.ts',
-      'apps/be-01/src/openapi/openapi-plugin.ts',
+      'apps/wbs/be-01/src/controller/**',
+      'apps/wbs/be-01/src/http/elysia/**',
+      'apps/wbs/be-01/src/app.ts',
+      'apps/wbs/be-01/src/openapi/openapi-plugin.ts',
     ],
     rules: {
       '@typescript-eslint/no-restricted-imports': [
@@ -449,7 +452,7 @@ export default [
   // *at*: `openDatabase()` lives there and it is what sets and asserts WAL,
   // busy_timeout and foreign_keys. Widening the fence to `src/**` above swept it
   // in for the first time — it sits under neither `controller/` nor `http/` — and
-  // the gate caught it as the one red in `be-01:lint`.
+  // the gate caught it as the one red in `wbs-be-01:lint`.
   //
   // The carve-out is deliberately the *path* and not the whole rule: this block
   // re-declares the framework patterns unchanged, so `db.ts` is still fenced
@@ -458,7 +461,7 @@ export default [
   // which is what makes that separation expressible at all — and it is why this
   // block must stay after the one above.
   {
-    files: ['libs/store-sqlite/src/db.ts'],
+    files: ['libs/wbs/adapters/store-sqlite/src/db.ts'],
     rules: {
       '@typescript-eslint/no-restricted-imports': [
         'error',
@@ -484,7 +487,10 @@ export default [
   // explicit composition boundary and are excluded below by their real tracked
   // suffixes; `testing/` holds their fixtures.
   {
-    files: ['libs/core/src/**/*.{ts,tsx}', 'libs/domain/src/**/*.{ts,tsx}'],
+    files: [
+      'libs/wbs/application/core/src/**/*.{ts,tsx}',
+      'libs/wbs/domain/domain/src/**/*.{ts,tsx}',
+    ],
     ignores: [...testSourceFiles, '**/testing/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': [
@@ -598,7 +604,7 @@ export default [
         {
           enforceBuildableLibDependency: true,
           allow: [],
-          ignoredCircularDependencies: [['core', 'store-memory']],
+          ignoredCircularDependencies: [['wbs-core', 'wbs-store-memory']],
           depConstraints: [
             browserAdapterConstraint,
             ...productRules,
@@ -614,14 +620,14 @@ export default [
   // This one test-only edge admits the Bun kit without changing the source's
   // production runtime or allowing another Bun adapter into its graph.
   {
-    files: ['libs/store-memory/src/**/*.test.ts'],
+    files: ['libs/wbs/adapters/store-memory/src/**/*.test.ts'],
     rules: {
       '@nx/enforce-module-boundaries': [
         'error',
         {
           enforceBuildableLibDependency: true,
           allow: ['@wbs/conformance', '@wbs/conformance/*'],
-          ignoredCircularDependencies: [['core', 'store-memory']],
+          ignoredCircularDependencies: [['wbs-core', 'wbs-store-memory']],
           depConstraints: [
             browserAdapterConstraint,
             ...productRules,

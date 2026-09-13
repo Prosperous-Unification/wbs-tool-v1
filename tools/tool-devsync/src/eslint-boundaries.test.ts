@@ -30,15 +30,36 @@ describe('the effective production and test boundaries', () => {
     // probe returned no `no-restricted-imports` diagnostic. Real uncached lint
     // targets then rejected Elysia, node:crypto, drizzle-orm and bun:sqlite at
     // their injected import lines (2026-09-10).
+    // Proof: restoring only the production file scopes to libs/core and
+    // libs/domain made the moved core Elysia probe receive no diagnostics
+    // (2026-09-13).
     for (const [path, source] of [
-      ['libs/core/src/index.ts', "import 'elysia';"],
-      ['libs/core/src/index.ts', "import 'drizzle-orm';"],
-      ['libs/core/src/index.ts', "import 'bun:sqlite';"],
-      ['libs/core/src/index.ts', "import 'jose';"],
-      ['libs/domain/src/index.ts', "import 'node:crypto';"],
+      ['libs/wbs/application/core/src/index.ts', "import 'elysia';"],
+      ['libs/wbs/application/core/src/index.ts', "import 'drizzle-orm';"],
+      ['libs/wbs/application/core/src/index.ts', "import 'bun:sqlite';"],
+      ['libs/wbs/application/core/src/index.ts', "import 'jose';"],
+      ['libs/wbs/domain/domain/src/index.ts', "import 'node:crypto';"],
     ] as const) {
       expect(await ruleIds(path, source), `${path}: ${source}`).toContain('no-restricted-imports');
     }
+  }, 30_000);
+
+  it('rejects direct SQLite connections outside the database adapter boundary', async () => {
+    // Proof: restoring the direct-SQLite file scopes to apps/be-01 and
+    // libs/store-sqlite made both moved-path probes lose their diagnostic
+    // (2026-09-13).
+    const paths = [
+      'apps/wbs/be-01/src/repository/capacity.ts',
+      'libs/wbs/adapters/store-sqlite/src/capacity.ts',
+    ] as const;
+    const refused = await Promise.all(
+      paths.map(async (path) =>
+        (await ruleIds(path, "import 'bun:sqlite';")).includes(
+          '@typescript-eslint/no-restricted-imports',
+        ),
+      ),
+    );
+    expect(refused).toEqual([true, true]);
   }, 30_000);
 
   it('rejects ambient runtime defaults from core production', async () => {
@@ -53,7 +74,7 @@ describe('the effective production and test boundaries', () => {
       'setInterval(() => undefined, 1);',
       "Buffer.from('x');",
     ]) {
-      expect(await ruleIds('libs/core/src/index.ts', source), source).toContain(
+      expect(await ruleIds('libs/wbs/application/core/src/index.ts', source), source).toContain(
         'no-restricted-globals',
       );
     }
@@ -68,7 +89,7 @@ describe('the effective production and test boundaries', () => {
       "globalThis.fetch('https://example.invalid');",
       "globalThis['fetch']('https://example.invalid');",
     ]) {
-      expect(await ruleIds('libs/core/src/index.ts', source), source).toContain(
+      expect(await ruleIds('libs/wbs/application/core/src/index.ts', source), source).toContain(
         'no-restricted-syntax',
       );
     }
@@ -77,11 +98,11 @@ describe('the effective production and test boundaries', () => {
   it('keeps browser adapters outside the application ring in production and tests', async () => {
     // Proof: without the combined browser-adapter constraint, the production
     // probe returned no boundary diagnostic. The same edge injected into the
-    // tracked frontend test failed fe-01:lint with the combined-tag message,
+    // tracked frontend test failed wbs-fe-01:lint with the combined-tag message,
     // proving the test override retains this runtime boundary (2026-09-10).
     for (const path of [
-      'apps/fe-01/src/components/wbs/plan-completeness.ts',
-      'apps/fe-01/src/components/wbs/plan-completeness.test.ts',
+      'apps/wbs/fe-01/src/components/wbs/plan-completeness.ts',
+      'apps/wbs/fe-01/src/components/wbs/plan-completeness.test.ts',
     ]) {
       expect(await ruleIds(path, "import '@wbs/core';"), path).toContain(
         '@nx/enforce-module-boundaries',
@@ -93,10 +114,12 @@ describe('the effective production and test boundaries', () => {
     // Proof: deleting the `ring:domain` constraint failed the effective-config
     // assertion on its exact missing object. Importing the non-circular,
     // isomorphic shared adapter supervisor protocol from tracked domain
-    // production then failed the uncached domain lint target with “A project
+    // production then failed the uncached wbs-domain lint target with “A project
     // tagged with \"ring:domain\" can only depend on libs tagged with
     // \"ring:domain\"” (2026-09-10).
-    const config: unknown = await lint.calculateConfigForFile('libs/domain/src/index.ts');
+    const config: unknown = await lint.calculateConfigForFile(
+      'libs/wbs/domain/domain/src/index.ts',
+    );
     const boundary = boundaryOf(config);
     const options = boundary[1];
     if (!isRecord(options) || !Array.isArray(options['depConstraints'])) {
@@ -108,7 +131,7 @@ describe('the effective production and test boundaries', () => {
     });
     expect(
       await ruleIds(
-        'libs/domain/src/index.ts',
+        'libs/wbs/domain/domain/src/index.ts',
         "import '@wbs/contracts/solver/supervisor-protocol';",
       ),
     ).toContain('@nx/enforce-module-boundaries');
@@ -125,16 +148,16 @@ describe('the effective production and test boundaries', () => {
   }, 30_000);
 
   it('permits bun:test only in core tests', async () => {
-    // Proof: a temporary core test passed both core:lint and Bun (1 pass), then
-    // its adjacent production sibling failed core:lint at the `bun:test`
+    // Proof: a temporary core test passed both wbs-core:lint and Bun (1 pass), then
+    // its adjacent production sibling failed wbs-core:lint at the `bun:test`
     // import with `no-restricted-imports` (2026-09-10).
     expect(
       await ruleIds(
-        'libs/core/src/ports/clock.test.ts',
+        'libs/wbs/application/core/src/ports/clock.test.ts',
         "import { describe } from 'bun:test'; describe('boundary', () => undefined);",
       ),
     ).not.toContain('no-restricted-imports');
-    expect(await ruleIds('libs/core/src/index.ts', "import 'bun:test';")).toContain(
+    expect(await ruleIds('libs/wbs/application/core/src/index.ts', "import 'bun:test';")).toContain(
       'no-restricted-imports',
     );
   }, 30_000);
@@ -145,14 +168,14 @@ describe('the effective production and test boundaries', () => {
     // (2026-09-10). With the scope constraints omitted from that replacement,
     // the new assertion failed because `scope:app` was absent. Importing
     // `@wbs/tool-compose` from config's tracked `define-config.test.ts` then
-    // failed the uncached config lint target with “A project tagged with
+    // failed the uncached wbs-config lint target with “A project tagged with
     // \"scope:shared\" can only depend on libs tagged with \"scope:shared\"”.
     for (const path of [
-      'libs/core/src/example.test.ts',
-      'libs/core/src/example.test.tsx',
-      'libs/core/src/example.spec.ts',
-      'libs/core/src/example.property.test.ts',
-      'libs/core/src/testing/example.ts',
+      'libs/wbs/application/core/src/example.test.ts',
+      'libs/wbs/application/core/src/example.test.tsx',
+      'libs/wbs/application/core/src/example.spec.ts',
+      'libs/wbs/application/core/src/example.property.test.ts',
+      'libs/wbs/application/core/src/testing/example.ts',
     ]) {
       const config: unknown = await lint.calculateConfigForFile(path);
       const boundary = boundaryOf(config);
@@ -161,6 +184,12 @@ describe('the effective production and test boundaries', () => {
       if (!isRecord(options) || !Array.isArray(options['depConstraints'])) {
         throw new Error(`ESLint returned malformed boundary options for ${path}`);
       }
+      // Proof: restoring the exception's two old Nx names made this moved core
+      // config report core/store-memory instead of the qualified pair
+      // (2026-09-13).
+      expect(options['ignoredCircularDependencies'], path).toEqual([
+        ['wbs-core', 'wbs-store-memory'],
+      ]);
       expect(options['depConstraints'], path).toContainEqual({
         allSourceTags: ['ring:adapter', 'runtime:browser'],
         onlyDependOnLibsWithTags: ['ring:domain', 'runtime:browser'],
@@ -185,10 +214,10 @@ describe('the effective production and test boundaries', () => {
 
   it('keeps generated product boundaries in production and every test override', async () => {
     for (const path of [
-      'libs/core/src/index.ts',
-      'libs/core/src/example.test.ts',
-      'libs/core/src/testing/example.ts',
-      'libs/store-memory/src/source.test.ts',
+      'libs/wbs/application/core/src/index.ts',
+      'libs/wbs/application/core/src/example.test.ts',
+      'libs/wbs/application/core/src/testing/example.ts',
+      'libs/wbs/adapters/store-memory/src/source.test.ts',
     ]) {
       const config: unknown = await lint.calculateConfigForFile(path);
       const boundary = boundaryOf(config);

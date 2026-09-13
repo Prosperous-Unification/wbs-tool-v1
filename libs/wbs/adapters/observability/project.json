@@ -1,0 +1,43 @@
+{
+  "name": "wbs-observability",
+  "$schema": "../../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/wbs/adapters/observability/src",
+  "projectType": "library",
+  "tags": ["scope:shared", "type:observability", "ring:adapter", "runtime:bun", "product:wbs"],
+  "targets": {
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx eslint libs/wbs/adapters/observability/src"
+      }
+    },
+    "lint:fast": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx eslint libs/wbs/adapters/observability/src --cache --cache-location .nx/eslintcache-wbs-observability"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun test --coverage --coverage-reporter=lcov",
+        "cwd": "libs/wbs/adapters/observability"
+      },
+      "outputs": ["{projectRoot}/coverage"]
+    },
+    "test:unit": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun test --coverage --coverage-reporter=lcov",
+        "cwd": "libs/wbs/adapters/observability"
+      },
+      "outputs": ["{projectRoot}/coverage"]
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx tsc --build --force libs/wbs/adapters/observability/tsconfig.json"
+      }
+    }
+  }
+}

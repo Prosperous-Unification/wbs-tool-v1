@@ -1,0 +1,43 @@
+{
+  "name": "wbs-config",
+  "$schema": "../../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/wbs/adapters/config/src",
+  "projectType": "library",
+  "tags": ["scope:shared", "type:config", "runtime:bun", "ring:adapter", "product:wbs"],
+  "targets": {
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx eslint libs/wbs/adapters/config/src"
+      }
+    },
+    "lint:fast": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx eslint libs/wbs/adapters/config/src --cache --cache-location .nx/eslintcache-wbs-config"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun test --coverage --coverage-reporter=lcov",
+        "cwd": "libs/wbs/adapters/config"
+      },
+      "outputs": ["{projectRoot}/coverage"]
+    },
+    "test:unit": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun test --coverage --coverage-reporter=lcov",
+        "cwd": "libs/wbs/adapters/config"
+      },
+      "outputs": ["{projectRoot}/coverage"]
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx tsc --build --force libs/wbs/adapters/config/tsconfig.json"
+      }
+    }
+  }
+}

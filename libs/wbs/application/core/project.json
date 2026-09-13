@@ -1,0 +1,64 @@
+{
+  "name": "wbs-core",
+  "$schema": "../../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/wbs/application/core/src",
+  "projectType": "library",
+  "tags": ["scope:shared", "ring:application", "runtime:isomorphic", "product:wbs"],
+  "targets": {
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx eslint libs/wbs/application/core/src libs/wbs/application/core/testing libs/wbs/application/core/playwright.config.ts"
+      }
+    },
+    "lint:fast": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx eslint libs/wbs/application/core/src libs/wbs/application/core/testing libs/wbs/application/core/playwright.config.ts --cache --cache-location .nx/eslintcache-wbs-core"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun test src --coverage --coverage-reporter=lcov",
+        "cwd": "libs/wbs/application/core"
+      },
+      "outputs": ["{projectRoot}/coverage"]
+    },
+    "test:unit": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun test src --coverage --coverage-reporter=lcov",
+        "cwd": "libs/wbs/application/core"
+      },
+      "outputs": ["{projectRoot}/coverage"]
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx tsc --build --force libs/wbs/application/core/tsconfig.json"
+      }
+    },
+    "build:portable": {
+      "executor": "nx:run-commands",
+      "inputs": ["default", "^production"],
+      "options": {
+        "command": "bun build libs/wbs/application/core/testing/portable-composition.ts --target=browser --format=esm --outfile=dist/libs/wbs/application/core/portable-composition.js"
+      },
+      "outputs": ["{workspaceRoot}/dist/libs/wbs/application/core/portable-composition.js"]
+    },
+    "test:portable": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build:portable"],
+      "inputs": [
+        "default",
+        "^production",
+        "{workspaceRoot}/dist/libs/wbs/application/core/portable-composition.js"
+      ],
+      "options": {
+        "command": "bunx playwright test --config=libs/wbs/application/core/playwright.config.ts"
+      },
+      "outputs": ["{workspaceRoot}/tmp/core-portable-results"]
+    }
+  }
+}

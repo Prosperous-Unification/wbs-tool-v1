@@ -84,16 +84,16 @@ describe('source conformance target discovery', () => {
   it('selects each terminal source file exactly and keeps normal test inclusion', async () => {
     const projects = await projectsOnDisk();
     const expected = {
-      'store-memory': {
-        root: 'libs/store-memory',
+      'wbs-store-memory': {
+        root: 'libs/wbs/adapters/store-memory',
         file: 'src/testing/source-conformance.test.ts',
         inputs: ['default', '^production'],
         certificateTargets: ['test', 'test:conformance', 'test:unit'],
       },
-      'store-sqlite': {
-        root: 'libs/store-sqlite',
+      'wbs-store-sqlite': {
+        root: 'libs/wbs/adapters/store-sqlite',
         file: 'src/testing/source-conformance.db.test.ts',
-        inputs: ['default', '^production', '{workspaceRoot}/apps/be-01/drizzle'],
+        inputs: ['default', '^production', '{workspaceRoot}/apps/wbs/be-01/drizzle'],
         certificateTargets: ['test', 'test:conformance'],
       },
     } as const;
@@ -213,6 +213,9 @@ describe('every typecheck target compiles files', () => {
     // Proof: with `apps/gw-01/project.json` put back to
     // `bunx tsc --build --force apps/gw-01/tsconfig.lib.json`, watched failing
     // on `Expected value to be empty · Received: [ "gw-01" ]` (2026-09-02).
+    // Proof: appending a number-valued string assignment to the moved
+    // libs/wbs/domain/domain/src/progress.test.ts made the renamed
+    // wbs-domain:typecheck target fail with TS2322 (2026-09-13).
     const offenders: string[] = [];
     for (const { dir, config } of await projectsOnDisk()) {
       const target = config.targets['typecheck'];

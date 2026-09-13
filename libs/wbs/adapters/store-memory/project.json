@@ -1,0 +1,55 @@
+{
+  "name": "wbs-store-memory",
+  "$schema": "../../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/wbs/adapters/store-memory/src",
+  "projectType": "library",
+  "tags": ["scope:shared", "ring:adapter", "runtime:isomorphic", "product:wbs"],
+  "targets": {
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": { "command": "bunx eslint libs/wbs/adapters/store-memory/src" }
+    },
+    "lint:fast": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx eslint libs/wbs/adapters/store-memory/src --cache --cache-location .nx/eslintcache-wbs-store-memory"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "inputs": ["default", "^production"],
+      "options": {
+        "command": "bun test src --coverage --coverage-reporter=lcov",
+        "cwd": "libs/wbs/adapters/store-memory"
+      },
+      "outputs": ["{projectRoot}/coverage"]
+    },
+    "test:conformance": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "inputs": ["default", "^production"],
+      "options": {
+        "command": "bun test src/testing/source-conformance.test.ts",
+        "cwd": "libs/wbs/adapters/store-memory",
+        "forwardAllArgs": false
+      }
+    },
+    "test:unit": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "inputs": ["default", "^production"],
+      "options": {
+        "command": "bun test src --coverage --coverage-reporter=lcov",
+        "cwd": "libs/wbs/adapters/store-memory"
+      },
+      "outputs": ["{projectRoot}/coverage"]
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx tsc --build --force libs/wbs/adapters/store-memory/tsconfig.json"
+      }
+    }
+  }
+}

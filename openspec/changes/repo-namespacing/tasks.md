@@ -50,7 +50,7 @@ Names below refer to the old root before slice 3 and its mapped destination afte
 
 ## 3. Move projects and every active consumer in one candidate
 
-- [ ] 3.1 Apply the exact root/name/tag/alias/output mapping in `design.md`, extracting the
+- [x] 3.1 Apply the exact root/name/tag/alias/output mapping in `design.md`, extracting the
       nested supervisor project before moving its old contracts parent. Rewrite manifests,
       tsconfigs, aliases, root scripts and ESLint path scopes in the same candidate. Test:
       project graph and alias keys preserve the pinned set; actual renamed app/library

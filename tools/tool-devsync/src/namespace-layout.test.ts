@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'bun:test';
 
-import { findNamespaceLayoutViolations } from '../workspace-projects.mjs';
+import { findNamespaceLayoutViolations, readProjects } from '../workspace-projects.mjs';
+
+const WORKSPACE = new URL('../../../', import.meta.url);
 
 interface LayoutProject {
   readonly root: string;
@@ -42,6 +44,14 @@ const VALID_PROJECTS = [
 ] as const;
 
 describe('namespace layout validation', () => {
+  it('accepts the actual workspace project inventory', async () => {
+    const projects = await readProjects(WORKSPACE);
+
+    // Proof: the pre-move apps/be-01 root made this production inventory report
+    // "applications require apps/<product>/<project>" (2026-09-13).
+    expect(findNamespaceLayoutViolations(projects)).toEqual([]);
+  });
+
   it('accepts apps, every library ring directory and product-neutral tools', () => {
     expect(findNamespaceLayoutViolations(VALID_PROJECTS)).toEqual([]);
   });

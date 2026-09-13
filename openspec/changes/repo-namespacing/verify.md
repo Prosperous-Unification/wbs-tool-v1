@@ -132,8 +132,64 @@ Fresh focused evidence after restoring all four checks:
 The coordinator released the host before the complete target above. Both whitespace commands
 were repeated against the repair commit range and passed.
 
+## Section 3.1 namespaced project graph
+
+The nested solver supervisor project moved out of `libs/contracts` before that parent moved.
+All four applications and fourteen libraries now use the exact roots and qualified Nx names
+from `design.md`; their pre-existing tags remain byte-for-byte identical. The 51 public
+TypeScript alias keys are unchanged and point at the mapped roots. Explicit app/library
+artifacts follow their namespaced `dist` roots, while deployment identities and tools remain
+unchanged. Root package selectors and ESLint file scopes use the qualified graph, including
+the existing core-to-memory test-cycle exemption under its two new Nx names.
+
+The actual-inventory namespace oracle first failed on all 18 legacy roots, naming each old
+app or library and its required final shape. The restored inventory and Nx graph agree on
+all project root/name pairs. The following additional faults were observed and restored:
+
+| Check                     | Fault injected                                                               | Production-path observer                                           | Observed failure                                                         |
+| ------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------ |
+| Alias roots               | Restored only `@wbs/core` to `./libs/core/src/index.ts`                      | Actual `tsconfig.base.json` oracle                                 | Reported the old root instead of `libs/wbs/application/core`.            |
+| Artifact outputs          | Restored only the backend output to `dist/apps/be-01`                        | Actual recursively read manifest oracle                            | Reported the legacy output instead of `dist/apps/wbs/be-01`.             |
+| Tag preservation          | Changed only `wbs-realtime` from `runtime:browser` to `runtime:bun`          | Exact actual-manifest oracle                                       | Reported the changed runtime tag.                                        |
+| Moved test compilation    | Appended `const movedTypecheckFault: string = 1` to moved `progress.test.ts` | `wbs-domain:typecheck`                                             | Failed at the new path with TS2322; the restored target passed.          |
+| Moved config compilation  | Added a number-valued string assignment to moved `drizzle.config.ts`         | `wbs-be-01:typecheck` through `tsconfig.tools.json`                | Failed at the new path with TS2322; the restored target passed.          |
+| Core/domain runtime scope | Restored the ESLint file scopes to `libs/core` and `libs/domain`             | Effective-config lint probe at moved core source                   | The Elysia import received no restriction diagnostic.                    |
+| Direct SQLite scope       | Restored the ESLint file scopes to `apps/be-01` and `libs/store-sqlite`      | Effective-config probes at moved backend and SQLite adapter source | Both refusals changed from `true` to `false`.                            |
+| Ring test-cycle exemption | Restored the exemption's two old Nx names                                    | Effective config at moved core test paths                          | Reported `core`/`store-memory` instead of `wbs-core`/`wbs-store-memory`. |
+
+Fresh restored evidence:
+
+- `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx run-many -t typecheck -p <17 renamed TypeScript projects> --skip-nx-cache --parallel=1 --output-style=stream` — all 17 targets passed in 20.5 seconds; the Python adapter has no TypeScript target.
+- `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bun test tools/tool-devsync/src/workspace-projects.test.ts tools/tool-devsync/src/namespace-layout.test.ts` — 27 passed, 0 failed, 88 expectations.
+- `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bun test tools/tool-devsync/src/workspace-targets.test.ts --test-name-pattern 'source conformance target discovery|every typecheck target compiles files'` — 6 passed, 0 failed, 35 expectations.
+- `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bun test tools/tool-devsync/src/eslint-boundaries.test.ts` — 10 passed, 0 failed, 60 expectations across the moved core, domain, frontend, backend, memory and SQLite paths.
+- `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx run-many -t lint typecheck -p tool-devsync --skip-nx-cache --parallel=1 --output-style=stream` — both owning static targets passed in 3.9 seconds.
+- `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate repo-namespacing --strict --json` — 1 passed, 0 failed.
+- `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx format:check --files=<Task 3.1 files>` and `git diff --cached --check` — passed across root configuration, every moved project/tsconfig and the focused oracles.
+
+The first owning static run found one test-only readonly tuple mismatch in the new output
+oracle. Comparing against a mutable copy retained the exact assertion; the complete lint and
+typecheck pair was then rerun and passed as recorded above.
+
+Two later-slice lines were pulled forward mechanically. Source-conformance discovery in
+`workspace-targets.test.ts` now expects the qualified memory/SQLite names, moved adapter roots
+and moved backend migration input already declared by their Task 3.1 manifests. The single
+`.prettierignore` migration-snapshot glob now names `apps/wbs/be-01/drizzle`; without that Task
+3.5 line, the required pre-commit format hook attempted to rewrite four generated snapshots
+at their moved paths. No Vite, Vitest, Playwright, Docker, development, migration-discovery or
+deployment consumer was otherwise changed; their Sections 3.2–3.5 work remains open.
+
+The first commit-hook attempt also exposed two move-wide checks that focused targets do not
+exercise. Format rejected four generated snapshots while the ignore still named the old
+migration root, and lint exhausted Node's default 4 GiB heap while parsing all staged moved
+TypeScript files. With the snapshot glob corrected, an 8 GiB lint heap completed discovery
+and named `drizzle.config.ts` plus the deliberately non-compiling historical capture oracle
+as absent from the TypeScript project service. `tsconfig.tools.json` now includes the backend
+config, while the existing capture-oracle exclusion is preserved as the same exact ESLint
+path exemption. The restored backend typecheck passed before the hook rerun.
+
 ## Deferred verification
 
-Sections 3–4, the full workspace/browser gate, image builds, migration transition probes,
-production dry-run, publication and archive remain intentionally open. No path move is part
-of this preflight branch.
+Sections 3.2–4, the full workspace/browser gate, image builds, migration transition probes,
+production dry-run, publication and archive remain intentionally open. Section 3.1 proves
+only the coordinated project/configuration move assigned above.
