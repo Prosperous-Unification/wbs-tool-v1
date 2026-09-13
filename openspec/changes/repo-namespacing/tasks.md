@@ -1,7 +1,6 @@
-Implementation is blocked only on the completed `core-lib-extraction` handoff and current
-solver-path ownership. These are ordered slices for one coordinated namespace candidate;
-none has been executed. Read `design.md`'s mapping before assigning ownership. Names below
-refer to the old root before slice 3 and its mapped destination afterward.
+Sections 1–2 are implemented on the coordinated namespace candidate. Sections 3–4 remain
+blocked on current path ownership. Read `design.md`'s mapping before assigning ownership.
+Names below refer to the old root before slice 3 and its mapped destination afterward.
 
 ## 1. Pin scope and make nested projects visible
 
@@ -23,7 +22,8 @@ refer to the old root before slice 3 and its mapped destination afterward.
       missing named project, then remove that nested project's ring and observe the actual
       totality target fail. Separate absent manifest (non-project directory) from unreadable
       manifest/directory and malformed JSON (required failures); exercise directory symlink
-      rejection. Command: `bunx nx test tool-devsync --skip-nx-cache`.
+      rejection at descendants and the `apps`, `libs` and `tools` roots. Command:
+      `bunx nx test tool-devsync --skip-nx-cache`.
 
 ## 2. Prove the product and layout rules before moving source
 
@@ -35,7 +35,10 @@ refer to the old root before slice 3 and its mapped destination afterward.
       refuses the cross-product import in production and test files while
       own/shared controls pass. Negative: remove only the generated probe constraint and
       observe the forbidden-import oracle fail because lint passed; restore it. Also prove
-      a shared-product lib cannot depend on WBS. No second product is committed.
+      a shared-product lib cannot depend on WBS. Declare the generated policy module and
+      recursive manifest trees as global lint inputs; warm the production Nx cache, change
+      only each policy input and observe the cross-product refusal rather than a stale hit.
+      No second product is committed.
 - [x] 2.2 Add `src/namespace-layout.test.ts` and the layout validator using enumerated
       projects. Exercise directory/ring disagreement, directory/product disagreement,
       unqualified Nx name, absent/duplicate scope/ring/runtime/product tags and product tags

@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -273,6 +273,30 @@ describe('readProjects', () => {
     expect(await failureMessageOf(readProjects(workspace))).toBe(
       'directory is symlinked: apps/linked',
     );
+  });
+
+  it('rejects each symlinked top-level project group before traversing it', async () => {
+    const messages = await Promise.all(
+      ['apps', 'libs', 'tools'].map(async (group) => {
+        const workspace = await createWorkspace();
+        const source = join(workspace, `borrowed-${group}`);
+        await writeManifest(source, 'project', manifestOf(`borrowed-${group}`));
+        await rm(join(workspace, group), { recursive: true });
+        await symlink(source, join(workspace, group));
+        try {
+          return await failureMessageOf(readProjects(workspace));
+        } catch (failure) {
+          if (failure instanceof Error) return failure.message;
+          throw failure;
+        }
+      }),
+    );
+
+    expect(messages).toEqual([
+      'directory is symlinked: apps',
+      'directory is symlinked: libs',
+      'directory is symlinked: tools',
+    ]);
   });
 
   it('rejects an unreadable directory', async () => {

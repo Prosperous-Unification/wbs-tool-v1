@@ -1,8 +1,8 @@
 # Verification Report
 
-**Change**: `repo-namespacing`  
-**Implementation base**: `b93c0b5f4d69446abde02fe8ce2b71a65de2e6cd`  
-**Verified at**: 2026-09-13  
+**Change**: `repo-namespacing`
+**Implementation base**: `b93c0b5f4d69446abde02fe8ce2b71a65de2e6cd`
+**Verified at**: 2026-09-13
 **Scope in this report**: Tasks 1.1–1.2 and 2.1–2.2 only
 
 ## Preflight inventory
@@ -89,6 +89,48 @@ owning run.
 - `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate repo-namespacing --strict --json`
   — 1 passed, 0 failed.
 - `git diff --check` — passed.
+
+## Terminal review repairs
+
+The terminal review at `8be56fdaeb86203061ed2a9b0933532b72076874`
+found two incomplete preflight boundaries. The root lint default now hashes the generated
+policy module and all three recursively discovered manifest trees because
+`eslint.config.js` reads both through `readProjects`. A temporary workspace warms the real
+Nx lint cache, changes only one of those policy inputs, and requires the next production lint
+invocation to execute and observe the cross-product refusal. Each scratch mutation advances
+the file timestamp so concurrent test files cannot hide the content change behind Nx's
+workspace metadata cache.
+
+`readProjects` now inspects each top-level `apps`, `libs` and `tools` group with `lstat`
+before `readdir`; a linked group is refused by its workspace-relative name. Missing and
+unreadable groups retain the existing `cannot read directory <group>` failure contract.
+
+The recorded [Nx selector sweep](preflight-inventory.md#nx-selector-sweep) supplements the
+path-literal inventory with its two exact search recipes, 27 direct invocation/project-option
+matches and 60 target-label matches. It names the selector-only root scripts, supervisor
+arguments, CI/gate commands, application build commands, source-level instructions and
+oracles that Section 3 must rewrite. Frozen documentation and OpenSpec history were excluded.
+
+| Check                            | Fault injected                                                                  | Production-path observer                                                           | Observed failure                                                                  |
+| -------------------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Policy-module lint cache input   | Omitted `workspace-projects.mjs` from the root lint inputs                      | Third cached `nx lint config` after changing only `productConstraints`             | `1/1` cache hit and exit 0 instead of the three cross-product lint errors.        |
+| Manifest-tree lint cache inputs  | Omitted recursive project-manifest inputs                                       | Third cached `nx lint config` after changing only `libs/domain/project.json`       | `1/1` cache hit and exit 0 instead of the cross-product refusal.                  |
+| Exact transitive input inventory | Removed only `{workspaceRoot}/apps/**/project.json` from the restored input set | Focused `lint-policy-cache.test.ts` through the owning `tool-devsync:test` target  | Exact-array assertion reported the one missing glob.                              |
+| Top-level no-follow contract     | Called the prior production reader with linked apps/libs/tools roots            | Focused `workspace-projects.test.ts` through the owning `tool-devsync:test` target | Three `readProjects unexpectedly succeeded` failures replaced the named refusals. |
+
+Fresh focused evidence after restoring all four checks:
+
+- `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx test tool-devsync --skip-nx-cache --output-style=stream -- --test-name-pattern='production lint policy cache inputs|top-level project group'` — 4 passed, 0 failed, 16 expectations; 145 unrelated tests filtered out. The cache cases require both the production Nx miss and the direct named ESLint product-boundary diagnostic.
+- The same complete `tool-devsync:test` target in the restricted sandbox — 140 passed, 9 failed, 443 expectations. Seven local-listener cases failed with `EPERM listen`; two clean uninstalled candidate-bundler fixtures failed under restricted Git/scratch operations. All repair cases passed.
+- The complete target rerun with the required host permission — 149 passed, 0 failed, 460 expectations in 17.64 seconds (17.8 seconds reported by Nx).
+- `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx run-many -t lint typecheck -p tool-devsync --skip-nx-cache --parallel=1 --output-style=stream` — both targets passed.
+- The two selector-sweep `rg` commands recorded in `preflight-inventory.md` — exit 0; 27 direct invocation/project-option matches and 60 target-label matches.
+- `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate repo-namespacing --strict --json` — 1 passed, 0 failed.
+- `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx format:check --files=<seven repair files>` — passed after `format:write`; the explicit file list covers `nx.json`, all three changed OpenSpec artifacts, both reader files and the cache test.
+- `git diff --check b93c0b5f4d69446abde02fe8ce2b71a65de2e6cd` and `git diff --check 8be56fdaeb86203061ed2a9b0933532b72076874` — both passed, including removal of the reviewed Markdown hard breaks.
+
+The coordinator released the host before the complete target above. Both whitespace commands
+were repeated against the repair commit range and passed.
 
 ## Deferred verification
 

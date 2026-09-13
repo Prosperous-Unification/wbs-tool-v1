@@ -1,4 +1,4 @@
-import { readFile, readdir, stat } from 'node:fs/promises';
+import { lstat, readFile, readdir, stat } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -156,6 +156,28 @@ async function rejectSymlinkedDirectory(path, root) {
 }
 
 /**
+ * Reject a workspace project-group link before readdir can follow it.
+ *
+ * @param {string} path
+ * @param {string} root
+ */
+async function rejectSymlinkedProjectGroup(path, root) {
+  let entry;
+  try {
+    entry = await lstat(path);
+  } catch (failure) {
+    // Preserve scanDirectory's required-state failure contract at the group root.
+    throw new Error(`cannot read directory ${relativePath(path, root)}`, { cause: failure });
+  }
+  // Proof: removing this refusal made the owning Nx target report
+  // `readProjects unexpectedly succeeded` for apps, libs and tools group
+  // symlinks instead of their three named paths (2026-09-13).
+  if (entry.isSymbolicLink()) {
+    throw new Error(`directory is symlinked: ${relativePath(path, root)}`);
+  }
+}
+
+/**
  * @param {string} directory
  * @param {string} root
  * @param {WorkspaceProject[]} projects
@@ -200,7 +222,11 @@ export async function readProjects(workspace) {
   const root = workspacePath(workspace);
   /** @type {WorkspaceProject[]} */
   const projects = [];
-  for (const group of PROJECT_GROUPS) await scanDirectory(join(root, group), root, projects);
+  for (const group of PROJECT_GROUPS) {
+    const path = join(root, group);
+    await rejectSymlinkedProjectGroup(path, root);
+    await scanDirectory(path, root, projects);
+  }
 
   projects.sort((left, right) => left.root.localeCompare(right.root));
   const rootsByName = new Map();

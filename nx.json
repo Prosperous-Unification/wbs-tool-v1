@@ -34,7 +34,15 @@
     },
     "lint": {
       "cache": true,
-      "inputs": ["default", "{workspaceRoot}/eslint.config.js", "{workspaceRoot}/.prettierrc.json"]
+      "inputs": [
+        "default",
+        "{workspaceRoot}/eslint.config.js",
+        "{workspaceRoot}/tools/tool-devsync/workspace-projects.mjs",
+        "{workspaceRoot}/apps/**/project.json",
+        "{workspaceRoot}/libs/**/project.json",
+        "{workspaceRoot}/tools/**/project.json",
+        "{workspaceRoot}/.prettierrc.json"
+      ]
     },
     "typecheck": {
       "cache": true,

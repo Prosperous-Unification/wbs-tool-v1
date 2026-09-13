@@ -331,6 +331,61 @@ tsconfig.base.json
 
 The operational ownership families within that exact set are root aliases/scripts/lint/CI/ignore files; every app/lib manifest and tsconfig; Vite/Vitest/Playwright and packaged frontend paths; `bin/dev*` plus `tools/dev` and tool-devsync restart/compatibility paths; all application Dockerfiles and tool-dagger inputs; deployment/migration and migration-lint callers; corpus-version and solver fixtures; and cross-tree store/domain/backend/frontend reads.
 
+## Nx selector sweep
+
+The path-literal inventory does not find selector-only files, so the preflight also searched
+active source and configuration for current app/library project names used as Nx targets,
+`-p`/`--projects` values, target dependencies, operator commands and their source-level
+oracles. Frozen documentation and OpenSpec history were excluded. The two search forms were:
+
+```sh
+rg -n --hidden --pcre2 --glob '!node_modules/**' --glob '!.git/**' --glob '!openspec/**' --glob '!docs/**' --glob '!notes/**' --glob '!.superpowers/**' --glob '!**/*.md' '(?:nx\s+run\s+|(?:-p|--projects=)\s*)(?:be-01|fe-01|gw-01|mcp-01|auth|config|conformance|contracts|solver-supervisor-protocol|core|domain|observability|realtime|runtime-portable|solver-py|store-memory|store-sqlite|validation)\b' package.json bin .github tools apps libs
+rg -n --hidden --pcre2 --glob '!node_modules/**' --glob '!.git/**' --glob '!openspec/**' --glob '!docs/**' --glob '!notes/**' --glob '!.superpowers/**' --glob '!**/*.md' '(?:be-01|fe-01|gw-01|mcp-01|auth|config|conformance|contracts|solver-supervisor-protocol|core|domain|observability|realtime|runtime-portable|solver-py|store-memory|store-sqlite|validation):(?:serve|serve-local-solver|e2e|e2e-packaged|solver-image-smoke|setup-macos|test(?::(?:unit|store|conformance))?|lint(?::fast)?|typecheck|build|deploy|push)\b' package.json bin .github tools apps libs
+```
+
+Executable and configuration selectors that the coordinated move must rewrite are:
+
+| File and line                        | Selector value                        |
+| ------------------------------------ | ------------------------------------- |
+| `package.json:21`                    | `nx run be-01:serve`                  |
+| `package.json:22`                    | `nx run gw-01:serve`                  |
+| `package.json:23`                    | `nx run fe-01:serve`                  |
+| `package.json:25`, `package.json:26` | `nx run fe-01:e2e`                    |
+| `bin/dev.sh:58`                      | `--projects=be-01,gw-01,fe-01,mcp-01` |
+| `.github/workflows/ci.yml:362`       | `nx run be-01:solver-image-smoke`     |
+| `bin/h2puni-gate-steps.sh:14`        | `nx run be-01:solver-image-smoke`     |
+| `apps/fe-01/project.json:54`         | `nx run fe-01:build`                  |
+| `apps/fe-01/Dockerfile:36`           | `nx run fe-01:build`                  |
+| `apps/be-01/src/dev/main.ts:37`      | `nx run solver-py:setup-macos`        |
+
+Active source comments, refusal messages and tests also pin selectors and therefore remain
+rename consumers rather than being omitted as prose:
+
+```text
+apps/be-01/src/dev/main.ts:3                         nx run be-01:serve-local-solver
+apps/be-01/src/dev/main.ts:37                        nx run solver-py:setup-macos
+apps/be-01/src/production-entrypoint.test.ts:26      be-01:build
+apps/be-01/src/test-tiers.test.ts:9-10               be-01:test:unit, be-01:test:store
+apps/mcp-01/src/openapi-tools.test.ts:268             -p be-01
+apps/fe-01/playwright.config.ts:13,21                nx run fe-01:e2e
+apps/fe-01/playwright.packaged.config.ts:27          nx run fe-01:e2e-packaged
+apps/fe-01/playwright.packaged.config.ts:36          nx run fe-01:build
+apps/fe-01/vite.config.ts:31,79                      nx run fe-01:e2e, nx run fe-01:build
+apps/fe-01/src/test-tiers.test.ts:105                 nx run fe-01:test:unit
+bin/dev.test.sh:187                                  --projects=be-01,gw-01,fe-01,mcp-01
+tools/dev/solver-setup-cli.ts:2                      nx run solver-py:setup-macos
+tools/dev/solver-environment.ts:6                    solver-py:test
+tools/tool-devsync/src/poller.test.ts:759            nx run be-01:solver-image-smoke
+tools/tool-wiki/src/contracts/contracts.test.ts:390  nx run store-sqlite:test:conformance
+tools/tool-wiki/src/contracts/contracts.test.ts:391  nx run store-memory:test:conformance
+```
+
+The broad target-label form additionally reports proof comments for `core:lint`,
+`core:typecheck`, `domain:test`, `conformance:typecheck`, `be-01:typecheck`, `fe-01:lint`,
+`fe-01:typecheck`, `store-memory:test` and `runtime-portable` dependency coverage. Those
+source files are already present in the active path-consumer inventory above; Section 3/4
+must update the target labels when their Nx identities change.
+
 ## Cross-project relative reads
 
 These paths are the AST-classified reader-side literals used by the production outside-read coverage gate. Repeated migration directory reads are kept because each owning test target must declare the input.
