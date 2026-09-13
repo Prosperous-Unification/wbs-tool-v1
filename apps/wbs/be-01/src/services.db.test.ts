@@ -546,8 +546,8 @@ describe('buildServices', () => {
       ]),
     ).toEqual([
       // The current solver release composes with the current scheduler contract.
-      ['0.1.3', '9+0.1.3', 60_000],
-      ['0.1.3', '9+0.1.3', 60_000],
+      ['0.1.3', '10+0.1.3', 60_000],
+      ['0.1.3', '10+0.1.3', 60_000],
     ]);
   });
 
@@ -617,7 +617,7 @@ describe('buildServices', () => {
     // seeded failed pair and failed here with `Expected ["pri", "time"] /
     // Received []`; watched 2026-09-07.
     expect(spawned.map(({ objective }) => objective)).toEqual(['pri', 'time']);
-    expect(spawned.map(({ key }) => key.contractVersion)).toEqual(['9+0.1.3', '9+0.1.3']);
+    expect(spawned.map(({ key }) => key.contractVersion)).toEqual(['10+0.1.3', '10+0.1.3']);
     expect(
       db
         .select({ contractVersion: optimizedScheduleCache.contractVersion })

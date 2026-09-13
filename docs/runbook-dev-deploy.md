@@ -72,18 +72,23 @@ file, so its mounts, user, limits and image are still the old ones). Until 2026-
 second case was silent, and the deploy reported success for a change that was in effect
 nowhere. The env row is still silent, because a gitignored file cannot arrive in a push.
 
-The host-owned solver supervisor service, config, and Unix socket are deploy prerequisites only
-when `libs/solver-py` or `apps/be-01/Dockerfile` changed between the currently deployed and
-requested commits; the directory pathspec is recursive. Unrelated changes retain the existing
-preflight-then-reset path and do not publish or install anything.
+The host-owned solver supervisor config is optional until the first solver-affecting deploy. Once
+present, every changed target verifies the service, Unix socket, mapping, and exact digest-pinned
+image in the host Docker daemon before reset. A missing image is pulled by digest; an image already
+present does not depend on registry availability. A pull or final
+inspection refusal is therefore visible in the poller deploy log instead of only in the supervisor
+user journal. Only a change to `libs/wbs/adapters/solver-py` or
+`apps/wbs/be-01/Dockerfile` publishes or installs a new binding; the directory pathspec is
+recursive.
 
 For a solver-affecting target, the candidate deployer runs from a clean detached clone of that
 exact revision. Under the deploy exclusion it derives the compatibility-tree identity, validates
 the installed production blue and green mappings, or bootstraps a missing first config from the
 exact digest-pinned images configured on the two prod containers. A present but unreadable config
 never falls back. It publishes only `be` through Dagger from the target clone and accepts only the
-requested full SHA and registry-returned digest in the release manifest. It then materializes a
-replacement config that preserves both production mappings,
+requested full SHA and registry-returned digest in the release manifest. Dagger publication does
+not populate the host Docker daemon, so preparation pulls and inspects that exact digest before it
+materializes a replacement config that preserves both production mappings,
 builds and executes the checked-in supervisor installer, and runs the installed bundle's dev
 preflight. The live checkout reset is last.
 

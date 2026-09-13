@@ -1,6 +1,16 @@
 import { lastWorkdayOf } from './workday';
 
 /**
+ * The start of a work-item projection when its deadline is read as a span.
+ *
+ * {@link lastWorkdayOf}'s start term can only raise the last occupied day. A
+ * positive projection therefore starts at day zero for deadline arithmetic:
+ * its finish names the last occupied day, while an all-zero milestone keeps
+ * its actual start so the day on which the point stands still counts.
+ */
+export const WORK_ITEM_PROJECTION_START = 0;
+
+/**
  * Whether a slice standing at `start` and running to `finish` meets an
  * effective deadline of `deadlineOffset`, all three in whole days from day zero.
  *

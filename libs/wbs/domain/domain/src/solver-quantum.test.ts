@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test';
 
 import { ASSUMED_SLICE_WORKDAYS } from './assumed-duration';
 import { isOnTime } from './on-time';
-import { durationOf, type Slice } from './schedule';
+import { durationOf, type Slice, workItemIdsWithPositiveDuration } from './schedule';
 import { durationRoundedUp, durationUnits, SOLVER_QUANTUM } from './solver-quantum';
 
 function slice(days: number | null, width: number): Slice {
@@ -12,6 +12,14 @@ function slice(days: number | null, width: number): Slice {
 describe('SOLVER_QUANTUM', () => {
   it('is 48 — a half-hour of an eight-hour day', () => {
     expect(SOLVER_QUANTUM).toBe(48);
+  });
+});
+
+describe('workItemIdsWithPositiveDuration', () => {
+  it('requires one supplied duration per slice', () => {
+    expect(() => workItemIdsWithPositiveDuration([slice(1, 1)], [])).toThrow(
+      'positive-duration classification requires one duration per slice',
+    );
   });
 });
 
@@ -126,8 +134,10 @@ describe('the drift window across the unit boundary', () => {
     expect(durationUnits(s)).toBe(48);
     expect(durationRoundedUp(s)).toBe(false);
 
-    // The model's clause verbatim: `startUnits + max(durationUnits, 1) <= deadlineUnits`.
-    expect(0 + Math.max(durationUnits(s), 1)).toBeLessThanOrEqual(48);
+    // The model's shipped clause: `end + int(workItemIsMilestone) <= deadlineUnits`.
+    const workItemIsMilestone = false;
+    expect(0 + durationUnits(s) + Number(workItemIsMilestone)).toBeLessThanOrEqual(48);
+    expect(0 + durationUnits(s) + Number(true)).toBeGreaterThan(48);
   });
 
   it('still refuses a duration that is genuinely past the whole day, by one unit', () => {
@@ -138,7 +148,7 @@ describe('the drift window across the unit boundary', () => {
     expect(isOnTime(0, durationOf(s), 0)).toBe(false);
     expect(durationUnits(s)).toBe(49);
     expect(durationRoundedUp(s)).toBe(true);
-    expect(0 + Math.max(durationUnits(s), 1)).toBeGreaterThan(48);
+    expect(0 + durationUnits(s) + Number(false)).toBeGreaterThan(48);
   });
 
   it('leaves every duration that is not within the window of a whole workday exactly where it was', () => {

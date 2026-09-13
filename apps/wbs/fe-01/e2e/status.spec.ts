@@ -198,7 +198,7 @@ test.describe('marking a row done, in a browser', () => {
     // Done asks first. Escape leaves the row as it was and puts the focus back
     // in the cell that asked — the one focus question jsdom cannot answer.
     await chooseDone();
-    const prompt = page.getByRole('dialog', { name: 'Mark 010 done' });
+    const prompt = page.getByRole('dialog', { name: 'Set 010 to Done' });
     await expect(prompt).toBeVisible();
     await expect(prompt.getByLabel('Finished on')).toHaveValue(today);
     await page.keyboard.press('Escape');
@@ -208,7 +208,7 @@ test.describe('marking a row done, in a browser', () => {
 
     await chooseDone();
     await expect(prompt).toBeVisible();
-    await prompt.getByRole('button', { name: 'Mark done' }).click();
+    await prompt.getByRole('button', { name: 'Set to Done' }).click();
 
     await expect(status).toHaveAttribute('data-status-value', 'done');
     await expect(page.getByLabel('Fact end of 010')).toHaveValue(shortDay(today));

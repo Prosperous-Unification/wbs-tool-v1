@@ -889,7 +889,7 @@ export function fakeProjectApi(): ProjectApi & {
       }
       return Promise.resolve();
     },
-    setStatus(id, status, on) {
+    setStatus(id, status, on, factStart) {
       // be-01's fan-out and its fill, in the fake's own terms: the row and every
       // row beneath it take the status, and a done row with no fact end takes
       // `on`. Recorded for the tests that assert what was sent.
@@ -900,6 +900,13 @@ export function fakeProjectApi(): ProjectApi & {
         if (row === undefined) continue;
         row.status = status;
         if (status === 'done' && row.factEnd === null) row.factEnd = on;
+        if (status === 'done' && factStart !== undefined && row.factStart === null) {
+          row.factStart = factStart;
+        }
+        if (status === 'unknown') {
+          row.factEnd = null;
+          row.factStart = null;
+        }
       }
       return Promise.resolve();
     },

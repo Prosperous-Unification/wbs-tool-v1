@@ -1,4 +1,4 @@
-import { isOnTime, lastWorkdayOf, SOLVER_QUANTUM } from '@wbs/domain';
+import { isOnTime, lastWorkdayOf, SOLVER_QUANTUM, WORK_ITEM_PROJECTION_START } from '@wbs/domain';
 
 import {
   SOLVER_OBJECTIVE_TERMS,
@@ -284,6 +284,8 @@ export const revalidateSolverResult = (
       return refuse('malformed-request', `duplicate slice key ${JSON.stringify(slice.key)}`);
     }
     slices.set(slice.key, slice);
+    // Proof: disabling this guard made `refuses missing and empty workItemKey
+    // values before grouping` accept both cases; watched on h2puni 2026-09-13.
     if (typeof slice.workItemKey !== 'string' || slice.workItemKey.length === 0) {
       return refuse(
         'malformed-request',
@@ -582,8 +584,12 @@ export const revalidateOptimizedDeadlines = (
     const dueDay = slice.deadlineUnits / SOLVER_QUANTUM - 1;
     // `isOnTime(0, finish, due)` asks which day the work-item span is still on.
     // Only an all-zero item needs its real start so the instant itself occupies
-    // a day. TASK-501's trailing zero step is the case these two readings split.
-    const deadlineStart = slice.workItemIsMilestone ? timing.earliestStart : 0;
+    // a day. This applies to every zero step in a positive work item; Fast uses
+    // that item's final finish for their labels, while this publication guard
+    // checks the final placement independently below.
+    const deadlineStart = slice.workItemIsMilestone
+      ? timing.earliestStart
+      : WORK_ITEM_PROJECTION_START;
     if (!isOnTime(deadlineStart, timing.earliestFinish, dueDay)) {
       const lastDay = lastWorkdayOf(deadlineStart, timing.earliestFinish);
       return refuse(

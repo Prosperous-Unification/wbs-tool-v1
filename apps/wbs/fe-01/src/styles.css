@@ -640,6 +640,17 @@
   }
 
   /*
+   * A modal surface is portalled to `<body>` too (`ui/modal.tsx`), so it was
+   * outside `<main>`'s `font-sans` for exactly the reason above: the completion
+   * prompt came out in Times on 2026-09-13, and so, unnoticed, had every modal
+   * before it. The face only — a modal keeps its own type scale, unlike a card
+   * that has to match the grid it hangs off.
+   */
+  [data-modal-surface] {
+    @apply font-sans;
+  }
+
+  /*
    * The five pixels under every box, which are a row's height and nothing a
    * reader can see.
    *
@@ -1305,6 +1316,16 @@
    * its wrapper so the menu's own items — buttons in the same cell — are left
    * to `actions-menu.tsx`.
    */
+  /*
+   * The ⋯ sits in the middle of its 40px cell rather than against the left
+   * padding (Dany, 2026-09-13: "center the actions dots"). `text-align` on
+   * the cell, because the button's wrapper is `inline-block` and the cell is
+   * what has the width.
+   */
+  [data-grid] td[data-column='actions'] {
+    text-align: center;
+  }
+
   [data-grid] td[data-column='actions'] > span > button {
     border: 0;
     border-radius: var(--radius-sm);

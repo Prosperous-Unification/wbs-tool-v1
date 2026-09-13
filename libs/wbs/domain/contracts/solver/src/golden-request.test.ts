@@ -5,6 +5,7 @@ import { describe, expect, it } from 'bun:test';
 
 import { buildSolverRequest, type SolverRequestPlan } from './build-solver-request';
 import { quantisedFastBaseline } from './quantised-baseline';
+import { revalidateSolverResult } from './revalidate-solver-result';
 import { SOLVER_REQUEST_KEYS, SOLVER_SLICE_KEYS, type SolverRequest } from './wire-types';
 
 /**
@@ -40,10 +41,12 @@ import { SOLVER_REQUEST_KEYS, SOLVER_SLICE_KEYS, type SolverRequest } from './wi
  * side's validator is the Python entrypoint's `jsonschema` pass (§5), and
  * asserting anything about them here would be a check that cannot fail.
  *
- * ## Why only one of the two valid request fixtures is built here
+ * ## Why the builder comparison covers one request fixture
  *
- * `valid-quantised-baseline.json` is 2.11's own fixture and the manifest says
- * so. `valid-two-slices.json` is a **schema** fixture, and no plan this builder
+ * `valid-quantised-baseline.json` is 2.11's own builder fixture and the manifest
+ * says so. The other `valid-*` files are schema and cross-field oracles rather
+ * than builder outputs. In particular, `valid-two-slices.json` is a **schema**
+ * fixture, and no plan this builder
  * can be handed produces it — measured from `priorityWeights`, not assumed. It
  * carries `priorityWeight` 2 on one slice and 0 on the other. The rank is dense
  * over the distinct priorities of the **whole** canonical input, so a weight of
@@ -154,6 +157,29 @@ describe('the golden request corpus', () => {
       for (const slice of request.slices) {
         expect(Object.keys(slice).sort()).toEqual([...SOLVER_SLICE_KEYS].sort());
       }
+    }
+  });
+
+  it('runs every end-to-end valid request through Bun milestone re-validation', () => {
+    // `negative-printable-key.json` is schema-valid on purpose, but its
+    // mismatched printable key is an end-to-end negative. The `valid-` prefix
+    // is the corpus convention shared with Python for complete request oracles.
+    for (const entry of requestFixtures.filter(
+      (candidate) => candidate.valid && candidate.file.startsWith('request/valid-'),
+    )) {
+      const request = fixture(entry.file);
+      const groups = new Map<string, typeof request.slices>();
+      for (const slice of request.slices) {
+        groups.set(slice.workItemKey, [...(groups.get(slice.workItemKey) ?? []), slice]);
+      }
+      for (const peers of groups.values()) {
+        const expected = peers.every((slice) => slice.durationUnits === 0);
+        expect(peers.every((slice) => slice.workItemIsMilestone === expected)).toBe(true);
+      }
+      expect(revalidateSolverResult(request, { wireVersion: 1, status: 'unknown' })).toEqual({
+        ok: true,
+        published: false,
+      });
     }
   });
 });

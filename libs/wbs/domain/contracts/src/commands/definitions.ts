@@ -144,10 +144,11 @@ export const commandDefinitions = {
       ...target,
       status: "'unknown' | 'done'",
       'on?': 'string',
+      'factStart?': 'string',
     }),
     scope: 'project',
     description:
-      'Mark a work item done, or take every progress statement back to unknown. `on` is the day it happened (YYYY-MM-DD); absent means today.',
+      'Mark a work item done, or take every progress statement back to unknown. `on` is the day it finished (YYYY-MM-DD); absent means today. `factStart` is the day it began, filled where the row holds none. Unknown clears both facts of a row that read done.',
   }),
   setMeasure: defineCommand('setMeasure', {
     schema: type({ kind: "'setMeasure'", ...step, metric: 'string', value: 'number' }),

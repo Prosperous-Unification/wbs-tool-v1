@@ -2885,6 +2885,42 @@ describe('setting a row’s status as one act', () => {
     expect(await rowOf(send, token, projectId, 'Strip')).toMatchObject({ status: 'unknown' });
   });
 
+  it('fills the fact start a mark names, and refuses one that is not a date', async () => {
+    const { token, send, projectId } = await setup();
+    const strip = await addWorkItem(send, token, projectId, { parentId: null, name: 'Strip' });
+
+    const refused = await command(send, token, projectId, {
+      kind: 'setStatus',
+      workItemId: strip,
+      status: 'done',
+      on: '2026-09-12',
+      factStart: 'last week',
+    });
+    expect(refused.status).toBe(400);
+    // Proof: `parseFactStart` replaced by a pass-through, and this fails on
+    // `expected 200 to be 400` — a non-date written into a date column; watched
+    // 2026-09-13.
+    expect(await refused.json()).toEqual({
+      error: 'factStart_must_be_a_date',
+      at: 0,
+      kind: 'setStatus',
+    });
+
+    const marked = await command(send, token, projectId, {
+      kind: 'setStatus',
+      workItemId: strip,
+      status: 'done',
+      on: '2026-09-12',
+      factStart: '2026-09-08',
+    });
+    expect(marked.status).toBe(200);
+    expect(await rowOf(send, token, projectId, 'Strip')).toMatchObject({
+      status: 'done',
+      factStart: '2026-09-08',
+      factEnd: '2026-09-12',
+    });
+  });
+
   it('writes the two facts through the ordinary patch and refuses a non-date', async () => {
     const { token, send, projectId } = await setup();
     const strip = await addWorkItem(send, token, projectId, { parentId: null, name: 'Strip' });

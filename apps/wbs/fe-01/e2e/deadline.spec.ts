@@ -16,6 +16,9 @@ const WORK_ITEM_DEADLINE = '2030-01-07';
 const MOVED_PROJECT_DAY = '2030-02-01';
 const DEADLINE_COLUMN = 'Work item deadline';
 const UNREACHABLE_COLUMN = 'Work item deadline unreachable';
+// The shipped 390x844 layout leaves 347px of this card visible. One complete
+// 44px tap target is the named regression floor, not the current-layout pin.
+const PHONE_CARD_VISIBLE_FLOOR_PX = 44;
 // Deliberately copied instead of imported from deadline-impossible.ts: the export test must
 // pin the shipped words independently, or changing producer and oracle together stays green.
 const UNREACHABLE_CELL = "before the project's first working day";
@@ -31,7 +34,9 @@ async function seedDatedWorkItem(page: Page): Promise<void> {
   const actions = page.getByRole('dialog', { name: 'Plan actions' });
   await expect(actions).toBeVisible();
   const projectStart = actions.getByLabel('Project start date');
+  const savedProjectStart = savedProjectStartDate(page);
   await projectStart.fill(FIRST_PROJECT_DAY);
+  await savedProjectStart;
   await projectStart.blur();
   await actions.getByRole('button', { name: 'Add work item' }).click();
   await expect(page.getByLabel('Name of 010')).toBeVisible();
@@ -43,6 +48,24 @@ async function seedDatedWorkItem(page: Page): Promise<void> {
     })
     .click();
   await expect(page.getByLabel('Name of 020')).toBeVisible();
+}
+
+/** The work-item id owned by one numbered card. */
+async function workItemIdFor(page: Page, number: string): Promise<string> {
+  const workItemId = await page
+    .getByRole('button', { name: `Work item deadline for ${number}` })
+    .evaluate((control) => control.closest('[data-card]')?.getAttribute('data-card'));
+  if (workItemId === null || workItemId === undefined)
+    throw new Error(`the deadline control for ${number} has no work-item card`);
+  return workItemId;
+}
+
+/** Refuses to let a missing requested card satisfy one of its own absence checks. */
+async function expectCardPresent(card: Locator): Promise<void> {
+  // Proof: removing only the requested card after reload left the other card
+  // present and failed here on `Expected: 1, Received: 0`. Watched in Chromium
+  // at 390x844 on h2puni, 2026-09-13.
+  await expect(card).toHaveCount(1);
 }
 
 /** A positive-area browser box or a failure naming the surface that vanished. */
@@ -69,36 +92,59 @@ async function openDeadlineEditor(page: Page, number = '010'): Promise<Locator> 
 
 /** Saves one deadline through the phone sheet, with no direct API shortcut. */
 async function saveDeadline(page: Page, number: string, day: string): Promise<void> {
+  const workItemId = await workItemIdFor(page, number);
+  const card = page.locator(`[data-card="${workItemId}"]`);
   const editor = await openDeadlineEditor(page, number);
   await editor.getByLabel(`Work item deadline for ${number}`).fill(day);
-  const saved = savedWorkItemDeadline(page);
+  const saved = savedWorkItemDeadline(page, workItemId);
   await editor.getByRole('button', { name: 'Save' }).click();
   await saved;
   await expect(editor).toBeHidden();
-  await expect(page.locator('[data-card-deadline]')).toBeVisible();
+  // Proof: removing this row's mark after Save while injecting a visible mark
+  // on the other numbered card failed here on `element(s) not found`; the old
+  // page-global check passed. Watched in Chromium on h2puni, 2026-09-13.
+  await expect(card.locator('[data-card-deadline]')).toBeVisible();
 }
 
 /** The command response that makes a work-item deadline durable before navigation. */
-const savedWorkItemDeadline = (page: Page): Promise<Response> =>
-  page.waitForResponse((response) => {
+function savedWorkItemDeadline(page: Page, workItemId: string): Promise<Response> {
+  // Proof: suffixing the requested workItemId with `-wrong-row` left the real
+  // deadline response unmatched and failed on `page.waitForResponse: Timeout
+  // 1000ms exceeded`; the negative probe temporarily shortened the helper's
+  // unbounded default (normally limited by the test timeout). Watched on
+  // h2puni, 2026-09-13.
+  return page.waitForResponse((response) => {
     const request = response.request();
+    const body = request.postData() ?? '';
     return (
       request.method() === 'POST' &&
       response.url().includes('/commands') &&
-      (request.postData() ?? '').includes('"kind":"patchWorkItem"') &&
-      (request.postData() ?? '').includes('"deadline":')
+      body.includes('"kind":"patchWorkItem"') &&
+      body.includes(`"workItemId":"${workItemId}"`) &&
+      body.includes('"deadline":')
     );
   });
+}
+
+/** The project PATCH that makes a start-date edit durable before the next gesture. */
+function savedProjectStartDate(page: Page): Promise<Response> {
+  // Proof: changing this endpoint to `/api/never/` made seedDatedWorkItem fail
+  // here on `page.waitForResponse: Timeout 1000ms exceeded`, before Add work
+  // item; the negative probe temporarily shortened the helper's timeout from
+  // its unbounded default (normally limited by the test timeout). Watched on
+  // h2puni, 2026-09-13.
+  return page.waitForResponse(
+    (response) =>
+      response.request().method() === 'PATCH' && /\/api\/projects\/[^/]+$/.test(response.url()),
+  );
+}
 
 /** Moves day zero through the phone's only route to the project-start control. */
 async function moveProjectStart(page: Page, day: string): Promise<void> {
   await page.getByRole('button', { name: 'Plan actions' }).click();
   const actions = page.getByRole('dialog', { name: 'Plan actions' });
   const projectStart = actions.getByLabel('Project start date');
-  const saved = page.waitForResponse(
-    (response) =>
-      response.request().method() === 'PATCH' && /\/api\/projects\/[^/]+$/.test(response.url()),
-  );
+  const saved = savedProjectStartDate(page);
   await projectStart.fill(day);
   await saved;
   await projectStart.blur();
@@ -213,12 +259,7 @@ test.beforeEach(async ({ page }) => {
 test('the phone deadline sheet leaves its card visible and drives Save and Clear', async ({
   page,
 }) => {
-  const accessibleTrigger = page.getByRole('button', { name: 'Work item deadline for 020' });
-  const cardId = await accessibleTrigger.evaluate((control) =>
-    control.closest('[data-card]')?.getAttribute('data-card'),
-  );
-  if (cardId === null || cardId === undefined)
-    throw new Error('the deadline control has no work-item card');
+  const cardId = await workItemIdFor(page, '020');
   const card = page.locator(`[data-card="${cardId}"]`);
   // Keep the low card at the viewport edge and fire the button's real click
   // without Playwright's own pre-click scrolling. The sheet guard, not the
@@ -242,36 +283,56 @@ test('the phone deadline sheet leaves its card visible and drives Save and Clear
       return triggerBox.y + triggerBox.height - currentEditorBox.y;
     })
     .toBeLessThan(0);
-  const visibleTrigger = await renderedBox(trigger, 'the edited deadline control');
-  expect(
-    visibleTrigger.y,
-    'the edited deadline control moved above the viewport',
-  ).toBeGreaterThanOrEqual(0);
-  const cardBox = await renderedBox(card, 'the edited card');
-  const editorBox = await renderedBox(editor, 'the deadline sheet');
-  expect(
-    Math.min(cardBox.y + cardBox.height, editorBox.y) - Math.max(cardBox.y, 0),
-    'none of the edited card remains visible above the sheet',
-  ).toBeGreaterThanOrEqual(44);
+  await expect
+    .poll(async () => (await renderedBox(trigger, 'the edited deadline control')).y, {
+      message: 'the edited deadline control moved above the viewport',
+    })
+    // Proof: translating the trigger 1000px upward failed on `Expected: >= 0,
+    // Received: -521`. Watched in Chromium at 390x844 on h2puni, 2026-09-13.
+    .toBeGreaterThanOrEqual(0);
+  // One passing sample is the invariant here, not a second test-owned stability
+  // window: useTriggerAboveSheet applies only after the sheet rect is identical
+  // on two frames, the bottom sheet has no open animation, and the preceding
+  // overlap poll observes that settled placement.
+  await expect
+    .poll(
+      async () => {
+        const currentCardBox = await renderedBox(card, 'the edited card');
+        const currentEditorBox = await renderedBox(editor, 'the deadline sheet');
+        return (
+          Math.min(currentCardBox.y + currentCardBox.height, currentEditorBox.y) -
+          Math.max(currentCardBox.y, 0)
+        );
+      },
+      {
+        message:
+          `less than the ${String(PHONE_CARD_VISIBLE_FLOOR_PX)}px tap-target floor remains ` +
+          'visible above the sheet (347px shipped at 390x844)',
+      },
+    )
+    // Proof: injecting `height: 1px` on the border-box card clamped it to its
+    // 24px padding plus 2px border and failed on `Expected: >= 44, Received:
+    // 26`. Watched in Chromium at 390x844 on h2puni, 2026-09-13.
+    .toBeGreaterThanOrEqual(PHONE_CARD_VISIBLE_FLOOR_PX);
 
   await editor.getByLabel('Work item deadline for 020').fill(WORK_ITEM_DEADLINE);
-  const saved = savedWorkItemDeadline(page);
+  const saved = savedWorkItemDeadline(page, cardId);
   await editor.getByRole('button', { name: 'Save' }).click();
   await saved;
   await expect(card.locator('[data-card-deadline]')).toBeVisible();
   await page.reload();
-  await expect(card).toHaveCount(1);
-  await expect(page.locator(`[data-card="${cardId}"] [data-card-deadline]`)).toBeVisible();
+  await expectCardPresent(card);
+  await expect(card.locator('[data-card-deadline]')).toBeVisible();
 
   const reopened = await openDeadlineEditor(page, '020');
-  const cleared = savedWorkItemDeadline(page);
+  const cleared = savedWorkItemDeadline(page, cardId);
   await reopened.getByRole('button', { name: 'Clear' }).click();
   await cleared;
-  await expect(card).toHaveCount(1);
-  await expect(page.locator(`[data-card="${cardId}"] [data-card-deadline]`)).toHaveCount(0);
+  await expectCardPresent(card);
+  await expect(card.locator('[data-card-deadline]')).toHaveCount(0);
   await page.reload();
-  await expect(card).toHaveCount(1);
-  await expect(page.locator(`[data-card="${cardId}"] [data-card-deadline]`)).toHaveCount(0);
+  await expectCardPresent(card);
+  await expect(card.locator('[data-card-deadline]')).toHaveCount(0);
 });
 
 test('renders impossible marks on both faces and downloads both deadline columns', async ({
@@ -289,6 +350,9 @@ test('renders impossible marks on both faces and downloads both deadline columns
   await renderedBox(cardMark, 'the card impossible-date mark');
   const cardMarkId = await cardMark.getAttribute('id');
   if (cardMarkId === null) throw new Error('the card impossible-date mark has no id');
+  // Proof: removing aria-describedby from this trigger failed on the missing
+  // attribute (`Expected: card-deadline-impossible-…, Received: ""`). Watched
+  // in Chromium on h2puni, 2026-09-13.
   await expect(page.getByRole('button', { name: 'Work item deadline for 010' })).toHaveAttribute(
     'aria-describedby',
     cardMarkId,

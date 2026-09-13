@@ -499,6 +499,10 @@ test.describe('the command chords, in a browser', () => {
     await seedRows(page, `e2e-keys-${String(Date.now())}-${String(account)}`, 2);
 
     await page.getByRole('button', { name: 'Actions for 010' }).click();
+    // The status entry heads the menu since `status-from-the-menu`; Duplicate
+    // is one step down, and it is the item whose plain Enter this case proves.
+    await expect(page.getByRole('menuitem', { name: 'Set status to Done' })).toBeFocused();
+    await page.keyboard.press('ArrowDown');
     const duplicate = page.getByRole('menuitem', { name: 'Duplicate' });
     await expect(duplicate).toBeFocused();
 

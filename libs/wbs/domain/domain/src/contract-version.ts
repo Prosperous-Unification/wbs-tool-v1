@@ -54,8 +54,8 @@
  * rounding puts an arbitrary double in: `days: 1.0000000005` over `width: 1`
  * gave `durationUnits` `49` before this change and `48` after.
  *
- * The number is also not free at this point: both request fixtures in the
- * golden corpus are checked in carrying `"8+0.1.1"`, and
+ * The number is also not free at this point: every request fixture in
+ * the golden corpus is checked in carrying `"10+0.1.3"`, and
  * `wire-contract-version.test.ts` in `libs/contracts` pins the constant to that
  * prefix — so a change here without a change there is a red test rather than a
  * cache that quietly keeps its old rows.
@@ -119,7 +119,7 @@
  * reddens until the number moves. On a direct push the lint reports after the
  * commit has landed, which is detection and not prevention.
  */
-export const SCHEDULER_CONTRACT_VERSION = 9;
+export const SCHEDULER_CONTRACT_VERSION = 10;
 
 /**
  * The composite the **wire** carries and the **cache key** stores, from one
@@ -140,8 +140,9 @@ export const SCHEDULER_CONTRACT_VERSION = 9;
  *
  * The scheduler half moves when Bun changes either a published Fast schedule
  * or its independent solver re-validation; the solver half moves when the
- * Python package or the request facts it consumes change. TASK-508 changes
- * both halves, so durable rows written under `8+0.1.2` cannot be reused.
+ * Python package or the request facts it consumes change. TASK-510 changes
+ * Fast's zero-step lateness projection, so durable rows written under
+ * `9+0.1.3` cannot be reused even though the Python half stays at `0.1.3`.
  *
  * `solverVersion` is the Python package's own version and this library never
  * invents one: it arrives from the spawn that is about to run, because the

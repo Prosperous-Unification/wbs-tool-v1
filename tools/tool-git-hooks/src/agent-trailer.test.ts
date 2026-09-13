@@ -23,7 +23,8 @@ type FixtureEnvironmentKey =
   | 'GIT_EDITOR'
   | 'HOME'
   | 'HOOK_TRACE'
-  | 'PATH';
+  | 'PATH'
+  | 'comment_prefix_auto';
 type FixtureEnvironment = Partial<Record<FixtureEnvironmentKey, string | undefined>>;
 
 const humanEnv: FixtureEnvironment = {
@@ -114,7 +115,7 @@ describe('agent trailer hook integration', () => {
     });
     expect(committed.stderr.toString()).toBe('');
     expect(committed.exitCode).toBe(0);
-    expect(stages(trace)).toEqual(['prepare-commit-msg', 'commit-msg']);
+    expect(stageRecords(trace)).toEqual(['prepare-commit-msg:present', 'commit-msg:present']);
     expect(body(git)).toContain('Agent-Authored-By: codex');
     expect(body(git)).not.toContain('Injected: yes');
   });
@@ -226,6 +227,16 @@ describe('agent trailer hook integration', () => {
   it('recognises a CRLF scissors line with a multi-character comment string', () => {
     const { agentEnv, git, repository } = makeRepository();
     expect(git(['config', 'core.commentString', '//'], humanEnv).exitCode).toBe(0);
+    const realGit = Bun.spawnSync(['sh', '-c', 'command -v git'], { env: humanEnv })
+      .stdout.toString()
+      .trim();
+    const fakeBin = join(repository, 'git-245-bin');
+    mkdirSync(fakeBin);
+    writeFileSync(
+      join(fakeBin, 'git'),
+      `#!/bin/sh\nif [ "\${1:-}" = version ]; then echo "git version 2.45.0"; exit 0; fi\nexec ${JSON.stringify(realGit)} "$@"\n`,
+    );
+    chmodSync(join(fakeBin, 'git'), 0o755);
     writeFileSync(join(repository, '.git', 'SQUASH_MSG'), 'generated squash subject\n');
     const message = join(repository, 'COMMIT_EDITMSG');
     writeFileSync(
@@ -234,12 +245,107 @@ describe('agent trailer hook integration', () => {
     );
     const result = Bun.spawnSync(['sh', hook, message], {
       cwd: repository,
-      env: agentEnv,
+      env: { ...agentEnv, PATH: `${fakeBin}:${humanEnv.PATH ?? ''}` },
       stderr: 'pipe',
       stdout: 'pipe',
     });
     expect(result.exitCode).toBe(0);
     expect(readFileSync(message, 'utf8')).not.toContain('Agent-Authored-By:');
+  });
+
+  it('uses the last configured comment setting and isolates auto mode from the environment', () => {
+    const { agentEnv, git, repository } = makeRepository();
+    expect(git(['config', 'core.commentString', '//'], humanEnv).exitCode).toBe(0);
+    expect(git(['config', 'core.commentChar', ';'], humanEnv).exitCode).toBe(0);
+    writeFileSync(join(repository, '.git', 'SQUASH_MSG'), 'generated squash subject\n');
+    const generated = join(repository, 'GENERATED_EDITMSG');
+    writeFileSync(
+      generated,
+      'generated squash subject\n\n; ------------------------ >8 ------------------------\ndiff --git a/a b/a\n',
+    );
+    expect(
+      Bun.spawnSync(['sh', hook, generated], {
+        cwd: repository,
+        env: agentEnv,
+      }).exitCode,
+    ).toBe(0);
+    expect(readFileSync(generated, 'utf8')).not.toContain('Agent-Authored-By:');
+
+    expect(git(['config', '--unset-all', 'core.commentChar'], humanEnv).exitCode).toBe(0);
+    expect(git(['config', '--unset-all', 'core.commentString'], humanEnv).exitCode).toBe(0);
+    expect(git(['config', 'core.commentChar', ';'], humanEnv).exitCode).toBe(0);
+    expect(git(['config', 'core.commentString', '//'], humanEnv).exitCode).toBe(0);
+    const realGit = Bun.spawnSync(['sh', '-c', 'command -v git'], { env: humanEnv })
+      .stdout.toString()
+      .trim();
+    const git244Bin = join(repository, 'git-244-bin');
+    mkdirSync(git244Bin);
+    writeFileSync(
+      join(git244Bin, 'git'),
+      `#!/bin/sh\nif [ "\${1:-}" = version ]; then echo "git version 2.44.0"; exit 0; fi\nexec ${JSON.stringify(realGit)} "$@"\n`,
+    );
+    chmodSync(join(git244Bin, 'git'), 0o755);
+    const charOnOldGit = join(repository, 'CHAR_OLD_GIT_EDITMSG');
+    writeFileSync(
+      charOnOldGit,
+      'generated squash subject\n\n; ------------------------ >8 ------------------------\ndiff --git a/a b/a\n',
+    );
+    expect(
+      Bun.spawnSync(['sh', hook, charOnOldGit], {
+        cwd: repository,
+        env: { ...agentEnv, PATH: `${git244Bin}:${humanEnv.PATH ?? ''}` },
+      }).exitCode,
+    ).toBe(0);
+    expect(readFileSync(charOnOldGit, 'utf8')).not.toContain('Agent-Authored-By:');
+
+    const git245Bin = join(repository, 'git-245-bin');
+    mkdirSync(git245Bin);
+    writeFileSync(
+      join(git245Bin, 'git'),
+      `#!/bin/sh\nif [ "\${1:-}" = version ]; then echo "git version 2.45.0"; exit 0; fi\nexec ${JSON.stringify(realGit)} "$@"\n`,
+    );
+    chmodSync(join(git245Bin, 'git'), 0o755);
+    const stringLast = join(repository, 'STRING_LAST_EDITMSG');
+    writeFileSync(
+      stringLast,
+      'generated squash subject\n\n// ------------------------ >8 ------------------------\ndiff --git a/a b/a\n',
+    );
+    expect(
+      Bun.spawnSync(['sh', hook, stringLast], {
+        cwd: repository,
+        env: { ...agentEnv, PATH: `${git245Bin}:${humanEnv.PATH ?? ''}` },
+      }).exitCode,
+    ).toBe(0);
+    expect(readFileSync(stringLast, 'utf8')).not.toContain('Agent-Authored-By:');
+
+    expect(git(['config', '--unset-all', 'core.commentString'], humanEnv).exitCode).toBe(0);
+    expect(git(['config', 'core.commentChar', 'auto'], humanEnv).exitCode).toBe(0);
+    const automatic = join(repository, 'AUTO_EDITMSG');
+    writeFileSync(
+      automatic,
+      'generated squash subject\n\n@ ------------------------ >8 ------------------------\ndiff --git a/a b/a\n',
+    );
+    expect(
+      Bun.spawnSync(['sh', hook, automatic], {
+        cwd: repository,
+        env: agentEnv,
+      }).exitCode,
+    ).toBe(0);
+    expect(readFileSync(automatic, 'utf8')).not.toContain('Agent-Authored-By:');
+
+    expect(git(['config', 'core.commentChar', '#'], humanEnv).exitCode).toBe(0);
+    const inherited = join(repository, 'INHERITED_AUTO_EDITMSG');
+    writeFileSync(
+      inherited,
+      'generated squash subject\n\n@ ------------------------ >8 ------------------------\ndiff --git a/a b/a\n',
+    );
+    expect(
+      Bun.spawnSync(['sh', hook, inherited], {
+        cwd: repository,
+        env: { ...agentEnv, comment_prefix_auto: '1' },
+      }).exitCode,
+    ).toBe(0);
+    expect(readFileSync(inherited, 'utf8')).toContain('Agent-Authored-By:');
   });
 
   it('appends the legacy fallback when no scissors marker exists and preserves a trailer block', () => {
@@ -252,7 +358,7 @@ describe('agent trailer hook integration', () => {
     mkdirSync(fakeBin);
     writeFileSync(
       join(fakeBin, 'git'),
-      `#!/bin/sh\nif [ "\${1:-}" = interpret-trailers ]; then exit 1; fi\nexec ${JSON.stringify(realGit)} "$@"\n`,
+      `#!/bin/sh\nif [ "\${1:-}" = version ]; then echo "git version 2.45.0"; exit 0; fi\nif [ "\${1:-}" = interpret-trailers ]; then exit 1; fi\nexec ${JSON.stringify(realGit)} "$@"\n`,
     );
     chmodSync(join(fakeBin, 'git'), 0o755);
     const message = join(repository, 'COMMIT_EDITMSG');
@@ -276,11 +382,54 @@ describe('agent trailer hook integration', () => {
     expect(readFileSync(plainMessage, 'utf8')).toBe(
       'fix: one-line conventional subject\n\nAgent-Authored-By: openai/gpt-5.6-sol\n',
     );
+
+    const offsetMessage = join(repository, 'OFFSET_COMMIT_EDITMSG');
+    writeFileSync(offsetMessage, '\n# template\n\nfix: offset conventional subject\n');
+    const offsetResult = Bun.spawnSync(['sh', hook, offsetMessage], {
+      cwd: repository,
+      env: { ...agentEnv, PATH: `${fakeBin}:${humanEnv.PATH ?? ''}` },
+    });
+    expect(offsetResult.exitCode).toBe(0);
+    expect(readFileSync(offsetMessage, 'utf8')).toEndWith(
+      'fix: offset conventional subject\n\nAgent-Authored-By: openai/gpt-5.6-sol\n',
+    );
   });
 
   it('places the legacy fallback above a CRLF multi-character scissors marker', () => {
     const { agentEnv, git, repository } = makeRepository();
     expect(git(['config', 'core.commentString', '//'], humanEnv).exitCode).toBe(0);
+    const realGit = Bun.spawnSync(['sh', '-c', 'command -v git'], { env: humanEnv })
+      .stdout.toString()
+      .trim();
+    const fakeBin = join(repository, 'fake-bin');
+    mkdirSync(fakeBin);
+    writeFileSync(
+      join(fakeBin, 'git'),
+      `#!/bin/sh\nif [ "\${1:-}" = version ]; then echo "git version 2.45.0"; exit 0; fi\nif [ "\${1:-}" = interpret-trailers ]; then exit 1; fi\nexec ${JSON.stringify(realGit)} "$@"\n`,
+    );
+    chmodSync(join(fakeBin, 'git'), 0o755);
+    const message = join(repository, 'COMMIT_EDITMSG');
+    writeFileSync(
+      message,
+      'fix: multi-prefix fallback\r\n// ------------------------ >8 ------------------------\r\ndiff --git a/a b/a\r\n',
+    );
+    const result = Bun.spawnSync(['sh', hook, message], {
+      cwd: repository,
+      env: { ...agentEnv, PATH: `${fakeBin}:${humanEnv.PATH ?? ''}` },
+    });
+    expect(result.exitCode).toBe(0);
+    const text = readFileSync(message, 'utf8');
+    expect(text.match(/^Agent-Authored-By:/gm)).toHaveLength(1);
+    expect(text).toStartWith(
+      'fix: multi-prefix fallback\r\n\r\nAgent-Authored-By: openai/gpt-5.6-sol\r\n// ------------------------ >8 ------------------------\r\n',
+    );
+    expect(text.indexOf('Agent-Authored-By:')).toBeLessThan(
+      text.indexOf('// ------------------------ >8'),
+    );
+  });
+
+  it('keeps fallback trailers together ahead of trailing whitespace and comments', () => {
+    const { agentEnv, repository } = makeRepository();
     const realGit = Bun.spawnSync(['sh', '-c', 'command -v git'], { env: humanEnv })
       .stdout.toString()
       .trim();
@@ -294,17 +443,16 @@ describe('agent trailer hook integration', () => {
     const message = join(repository, 'COMMIT_EDITMSG');
     writeFileSync(
       message,
-      'fix: multi-prefix fallback\r\n\r\n// ------------------------ >8 ------------------------\r\ndiff --git a/a b/a\r\n',
+      'fix: legacy message\n \nCo-Authored-By: Peer <peer@example.com>\n continuation\n\n# Please enter the commit message\n#\n',
     );
-    const result = Bun.spawnSync(['sh', hook, message], {
-      cwd: repository,
-      env: { ...agentEnv, PATH: `${fakeBin}:${humanEnv.PATH ?? ''}` },
-    });
-    expect(result.exitCode).toBe(0);
-    const text = readFileSync(message, 'utf8');
-    expect(text.match(/^Agent-Authored-By:/gm)).toHaveLength(1);
-    expect(text.indexOf('Agent-Authored-By:')).toBeLessThan(
-      text.indexOf('// ------------------------ >8'),
+    expect(
+      Bun.spawnSync(['sh', hook, message], {
+        cwd: repository,
+        env: { ...agentEnv, PATH: `${fakeBin}:${humanEnv.PATH ?? ''}` },
+      }).exitCode,
+    ).toBe(0);
+    expect(readFileSync(message, 'utf8')).toBe(
+      'fix: legacy message\n \nCo-Authored-By: Peer <peer@example.com>\n continuation\nAgent-Authored-By: openai/gpt-5.6-sol\n\n# Please enter the commit message\n#\n',
     );
   });
 
@@ -324,14 +472,21 @@ describe('agent trailer hook integration', () => {
       writeFileSync(join(fakeBin, failedTool), '#!/bin/sh\nexit 1\n');
       chmodSync(join(fakeBin, failedTool), 0o755);
       const message = join(repository, 'COMMIT_EDITMSG');
-      writeFileSync(message, 'fix: failure edge\n');
+      writeFileSync(
+        message,
+        failedTool === 'mktemp'
+          ? 'fix: failure edge\n# ------------------------ >8 ------------------------\ndiff --git a/a b/a\n'
+          : 'fix: failure edge\n',
+      );
       const result = Bun.spawnSync(['sh', hook, message], {
         cwd: repository,
         env: { ...agentEnv, PATH: `${fakeBin}:${humanEnv.PATH ?? ''}` },
       });
       expect(result.exitCode).toBe(0);
       if (failedTool === 'mktemp') {
-        expect(readFileSync(message, 'utf8')).toContain('Agent-Authored-By: openai/gpt-5.6-sol');
+        expect(readFileSync(message, 'utf8')).toStartWith(
+          'fix: failure edge\n\nAgent-Authored-By: openai/gpt-5.6-sol\n# ------------------------ >8',
+        );
       }
       expect(readdirSync(repository).some((name) => name.includes('.agent-trailer.'))).toBe(false);
     }
@@ -343,7 +498,7 @@ describe('agent trailer hook integration', () => {
     writeFileSync(join(repository, 'later'), 'later\n');
     expect(git(['add', 'later'], agentEnv).exitCode).toBe(0);
     expect(git(['commit', '-m', 'fix: later work'], agentEnv).exitCode).toBe(0);
-    expect(stages(trace)).toEqual(['prepare-commit-msg', 'commit-msg']);
+    expect(stageRecords(trace)).toEqual(['prepare-commit-msg:present', 'commit-msg:present']);
     expect(body(git)).toContain('Agent-Authored-By: openai/gpt-5.6-sol');
   });
 });

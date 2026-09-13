@@ -1357,5 +1357,21 @@ describe('setting a row’s status', () => {
         commands: [{ kind: 'setStatus', workItemId: 'w1', status: 'done', on: '2026-09-12' }],
       }),
     });
+
+    // And the day it began, when the completion prompt names one.
+    await api.setStatus('w1', 'done', '2026-09-12', '2026-09-08');
+    expect(fetched.mock.calls[2]?.[1]).toMatchObject({
+      body: JSON.stringify({
+        commands: [
+          {
+            kind: 'setStatus',
+            workItemId: 'w1',
+            status: 'done',
+            on: '2026-09-12',
+            factStart: '2026-09-08',
+          },
+        ],
+      }),
+    });
   });
 });

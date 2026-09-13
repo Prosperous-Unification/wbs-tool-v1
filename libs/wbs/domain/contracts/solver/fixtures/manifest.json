@@ -15,6 +15,18 @@
       "why": "2.11's own fixture on the wire: three serial slices at days=1, width=5. Real Fast finishes them at 28.8 units and each duration rounds up to 10, so baselineOffsets and fastHint are the 30-unit integers 0/10/20 and never real Fast's 9.6/19.2. Equal as maps, key-set equal to slices[].key, every offset <= horizonUnits."
     },
     {
+      "file": "request/valid-all-zero-milestone.json",
+      "branch": "request",
+      "valid": true,
+      "why": "Two zero-duration slices share one workItemKey and both declare the bidirectional group fact: an all-zero work item is a milestone. Both request consumers run this same oracle."
+    },
+    {
+      "file": "request/valid-positive-with-zero-steps.json",
+      "branch": "request",
+      "valid": true,
+      "why": "Leading, interior and trailing zero steps share a workItemKey with positive work, so every slice declares workItemIsMilestone false and every zero label belongs to the complete work-item projection."
+    },
+    {
       "file": "request/invalid-zero-width.json",
       "branch": "request",
       "valid": false,

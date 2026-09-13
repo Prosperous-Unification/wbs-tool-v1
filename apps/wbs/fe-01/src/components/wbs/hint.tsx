@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 
 import { type AnchorRect, type DiagonalAnchor, HoverCard } from '@/components/wbs/hover-card';
 
+import { type LeadTone, withLeadWord } from './lead-word';
+
 /**
  * The attribute a control carries its **tool hint** in, in place of a `title`.
  *
@@ -67,8 +69,7 @@ export const FACT_LEAD_ATTRIBUTE = 'data-fact-lead';
  * green color").
  */
 export const FACT_TONE_ATTRIBUTE = 'data-fact-tone';
-export type FactTone = 'done';
-const FACT_TONE_COLOR: Readonly<Record<FactTone, string>> = { done: 'var(--status-done)' };
+export type FactTone = LeadTone;
 const isFactTone = (value: string | null): value is FactTone => value === 'done';
 
 /**
@@ -301,24 +302,11 @@ function WaitRing({ at }: { at: RingAt }): React.JSX.Element {
  * same node-identity check the pointer path uses: a focus that lands on the
  * mark already being attended changes nothing.
  */
-/**
- * A fact's words with its lead drawn bold and, with a tone, in that tone's
- * colour; plain words for a mark that set no lead.
- */
+/** A fact's words with its lead drawn bold and toned — {@link withLeadWord}. */
 function factWords({ words, lead, tone }: OpenHint): React.ReactNode {
-  if (lead === null) return words;
-  const at = words.indexOf(lead);
-  return (
-    <>
-      {words.slice(0, at)}
-      <strong
-        data-fact-lead-word=""
-        style={tone === null ? undefined : { color: FACT_TONE_COLOR[tone] }}
-      >
-        {lead}
-      </strong>
-      {words.slice(at + lead.length)}
-    </>
+  return withLeadWord(
+    words,
+    lead === null ? null : { word: lead, ...(tone === null ? {} : { tone }) },
   );
 }
 

@@ -1440,11 +1440,13 @@ export interface ProjectApi {
   ): Promise<{ id: string }>;
   /**
    * Sets one work item's status as one act — `done` writes every step of it, or
-   * of every leaf beneath a parent, and fills an empty fact end with `on`;
-   * `unknown` takes every statement back. `on` is the reader's own calendar
-   * day, always sent (`use-plan-fields.ts` says why). One journal entry, one undo.
+   * of every leaf beneath a parent, fills an empty fact end with `on` and an
+   * empty fact start with `factStart`; `unknown` takes every statement back and
+   * both facts of a row that read done. `on` is the day the completion prompt
+   * confirmed, always sent (`use-plan-fields.ts` says why). One journal entry,
+   * one undo.
    */
-  setStatus(id: string, status: SettableStatus, on: IsoDate): Promise<void>;
+  setStatus(id: string, status: SettableStatus, on: IsoDate, factStart?: IsoDate): Promise<void>;
   patchWorkItem(
     id: string,
     patch: {
@@ -2577,8 +2579,14 @@ export function httpProjectApi(token: string): ProjectApi {
         workItemId: id,
       });
     },
-    async setStatus(id, status, on) {
-      await onRow(id, { kind: 'setStatus', workItemId: id, status, on });
+    async setStatus(id, status, on, factStart) {
+      await onRow(id, {
+        kind: 'setStatus',
+        workItemId: id,
+        status,
+        on,
+        ...(factStart === undefined ? {} : { factStart }),
+      });
     },
     async moveWorkItem(id, parentId, afterId) {
       await onRow(id, { kind: 'moveWorkItem', workItemId: id, parentId, afterId });

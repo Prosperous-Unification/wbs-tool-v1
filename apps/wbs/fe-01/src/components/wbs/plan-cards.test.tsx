@@ -40,9 +40,11 @@ import type {
   WorkItemView,
 } from '@/lib/wbs-api';
 import { DEFAULT_PERT_WEIGHTS_VIEW } from '@/lib/wbs-api';
+import { recordCalls } from '@/testing/record-calls';
 import { refusingApi } from '@/testing/refusing-api';
 import { planRead, sliceView } from '@/testing/views';
 
+import { isoToday } from './gantt-panel';
 import { refusedDraftFor, unsent } from './live-editing';
 import { type CardRowActionHandlers, PlanCards } from './plan-cards';
 import { shortIsoDate } from './short-date';
@@ -2293,6 +2295,29 @@ describe('typing a trio on a card, where the keypad has no slash', () => {
 describe('the ⋯ row-actions menu on a card in a running plan', () => {
   afterEach(cleanup);
 
+  itDom('offers Set status to Done, which asks for the day and then sends the mark', async () => {
+    const api = fakeApi();
+    await api.createWorkItem('p1', { parentId: null });
+    const sent = recordCalls(api, 'setStatus', (_id, status, on) => ({ status, on }));
+    widthIs(PHONE);
+    render(<WbsTable projectId="p1" api={api} />);
+    await screen.findByRole('article', { name: 'Work item 010' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for 010' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Set status to Done' }));
+
+    const prompt = await screen.findByRole('dialog', { name: 'Set 010 to Done' });
+    expect(sent).toEqual([]);
+    fireEvent.click(within(prompt).getByRole('button', { name: 'Set to Done' }));
+    await waitFor(() => {
+      expect(sent).toEqual([{ status: 'done', on: isoToday(new Date()) }]);
+    });
+
+    // The way back is `plan-structure.test.tsx`'s, on the table: this file's
+    // fake does not fold a status, so the menu here would keep offering the
+    // mark.
+  });
+
   itDom('duplicates a row through the table’s own handler', async () => {
     const api = fakeApi();
     await api.createWorkItem('p1', { parentId: null });
@@ -2345,8 +2370,13 @@ describe('the ⋯ row-actions menu on a card in a running plan', () => {
 
       fireEvent.click(screen.getByRole('button', { name: 'Actions for 010' }));
       const items = screen.getAllByRole('menuitem');
-      expect(items.map((item) => item.textContent)).toEqual(['Duplicate', 'Unfreeze', 'Delete']);
-      expect(items[2]).toHaveAttribute(
+      expect(items.map((item) => item.textContent)).toEqual([
+        'Set status to Done',
+        'Duplicate',
+        'Unfreeze',
+        'Delete',
+      ]);
+      expect(items[3]).toHaveAttribute(
         'data-fact',
         'Frozen — unfreeze this row before deleting it',
       );
@@ -2567,6 +2597,8 @@ const doNothingActions = (): CardRowActionHandlers => ({
   duplicate: () => undefined,
   unfreeze: () => undefined,
   remove: () => undefined,
+  markDone: () => undefined,
+  setUnknown: () => undefined,
 });
 
 describe('the ⋯ row-actions menu on a card', () => {
@@ -2581,6 +2613,7 @@ describe('the ⋯ row-actions menu on a card', () => {
     renderCards([aTreeRow()], doNothingActions());
     fireEvent.click(screen.getByRole('button', { name: 'Actions for 010' }));
     expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
+      'Set status to Done',
       'Duplicate',
       'Delete',
     ]);
@@ -2590,9 +2623,14 @@ describe('the ⋯ row-actions menu on a card', () => {
     renderCards([aTreeRow({ frozenNumber: '010' })], doNothingActions());
     fireEvent.click(screen.getByRole('button', { name: 'Actions for 010' }));
     const items = screen.getAllByRole('menuitem');
-    expect(items.map((item) => item.textContent)).toEqual(['Duplicate', 'Unfreeze', 'Delete']);
-    expect(items[2]).toHaveAttribute('data-fact', 'Frozen — unfreeze this row before deleting it');
-    expect(items[2]).toHaveAttribute('aria-disabled', 'true');
+    expect(items.map((item) => item.textContent)).toEqual([
+      'Set status to Done',
+      'Duplicate',
+      'Unfreeze',
+      'Delete',
+    ]);
+    expect(items[3]).toHaveAttribute('data-fact', 'Frozen — unfreeze this row before deleting it');
+    expect(items[3]).toHaveAttribute('aria-disabled', 'true');
   });
 
   itDom('does not delete a frozen row through the menu — the refusal actually refuses', () => {
@@ -2611,6 +2649,7 @@ describe('the ⋯ row-actions menu on a card', () => {
     let removed: TreeRow | null = null;
     const row = aTreeRow({ frozenNumber: '010' });
     renderCards([row], {
+      ...doNothingActions(),
       duplicate: (id) => taken.push(`duplicate:${id}`),
       unfreeze: (id) => taken.push(`unfreeze:${id}`),
       remove: (deleted) => {

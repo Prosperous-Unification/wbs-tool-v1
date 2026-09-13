@@ -1141,14 +1141,21 @@ function checkedAnswers(answers: Partial<ProjectApi>): Partial<ProjectApi> {
 
   const setStatusAnswer = answers.setStatus;
   if (setStatusAnswer !== undefined) {
-    checked.setStatus = (workItemId, status, on) =>
+    checked.setStatus = (workItemId, status, on, factStart) =>
       throughProjectCommand(
         FAKE_PROJECT_ID,
-        { kind: 'setStatus', workItemId, status, on },
+        {
+          kind: 'setStatus',
+          workItemId,
+          status,
+          on,
+          ...(factStart === undefined ? {} : { factStart }),
+        },
         // `on` off the call rather than off the normalised command: the wire
         // shape has it optional, this client always sends it, and the fake's
         // answer wants the day as a string.
-        (_normalizedProjectId, normalized) => setStatusAnswer(normalized.workItemId, status, on),
+        (_normalizedProjectId, normalized) =>
+          setStatusAnswer(normalized.workItemId, status, on, factStart),
         () => VOID_COMMAND_RESULT,
       );
   }

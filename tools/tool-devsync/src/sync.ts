@@ -52,6 +52,7 @@ const CONTAINER = 'wbs-dev-src';
 const LOCK = '/home/puni1/wbs-dev/state/devsync.lock';
 const CONFIG_MAX_BYTES = 256 * 1024;
 const PREPARATION_STATE_MAX_BYTES = 64 * 1024;
+const DIGEST_PINNED_IMAGE = /^[^\s@]+@sha256:[0-9a-f]{64}$/;
 const TARGET_ROOT = resolve(import.meta.dir, '../../..');
 export const LOCK_BUSY_EXIT_CODE = 75;
 
@@ -82,7 +83,7 @@ export function devSolverMappingOf(text: string): DevSolverMapping {
   );
   if (devRules.length !== 1) throw new Error('solver supervisor config needs one dev image rule');
   const image = (devRules[0] as Record<string, unknown>)['solverImage'];
-  if (typeof image !== 'string' || !/^[^\s@]+@sha256:[0-9a-f]{64}$/.test(image)) {
+  if (typeof image !== 'string' || !DIGEST_PINNED_IMAGE.test(image)) {
     throw new Error('solver supervisor config dev image is not digest-pinned');
   }
   return { sourceSha, image };
@@ -102,6 +103,60 @@ export interface SolverPreflightDependencies {
   requireHost(image: string): Promise<void>;
 }
 
+export interface SolverImageHostDependencies {
+  inspect(image: string): Promise<boolean>;
+  pull(image: string): Promise<void>;
+}
+
+export interface SolverHostPreflightDependencies {
+  requireImage(image: string): Promise<void>;
+  requireService(): Promise<void>;
+  requireSocket(): Promise<void>;
+  requireMapping(image: string, configPath: string): Promise<void>;
+}
+
+const SOLVER_IMAGE_HOST_DEPENDENCIES: SolverImageHostDependencies = {
+  inspect: async (image) => {
+    const inspection = await $`docker image inspect --format={{.Id}} ${image}`.quiet().nothrow();
+    return inspection.exitCode === 0;
+  },
+  pull: async (image) => {
+    await $`docker pull ${image}`;
+  },
+};
+
+/** Repairs one absent digest, then proves the supervisor's Docker daemon can resolve it. */
+export async function requireSolverImageInHost(
+  image: string,
+  dependencies: SolverImageHostDependencies = SOLVER_IMAGE_HOST_DEPENDENCIES,
+): Promise<void> {
+  // Proof: sync.test.ts injects a mutable tag and observes refusal before
+  // either Docker inspection or pull can begin.
+  if (!DIGEST_PINNED_IMAGE.test(image)) {
+    throw new Error('solver host image must be digest-pinned');
+  }
+  if (await dependencies.inspect(image)) return;
+  await dependencies.pull(image);
+  // Proof: sync.test.ts makes a pull return without installing the digest and
+  // observes refusal before the injected host preflight can continue.
+  if (!(await dependencies.inspect(image))) {
+    throw new Error(`solver host image is unavailable after pull: ${image}`);
+  }
+}
+
+const SOLVER_HOST_PREFLIGHT_DEPENDENCIES: SolverHostPreflightDependencies = {
+  requireImage: (image) => requireSolverImageInHost(image),
+  requireService: async () => {
+    await $`systemctl --user is-active --quiet ${SOLVER_SUPERVISOR_SERVICE}`;
+  },
+  requireSocket: async () => {
+    await $`test -S ${SOLVER_SUPERVISOR_SOCKET}`;
+  },
+  requireMapping: async (image, configPath) => {
+    await $`${SOLVER_SUPERVISOR_BUN} ${SOLVER_SUPERVISOR_BUNDLE.remote} --preflight=dev --config=${configPath} --solver-image=${image}`;
+  },
+};
+
 /** Lists compatibility inputs changed between two revisions in their owning repository. */
 async function changedSolverPathsIn(
   repository: string,
@@ -115,9 +170,10 @@ async function changedSolverPathsIn(
     .filter((path) => path !== '');
 }
 
-function solverPreflightDependencies(
+export function solverPreflightDependencies(
   repository: string,
   configPath: string,
+  host: SolverHostPreflightDependencies = SOLVER_HOST_PREFLIGHT_DEPENDENCIES,
 ): SolverPreflightDependencies {
   return {
     currentSha: async () => (await $`git -C ${repository} rev-parse HEAD`.text()).trim(),
@@ -128,16 +184,21 @@ function solverPreflightDependencies(
       return new Uint8Array(await file.slice(0, CONFIG_MAX_BYTES + 1).arrayBuffer());
     },
     requireHost: async (image) => {
-      await $`systemctl --user is-active --quiet ${SOLVER_SUPERVISOR_SERVICE}`;
-      await $`test -S ${SOLVER_SUPERVISOR_SOCKET}`;
-      await $`${SOLVER_SUPERVISOR_BUN} ${SOLVER_SUPERVISOR_BUNDLE.remote} --preflight=dev --config=${configPath} --solver-image=${image}`;
+      // A registry publish does not load the host daemon. Repairing the exact
+      // digest makes an absent image self-healing; a pull or final inspection
+      // refusal is emitted by the poller instead of remaining in the user
+      // service journal until the next optimization request.
+      await host.requireImage(image);
+      await host.requireService();
+      await host.requireSocket();
+      await host.requireMapping(image, configPath);
     },
   };
 }
 
 const SOLVER_PREFLIGHT_DEPENDENCIES = solverPreflightDependencies(SRC, SOLVER_SUPERVISOR_CONFIG);
 
-/** Solver host state is a deploy prerequisite only when its compatibility inputs move. */
+/** Skips an unconfigured steady-state host; once configured, verifies host state on every deploy. */
 export async function preflightSolver(
   sha: string,
   dependencies: SolverPreflightDependencies = SOLVER_PREFLIGHT_DEPENDENCIES,
@@ -161,8 +222,9 @@ export async function preflightSolver(
   const changed = await dependencies.changedPaths(mapping.sourceSha, sha);
   assertDevSolverSourceCompatible(changed);
   // Proof: sync.test.ts stages a future mapping before an unrelated target and
-  // observes refusal before its injected host preflight can run.
-  if (targetChanges.length === 0) return;
+  // observes refusal before its injected host preflight can run. A compatible
+  // mapping is checked even for an unrelated target so the next deploy
+  // repairs or reports an image pruned after preparation.
   await dependencies.requireHost(mapping.image);
 }
 

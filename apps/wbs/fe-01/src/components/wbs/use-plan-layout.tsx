@@ -701,16 +701,27 @@ export function usePlanLayout({
    * change width under a reader who was only scrolling.
    */
   const hasAnyNotBefore = flat.some((row) => row.startNoEarlierThan !== null);
+  // The number's dotted segments are its depth — be-01's `deriveNumbers` adds
+  // one per level — so the deepest row is the most-dotted number, collapsed
+  // or not. Read here rather than off `row.depth`, which only the rows on
+  // screen have.
+  const deepestDepth = flat.reduce(
+    (deepest, row) => Math.max(deepest, row.number.split('.').length - 1),
+    0,
+  );
+  const numberingFrozen = flat.some((row) => row.frozenNumber !== null);
   const frameState = useMemo<FrameLayoutState>(
     () => ({
       hasAnyNotBefore,
-      // The reader's own answer, which outranks whatever the fact above resolves
+      deepestDepth,
+      numberingFrozen,
+      // The reader's own answer, which outranks whatever the facts above resolve
       // to. Built here rather than passed to each consumer, so the `<colgroup>`,
       // both minimums and the pinned offsets cannot be answers to two different
       // questions.
       columnWidthOverrides: widthOverrides,
     }),
-    [hasAnyNotBefore, widthOverrides],
+    [hasAnyNotBefore, deepestDepth, numberingFrozen, widthOverrides],
   );
 
   /** What the resize handles on the heading row do with the widths they work out. */

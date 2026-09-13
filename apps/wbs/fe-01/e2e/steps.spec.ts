@@ -199,10 +199,11 @@ test.describe('the steps surface, in a browser', () => {
     // 1343 → 1303 with contextual Links: a fresh plan has no references, so
     // its base layout no longer pays the Links column's 40px folded width. The
     // narrower drag column then takes the current 8px, 1303 → 1295. **1295 →
-    // 1260 on 2026-09-13**: the day's compaction took 59px off the fixed set
-    // this fixture shows (67 less the hidden Links column's 8) and the folded
-    // step column grew 96 → 104, three times over.
-    await expect(page.getByText('3 steps need ≥1260px of width to sit side by side')).toBeVisible();
+    // 1230 on 2026-09-13**: the day's compaction took 59px off the fixed set
+    // this fixture shows (67 less the hidden Links column's 8), the folded
+    // step column grew 96 → 104, three times over, and the Number column
+    // reads its 68px shallow width on a plan with no third level.
+    await expect(page.getByText('3 steps need ≥1230px of width to sit side by side')).toBeVisible();
     await page.keyboard.press('Escape');
 
     const threeSteps = await columnsOnScreen(page);

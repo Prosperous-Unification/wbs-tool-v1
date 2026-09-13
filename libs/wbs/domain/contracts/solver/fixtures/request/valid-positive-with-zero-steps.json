@@ -1,0 +1,93 @@
+{
+  "baselineOffsets": {
+    "work\u0000leading": 0,
+    "work\u0000dev": 0,
+    "work\u0000interior": 48,
+    "work\u0000finish": 48,
+    "work\u0000trailing": 96
+  },
+  "budgetMs": 30000,
+  "contractVersion": "10+0.1.3",
+  "edges": [
+    { "predecessorKey": "work\u0000leading", "successorKey": "work\u0000dev" },
+    { "predecessorKey": "work\u0000dev", "successorKey": "work\u0000interior" },
+    { "predecessorKey": "work\u0000interior", "successorKey": "work\u0000finish" },
+    { "predecessorKey": "work\u0000finish", "successorKey": "work\u0000trailing" }
+  ],
+  "fastHint": {
+    "work\u0000leading": 0,
+    "work\u0000dev": 0,
+    "work\u0000interior": 48,
+    "work\u0000finish": 48,
+    "work\u0000trailing": 96
+  },
+  "horizonUnits": 96,
+  "objective": "pri",
+  "pools": {},
+  "quantum": 48,
+  "slices": [
+    {
+      "deadlineUnits": null,
+      "workItemIsMilestone": false,
+      "durationUnits": 0,
+      "workItemKey": "work",
+      "key": "work\u0000leading",
+      "notBeforeUnits": 0,
+      "personId": null,
+      "poolIds": [],
+      "priorityWeight": 0,
+      "width": 1
+    },
+    {
+      "deadlineUnits": null,
+      "workItemIsMilestone": false,
+      "durationUnits": 48,
+      "workItemKey": "work",
+      "key": "work\u0000dev",
+      "notBeforeUnits": 0,
+      "personId": null,
+      "poolIds": [],
+      "priorityWeight": 0,
+      "width": 1
+    },
+    {
+      "deadlineUnits": null,
+      "workItemIsMilestone": false,
+      "durationUnits": 0,
+      "workItemKey": "work",
+      "key": "work\u0000interior",
+      "notBeforeUnits": 0,
+      "personId": null,
+      "poolIds": [],
+      "priorityWeight": 0,
+      "width": 1
+    },
+    {
+      "deadlineUnits": null,
+      "workItemIsMilestone": false,
+      "durationUnits": 48,
+      "workItemKey": "work",
+      "key": "work\u0000finish",
+      "notBeforeUnits": 0,
+      "personId": null,
+      "poolIds": [],
+      "priorityWeight": 0,
+      "width": 1
+    },
+    {
+      "deadlineUnits": null,
+      "workItemIsMilestone": false,
+      "durationUnits": 0,
+      "workItemKey": "work",
+      "key": "work\u0000trailing",
+      "notBeforeUnits": 0,
+      "personId": null,
+      "poolIds": [],
+      "priorityWeight": 0,
+      "width": 1
+    }
+  ],
+  "solverVersion": "0.1.3",
+  "stageBudgetSplit": [0.6, 0.25, 0.15],
+  "wireVersion": 1
+}

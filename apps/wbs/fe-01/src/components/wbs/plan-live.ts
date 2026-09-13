@@ -91,7 +91,12 @@ export interface PlanLiveValues {
    * only through the completion prompt, which is where the day comes from;
    * `unknown` sends the reader's day and be-01 ignores it.
    */
-  setStatus: (id: string, status: SettableStatus, on: IsoDate) => Promise<CommitOutcome>;
+  setStatus: (
+    id: string,
+    status: SettableStatus,
+    on: IsoDate,
+    factStart?: IsoDate,
+  ) => Promise<CommitOutcome>;
   /** Opens the completion prompt over a row: `Done` is asked about before it is written. */
   openCompletionPrompt: (rowId: string) => void;
   setPriority: (id: string, typed: string) => Promise<CommitOutcome>;

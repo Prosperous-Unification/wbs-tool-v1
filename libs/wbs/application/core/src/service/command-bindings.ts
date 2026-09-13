@@ -319,6 +319,7 @@ export function bindCommands(graph: PlanCommandServices): CommandBindings {
           context.actorId,
           command.status,
           command.on,
+          command.factStart,
         ),
       );
       return { ...context.plain(), kind: command.kind };

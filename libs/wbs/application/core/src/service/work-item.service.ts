@@ -3352,18 +3352,20 @@ export class WorkItemService {
    * `done` writes `done` on every step of the project for the leaf, or for
    * every leaf beneath a parent; a step already saying so is left alone. Every
    * work item the act speaks for — the leaves and, for a parent, the parent
-   * itself — takes `on` as its fact end when it holds none, and a typed fact end
-   * is never overwritten. `on` absent, the day is the UTC day of this act's own
-   * stamp ({@link isoDateOfInstant}): one clock read, never a second `now()`.
+   * itself — takes `on` as its fact end when it holds none, and `factStart`,
+   * when given, as its fact start when it holds none; a typed day is never
+   * overwritten. `on` absent, the day is the UTC day of this act's own stamp
+   * ({@link isoDateOfInstant}): one clock read, never a second `now()`.
    *
    * `unknown` takes every statement off every leaf in scope and, off every
    * in-scope work item that **read done** before the act — the leaves and the
-   * row itself — takes the fact end away too: a finish that is unmarked did not
-   * happen, and the day it happened on goes with it (`status-at-a-glance`).
-   * Which rows read done is the read's own fold over the statements as they
-   * stood, never a stored flag. A typed fact end on a row that was in progress
-   * or unknown stands, as does every fact start: clearing a status says nobody
-   * has spoken, not that the planner's records were wrong.
+   * row itself — takes both facts away too: a finish that is unmarked did not
+   * happen, and the days it began and ended on go with it (`status-at-a-glance`,
+   * then Dany on 2026-09-13: "when from done -> unknown clear fact start and
+   * fact end"). Which rows read done is the read's own fold over the statements
+   * as they stood, never a stored flag. The facts of a row that was in progress
+   * or unknown stand: clearing a status says nobody has spoken, not that the
+   * planner's records were wrong.
    *
    * **One journal entry.** Two or more steps are recorded as one `batch` whose
    * inverse walks them backwards, so one undo puts every prior statement back —
@@ -3396,6 +3398,7 @@ export class WorkItemService {
     actorId: string,
     status: SettableStatus,
     on?: IsoDate,
+    factStart?: IsoDate,
   ): Promise<WorkItemOutcome<null>> {
     const context = await this.contextFor(id, actorId);
     if (!context.ok) return context;
@@ -3427,10 +3430,22 @@ export class WorkItemService {
       for (const spokenFor of new Set([...leaves, id])) {
         const row = rowsById.get(spokenFor);
         if (row === undefined) throw new Error(`${spokenFor} is not a row of this project`);
-        if (row.factEnd !== null) continue;
+        // The two fills, each only where the row holds nothing: a typed day is
+        // the planner's record and is never overwritten by a mark.
+        const fill: { factEnd?: IsoDate; factStart?: IsoDate } = {};
+        if (row.factEnd === null) fill.factEnd = day;
+        if (factStart !== undefined && row.factStart === null) fill.factStart = factStart;
+        if (Object.keys(fill).length === 0) continue;
         steps.push({
-          forward: { do: 'patch', workItemId: spokenFor, patch: { factEnd: day } },
-          inverse: { do: 'patch', workItemId: spokenFor, patch: { factEnd: null } },
+          forward: { do: 'patch', workItemId: spokenFor, patch: fill },
+          inverse: {
+            do: 'patch',
+            workItemId: spokenFor,
+            patch: {
+              ...(fill.factEnd === undefined ? {} : { factEnd: null }),
+              ...(fill.factStart === undefined ? {} : { factStart: null }),
+            },
+          },
         });
       }
     } else {
@@ -3469,10 +3484,24 @@ export class WorkItemService {
         // leaves its typed fact end` fails on `Expected: "2026-09-10" /
         // Received: null` — an in-progress row's typed day taken as if the
         // finish it records had been unmarked; watched 2026-09-13.
-        if (wasDone.get(spokenFor) !== 'done' || row.factEnd === null) continue;
+        if (wasDone.get(spokenFor) !== 'done') continue;
+        // Both facts go with the statements (Dany, 2026-09-13: "when from done
+        // -> unknown clear fact start and fact end"): a finish that is unmarked
+        // did not happen, and the days it began and ended on go with it.
+        const clear: { factEnd?: null; factStart?: null } = {};
+        const before: { factEnd?: IsoDate; factStart?: IsoDate } = {};
+        if (row.factEnd !== null) {
+          clear.factEnd = null;
+          before.factEnd = row.factEnd;
+        }
+        if (row.factStart !== null) {
+          clear.factStart = null;
+          before.factStart = row.factStart;
+        }
+        if (Object.keys(clear).length === 0) continue;
         steps.push({
-          forward: { do: 'patch', workItemId: spokenFor, patch: { factEnd: null } },
-          inverse: { do: 'patch', workItemId: spokenFor, patch: { factEnd: row.factEnd } },
+          forward: { do: 'patch', workItemId: spokenFor, patch: clear },
+          inverse: { do: 'patch', workItemId: spokenFor, patch: before },
         });
       }
     }

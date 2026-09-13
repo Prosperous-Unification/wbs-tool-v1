@@ -341,7 +341,14 @@ export function forgetGanttHeight(projectId: string): void {
  * `table-frame.test.ts`'s `has a floor that does not move with the plan` is
  * what holds that true.
  */
-export const STATE_AT_MOUNT: FrameLayoutState = { hasAnyNotBefore: false };
+export const STATE_AT_MOUNT: FrameLayoutState = {
+  hasAnyNotBefore: false,
+  // The Number column's two states (68/98) share `NARROWEST_COLUMN`'s 36px
+  // floor exactly as `not-before`'s do, so the mount state may say "shallow"
+  // without knowing the plan.
+  deepestDepth: 0,
+  numberingFrozen: false,
+};
 
 /**
  * Whether a value read back out of storage is a set of column widths at all.

@@ -21,6 +21,16 @@ export interface FrameLayoutState {
   /** Whether any row in the project sets an earliest start. */
   hasAnyNotBefore: boolean;
   /**
+   * How many levels below a root the deepest row of the **project** sits: 0
+   * for a plan of roots alone, 1 where `170.1` is as deep as it goes, 2 at
+   * `170.1.1`. Read off the numbers' dotted segments in `use-plan-layout.tsx`,
+   * over every row and not the rows on screen, so a collapsed branch still
+   * counts — the Number column is sized by it ({@link NUMBER_SHALLOW_WIDTH}).
+   */
+  deepestDepth: number;
+  /** Whether any row's number is frozen, and so wears the lock the Number column has to hold. */
+  numberingFrozen: boolean;
+  /**
    * The widths this browser was told by a drag, by the column's **own** id —
    * `<stepId>-final` for a folded step — or absent where nothing has been
    * dragged.
@@ -202,51 +212,6 @@ const COLUMN_WIDTHS = new Map<string, number>([
   // The handle and nothing else. 28 was room for a handle and a hover target;
   // the glyph is the hover target.
   ['drag', 16],
-  // {@link NUMBER_ENVELOPE} says what this number is sized to hold, and
-  // `e2e/layout.spec.ts`'s `the Number column fits its envelope` is the
-  // browser that picked it. It is not a guess at the longest number — there is
-  // no longest number.
-  //
-  // 169 → 93 in `column-rebalance`, because the envelope itself shrank: it was
-  // eleven characters at the deepest indent, which is a row almost no plan
-  // has, and it is two levels of number at a two-level row's indent now.
-  // Chromium measures 92.5625px of that — 12px of indent, a 12.5px expander, a
-  // 20px lock, five characters of number and the cell's 8px of padding.
-  //
-  // **93 → 105 in `number-column-widen`.** The envelope's *contract* did not
-  // move — still `NUMBER_ENVELOPE_LEVELS`' two levels — but `table-width-budget`
-  // (#62) found what the contract's own slack was hiding: read character by
-  // character, `010.1.1.1.1` and `010.1.1.1.1.1` both draw `010.1.1.1.`, so a
-  // row and its own child read as the same number at depth 5. One
-  // `INDENT_STEP` (12px) buys the column back to depth 6/7 — Dany's call,
-  // 2026-08-16, the reversible one of the two design.md D4 offered: eliding
-  // from the head holds at every depth but changes how every clipped number
-  // in the product reads, so it stays available as a later change rather than
-  // being smuggled into this one. Affordable: two folded steps at 1280 go
-  // 1219 → 1231 against a 1248px frame, 12 of the 29px of measured slack.
-  //
-  // **105 → 102 and back to 105, on 2026-08-31.** The `refs` column's 40px was
-  // taken from here first, and this is where it must not come from: at 102 the
-  // column still holds `number-column-widen`'s depth-5 guarantee, but every
-  // pixel taken here is a pixel off the Name column — Name at 1280 with two
-  // steps folded is what the frame leaves — and 102 put Name exactly on its
-  // floor. At 85 and 96 this column broke the guarantee outright: a row and its
-  // own child both drew `030.1.1.`, the 2026-08-12 fault two levels shallower
-  // than `number-column-widen` left it.
-  //
-  // Measured width by width in Chromium, the two ends do not meet: the depth-5
-  // requirement needs **≥ 98** here and the Name column's own assertions need
-  // **≤ 96**. There is no width of this column that is green, so the 40px is
-  // not raised here at all — it comes off `depends`, whose entry below carries
-  // the measurement. Neither this width nor {@link FLEXIBLE_FLOOR} moved in the
-  // end, which is why the depth cases and the Name cases are all green.
-  //
-  // **105 → 98 on 2026-09-13**, the whole of what the depth-5 guarantee above
-  // leaves: Dany asked for every column narrower ("especially - number"), and
-  // 98 is the floor that guarantee was measured at. The Name column no longer
-  // needs the ≤ 96 — every other cut of the same day gave it 60px of room — so
-  // the two ends meet at last, on the one number that was always the floor.
-  ['number', 98],
   // The external-ref marks, and the narrowest column in the table that is not a
   // control. 40px is 32px of mark room plus the 8px of padding the declared
   // width includes — four 6px marks with 2px between them is 30, so the fourth
@@ -446,6 +411,81 @@ const COLUMN_WIDTHS = new Map<string, number>([
 ]);
 
 /**
+ * The Number column's width for a plan with no row deeper than `170.1` and no
+ * frozen number, in px — the state every fresh plan is in, and the one Dany
+ * photographed on 2026-09-13 ("why # column is still so wide by default … it
+ * does not need to be").
+ *
+ * The widest number such a plan draws is a depth-1 leaf with a two-digit
+ * child index, `170.10`: the cell's 4px of padding, {@link numberIndentFor}'s
+ * 12px indent, the {@link CARET_GUTTER_PX} gutter every row carries, six
+ * characters of the number at the grid's 13px — Chromium drew `170.1`'s five
+ * at 27.5px on 2026-09-13, so six are 33 — and 4px of padding: 65. 68 leaves
+ * three pixels, and is 30 narrower than {@link NUMBER_DEEP_WIDTH}, which the
+ * column falls back to the moment the plan grows a third level or a lock.
+ *
+ * A width that is a fact about the plan, like `not-before`'s, and the doc on
+ * {@link NUMBER_ENVELOPE} says why this column resisted being one: sized to the
+ * longest **number** it would move every row the moment one deep row was
+ * inserted. Depth is coarser — two states, and the second is today's width —
+ * and the shift happens on the two gestures that visibly change what the
+ * column holds: adding a third level, or pressing `Freeze #`.
+ */
+const NUMBER_SHALLOW_WIDTH = 68;
+
+/**
+ * The Number column's width once the plan has a third level or a frozen number,
+ * in px — {@link COLUMN_WIDTHS}' `number` figure until 2026-09-13, with the
+ * history that picked it:
+ *
+ * {@link NUMBER_ENVELOPE} says what this number is sized to hold, and
+ * `e2e/layout.spec.ts`'s `the Number column fits its envelope` is the
+ * browser that picked it. It is not a guess at the longest number — there is
+ * no longest number.
+ *
+ * 169 → 93 in `column-rebalance`, because the envelope itself shrank: it was
+ * eleven characters at the deepest indent, which is a row almost no plan
+ * has, and it is two levels of number at a two-level row's indent now.
+ * Chromium measures 92.5625px of that — 12px of indent, a 12.5px expander, a
+ * 20px lock, five characters of number and the cell's 8px of padding.
+ *
+ * **93 → 105 in `number-column-widen`.** The envelope's *contract* did not
+ * move — still `NUMBER_ENVELOPE_LEVELS`' two levels — but `table-width-budget`
+ * (#62) found what the contract's own slack was hiding: read character by
+ * character, `010.1.1.1.1` and `010.1.1.1.1.1` both draw `010.1.1.1.`, so a
+ * row and its own child read as the same number at depth 5. One
+ * `INDENT_STEP` (12px) buys the column back to depth 6/7 — Dany's call,
+ * 2026-08-16, the reversible one of the two design.md D4 offered: eliding
+ * from the head holds at every depth but changes how every clipped number
+ * in the product reads, so it stays available as a later change rather than
+ * being smuggled into this one. Affordable: two folded steps at 1280 go
+ * 1219 → 1231 against a 1248px frame, 12 of the 29px of measured slack.
+ *
+ * **105 → 102 and back to 105, on 2026-08-31.** The `refs` column's 40px was
+ * taken from here first, and this is where it must not come from: at 102 the
+ * column still holds `number-column-widen`'s depth-5 guarantee, but every
+ * pixel taken here is a pixel off the Name column — Name at 1280 with two
+ * steps folded is what the frame leaves — and 102 put Name exactly on its
+ * floor. At 85 and 96 this column broke the guarantee outright: a row and its
+ * own child both drew `030.1.1.`, the 2026-08-12 fault two levels shallower
+ * than `number-column-widen` left it.
+ *
+ * Measured width by width in Chromium, the two ends do not meet: the depth-5
+ * requirement needs **≥ 98** here and the Name column's own assertions need
+ * **≤ 96**. There is no width of this column that is green, so the 40px is
+ * not raised here at all — it comes off `depends`, whose entry below carries
+ * the measurement. Neither this width nor {@link FLEXIBLE_FLOOR} moved in the
+ * end, which is why the depth cases and the Name cases are all green.
+ *
+ * **105 → 98 on 2026-09-13**, the whole of what the depth-5 guarantee above
+ * leaves: Dany asked for every column narrower ("especially - number"), and
+ * 98 is the floor that guarantee was measured at. The Name column no longer
+ * needs the ≤ 96 — every other cut of the same day gave it 60px of room — so
+ * the two ends meet at last, on the one number that was always the floor.
+ */
+const NUMBER_DEEP_WIDTH = 98;
+
+/**
  * The earliest-start column's width where at least one row in the project sets
  * a day, in px.
  *
@@ -483,12 +523,25 @@ export const DATE_EDITOR_WIDTH = 138;
  * Every column whose width is a fact about the plan, by fixed id.
  *
  * A function of {@link FrameLayoutState} rather than a number, so what a width
- * may depend on is stated in one place and read in one place. The
- * earliest-start column is the only one of them; the reader's own overrides are
- * the other half of the same state, and they outrank whatever this resolves —
- * see {@link widthFor}.
+ * may depend on is stated in one place and read in one place. Two of them
+ * since 2026-09-13 — the Number column joined the earliest-start column; the
+ * reader's own overrides are the other half of the same state, and they
+ * outrank whatever this resolves — see {@link widthFor}.
  */
 const PLAN_WIDTHS = new Map<string, (state: FrameLayoutState) => number>([
+  // Deep or frozen, the width the depth-5 guarantee and the lock were measured
+  // at; otherwise the shallow one. See {@link NUMBER_SHALLOW_WIDTH}.
+  // Proof: this arm made to answer the shallow width whatever the plan says —
+  // `is 68px until the plan has a third level or a frozen number, and 98px
+  // from then on` failed on `expected { number: 68 } to deeply equal { number:
+  // 98 }` and `moves the whole table and every pin behind it by exactly that
+  // difference` on `expected +0 to be 30`; 2 failed | 49 passed. Watched
+  // 2026-09-13.
+  [
+    'number',
+    (state) =>
+      state.numberingFrozen || state.deepestDepth >= 2 ? NUMBER_DEEP_WIDTH : NUMBER_SHALLOW_WIDTH,
+  ],
   ['not-before', (state) => (state.hasAnyNotBefore ? NOT_BEFORE_WITH_DAYS : NOT_BEFORE_EMPTY)],
 ]);
 

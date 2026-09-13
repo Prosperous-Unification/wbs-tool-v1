@@ -1341,7 +1341,7 @@ describe('a step changing, and what the table does about it', () => {
     // still in the table's header. Watched, 2026-08-09.
     await oneRow();
     unfoldStep('QA');
-    expect(screen.getByRole('table').style.minWidth).toBe('1408px');
+    expect(screen.getByRole('table').style.minWidth).toBe('1378px');
 
     await removeStep('QA');
 
@@ -1349,7 +1349,7 @@ describe('a step changing, and what the table does about it', () => {
     // `number-column-widen` and then `external-refs`, 879 → 855 on 2026-08-31,
     // then 815 when Links joined the initial hide-list and 807 when the drag
     // column narrowed by 8px), 200 for Name, 96 for it.
-    expect(screen.getByRole('table').style.minWidth).toBe('1052px');
+    expect(screen.getByRole('table').style.minWidth).toBe('1022px');
     expect(screen.queryByLabelText('QA optimistic for 010')).toBeNull();
   });
 

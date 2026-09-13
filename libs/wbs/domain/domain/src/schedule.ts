@@ -2,7 +2,7 @@ import { ASSUMED_SLICE_WORKDAYS } from './assumed-duration';
 import type { DependencyReach } from './dependency-reach';
 import type { PlannedRow } from './derive-numbers';
 import { leafDeadlinesOf, leafFloorsOf } from './leaf-constraints';
-import { workdaysLateBy } from './on-time';
+import { WORK_ITEM_PROJECTION_START, workdaysLateBy } from './on-time';
 import { sliceGraphEdges } from './slice-edges';
 import { groupSlicesByLeaf } from './slice-groups';
 import { treeOrder } from './tree-order';
@@ -593,6 +593,28 @@ function groupByWorkItem(
 export function durationOf(slice: Slice): number {
   if (slice.days === null) return ASSUMED_SLICE_WORKDAYS;
   return slice.days / slice.width;
+}
+
+/**
+ * Work-item identities whose supplied durations contain positive work.
+ *
+ * The grouping is shared by Fast and the solver wire, but the duration space
+ * is deliberately supplied by the caller. Fast passes real workdays; the wire
+ * passes integer solver units after snapping and rounding. A sub-drift positive
+ * estimate can consequently be a real-domain span and a quantised milestone,
+ * which is the honest contract for the two models rather than an accidental
+ * second implementation of this grouping rule.
+ */
+export function workItemIdsWithPositiveDuration(
+  slices: readonly Slice[],
+  durations: readonly number[],
+): ReadonlySet<string> {
+  // Proof: removing this precondition made `requires one supplied duration per
+  // slice` accept a truncated duration vector; watched on h2puni 2026-09-13.
+  if (slices.length !== durations.length) {
+    throw new Error('positive-duration classification requires one duration per slice');
+  }
+  return new Set(slices.filter((_, at) => durations[at] > 0).map((slice) => slice.workItemId));
 }
 
 /**
@@ -2328,8 +2350,10 @@ export function schedule(
     if (nodes.length > first) firstNode.set(leafId, first);
   }
 
-  const workItemsWithDuration = new Set(
-    nodes.filter((node) => durationOf(node.slice) > 0).map((node) => node.slice.workItemId),
+  const nodeSlices = nodes.map((node) => node.slice);
+  const workItemsWithDuration = workItemIdsWithPositiveDuration(
+    nodeSlices,
+    nodeSlices.map(durationOf),
   );
 
   /**
@@ -2565,6 +2589,13 @@ export function schedule(
   const scheduledSlices = new Map<string, ScheduledSlice>();
   const waiting = new Set<string>();
   const waitingOnSlots = new Set<string>();
+  const projectionFinishes = Array.from({ length: items }, () => 0);
+  nodes.forEach((node, at) => {
+    projectionFinishes[node.item] = Math.max(
+      projectionFinishes[node.item],
+      leveled.placed[at].finish,
+    );
+  });
   nodes.forEach((node, at) => {
     const { slice } = node;
     const placed = leveled.placed[at];
@@ -2578,19 +2609,24 @@ export function schedule(
     const deadlineOffset = leafDeadlines.get(slice.workItemId);
     // `workdaysLateBy` answers 0 for "met it", and the field says `null` — one
     // narrowing here rather than a truthiness check in every reader.
-    // The deadline constrains the work-item projection, not every step as a
-    // fresh point. A trailing zero step at the positive span's exact end is on
-    // the same final day as that span. Only a genuinely all-zero work item uses
-    // the point's own start so the day on which its milestone stands counts.
-    // Proof: forcing every slice to use `placed.start` made
-    // `reads trailing zero steps from the positive work-item span but all-zero
-    // items as points` report the trailing QA step late by 1; watched on
-    // h2puni 2026-09-09.
-    const deadlineStart = workItemsWithDuration.has(slice.workItemId) ? 0 : placed.start;
+    // The deadline constrains the work-item projection, not every zero step as
+    // a fresh point. Leading, interior and trailing zero steps of a positive
+    // item therefore read the item's final finish. Only a genuinely all-zero
+    // work item uses the point's own start so the day on which it stands counts.
+    // Proof: replacing a positive item's final finish with each zero step's own
+    // `placed.finish` made `reads every zero step from the positive work-item
+    // projection but all-zero items as points` report the leading step on time
+    // instead of late by 1; watched on h2puni 2026-09-13.
+    const hasPositiveDuration = workItemsWithDuration.has(slice.workItemId);
+    const deadlineStart = hasPositiveDuration ? WORK_ITEM_PROJECTION_START : placed.start;
+    const deadlineFinish =
+      hasPositiveDuration && durationOf(slice) === 0
+        ? projectionFinishes[node.item]
+        : placed.finish;
     const missed =
       deadlineOffset === undefined
         ? 0
-        : workdaysLateBy(deadlineStart, placed.finish, deadlineOffset);
+        : workdaysLateBy(deadlineStart, deadlineFinish, deadlineOffset);
     if (placed.boundBy === 'person') waiting.add(slice.workItemId);
     // Beside the person's count, never folded into it: "waiting for a person"
     // and "waiting for a slot" are different sentences, and `boundBy` names

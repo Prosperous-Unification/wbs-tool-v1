@@ -1140,12 +1140,20 @@ export function WbsTable({
    * patch is skipped after a refusal: nothing landed for it to correct.
    */
   const confirmCompletion = useCallback(
-    async (id: string, day: string, heldFactEnd: string | null): Promise<void> => {
-      const outcome = await setStatus(id, 'done', day);
+    async (
+      id: string,
+      started: string,
+      finished: string,
+      held: { factStart: string | null; factEnd: string | null },
+    ): Promise<void> => {
+      const outcome = await setStatus(id, 'done', finished, started);
       if (outcome !== 'landed') return;
-      if (heldFactEnd !== null && heldFactEnd !== day) setFactEnd(id, day);
+      // `setStatus` fills the two facts only where the row held none, so a held
+      // day the reader changed in the prompt follows as a patch of its own.
+      if (held.factEnd !== null && held.factEnd !== finished) setFactEnd(id, finished);
+      if (held.factStart !== null && held.factStart !== started) setFactStart(id, started);
     },
-    [setFactEnd, setStatus],
+    [setFactEnd, setFactStart, setStatus],
   );
   const {
     setTeamOf,
@@ -2236,6 +2244,10 @@ export function WbsTable({
             remove: (row) => {
               void deleteRow(row);
             },
+            markDone: setCompletionFor,
+            setUnknown: (rowId) => {
+              void setStatus(rowId, 'unknown', isoToday(new Date()));
+            },
           }}
         />
       ) : (
@@ -2656,14 +2668,19 @@ export function WbsTable({
       {completionRow !== null && (
         <CompletionPrompt
           number={completionRow.number}
+          heldFactStart={completionRow.factStart}
           heldFactEnd={completionRow.factEnd}
+          forecast={completionRow.dates}
           today={isoToday(new Date())}
           onOpenChange={(open) => {
             if (!open) setCompletionFor(null);
           }}
-          onConfirm={(day) => {
+          onConfirm={(started, finished) => {
             setCompletionFor(null);
-            void confirmCompletion(completionRow.id, day, completionRow.factEnd);
+            void confirmCompletion(completionRow.id, started, finished, {
+              factStart: completionRow.factStart,
+              factEnd: completionRow.factEnd,
+            });
           }}
           onClosed={() => {
             // Back to the Status cell that asked. A cell that is not there is

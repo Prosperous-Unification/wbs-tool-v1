@@ -67,7 +67,7 @@ function mounted(overrides: Partial<ProjectSettingsModalProps> = {}) {
         { id: 'step-dev', name: 'Dev' },
         { id: 'step-qa', name: 'QA' },
       ],
-      frameState: { hasAnyNotBefore: false },
+      frameState: { hasAnyNotBefore: false, deepestDepth: 0, numberingFrozen: false },
       hiddenColumnIds: INITIAL_HIDDEN_COLUMNS,
       numberOf: () => null,
       nameOf: () => null,
@@ -284,7 +284,7 @@ describe('closing over an edit', () => {
     mounted({
       steps: {
         steps: [{ id: 'step-qa', name: 'QA' }],
-        frameState: { hasAnyNotBefore: false },
+        frameState: { hasAnyNotBefore: false, deepestDepth: 0, numberingFrozen: false },
         hiddenColumnIds: INITIAL_HIDDEN_COLUMNS,
         numberOf: () => null,
         nameOf: () => null,

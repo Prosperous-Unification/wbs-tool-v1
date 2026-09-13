@@ -288,6 +288,14 @@ function parseOn(body: CommandInput<'setStatus'>): IsoDate | undefined {
   return on;
 }
 
+/** The day the work began, for a mark that says so; refused when it is not a calendar day. */
+function parseFactStart(body: CommandInput<'setStatus'>): IsoDate | undefined {
+  const factStart = body.factStart;
+  if (factStart === undefined) return undefined;
+  if (!isIsoDate(factStart)) throw new CommandNormalizationError('factStart_must_be_a_date');
+  return factStart;
+}
+
 /**
  * A calendar day, `null` to clear the constraint, or absent to leave it.
  *
@@ -608,6 +616,7 @@ export const commandNormalizers = {
       ...target(raw),
       status: parseStatus(raw),
       on: parseOn(raw),
+      factStart: parseFactStart(raw),
     }),
   setMeasure: (raw: CommandInput<'setMeasure'>) => ({
     kind: 'setMeasure' as const,

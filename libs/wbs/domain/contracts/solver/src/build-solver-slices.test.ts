@@ -81,6 +81,15 @@ describe('buildSolverSlices', () => {
     ]);
   });
 
+  it('classifies milestone status in the quantised space the wire sends', () => {
+    // Real Fast still sees positive work here: durationOf(slice) is 5e-10.
+    // The solver sees the shared snap window and zero integer units, so its
+    // grouping deliberately calls the item a milestone. Both callers share
+    // one grouping helper while supplying the duration space they actually use.
+    const built = buildSolverSlices([sliceOf({ days: 5e-10 })], none);
+    expect(built[0]).toMatchObject({ durationUnits: 0, workItemIsMilestone: true });
+  });
+
   it('reads an unprioritised leaf as weight 0, which is most leaves on most plans', () => {
     const built = buildSolverSlices(
       [sliceOf({ workItemId: 'L1' }), sliceOf({ workItemId: 'L2' })],

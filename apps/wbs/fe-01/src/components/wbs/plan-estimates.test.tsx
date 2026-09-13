@@ -223,17 +223,17 @@ describe('step columns fold away', () => {
 
     expect(screen.getByLabelText('QA optimistic for 010')).toBeDefined();
     expect(screen.getByLabelText('Dev optimistic for 010')).toBeDefined();
-    expect(screen.getByRole('table').style.minWidth).toBe('1660px');
+    expect(screen.getByRole('table').style.minWidth).toBe('1630px');
 
     // Folding one leaves the other open, rather than leaving nothing open.
     fireEvent.click(screen.getByRole('button', { name: 'Fold QA estimates' }));
     expect(screen.queryByLabelText('QA optimistic for 010')).toBeNull();
     expect(screen.getByLabelText('Dev optimistic for 010')).toBeDefined();
-    expect(screen.getByRole('table').style.minWidth).toBe('1408px');
+    expect(screen.getByRole('table').style.minWidth).toBe('1378px');
 
     fireEvent.click(screen.getByRole('button', { name: 'Fold Dev estimates' }));
     expect(screen.queryByLabelText('Dev optimistic for 010')).toBeNull();
-    expect(screen.getByRole('table').style.minWidth).toBe('1156px');
+    expect(screen.getByRole('table').style.minWidth).toBe('1126px');
   });
 
   itDom('says what the fold button does, which is no longer hiding the assignee', async () => {

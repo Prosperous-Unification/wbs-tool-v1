@@ -269,6 +269,32 @@ build implementation from Task 3.4 changed. The root-fast-tier test now expects 
 backend/frontend names already introduced by Task 3.1. No Task 3.4 image, migration or hook
 consumer was otherwise implemented.
 
+## Integration with origin/main before Task 3.4
+
+The Task 3.3 head `2c28c7b4ec2b694192877b9e1aef6557230f37c7` merged current
+`origin/main` at `9b13f98e62a7cd880977e348421e992e8c4951a3`; their merge base was
+`b84e07131b90f0e9a00fcb697c3a39800fe95a89`. Git reported three location
+conflicts and no content conflicts: main's new `lead-word.tsx` and two new solver request
+fixtures. Each stage-3 blob was compared with main and retained byte-for-byte at its mapped
+`apps/wbs/fe-01` or `libs/wbs/domain/contracts` destination. Main's solver host-image repair
+merged with the Task 3.3 restart, compatibility and MCP paths intact. Its changed runbook
+sentence was mapped to the same namespaced solver/backend roots.
+
+The resulting top-level `apps` and `libs` directories contain only `.gitkeep` and `wbs`.
+The actual Nx graph, tags, artifact outputs and all 51 public alias keys still match the pinned
+destination map.
+
+Fresh merge evidence:
+
+- `NODE_OPTIONS=--max-old-space-size=8192 NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx run-many -t typecheck -p wbs-be-01,wbs-fe-01,wbs-core,wbs-contracts,wbs-domain,tool-devsync,tool-git-hooks --skip-nx-cache --parallel=1 --output-style=stream` — all seven overlapping TypeScript projects passed.
+- `bun test --preload ../test/scratch/preload.ts src/workspace-projects.test.ts src/namespace-layout.test.ts` from `tools/tool-devsync` — 27 passed, 0 failed, 88 expectations; this includes the actual graph and alias oracles.
+- `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx run-many -t test -p wbs-core,wbs-contracts,wbs-domain --skip-nx-cache --parallel=1 --output-style=stream` — all three owning targets passed; the core target ran 424 tests.
+- Focused incoming scheduler tests at their moved paths — 71 contract tests and 24 domain tests passed. The two changed backend files ran 94 tests; the merged devsync sync/image-runtime files ran 49 tests; the changed agent-trailer hook ran 14 tests.
+- Host-permitted `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx run wbs-fe-01:test:unit --skip-nx-cache --output-style=stream` — 32 files and 547 tests passed.
+- `NODE_OPTIONS=--max-old-space-size=8192 NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx build wbs-fe-01 --skip-nx-cache --output-style=stream` — passed and transformed 912 modules, including the new namespaced component.
+- The corresponding seven-project `lint` matrix passed with cache disabled.
+- Python syntax compilation passed for the two changed solver tests. The owning Python runtime suite remains unavailable in this checkout: fresh `python3` import failed with `ModuleNotFoundError: No module named 'jsonschema'`, and `.venv-solver` is absent. Task 3.4 still owns solver installation/package consumers.
+
 ## Deferred verification
 
 Sections 3.4–4, the full workspace/browser gate, image builds, migration transition probes,

@@ -30,7 +30,11 @@ import { createProject } from './create-project';
  * narrow 56px here. A test that dates a row says so with its own state — see
  * `the earliest-start column is as narrow as the plan lets it be`.
  */
-const SEEDED_PLAN: FrameLayoutState = { hasAnyNotBefore: false };
+const SEEDED_PLAN: FrameLayoutState = {
+  hasAnyNotBefore: false,
+  deepestDepth: 0,
+  numberingFrozen: false,
+};
 const LINKS_SHOWN_HIDDEN_COLUMNS = resetHiddenColumns(true);
 const LINKS_SHOWN_COLUMN_SET = FIXED_COLUMNS.filter(
   (id) => !LINKS_SHOWN_HIDDEN_COLUMNS.includes(id),
@@ -989,8 +993,9 @@ test.describe('the table, measured by a browser', () => {
     const shown = await measuredLefts(page, PINNED_IDS);
     expect(shown['refs'] - shown['number']).toBe(widthFor('number', SEEDED_PLAN));
     expect(shown['name'] - shown['refs']).toBe(widthFor('refs', SEEDED_PLAN));
-    // 16 + 98 + 32 since 2026-09-13's compaction (16 + 105 + 40 before it).
-    expect(shown['name']).toBe(146);
+    // 16 + 68 + 32: the Number column reads its shallow width on this plan
+    // since 2026-09-13 (16 + 105 + 40 before that day's compaction).
+    expect(shown['name']).toBe(116);
 
     await page.evaluate(() => {
       const projectId = localStorage.getItem('wbs.project');
@@ -1007,7 +1012,7 @@ test.describe('the table, measured by a browser', () => {
     expect(hidden['drag']).toBe(shown['drag']);
     expect(hidden['number']).toBe(shown['number']);
     expect(hidden['name']).toBe(shown['name'] - widthFor('refs', SEEDED_PLAN));
-    expect(hidden['name']).toBe(114);
+    expect(hidden['name']).toBe(84);
   });
 
   test('leaves a picture of the table for the eye that has to judge the widths', async ({
@@ -1024,12 +1029,13 @@ test.describe('the table, measured by a browser', () => {
   test('takes a hidden column’s width off the table, and the frame stops scrolling', async ({
     page,
   }) => {
-    // `configurable-columns`, measured where jsdom cannot: at 1200px the
-    // default two-step table (1219px) overhangs the frame, and hiding Tags —
-    // 120px — is exactly what makes it fit. The declared minimum moves by the
-    // column's width and the frame's own overflow goes to nothing, which is the
-    // half of the claim the browser owns. Then the column comes back, and so
-    // does the scrollbar.
+    // `configurable-columns`, measured where jsdom cannot: at 1140px the
+    // default two-step table (1126px since 2026-09-13's compaction and the
+    // 68px Number column; it was 1219 at a 1200px viewport when this was
+    // written) overhangs the frame, and hiding Tags — 120px — is exactly what
+    // makes it fit. The declared minimum moves by the column's width and the
+    // frame's own overflow goes to nothing, which is the half of the claim the
+    // browser owns. Then the column comes back, and so does the scrollbar.
     const measure = async (): Promise<{ minWidth: number; overhang: number }> =>
       page.evaluate(() => {
         const table = document.querySelector('table[data-grid]');
@@ -1044,10 +1050,10 @@ test.describe('the table, measured by a browser', () => {
       });
     const tags = () => page.getByRole('checkbox', { name: 'Tags' });
 
-    await page.setViewportSize({ width: 1200, height: 800 });
+    await page.setViewportSize({ width: 1140, height: 800 });
     await expect(page.locator('thead th[data-column="tag"]')).toHaveCount(1);
     const shown = await measure();
-    expect(shown.overhang, 'the default table overhangs a 1200px frame').toBeGreaterThan(0);
+    expect(shown.overhang, 'the default table overhangs a 1140px frame').toBeGreaterThan(0);
 
     await page.getByText('Columns', { exact: true }).click();
     await tags().uncheck();
@@ -2027,6 +2033,10 @@ test.describe('the table, measured by a browser', () => {
     await page.keyboard.press('ArrowDown');
 
     await expect(page.getByRole('menu')).toBeVisible();
+    // Status first, Duplicate, Delete last — the order `status-from-the-menu`
+    // settled; the walk wraps at either end.
+    expect(await focusedText()).toBe('Set status to Done');
+    await page.keyboard.press('ArrowDown');
     expect(await focusedText()).toBe('Duplicate');
     await page.keyboard.press('ArrowDown');
     expect(await focusedText()).toBe('Delete');
@@ -2071,6 +2081,8 @@ test.describe('the table, measured by a browser', () => {
     // copy's Name, which the table asks for once be-01 has taken the copy.
     await actions.focus();
     await page.keyboard.press('Enter');
+    // Down past the status entry to Duplicate, then take it.
+    await page.keyboard.press('ArrowDown');
     await page.keyboard.press('Enter');
     await expect(page.getByLabel('Name of 020')).toHaveValue(
       'Survey the existing warehouse racking and photograph every aisle end (copy)',
@@ -2717,8 +2729,8 @@ test.describe('the table, measured by a browser', () => {
     // a fourth pinned column between
     // `#` and Name. `number` is unchanged: the column's 40px is paid by
     // `depends`, which sits behind Name and moves no offset in front of it.
-    // 16 + 98 + 32 since 2026-09-13's compaction.
-    expect(declaredLeft('name')).toBe(146);
+    // 16 + 68 + 32 since 2026-09-13's compaction and the shallow Number width.
+    expect(declaredLeft('name')).toBe(116);
   });
 
   test('keeps the page from scrolling sideways at 125% zoom', async ({ page }) => {
@@ -3058,7 +3070,11 @@ test.describe('the table, measured by a browser', () => {
     );
     // The declared width holds everything the cell has to draw: the indent, the
     // expander, the lock and two levels of number.
-    expect(widthFor('number', SEEDED_PLAN)).toBeGreaterThanOrEqual(needed.contentWidth);
+    // Frozen above, so the column is at its deep width — the one the lock and
+    // the envelope were measured for (`NUMBER_DEEP_WIDTH`, 2026-09-13).
+    expect(widthFor('number', { ...SEEDED_PLAN, numberingFrozen: true })).toBeGreaterThanOrEqual(
+      needed.contentWidth,
+    );
     // And all of it is really inside the column rather than merely declared to
     // be: `overflow: hidden` would hide the difference otherwise.
     expect(needed.contentRight).toBeLessThanOrEqual(needed.cellRight + 1);

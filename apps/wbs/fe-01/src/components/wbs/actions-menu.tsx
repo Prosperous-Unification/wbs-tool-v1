@@ -11,11 +11,25 @@ import {
 
 import { usePageShortcutsSuspended } from '@/components/ui/page-shortcuts';
 
+import { type LeadWord, withLeadWord } from './lead-word';
+
 /** One thing a menu offers: what it is called, and what taking it does. */
 export interface MenuAction {
   /** Stable within one menu — the React key, and what a caller names it by. */
   id: string;
   label: string;
+  /**
+   * The word of the label drawn bold, and toned — `Done` in `Set status to
+   * Done`, in the status green — through the same renderer the status card
+   * uses ({@link withLeadWord}), so a status is said one way everywhere.
+   */
+  lead?: LeadWord;
+  /**
+   * Drawn in the destructive tint: the one item on the menu that takes
+   * something away (`Delete`). Last on every menu, so the eye that reads the
+   * list top to bottom meets the safe items first (Dany, 2026-09-13).
+   */
+  destructive?: boolean;
   run: () => void;
   /**
    * Why this item cannot be taken here, or absent when it can.
@@ -427,9 +441,11 @@ export function MenuControl({
               aria-disabled={busy || action.refusedBecause !== undefined}
               data-fact={action.refusedBecause}
               style={
-                action.refusedBecause === undefined
-                  ? ITEM
-                  : { ...ITEM, cursor: 'not-allowed', color: 'var(--muted-foreground)' }
+                action.refusedBecause !== undefined
+                  ? { ...ITEM, cursor: 'not-allowed', color: 'var(--muted-foreground)' }
+                  : action.destructive === true
+                    ? { ...ITEM, color: 'var(--destructive)' }
+                    : ITEM
               }
               onClick={() => {
                 takeAction(action);
@@ -484,7 +500,7 @@ export function MenuControl({
                 takeAction(action);
               }}
             >
-              {action.label}
+              {withLeadWord(action.label, action.lead)}
             </button>
           ))}
         </div>

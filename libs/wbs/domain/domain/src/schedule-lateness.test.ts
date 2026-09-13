@@ -141,11 +141,14 @@ describe('a missed deadline is reported in whole workdays', () => {
     );
   });
 
-  it('reads trailing zero steps from the positive work-item span but all-zero items as points', () => {
+  it('reads every zero step from the positive work-item projection but all-zero items as points', () => {
     const rows = [item('work'), item('milestone')];
     const slices = [
-      slice('work', DEV, 4),
-      slice('work', 'step-qa', 0),
+      slice('work', 'step-leading', 0),
+      slice('work', DEV, 2),
+      slice('work', 'step-interior', 0),
+      slice('work', 'step-finish', 2),
+      slice('work', 'step-trailing', 0),
       slice('milestone', DEV, 0),
       slice('milestone', 'step-qa', 0),
     ];
@@ -153,12 +156,21 @@ describe('a missed deadline is reported in whole workdays', () => {
       ['work', 3],
       ['milestone', 3],
     ]);
-    const floors = new Map([['milestone', 4]]);
+    const floors = new Map([
+      ['work', 1],
+      ['milestone', 4],
+    ]);
 
     const found = withDeadlines(rows, slices, deadlines, floors);
 
+    // The positive projection occupies days 1..4 and is one day late. Reading
+    // any zero step as its own point makes leading/interior/trailing disagree;
+    // all three deliberately carry the whole projection's verdict.
     expect(planned(found, 'work', DEV).lateBy).toBeNull();
-    expect(planned(found, 'work', 'step-qa').lateBy).toBeNull();
+    expect(planned(found, 'work', 'step-finish').lateBy).toBe(1);
+    expect(planned(found, 'work', 'step-leading').lateBy).toBe(1);
+    expect(planned(found, 'work', 'step-interior').lateBy).toBe(1);
+    expect(planned(found, 'work', 'step-trailing').lateBy).toBe(1);
     expect(planned(found, 'milestone', DEV).lateBy).toBe(1);
     expect(planned(found, 'milestone', 'step-qa').lateBy).toBe(1);
   });

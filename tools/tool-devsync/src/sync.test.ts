@@ -18,9 +18,11 @@ import {
   needsRestart,
   preflightSolver,
   RECREATE_PATHS,
+  requireSolverImageInHost,
   RESTART_PATHS,
   runDevSyncLock,
   SOLVER_COMPATIBILITY_PATHS,
+  solverPreflightDependencies,
   solverTargetDependencies,
   sync,
 } from './sync';
@@ -135,6 +137,122 @@ describe('RESTART_PATHS coverage', () => {
 });
 
 describe('dev supervisor', () => {
+  it('refuses a mutable solver image before touching the host daemon', async () => {
+    const events: string[] = [];
+    expect(
+      await rejection(
+        requireSolverImageInHost('registry.example/wbs-be:latest', {
+          inspect: () => {
+            events.push('inspect');
+            return Promise.resolve(true);
+          },
+          pull: () => {
+            events.push('pull');
+            return Promise.resolve();
+          },
+        }),
+      ),
+    ).toContain('solver host image must be digest-pinned');
+    expect(events).toEqual([]);
+  });
+
+  it('skips the registry when the exact solver digest is already in the host daemon', async () => {
+    let inspections = 0;
+    let pulls = 0;
+    await requireSolverImageInHost(DEV_IMAGE, {
+      inspect: () => {
+        inspections += 1;
+        return Promise.resolve(true);
+      },
+      pull: () => {
+        pulls += 1;
+        return Promise.resolve();
+      },
+    });
+    expect({ inspections, pulls }).toEqual({ inspections: 1, pulls: 0 });
+  });
+
+  it('pulls one missing solver digest and verifies the host daemon afterwards', async () => {
+    let inspections = 0;
+    let pulls = 0;
+    await requireSolverImageInHost(DEV_IMAGE, {
+      inspect: () => {
+        inspections += 1;
+        return Promise.resolve(inspections === 2);
+      },
+      pull: () => {
+        pulls += 1;
+        return Promise.resolve();
+      },
+    });
+    expect({ inspections, pulls }).toEqual({ inspections: 2, pulls: 1 });
+  });
+
+  // Proof: a pull that returns without installing the requested digest must
+  // not let the service, socket, mapping, or checkout-reset phases begin.
+  it('refuses when a pull leaves the exact solver digest absent', async () => {
+    let pulls = 0;
+    expect(
+      await rejection(
+        requireSolverImageInHost(DEV_IMAGE, {
+          inspect: () => Promise.resolve(false),
+          pull: () => {
+            pulls += 1;
+            return Promise.resolve();
+          },
+        }),
+      ),
+    ).toContain(`solver host image is unavailable after pull: ${DEV_IMAGE}`);
+    expect(pulls).toBe(1);
+  });
+
+  it('propagates a solver image pull refusal without a second inspection', async () => {
+    let inspections = 0;
+    expect(
+      await rejection(
+        requireSolverImageInHost(DEV_IMAGE, {
+          inspect: () => {
+            inspections += 1;
+            return Promise.resolve(false);
+          },
+          pull: () => Promise.reject(new Error('registry unavailable')),
+        }),
+      ),
+    ).toContain('registry unavailable');
+    expect(inspections).toBe(1);
+  });
+
+  // Proof: a missing-image refusal at the production command boundary leaves
+  // every later service/socket/mapping probe untouched. Removing the image
+  // call, or moving it later, changes this exact ledger.
+  it('wires the production host preflight in fail-closed image-first order', async () => {
+    const events: string[] = [];
+    const configPath = '/srv/wbs/solver-supervisor.json';
+    const dependencies = solverPreflightDependencies('/srv/wbs/source', configPath, {
+      requireImage: (image) => {
+        events.push(`image:${image}`);
+        return Promise.reject(new Error('No such image: exact solver digest'));
+      },
+      requireService: () => {
+        events.push('service');
+        return Promise.resolve();
+      },
+      requireSocket: () => {
+        events.push('socket');
+        return Promise.resolve();
+      },
+      requireMapping: (image, path) => {
+        events.push(`mapping:${image}:${path}`);
+        return Promise.resolve();
+      },
+    });
+
+    expect(await rejection(dependencies.requireHost(DEV_IMAGE))).toContain(
+      'No such image: exact solver digest',
+    );
+    expect(events).toEqual([`image:${DEV_IMAGE}`]);
+  });
+
   // The dev stack's project list feeds `nx run-many -t <target> --projects=...`.
   // A tier left out of that list has no watcher and no supervisor, so it never
   // starts. mcp-01 must run beside be-01, gw-01 and fe-01.
@@ -328,7 +446,7 @@ describe('dev supervisor', () => {
     }
   });
 
-  it('does not require supervisor host state for source-unrelated deploys', async () => {
+  it('allows absent optional host state for source-unrelated deploys', async () => {
     const deployedSha = 'b'.repeat(40);
     const targetSha = 'c'.repeat(40);
     let configReads = 0;
@@ -353,6 +471,30 @@ describe('dev supervisor', () => {
 
     expect(configReads).toBe(1);
     expect(hostChecks).toBe(0);
+  });
+
+  // Proof: injecting the incident's missing-image refusal into an unrelated
+  // deploy now makes the poller fail instead of resetting and leaving the only
+  // evidence in the supervisor user journal.
+  it('surfaces host-image refusal for a compatible unrelated deploy', async () => {
+    const deployedSha = 'b'.repeat(40);
+    const targetSha = 'c'.repeat(40);
+    let changedPathReads = 0;
+
+    expect(
+      await rejection(
+        preflightSolver(targetSha, {
+          currentSha: () => Promise.resolve(deployedSha),
+          changedPaths: () => {
+            changedPathReads += 1;
+            return Promise.resolve([]);
+          },
+          readConfig: () => Promise.resolve(solverConfigBytes(deployedSha)),
+          requireHost: () => Promise.reject(new Error('No such image: exact solver digest')),
+        }),
+      ),
+    ).toContain('No such image: exact solver digest');
+    expect(changedPathReads).toBe(2);
   });
 
   it('names the materialize and install remedy when changed solver sources have no config', async () => {

@@ -76,6 +76,77 @@ const items = (): HTMLElement[] => screen.getAllByRole('menuitem');
  * really applied to a real box is `e2e/optimization-cue.spec.ts`'s, against the
  * 1600px window where the fault was measured.
  */
+describe('a lead word on an item', () => {
+  itDom('is drawn bold, toned when asked, and the item is still named by its whole label', () => {
+    render(
+      <ActionsMenu
+        number="010"
+        open
+        busy={false}
+        onOpen={() => undefined}
+        onClose={() => undefined}
+        actions={[
+          {
+            id: 'mark-done',
+            label: 'Set status to Done',
+            lead: { word: 'Done', tone: 'done' },
+            run: () => undefined,
+          },
+          {
+            id: 'set-unknown',
+            label: 'Set status to Unknown',
+            lead: { word: 'Unknown' },
+            run: () => undefined,
+          },
+        ]}
+      />,
+    );
+
+    const done = screen.getByRole('menuitem', { name: 'Set status to Done' });
+    const lead = done.querySelector('strong');
+    // Proof: `withLeadWord(action.label, action.lead)` reverted to
+    // `{action.label}`, and this fails on `expected null not to be null`;
+    // watched 2026-09-13.
+    expect(lead).not.toBeNull();
+    expect(lead?.textContent).toBe('Done');
+    expect(lead?.style.color).toBe('var(--status-done)');
+    const unknown = screen.getByRole('menuitem', { name: 'Set status to Unknown' });
+    expect(unknown.querySelector('strong')?.textContent).toBe('Unknown');
+    expect(unknown.querySelector('strong')?.style.color).toBe('');
+  });
+
+  itDom('draws a destructive item in the destructive tint, unless it is refused', () => {
+    render(
+      <ActionsMenu
+        number="010"
+        open
+        busy={false}
+        onOpen={() => undefined}
+        onClose={() => undefined}
+        actions={[
+          { id: 'duplicate', label: 'Duplicate', run: () => undefined },
+          { id: 'delete', label: 'Delete', destructive: true, run: () => undefined },
+          {
+            id: 'delete-refused',
+            label: 'Delete anyway',
+            destructive: true,
+            refusedBecause: 'Frozen',
+            run: () => undefined,
+          },
+        ]}
+      />,
+    );
+    // Proof: the `destructive` arm dropped from the item's style, and this
+    // fails on `expected '' to be 'var(--destructive)'`; watched 2026-09-13.
+    expect(screen.getByRole('menuitem', { name: 'Delete' }).style.color).toBe('var(--destructive)');
+    // `ITEM`'s own colour is `inherit`; the tint is the one departure from it.
+    expect(screen.getByRole('menuitem', { name: 'Duplicate' }).style.color).toBe('inherit');
+    expect(screen.getByRole('menuitem', { name: 'Delete anyway' }).style.color).toBe(
+      'var(--muted-foreground)',
+    );
+  });
+});
+
 describe('menuShift', () => {
   it.each([
     ['a box with room on both sides stays put', { left: 400, right: 759 }, 1600, 0],

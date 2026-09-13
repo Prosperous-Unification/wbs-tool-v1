@@ -32,9 +32,13 @@ const DEV: StepView = { id: 'step-dev', name: 'Dev' };
 const QA: StepView = { id: 'step-qa', name: 'QA' };
 
 /** A plan where no row sets an earliest start, which is what a fresh project is. */
-const UNDATED: FrameLayoutState = { hasAnyNotBefore: false };
+const UNDATED: FrameLayoutState = {
+  hasAnyNotBefore: false,
+  deepestDepth: 0,
+  numberingFrozen: false,
+};
 /** And one where somebody has, which is 28px wider. */
-const DATED: FrameLayoutState = { hasAnyNotBefore: true };
+const DATED: FrameLayoutState = { hasAnyNotBefore: true, deepestDepth: 0, numberingFrozen: false };
 
 const NUMBERS: Record<string, string> = { w1: '010', w2: '020' };
 const PEOPLE: Record<string, string> = { p1: 'Kat', p2: 'Ada' };
@@ -487,7 +491,7 @@ describe('how wide the steps make the table', () => {
     // opens from the phone's toolbar sheet too, and the sentence used to
     // describe a table that reader has never seen.
     expect(document.body.textContent).toContain(
-      '2 steps need ≥1156px of width to sit side by side',
+      '2 steps need ≥1126px of width to sit side by side',
     );
     expect(document.body.textContent).toContain(
       'under 768px wide or 500px tall the plan is drawn as cards instead',
@@ -559,6 +563,8 @@ describe('how wide the steps make the table', () => {
     // 140px one. Watched, 2026-08-09.
     const dragged: FrameLayoutState = {
       hasAnyNotBefore: false,
+      deepestDepth: 0,
+      numberingFrozen: false,
       columnWidthOverrides: new Map([['step-dev-final', 140]]),
     };
     stubbed({ steps: [DEV, QA], frameState: dragged });
@@ -588,7 +594,7 @@ describe('how wide the steps make the table', () => {
     // 1175 → 1151 on 2026-08-31 when `depends` paid for it (110 → 86),
     // then 1151 → 1111 when Links joined the initial hide-list and 1111 →
     // 1103 when the drag column narrowed by 8px.
-    expect(document.body.textContent).toContain('1 step needs ≥1052px of width to sit side by');
+    expect(document.body.textContent).toContain('1 step needs ≥1022px of width to sit side by');
     expect(document.body.textContent).not.toContain('1 step need ≥');
   });
 
@@ -607,7 +613,7 @@ describe('how wide the steps make the table', () => {
     // 1271 → 1247 on 2026-08-31 when `depends` paid for it (110 → 86),
     // then 1247 → 1207 when Links joined the initial hide-list and 1207 →
     // 1199 when the drag column narrowed by 8px.
-    expect(document.body.textContent).toContain('2 steps need ≥1156px of width to sit side by');
+    expect(document.body.textContent).toContain('2 steps need ≥1126px of width to sit side by');
     expect(document.body.textContent).not.toContain('2 steps needs');
   });
 });

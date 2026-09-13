@@ -53,11 +53,47 @@ def schema_legal_request_fixtures() -> list[str]:
     ]
 
 
+def end_to_end_request_fixtures() -> list[str]:
+    """Valid request oracles, excluding the deliberately printable negative."""
+    return [name for name in schema_legal_request_fixtures() if name.startswith("valid-")]
+
+
+def schema_illegal_request_fixtures() -> list[str]:
+    """Every request fixture the manifest says the schema must reject."""
+    manifest = json.loads((CORPUS / "manifest.json").read_text(encoding="utf-8"))
+    return [
+        entry["file"].split("/", 1)[1]
+        for entry in manifest["fixtures"]
+        if entry["branch"] == "request" and not entry["valid"]
+    ]
+
+
 class SchemaAcceptsTheBaseline(unittest.TestCase):
     def test_the_fixture_this_module_mutates_is_valid_end_to_end(self) -> None:
         """If this ever fails, every other case in this file is vacuous."""
         request = validate_request((FIXTURES / "valid-two-slices.json").read_bytes())
         self.assertEqual([s["key"] for s in request["slices"]], [KEY_A, KEY_B])
+
+    def test_every_invalid_request_fixture_is_watched(self) -> None:
+        names = schema_illegal_request_fixtures()
+        self.assertGreaterEqual(len(names), 1, "the corpus lost its invalid requests")
+        for name in names:
+            with self.subTest(fixture=name):
+                request = parse_request((FIXTURES / name).read_bytes())
+                with self.assertRaises(RequestRejected):
+                    validate_against_schema(request, "request")
+
+    def test_every_valid_request_oracle_passes_the_python_consumer(self) -> None:
+        for name in end_to_end_request_fixtures():
+            with self.subTest(fixture=name):
+                request = validate_request((FIXTURES / name).read_bytes())
+                for work_item_key in {s["workItemKey"] for s in request["slices"]}:
+                    peers = [s for s in request["slices"] if s["workItemKey"] == work_item_key]
+                    expected = all(s["durationUnits"] == 0 for s in peers)
+                    self.assertTrue(
+                        all(s["workItemIsMilestone"] is expected for s in peers),
+                        f"{name}: {work_item_key} milestone fact diverged",
+                    )
 
 
 def leaf_types(value, path: str = "<root>") -> dict[str, str]:
@@ -150,7 +186,7 @@ class TheParseIsLossless(unittest.TestCase):
         the wire: through the schema and the cross-field checks, not just through
         `==`.
         """
-        for name in ("valid-two-slices.json", "valid-quantised-baseline.json"):
+        for name in end_to_end_request_fixtures():
             with self.subTest(fixture=name):
                 once = validate_request((FIXTURES / name).read_bytes())
                 twice = validate_request(json.dumps(once).encode("utf-8"))

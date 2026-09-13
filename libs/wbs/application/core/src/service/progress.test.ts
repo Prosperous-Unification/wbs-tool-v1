@@ -524,6 +524,23 @@ describe('setting the row’s status as one act', () => {
     expect(journal.events.length - entriesBefore).toBe(1);
   });
 
+  it('fills an empty fact start with the day given, and keeps one somebody typed', async () => {
+    const strip = await add('Strip');
+    const sand = await add('Sand');
+    expect((await service.patch(sand, OWNER, { factStart: '2026-09-02' })).ok).toBe(true);
+
+    await service.setStatus(strip, OWNER, 'done', '2026-09-12', '2026-09-08');
+    await service.setStatus(sand, OWNER, 'done', '2026-09-12', '2026-09-08');
+
+    const rows = (await service.tree(projectId))?.workItems ?? [];
+    const starts = new Map(rows.map((w) => [w.name, w.factStart]));
+    // Proof: the `factStart` fill dropped from the done arm, and this fails on
+    // `expected null to be '2026-09-08'`; watched 2026-09-13.
+    expect(starts.get('Strip')).toBe('2026-09-08');
+    expect(starts.get('Sand')).toBe('2026-09-02');
+    expect((await factEnds()).get('Strip')).toBe('2026-09-12');
+  });
+
   it('keeps a fact end somebody typed', async () => {
     const strip = await add('Strip');
     expect((await service.patch(strip, OWNER, { factEnd: '2026-09-10' })).ok).toBe(true);
@@ -588,21 +605,27 @@ describe('setting the row’s status as one act', () => {
     expect((await shown()).get('Strip')).toEqual({});
     expect((await states()).get('Strip')).toBe('unknown');
     const row = (await service.tree(projectId))?.workItems.find((w) => w.id === strip);
-    // The finish did not happen, so the day it happened on goes; the start is
-    // the planner's own record and stands.
-    expect([row?.factStart, row?.factEnd]).toEqual(['2026-09-08', null]);
+    // The finish did not happen, so both its days go with the statements (Dany,
+    // 2026-09-13: "when from done -> unknown clear fact start and fact end").
+    // Proof: the `factStart` half of the clear dropped, and this fails on
+    // `expected [ '2026-09-08', null ] to deeply equal [ null, null ]`; watched
+    // 2026-09-13.
+    expect([row?.factStart, row?.factEnd]).toEqual([null, null]);
     expect(journal.events.length - entriesBefore).toBe(1);
   });
 
-  it('unknown on a row that was not done leaves its typed fact end', async () => {
+  it('unknown on a row that was not done leaves its typed facts', async () => {
     const strip = await add('Strip');
     await service.setProgress(strip, OWNER, DEV, 'in_progress');
-    expect((await service.patch(strip, OWNER, { factEnd: '2026-09-10' })).ok).toBe(true);
+    expect(
+      (await service.patch(strip, OWNER, { factStart: '2026-09-04', factEnd: '2026-09-10' })).ok,
+    ).toBe(true);
 
     await service.setStatus(strip, OWNER, 'unknown');
 
     expect((await shown()).get('Strip')).toEqual({});
-    expect((await factEnds()).get('Strip')).toBe('2026-09-10');
+    const row = (await service.tree(projectId))?.workItems.find((w) => w.id === strip);
+    expect([row?.factStart, row?.factEnd]).toEqual(['2026-09-04', '2026-09-10']);
   });
 
   it('a parent’s unknown clears only the fact ends of what read done', async () => {
@@ -630,12 +653,15 @@ describe('setting the row’s status as one act', () => {
     const branch = await add('Branch');
     await add('Strip', branch);
     await add('Sand', branch);
-    await service.setStatus(branch, OWNER, 'done', '2026-09-12');
+    await service.setStatus(branch, OWNER, 'done', '2026-09-12', '2026-09-08');
     const before = stored(await progress.listByProject(projectId)).sort(byRow);
     const entriesBefore = journal.events.length;
 
     await service.setStatus(branch, OWNER, 'unknown');
     const cleared = await factEnds();
+    const clearedStarts = new Map(
+      ((await service.tree(projectId))?.workItems ?? []).map((w) => [w.name, w.factStart]),
+    );
     const undone = await service.undo(projectId, OWNER);
 
     expect(undone.ok).toBe(true);
@@ -644,12 +670,21 @@ describe('setting the row’s status as one act', () => {
       null,
       null,
     ]);
+    expect([clearedStarts.get('Branch'), clearedStarts.get('Strip')]).toEqual([null, null]);
     expect(stored(await progress.listByProject(projectId)).sort(byRow)).toEqual(before);
     const ends = await factEnds();
     expect([ends.get('Branch'), ends.get('Strip'), ends.get('Sand')]).toEqual([
       '2026-09-12',
       '2026-09-12',
       '2026-09-12',
+    ]);
+    const starts = new Map(
+      ((await service.tree(projectId))?.workItems ?? []).map((w) => [w.name, w.factStart]),
+    );
+    expect([starts.get('Branch'), starts.get('Strip'), starts.get('Sand')]).toEqual([
+      '2026-09-08',
+      '2026-09-08',
+      '2026-09-08',
     ]);
     expect((await states()).get('Branch')).toBe('done');
     expect(journal.events.length - entriesBefore).toBe(1);

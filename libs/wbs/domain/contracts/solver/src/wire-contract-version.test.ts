@@ -5,11 +5,16 @@ import { describe, expect, it } from 'bun:test';
 
 import type { SolverRequest } from './wire-types';
 
+interface ManifestEntry {
+  readonly file: string;
+  readonly branch: string;
+}
+
 /**
  * The pin between `SCHEDULER_CONTRACT_VERSION` and the corpus that already
  * spends it.
  *
- * Both request fixtures carry `"9+0.1.3"`, so a domain or solver bump that
+ * Every request fixture carries `"10+0.1.3"`, so a domain or solver bump that
  * forgets the corpus makes every one of them wrong. They were checked in at
  * `"7+0.1.0"` before the constant existed, and this test is what has moved them
  * with it since. Written as a
@@ -27,7 +32,13 @@ import type { SolverRequest } from './wire-types';
  * corpus re-key, and reading this test as that guard is the mistake worth
  * naming.
  */
-const requestFixtures = ['valid-two-slices.json', 'valid-quantised-baseline.json'];
+const manifest = JSON.parse(
+  readFileSync(new URL('../fixtures/manifest.json', import.meta.url), 'utf8'),
+) as { readonly fixtures: readonly ManifestEntry[] };
+
+const requestFixtures = manifest.fixtures
+  .filter((entry) => entry.branch === 'request')
+  .map((entry) => entry.file.slice('request/'.length));
 
 describe('SCHEDULER_CONTRACT_VERSION and the golden requests', () => {
   it('enumerates fixtures that exist', () => {

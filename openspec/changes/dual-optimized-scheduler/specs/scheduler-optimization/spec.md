@@ -174,6 +174,10 @@ The request and the response SHALL be defined by one checked-in JSON Schema, `li
 
 #### Scenario: the movement term uses the passed baseline, not live state
 
+This scenario lives under the wire-contract requirement because
+`baselineOffsets` is request data and movement must be determined by that
+message alone; deadline occupancy neither supplies nor interprets the baseline.
+
 - **GIVEN** two solves for the same input hash with different schedules already published
 - **WHEN** each solve computes its movement term
 - **THEN** both use the identical `baselineOffsets` derived from that input, so the input hash fully determines the objective
@@ -185,8 +189,9 @@ all of that work item's slices have zero duration, and false for every slice of
 an item containing positive-duration work. The deadline clause SHALL constrain
 `end + 1 unit <= deadlineUnits` only for a milestone work item and SHALL
 constrain `end <= deadlineUnits` otherwise. A zero-duration step beside positive
-work SHALL remain an endpoint inside the projected work-item span; it SHALL NOT
-extend an exactly-met deadline into the next workday. Bun SHALL derive the flag
+work SHALL be labelled from the complete projected work-item span, whether it
+leads, interrupts or trails the positive steps; it SHALL NOT be treated as a
+fresh point or extend an exactly-met deadline into the next workday. Bun SHALL derive the flag
 while it owns the work-item grouping. The wire SHALL carry that grouping as the
 separate opaque `workItemKey`; both Bun and Python SHALL prove the fact in both
 directions without parsing `key`.

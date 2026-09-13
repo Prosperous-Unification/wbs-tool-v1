@@ -1,3 +1,4 @@
+import { SETTABLE_STATUSES } from '@wbs/domain/progress';
 import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import {
@@ -31,6 +32,7 @@ import { composeNameCell } from './name-notes';
 import { priorityBandStyleOf } from './priority-band-style';
 import { ReferenceSetSheet } from './reference-set-field';
 import { type PrintedDay, shortIsoDate } from './short-date';
+import { STATUS_LABEL } from './status-cell';
 import { cardIndentFor } from './table-frame';
 import type { TreeRow } from './wbs-rows';
 import { rowWords } from './work-item-words';
@@ -420,6 +422,10 @@ export interface CardRowActionHandlers {
   duplicate: (rowId: string) => void;
   unfreeze: (rowId: string) => void;
   remove: (row: TreeRow) => void;
+  /** Opens the completion prompt over the row — `Mark done…`, the table's own gesture. */
+  markDone: (rowId: string) => void;
+  /** Sets a done row back to unknown, at once. */
+  setUnknown: (rowId: string) => void;
 }
 
 /**
@@ -429,6 +435,18 @@ export interface CardRowActionHandlers {
  * menu rather than a card inventing a second one.
  */
 const cardRowActions = (row: TreeRow, handlers: CardRowActionHandlers): MenuAction[] => [
+  // The same list the table's ⋯ offers (`plan-columns/actions.tsx`), in the
+  // same order: the status entries, Duplicate, Unfreeze where it applies, and
+  // Delete last in the destructive tint.
+  ...SETTABLE_STATUSES.filter((status) => status !== row.status).map((status) => ({
+    id: `set-${status}`,
+    label: `Set status to ${STATUS_LABEL[status]}`,
+    lead: { word: STATUS_LABEL[status], ...(status === 'done' ? { tone: 'done' as const } : {}) },
+    run: () => {
+      if (status === 'done') handlers.markDone(row.id);
+      else handlers.setUnknown(row.id);
+    },
+  })),
   {
     id: 'duplicate',
     label: 'Duplicate',
@@ -450,6 +468,7 @@ const cardRowActions = (row: TreeRow, handlers: CardRowActionHandlers): MenuActi
   {
     id: 'delete',
     label: 'Delete',
+    destructive: true,
     ...(row.frozenNumber === null
       ? {}
       : { refusedBecause: 'Frozen — unfreeze this row before deleting it' }),

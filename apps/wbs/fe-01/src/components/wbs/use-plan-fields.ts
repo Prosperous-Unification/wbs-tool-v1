@@ -223,7 +223,8 @@ export function usePlanFields({
    * refusal.
    */
   const setStatus = useCallback(
-    (id: string, status: SettableStatus, on: IsoDate) => run(() => api.setStatus(id, status, on)),
+    (id: string, status: SettableStatus, on: IsoDate, factStart?: IsoDate) =>
+      run(() => api.setStatus(id, status, on, factStart)),
     [api, run],
   );
 

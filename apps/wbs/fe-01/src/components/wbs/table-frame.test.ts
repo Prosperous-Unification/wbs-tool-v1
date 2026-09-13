@@ -39,9 +39,13 @@ import {
 } from './table-frame';
 
 /** A plan where somebody has set an earliest start, which is the wider of the two states. */
-const DATED: FrameLayoutState = { hasAnyNotBefore: true };
+const DATED: FrameLayoutState = { hasAnyNotBefore: true, deepestDepth: 0, numberingFrozen: false };
 /** A plan where nobody has. */
-const UNDATED: FrameLayoutState = { hasAnyNotBefore: false };
+const UNDATED: FrameLayoutState = {
+  hasAnyNotBefore: false,
+  deepestDepth: 0,
+  numberingFrozen: false,
+};
 
 /** Every column of the reset-with-links set, in the order the table renders them. */
 const RENDERED = [
@@ -82,7 +86,7 @@ describe('the resolved frame layout', () => {
     ]);
     // Name declares nothing: it is the column that takes what the others leave.
     expect(layout.columns.find((column) => column.id === 'name')?.width).toBeUndefined();
-    expect(layout.columns.find((column) => column.id === 'number')?.width).toBe(98);
+    expect(layout.columns.find((column) => column.id === 'number')?.width).toBe(68);
     // 798px of fixed columns with a dated `not-before`, plus Name's floor, plus
     // a folded column for each of two steps. 855 → 867 in
     // `number-column-widen` (93 → 105 in `COLUMN_WIDTHS`), 867 → 907 in
@@ -95,8 +99,10 @@ describe('the resolved frame layout', () => {
     // on 2026-09-13**, Dany's compaction: `number` 105 → 98, `refs` 40 → 32,
     // `depends` 86 → 78, `priority` 48 → 40, `final-total` 52 → 44 and both
     // date columns 98 → 84 — 67px in all — while the folded step column grew
-    // 96 → 104.
-    expect(layout.minWidth).toBe(808 + FLEXIBLE_FLOOR + 2 * 104);
+    // 96 → 104. **808 → 778 the same day**: `number` is a plan width now,
+    // 68 on a plan with no third level and nothing frozen, which these
+    // fixtures are (`NUMBER_SHALLOW_WIDTH`).
+    expect(layout.minWidth).toBe(778 + FLEXIBLE_FLOOR + 2 * 104);
   });
 
   it('holds every pinned column at the sum of the widths the same call declared', () => {
@@ -138,18 +144,18 @@ describe('the resolved frame layout', () => {
     const { pinned } = frameLayout(RENDERED, DATED);
 
     expect(pinned.get('drag')).toEqual({ left: 0, width: 16 });
-    expect(pinned.get('number')).toEqual({ left: 16, width: 98 });
+    expect(pinned.get('number')).toEqual({ left: 16, width: 68 });
     // The ref column is pinned since `external-refs`, and it had no choice: it
     // sits between `#` and Name, and an unpinned column between two pinned ones
     // scrolls under the second while every offset behind it is a sum 32px short.
-    // 16 + 98. `number` gave nothing when this column arrived: the 40px it
+    // 16 + 68. `number` gave nothing when this column arrived: the 40px it
     // cost then came off `depends`, which sits behind Name.
-    expect(pinned.get('refs')).toEqual({ left: 114, width: 32 });
+    expect(pinned.get('refs')).toEqual({ left: 84, width: 32 });
     // Name is pinned at the sum of the three fixed columns in front of it and
     // has no width of its own — the `<colgroup>` decides that, and the browser
     // gate measures this offset at a viewport too narrow to hold the table.
-    // 16 + 98 + 32.
-    expect(pinned.get('name')).toEqual({ left: 146, width: undefined });
+    // 16 + 68 + 32.
+    expect(pinned.get('name')).toEqual({ left: 116, width: undefined });
     // And nothing else is pinned at all. "Depends on" is the one this matters
     // for: it used to sit between Number and Name.
     expect(pinned.get('depends')).toBeUndefined();
@@ -164,9 +170,9 @@ describe('the resolved frame layout', () => {
     // first line with `expected undefined to deeply equal { left: 121, width:
     // 28 }` — a column between two pins that scrolls under the second while
     // Name's offset is a sum 28px short; watched 2026-09-13.
-    expect(pinned.get('status')).toEqual({ left: 114, width: 28 });
-    expect(pinned.get('refs')).toEqual({ left: 142, width: 32 });
-    expect(pinned.get('name')).toEqual({ left: 174, width: undefined });
+    expect(pinned.get('status')).toEqual({ left: 84, width: 28 });
+    expect(pinned.get('refs')).toEqual({ left: 112, width: 32 });
+    expect(pinned.get('name')).toEqual({ left: 144, width: undefined });
   });
 
   it('paints a pinned body cell with the tint layer over the row colour, and a heading without', () => {
@@ -190,8 +196,8 @@ describe('the resolved frame layout', () => {
     );
     expect(hidden.minWidth).toBe(shown.minWidth - 32);
     expect(hidden.pinned.get('refs')).toBeUndefined();
-    expect(hidden.pinned.get('name')).toEqual({ left: 114, width: undefined });
-    expect(shown.pinned.get('name')).toEqual({ left: 146, width: undefined });
+    expect(hidden.pinned.get('name')).toEqual({ left: 84, width: undefined });
+    expect(shown.pinned.get('name')).toEqual({ left: 116, width: undefined });
   });
 
   it('refuses an id nothing sizes, rather than handing back a plausible width', () => {
@@ -212,7 +218,7 @@ describe('the resolved frame layout', () => {
     // And the width that is missing is missing from the sum as well, which is
     // the second half of the same fault: the assertion above only sees the
     // throw, so the sum is stated here as the thing the throw is protecting.
-    expect(frameLayout(['drag', 'number'], DATED).minWidth).toBe(16 + 98);
+    expect(frameLayout(['drag', 'number'], DATED).minWidth).toBe(16 + 68);
   });
 
   it('refuses a column pinned behind a flexible one', () => {
@@ -330,7 +336,7 @@ describe('the resolved frame layout', () => {
       ),
     ).toEqual({
       drag: 16,
-      number: 98,
+      number: 68,
       refs: 32,
       depends: 78,
       priority: 40,
@@ -378,6 +384,36 @@ describe('the earliest-start column is as narrow as the plan lets it be', () => 
   });
 });
 
+describe('the Number column is as narrow as the plan lets it be', () => {
+  it('is 68px until the plan has a third level or a frozen number, and 98px from then on', () => {
+    // Dany, 2026-09-13: "why # column is still so wide by default … it does not
+    // need to be". 98 is what a depth-5 number and the lock were measured at
+    // (`NUMBER_DEEP_WIDTH`); a plan of roots and `170.1`s needs 68.
+    expect(declared(['number'], UNDATED)).toEqual({ number: 68 });
+    expect(declared(['number'], { ...UNDATED, deepestDepth: 1 })).toEqual({ number: 68 });
+    expect(declared(['number'], { ...UNDATED, deepestDepth: 2 })).toEqual({ number: 98 });
+    expect(declared(['number'], { ...UNDATED, numberingFrozen: true })).toEqual({ number: 98 });
+    expect(declared(['number'], { ...UNDATED, deepestDepth: 5, numberingFrozen: true })).toEqual({
+      number: 98,
+    });
+  });
+
+  it('moves the whole table and every pin behind it by exactly that difference', () => {
+    const shallow = frameLayout(RENDERED, UNDATED);
+    const deep = frameLayout(RENDERED, { ...UNDATED, deepestDepth: 2 });
+
+    expect(deep.minWidth - shallow.minWidth).toBe(98 - 68);
+    for (const column of deep.columns) {
+      if (column.id === 'number') continue;
+      expect(shallow.columns.find((each) => each.id === column.id)?.width).toBe(column.width);
+    }
+    // The pinned offsets behind the Number column follow it, or a deep plan
+    // would draw its Links and Name cells 30px over its numbers.
+    expect(deep.pinned.get('refs')?.left).toBe((shallow.pinned.get('refs')?.left ?? 0) + 30);
+    expect(deep.pinned.get('name')?.left).toBe((shallow.pinned.get('name')?.left ?? 0) + 30);
+  });
+});
+
 describe('the width equation the table is laid out by', () => {
   it('adds a table up from its columns, budgeting the floor for the flexible one', () => {
     // The honest width equation, which is the whole of this module: the table
@@ -387,7 +423,7 @@ describe('the width equation the table is laid out by', () => {
     // replaced by `widthFor(id, state)`, this failed on `UnknownColumnError:
     // No declared width for column "name"`; replaced by `0`, on `expected +0
     // to be 200`. Watched, 2026-08-09.
-    expect(frameLayout(['drag', 'number'], DATED).minWidth).toBe(16 + 98);
+    expect(frameLayout(['drag', 'number'], DATED).minWidth).toBe(16 + 68);
     expect(frameLayout(['name'], DATED).minWidth).toBe(FLEXIBLE_FLOOR);
 
     // 875px of fixed columns with a dated `not-before`, plus Name's floor. The
@@ -435,9 +471,9 @@ describe('the width equation the table is laid out by', () => {
     // column's 24px → 16px compaction; Number and its 105px envelope stay put.
     // **1267 → 1216 on 2026-09-13**: 67px of compaction across six fixed
     // columns, less the 8px each of two folded step columns grew.
-    expect(frameLayout([...RENDERED, 'r1-final', 'r2-final'], DATED).minWidth).toBe(1216);
+    expect(frameLayout([...RENDERED, 'r1-final', 'r2-final'], DATED).minWidth).toBe(1186);
     expect(frameLayout([...RENDERED, 'r1-final', 'r2-final', 'r3-final'], DATED).minWidth).toBe(
-      1320,
+      1290,
     );
     expect(
       frameLayout(
@@ -452,7 +488,7 @@ describe('the width equation the table is laid out by', () => {
         ],
         DATED,
       ).minWidth,
-    ).toBe(1468);
+    ).toBe(1438);
   });
 
   it('caps the table at the fixed columns plus the Name cap', () => {
@@ -464,12 +500,12 @@ describe('the width equation the table is laid out by', () => {
     // Both ends are summed from the same resolved columns, or the cap would be
     // a second opinion about the widths the `<colgroup>` declares — the fault
     // this module exists to prevent, one column along.
-    expect(frameLayout(['drag', 'number'], DATED).maxWidth).toBe(16 + 98);
+    expect(frameLayout(['drag', 'number'], DATED).maxWidth).toBe(16 + 68);
     expect(frameLayout(['name'], DATED).maxWidth).toBe(FLEXIBLE_CAP);
-    // The two-step plan the browser gate measures: 1216 at the floor, and the
+    // The two-step plan the browser gate measures: 1186 at the floor, and the
     // same fixed columns with Name at its cap instead.
     expect(frameLayout([...RENDERED, 'r1-final', 'r2-final'], DATED).maxWidth).toBe(
-      1216 - FLEXIBLE_FLOOR + FLEXIBLE_CAP,
+      1186 - FLEXIBLE_FLOOR + FLEXIBLE_CAP,
     );
     // Above the floor and below the widest a drag may reach, or the cap is
     // either not a cap or not reachable.
@@ -525,9 +561,9 @@ describe('a pinned cell', () => {
     expect(body?.position).toBe('sticky');
     // The offset the layout works out, on the cell that carries it.
     expect(body?.left).toBe(16);
-    expect(body?.width).toBe(98);
+    expect(body?.width).toBe(68);
     const name = pinnedCellStyle(layout, 'name', 'body');
-    expect(name?.left).toBe(146);
+    expect(name?.left).toBe(116);
     // Pinned, and with no width of its own: the `<colgroup>` is the only thing
     // that sizes a flexible column, and a `width` here would be the second
     // opinion that the whole width table exists to prevent.
@@ -716,14 +752,14 @@ describe('how wide the steps make the table', () => {
     // The sentence the Steps dialog prints, and the steps' own ids rather
     // than a count: every width resolves per column id now, so a figure summed
     // from invented ids would answer about columns that do not exist.
-    expect(foldedTableMinWidth(['step-dev', 'step-qa'], DATED)).toBe(1184);
+    expect(foldedTableMinWidth(['step-dev', 'step-qa'], DATED)).toBe(1154);
     expect(
       foldedTableMinWidth(['step-dev', 'step-qa', 'step-ops'], DATED) -
         foldedTableMinWidth(['step-dev', 'step-qa'], DATED),
     ).toBe(widthFor('anything-final', DATED));
     // And it answers the narrow state too, which is the fact a count could
     // never carry into it.
-    expect(foldedTableMinWidth(['step-dev', 'step-qa'], UNDATED)).toBe(1184 - (84 - 56));
+    expect(foldedTableMinWidth(['step-dev', 'step-qa'], UNDATED)).toBe(1154 - (84 - 56));
   });
 
   it('is the fixed columns plus Name plus the steps, with nothing left out', () => {
@@ -745,7 +781,7 @@ describe('how wide the steps make the table', () => {
   it('has no steps to be wide for at all, and still declares a table', () => {
     // A project may hold none — `R1`'s spec says the seeded pair is data rather
     // than a limit — and the dialog still has a number to print.
-    expect(foldedTableMinWidth([], DATED)).toBe(976);
+    expect(foldedTableMinWidth([], DATED)).toBe(946);
   });
 
   it('hides Teams and Services by default, shows Tags, and the folded figures do not move', () => {
@@ -762,8 +798,8 @@ describe('how wide the steps make the table', () => {
     // visible here.
     // The floor first, deliberately: it is the fact, and the membership
     // assertions under it are only why it is true.
-    expect(foldedTableMinWidth([], DATED)).toBe(976);
-    expect(foldedTableMinWidth(['step-dev', 'step-qa'], DATED)).toBe(1184);
+    expect(foldedTableMinWidth([], DATED)).toBe(946);
+    expect(foldedTableMinWidth(['step-dev', 'step-qa'], DATED)).toBe(1154);
     expect(INITIAL_HIDDEN_COLUMNS).toEqual([
       'refs',
       'team',
@@ -835,20 +871,21 @@ describe('how wide the steps make the table', () => {
     // direction the first attempt took, and they are here because this test now
     // asserts that those two did **not** move — a payment quietly shifted back
     // onto them would otherwise be invisible.
-    expect(foldedTableMinWidth([], DATED)).toBe(976);
-    expect(foldedTableMinWidth(['step-dev', 'step-qa'], DATED)).toBe(1184);
-    expect(foldedTableMinWidth([], DATED, resetHiddenColumns(true))).toBe(1008);
+    expect(foldedTableMinWidth([], DATED)).toBe(946);
+    expect(foldedTableMinWidth(['step-dev', 'step-qa'], DATED)).toBe(1154);
+    expect(foldedTableMinWidth([], DATED, resetHiddenColumns(true))).toBe(978);
     expect(foldedTableMinWidth(['step-dev', 'step-qa'], DATED, resetHiddenColumns(true))).toBe(
-      1216,
+      1186,
     );
     // The figure the 1280 browser budget is actually measured against, and the
     // Name width that comes with it — the two the payment is judged by.
-    // Every figure in this block moved on 2026-09-13 (1035 → 976, 1227 → 1184,
-    // 1075 → 1008, 1267 → 1216, 1199 → 1156, 1239 → 1188): the compaction took
-    // 67px off the fixed set and the folded step column grew 8, twice.
-    expect(foldedTableMinWidth(['step-dev', 'step-qa'], UNDATED)).toBe(1156);
+    // Every figure in this block moved on 2026-09-13 (1035 → 946, 1227 → 1154,
+    // 1075 → 978, 1267 → 1186, 1199 → 1126, 1239 → 1158): the compaction took
+    // 67px off the fixed set, the folded step column grew 8, twice, and the
+    // Number column reads 68 on these shallow, unfrozen fixtures.
+    expect(foldedTableMinWidth(['step-dev', 'step-qa'], UNDATED)).toBe(1126);
     expect(foldedTableMinWidth(['step-dev', 'step-qa'], UNDATED, resetHiddenColumns(true))).toBe(
-      1188,
+      1158,
     );
     expect(widthFor('refs', DATED)).toBe(32);
     // The column that paid, and the two that did not: a cut moved back onto
@@ -856,7 +893,7 @@ describe('how wide the steps make the table', () => {
     // Since 2026-09-13 `depends` and `number` have both moved again, by Dany's
     // ask and not by a payment shifted back — the floor is still what it was.
     expect(widthFor('depends', DATED)).toBe(78);
-    expect(widthFor('number', DATED)).toBe(98);
+    expect(widthFor('number', DATED)).toBe(68);
     expect(FLEXIBLE_FLOOR).toBe(200);
     // Declared, offerable, and **not** hidden by default: the feature is
     // invisible until somebody adds a ref, and a column hidden by default is a
@@ -882,7 +919,7 @@ describe('how wide the steps make the table', () => {
     // one: a reader who has hidden Depends on is 78px narrower than the
     // default, and one who has shown Teams is 120px wider.
     expect(foldedTableMinWidth([], DATED, [...INITIAL_HIDDEN_COLUMNS, 'depends'])).toBe(
-      976 - widthFor('depends', DATED),
+      946 - widthFor('depends', DATED),
     );
     // Teams shown, Services and Types still hidden: the reader has turned **one**
     // column on, so the table is one column wider. Written as the whole hide-list
@@ -901,7 +938,7 @@ describe('how wide the steps make the table', () => {
         'fact-start',
         'fact-end',
       ]),
-    ).toBe(976 + widthFor('team', DATED));
+    ).toBe(946 + widthFor('team', DATED));
     // A hidden step takes its folded column with it, and nothing else.
     expect(
       foldedTableMinWidth(['step-dev', 'step-qa'], DATED, [...INITIAL_HIDDEN_COLUMNS, 'step-qa']),
@@ -969,7 +1006,9 @@ describe('a column this browser has dragged to another width', () => {
    */
   const NUMBER_DRAGGED: FrameLayoutState = {
     hasAnyNotBefore: true,
-    columnWidthOverrides: new Map([['number', 98 + 40]]),
+    deepestDepth: 0,
+    numberingFrozen: false,
+    columnWidthOverrides: new Map([['number', 68 + 40]]),
   };
 
   it('lays out, adds up, folds and pins from the one number it resolved', () => {
@@ -981,9 +1020,9 @@ describe('a column this browser has dragged to another width', () => {
     const dragged = frameLayout(RENDERED, NUMBER_DRAGGED);
     const resting = frameLayout(RENDERED, DATED);
 
-    expect(dragged.columns.find((column) => column.id === 'number')?.width).toBe(138);
+    expect(dragged.columns.find((column) => column.id === 'number')?.width).toBe(108);
     expect(dragged.minWidth).toBe(resting.minWidth + 40);
-    expect(dragged.pinned.get('number')).toEqual({ left: 16, width: 138 });
+    expect(dragged.pinned.get('number')).toEqual({ left: 16, width: 108 });
     expect(dragged.pinned.get('name')?.left).toBe((resting.pinned.get('name')?.left ?? 0) + 40);
     // The fourth consumer, which is the figure the Steps dialog quotes.
     expect(foldedTableMinWidth(['step-dev'], NUMBER_DRAGGED)).toBe(
@@ -999,6 +1038,8 @@ describe('a column this browser has dragged to another width', () => {
     // them apart.
     const dragged: FrameLayoutState = {
       hasAnyNotBefore: false,
+      deepestDepth: 0,
+      numberingFrozen: false,
       columnWidthOverrides: new Map([['step-dev-final', 140]]),
     };
 
@@ -1018,11 +1059,21 @@ describe('a column this browser has dragged to another width', () => {
     const overrides = new Map([['not-before', 110]]);
 
     expect(
-      widthFor('not-before', { hasAnyNotBefore: false, columnWidthOverrides: overrides }),
+      widthFor('not-before', {
+        hasAnyNotBefore: false,
+        deepestDepth: 0,
+        numberingFrozen: false,
+        columnWidthOverrides: overrides,
+      }),
     ).toBe(110);
-    expect(widthFor('not-before', { hasAnyNotBefore: true, columnWidthOverrides: overrides })).toBe(
-      110,
-    );
+    expect(
+      widthFor('not-before', {
+        hasAnyNotBefore: true,
+        deepestDepth: 0,
+        numberingFrozen: false,
+        columnWidthOverrides: overrides,
+      }),
+    ).toBe(110);
     // And nothing else moves with it: one column's override is one column's.
     expect(declared(RENDERED, { ...DATED, columnWidthOverrides: overrides })).toEqual({
       ...declared(RENDERED, DATED),
@@ -1036,6 +1087,8 @@ describe('a column this browser has dragged to another width', () => {
    */
   const NAME_DRAGGED: FrameLayoutState = {
     hasAnyNotBefore: true,
+    deepestDepth: 0,
+    numberingFrozen: false,
     columnWidthOverrides: new Map([['name', 300]]),
   };
 
@@ -1086,7 +1139,7 @@ describe('a column this browser has dragged to another width', () => {
     // declares must be exactly what the `<colgroup>` declares, and for Name
     // that is nothing — the table-width arithmetic is what hands it the
     // override.
-    expect(draggedName.pinned.get('name')).toEqual({ left: 146, width: undefined });
+    expect(draggedName.pinned.get('name')).toEqual({ left: 116, width: undefined });
     // Name is the last pinned column, so no offset in front of it moves.
     expect(draggedName.pinned.get('number')).toEqual(resting.pinned.get('number'));
     expect(foldedTableMinWidth(['step-dev'], NAME_DRAGGED)).toBe(

@@ -3466,9 +3466,9 @@ describe('the status cell and the two fact cells', () => {
     fireEvent.click(within(statusList(number)).getByRole('option', { name: 'Done' }));
   };
   const completionPrompt = (number: string): HTMLElement =>
-    screen.getByRole('dialog', { name: `Mark ${number} done` });
+    screen.getByRole('dialog', { name: `Set ${number} to Done` });
   const confirmCompletion = (number: string): void => {
-    fireEvent.click(within(completionPrompt(number)).getByRole('button', { name: 'Mark done' }));
+    fireEvent.click(within(completionPrompt(number)).getByRole('button', { name: 'Set to Done' }));
   };
 
   itDom('reads Unknown at rest and offers Unknown and Done, in that order', async () => {
@@ -3565,7 +3565,7 @@ describe('the status cell and the two fact cells', () => {
       fireEvent.click(within(prompt).getByRole('button', { name: 'Cancel' }));
 
       await waitFor(() => {
-        expect(screen.queryByRole('dialog', { name: 'Mark 010 done' })).toBeNull();
+        expect(screen.queryByRole('dialog', { name: 'Set 010 to Done' })).toBeNull();
       });
       expect(sent).toEqual([]);
       expect(statusCell('010').value).toBe('○');
@@ -3621,6 +3621,42 @@ describe('the status cell and the two fact cells', () => {
         shortIsoDate('2026-09-11', new Date()),
       );
     });
+  });
+
+  itDom('offers the forecast start as the fact start and sends it with the mark', async () => {
+    showEveryColumn();
+    const api = fakeApi();
+    await api.setStartDate('p1', '2026-09-01');
+    await api.createWorkItem('p1', { parentId: null, afterId: null, name: 'Strip' });
+    render(<WbsTable projectId="p1" api={api} />);
+    await screen.findByLabelText('Name of 010');
+    const sent = recordCalls(api, 'setStatus', (_id, status, on, factStart) => ({
+      status,
+      on,
+      factStart,
+    }));
+
+    chooseDone('010');
+    const prompt = completionPrompt('010');
+    // The fake forecasts the row over the project's first day, so the start
+    // field opens on it and says so.
+    expect(within(prompt).getByLabelText<HTMLInputElement>('Started on').value).toBe('2026-09-01');
+    expect(prompt.querySelector('[data-day-note="started"]')?.textContent).toBe(
+      'Same as the forecast start.',
+    );
+    // The fake forecasts the row over the project's first day alone, so today
+    // is past the forecast end and the finish defaults to it — the prompt's
+    // second rule, seen through the table.
+    expect(within(prompt).getByLabelText<HTMLInputElement>('Finished on').value).toBe('2026-09-01');
+    confirmCompletion('010');
+
+    await waitFor(() => {
+      expect(statusCell('010').value).toBe('✓');
+    });
+    expect(sent).toEqual([{ status: 'done', on: '2026-09-01', factStart: '2026-09-01' }]);
+    expect(screen.getByLabelText<HTMLInputElement>('Fact start of 010').value).toBe(
+      shortIsoDate('2026-09-01', new Date()),
+    );
   });
 
   itDom('a held fact end confirmed unchanged is one command, not two', async () => {

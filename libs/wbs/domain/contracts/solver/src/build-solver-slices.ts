@@ -1,4 +1,10 @@
-import { durationUnits, priorityWeightOf, type Slice, sliceKey } from '@wbs/domain';
+import {
+  durationUnits,
+  priorityWeightOf,
+  type Slice,
+  sliceKey,
+  workItemIdsWithPositiveDuration,
+} from '@wbs/domain';
 
 import { deadlineUnitsOf, notBeforeUnitsOf } from './solver-units';
 import type { SolverSlice } from './wire-types';
@@ -69,9 +75,7 @@ export function buildSolverSlices(
   leaf: LeafConstraintMaps,
 ): readonly SolverSlice[] {
   const durations = slices.map(durationUnits);
-  const workItemsWithDuration = new Set(
-    slices.filter((_, at) => durations[at] > 0).map((slice) => slice.workItemId),
-  );
+  const workItemsWithDuration = workItemIdsWithPositiveDuration(slices, durations);
   const seen = new Set<string>();
   return slices.map((slice, at) => {
     const key = sliceKey(slice.workItemId, slice.stepId);
@@ -117,8 +121,10 @@ export function buildSolverSlices(
       priorityWeight: priorityWeightOf(leaf.weights, slice.workItemId),
       notBeforeUnits: notBeforeUnitsOf(leaf.floors, slice.workItemId),
       deadlineUnits: deadlineUnitsOf(leaf.deadlines, slice.workItemId),
-      // A zero step after real work does not extend the projected work-item
-      // span into the next workday. An all-zero work item is itself a milestone.
+      // Every zero step beside quantised positive work is an endpoint inside
+      // that work-item projection. Only an all-zero quantised item is itself a
+      // milestone; Fast deliberately supplies real durations to the shared
+      // grouping helper while this wire supplies integer solver units.
       workItemIsMilestone: !workItemsWithDuration.has(slice.workItemId),
     };
   });

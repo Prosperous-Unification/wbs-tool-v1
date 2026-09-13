@@ -106,9 +106,12 @@ describe('the production solver binding runtime', () => {
     expect(invocations.map(({ argv }) => argv[0])).toEqual([
       BUN,
       `${SOURCE_REPOSITORY}/bin/with-heavy-lock.sh`,
+      'docker',
+      'docker',
       BUN,
       BUN,
       BUN,
+      'docker',
       'systemctl',
       'test',
       SOLVER_SUPERVISOR_BUN,
@@ -131,25 +134,28 @@ describe('the production solver binding runtime', () => {
       WBS_CLEAN_TREE_REPOSITORY: SOURCE_REPOSITORY,
     });
     expect(invocations.flatMap(({ argv }) => argv)).not.toContain('protected-value');
-    expect(invocations[2]?.argv).toContain(`--blue-image=${BLUE}`);
-    expect(invocations[2]?.argv).toContain(`--green-image=${GREEN}`);
-    expect(invocations[2]?.argv).toContain(`--dev-solver-image=${DEV}`);
-    expect(invocations[3]?.argv).toEqual([BUN, 'x', 'nx', 'run', 'tool-remote-scripts:build']);
-    expect(invocations[4]?.argv).toContain('--execute');
-    expect(invocations[5]?.argv).toEqual([
+    expect(invocations[2]?.argv).toEqual(['docker', 'pull', DEV]);
+    expect(invocations[3]?.argv).toEqual(['docker', 'image', 'inspect', '--format={{.Id}}', DEV]);
+    expect(invocations[4]?.argv).toContain(`--blue-image=${BLUE}`);
+    expect(invocations[4]?.argv).toContain(`--green-image=${GREEN}`);
+    expect(invocations[4]?.argv).toContain(`--dev-solver-image=${DEV}`);
+    expect(invocations[5]?.argv).toEqual([BUN, 'x', 'nx', 'run', 'tool-remote-scripts:build']);
+    expect(invocations[6]?.argv).toContain('--execute');
+    expect(invocations[7]?.argv).toEqual(['docker', 'image', 'inspect', '--format={{.Id}}', DEV]);
+    expect(invocations[8]?.argv).toEqual([
       'systemctl',
       '--user',
       'is-active',
       '--quiet',
       'wbs-solver-supervisor.service',
     ]);
-    expect(invocations[6]?.argv).toEqual([
+    expect(invocations[9]?.argv).toEqual([
       'test',
       '-S',
       '/run/user/1000/wbs-solver/supervisor.sock',
     ]);
-    expect(invocations[7]?.argv).toContain('--preflight=dev');
-    expect(invocations[8]?.argv).toEqual([
+    expect(invocations[10]?.argv).toContain('--preflight=dev');
+    expect(invocations[11]?.argv).toEqual([
       'git',
       '-C',
       SOURCE_REPOSITORY,
@@ -168,6 +174,110 @@ describe('the production solver binding runtime', () => {
     });
     expect(phases).toEqual(['published', 'complete']);
     expect(locks).toEqual(['/home/puni1/wbs/state/deploy.lock']);
+  });
+
+  it('does not materialize a solver mapping after its host image pull fails', async () => {
+    const invocations: SolverBindingRuntimeInvocation[] = [];
+    const runtime = createTargetSolverBindingRuntime(
+      { root: ROOT, bunPath: BUN, sourceSha: SHA, compatibilityIdentity: IDENTITY },
+      {
+        exists: () => Promise.resolve(true),
+        isGitMetadata: () => Promise.resolve(true),
+        read: () => Promise.resolve(installed),
+        command: (invocation) => {
+          invocations.push(invocation);
+          return Promise.resolve({ exitCode: 1, stderr: 'registry unavailable' });
+        },
+        query: () => Promise.reject(new Error('materialization must not query')),
+        writeAtomic: () => Promise.reject(new Error('materialization must not checkpoint')),
+        withLock: (_path, action) => action(),
+      },
+    );
+
+    expect(
+      await rejection(
+        runtime.dependencies.materialize({
+          blueImage: BLUE,
+          greenImage: GREEN,
+          devSolverImage: DEV,
+          devSourceSha: SHA,
+        }),
+      ),
+    ).toContain('solver host image pull failed (exit 1): registry unavailable');
+    expect(invocations.map(({ argv }) => argv)).toEqual([['docker', 'pull', DEV]]);
+  });
+
+  // Proof: making the post-install image inspection report the incident's
+  // `No such image` fault keeps the durable state at published and prevents
+  // the live checkout reset.
+  it('refuses completion when the supervisor daemon cannot inspect the pinned image', async () => {
+    const checkpoints: string[] = [];
+    const invocations: SolverBindingRuntimeInvocation[] = [];
+    const runtime = createTargetSolverBindingRuntime(
+      {
+        root: ROOT,
+        bunPath: BUN,
+        sourceRepository: SOURCE_REPOSITORY,
+        sourceSha: SHA,
+        compatibilityIdentity: IDENTITY,
+      },
+      {
+        exists: () => Promise.resolve(true),
+        isGitMetadata: () => Promise.resolve(true),
+        read: (path) => {
+          if (path.endsWith('release.json')) {
+            return Promise.resolve(
+              bytes(
+                JSON.stringify({
+                  be: {
+                    sha: SHA,
+                    digest: `sha256:${'e'.repeat(64)}`,
+                    ref: `registry.example/wbs-be:${SHA}`,
+                    image: DEV,
+                  },
+                }),
+              ),
+            );
+          }
+          if (path.endsWith('solver-supervisor.json')) return Promise.resolve(installed);
+          return Promise.resolve(bytes('REGISTRY_PASS=protected-value\n'));
+        },
+        command: (invocation) => {
+          invocations.push(invocation);
+          const imageInspections = invocations.filter(
+            ({ argv }) => argv[0] === 'docker' && argv[1] === 'image',
+          ).length;
+          return Promise.resolve(
+            imageInspections === 2 && invocation.argv[0] === 'docker'
+              ? { exitCode: 1, stderr: `No such image: ${DEV}` }
+              : { exitCode: 0, stderr: '' },
+          );
+        },
+        query: () => Promise.reject(new Error('installed config must avoid inspection')),
+        writeAtomic: (_path, contents) => {
+          checkpoints.push(contents);
+          return Promise.resolve();
+        },
+        withLock: (_path, action) => action(),
+      },
+    );
+
+    expect(
+      await rejection(
+        prepareTargetSolverBinding(
+          { sourceSha: SHA, compatibilityIdentity: IDENTITY },
+          undefined,
+          runtime.dependencies,
+        ),
+      ),
+    ).toContain(`solver host image inspection failed (exit 1): No such image: ${DEV}`);
+    expect(invocations.some(({ argv }) => argv[0] === 'git' && argv.includes('reset'))).toBe(false);
+    expect(
+      checkpoints.map((contents) => {
+        const state = JSON.parse(contents) as Record<string, unknown>;
+        return state['phase'];
+      }),
+    ).toEqual(['published']);
   });
 
   it('derives a missing config from exact prod container inspection but propagates unreadability', async () => {

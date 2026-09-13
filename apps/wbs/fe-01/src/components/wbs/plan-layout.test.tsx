@@ -55,10 +55,14 @@ vi.mock('./table-frame', async (importOriginal) => {
  * A plan where no row sets an earliest start, which is what every plan built
  * by these helpers is unless it says otherwise.
  */
-const UNDATED: FrameLayoutState = { hasAnyNotBefore: false };
+const UNDATED: FrameLayoutState = {
+  hasAnyNotBefore: false,
+  deepestDepth: 0,
+  numberingFrozen: false,
+};
 
 /** And one where somebody has, which is 28px wider. */
-const DATED: FrameLayoutState = { hasAnyNotBefore: true };
+const DATED: FrameLayoutState = { hasAnyNotBefore: true, deepestDepth: 0, numberingFrozen: false };
 
 const numbersOnScreen = () =>
   screen
@@ -261,16 +265,17 @@ describe('the frame the table scrolls inside', () => {
 
     const cells = [...rowFor('020').querySelectorAll('td')];
 
-    // Each offset is the sum of the widths in front of it — 16, then 16+98,
-    // then 114+32 since `external-refs` put the ref column between `#` and
-    // Name (105 and 40 until 2026-09-13's compaction). Four pinned columns
+    // Each offset is the sum of the widths in front of it — 16, then 16+68,
+    // then 84+32 since `external-refs` put the ref column between `#` and
+    // Name (105 and 40 until 2026-09-13's compaction; 68 is the Number
+    // column's width on a plan this shallow). Four pinned columns
     // now, and the fourth is pinned because it had to be: an unpinned column
     // between two pinned ones scrolls under the second.
     expect(cells.slice(0, 4).map((td) => [td.style.position, td.style.left])).toEqual([
       ['sticky', '0px'],
       ['sticky', '16px'],
-      ['sticky', '114px'],
-      ['sticky', '146px'],
+      ['sticky', '84px'],
+      ['sticky', '116px'],
     ]);
     // Pinned and still flexible: the pin places the Name cell and the colgroup
     // sizes it, and a `width` here would be the second opinion that put a
@@ -278,7 +283,7 @@ describe('the frame the table scrolls inside', () => {
     // Proof: `pinnedCellStyle` made to declare `width: pinned.width ?? 360`
     // again, this failed on `expected '360px' to be ''`. Watched, 2026-08-08.
     expect(cells[3]?.style.width).toBe('');
-    expect(cells[1]?.style.width).toBe('98px');
+    expect(cells[1]?.style.width).toBe('68px');
     expect(cells[2]?.style.width).toBe('32px');
     // And the floor that keeps it readable while the frame is scrolling.
     expect(cells[3]?.style.minWidth).toBe('200px');
@@ -333,7 +338,7 @@ describe('the widths the table is laid out by', () => {
     // Proof: the colgroup made to declare `360` for a flexible column, this
     // failed on `expected ['24px','93px','360px'] to deeply equal
     // ['24px','93px','']`. Watched, 2026-08-08, when this column was 169px.
-    expect(cols.slice(0, 4).map((col) => col.style.width)).toEqual(['16px', '98px', '32px', '']);
+    expect(cols.slice(0, 4).map((col) => col.style.width)).toEqual(['16px', '68px', '32px', '']);
     for (const [at, col] of cols.entries()) {
       expect(col.style.width === '').toBe(at === 3);
     }
@@ -392,9 +397,9 @@ describe('the widths the table is laid out by', () => {
     // the frame's scrollbar on.
     // 1491 → 1440 and 1239 → 1188 on 2026-09-13: 67px off the fixed columns,
     // 8px onto each of the two steps' folded columns.
-    expect(table.style.minWidth).toBe('1440px');
+    expect(table.style.minWidth).toBe('1410px');
     fireEvent.click(screen.getByRole('button', { name: 'Fold Dev estimates' }));
-    expect(screen.getByRole('table').style.minWidth).toBe('1188px');
+    expect(screen.getByRole('table').style.minWidth).toBe('1158px');
   });
 
   itDom('says nothing in a number cell that is showing the whole number', async () => {
@@ -958,8 +963,8 @@ describe('the widths this browser has dragged', () => {
       // 200 floor, plus the 300 override
       // — as its width and its minimum alike, so the frame keeps the slack
       // above it and scrolls below it.
-      expect(screen.getByRole('table').style.width).toBe('1540px');
-      expect(screen.getByRole('table').style.minWidth).toBe('1540px');
+      expect(screen.getByRole('table').style.width).toBe('1510px');
+      expect(screen.getByRole('table').style.minWidth).toBe('1510px');
     },
   );
 
@@ -1036,7 +1041,7 @@ describe('the widths this browser has dragged', () => {
     const header = document.querySelector<HTMLElement>('thead th[data-column="name"]');
     expect(header?.style.width).toBe('');
     expect(header?.style.minWidth).toBe('200px');
-    expect(laidOut()['number']).toBe('98px');
+    expect(laidOut()['number']).toBe('68px');
     expect(screen.getByRole('table').style.width).toMatch(/^min\(100%, \d+px\)$/);
     expect(stored()).toBe(null);
   });
@@ -1093,7 +1098,7 @@ describe('the widths this browser has dragged', () => {
       storedWidths(junk);
       await threeRoots();
 
-      expect(laidOut()['number']).toBe('98px');
+      expect(laidOut()['number']).toBe('68px');
       expect(stored()).toBe(null);
     },
   );
@@ -1152,7 +1157,7 @@ describe('the widths this browser has dragged', () => {
       storedWidths({ number: 1e9, depends: 4, tag: 240 });
       await threeRoots();
 
-      expect(laidOut()['number']).toBe('98px');
+      expect(laidOut()['number']).toBe('68px');
       expect(laidOut()['depends']).toBe('78px');
       expect(laidOut()['tag']).toBe('240px');
     },
@@ -1167,6 +1172,43 @@ describe('the widths this browser has dragged', () => {
 
     expect(laidOut()['number']).toBe('240px');
     expect(stored()).toContain('step-gone-final');
+  });
+
+  itDom('lays the Number column out at 68px while no row is deeper than a child', async () => {
+    // Dany, 2026-09-13: "why # column is still so wide by default … it does not
+    // need to be". The width is a fact about the plan now (`NUMBER_SHALLOW_WIDTH`
+    // / `NUMBER_DEEP_WIDTH`), read off every row's dotted number in
+    // `use-plan-layout.tsx` — a root and its child are depth 1, so 68.
+    const api = fakeApi();
+    const root = await api.createWorkItem('p1', { parentId: null, afterId: null, name: 'Root' });
+    await api.createWorkItem('p1', { parentId: root.id, afterId: null, name: 'Child' });
+    render(<WbsTable projectId="p1" api={api} />);
+    await screen.findByLabelText('Name of 010.1');
+
+    expect(laidOut()['number']).toBe('68px');
+    expect(screen.getAllByRole('columnheader')[2]?.style.left).toBe('84px');
+  });
+
+  itDom('widens the Number column to 98px once the plan has a third level', async () => {
+    // The depth the 98px guarantee was measured for (`NUMBER_DEEP_WIDTH`): a
+    // grandchild is `010.1.1`, and every pin behind the column moves with it.
+    // Proof: `deepestDepth` hardcoded to 0 in `use-plan-layout.tsx`, this
+    // failed on `expected '68px' to be '98px'` while the case above stayed
+    // green — the two together are what say the fact is read off the plan.
+    // Watched 2026-09-13.
+    const api = fakeApi();
+    const root = await api.createWorkItem('p1', { parentId: null, afterId: null, name: 'Root' });
+    const child = await api.createWorkItem('p1', {
+      parentId: root.id,
+      afterId: null,
+      name: 'Child',
+    });
+    await api.createWorkItem('p1', { parentId: child.id, afterId: null, name: 'Grandchild' });
+    render(<WbsTable projectId="p1" api={api} />);
+    await screen.findByLabelText('Name of 010.1.1');
+
+    expect(laidOut()['number']).toBe('98px');
+    expect(screen.getAllByRole('columnheader')[2]?.style.left).toBe('114px');
   });
 
   itDom('freezes a width that would otherwise move with the plan', async () => {
@@ -1252,7 +1294,7 @@ describe('the widths this browser has dragged', () => {
 
     click('Reset layout');
 
-    expect(laidOut()['number']).toBe('98px');
+    expect(laidOut()['number']).toBe('68px');
     expect(document.activeElement).toBe(screen.getByLabelText('Name of 010'));
     expect(screen.getByLabelText('Name of 010')).toHaveProperty('value', 'Strip the old wir');
   });
