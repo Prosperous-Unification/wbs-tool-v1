@@ -265,6 +265,17 @@ describe('agent trailer hook integration', () => {
     expect(readFileSync(message, 'utf8')).toEndWith(
       'Co-Authored-By: Peer <peer@example.com>\nAgent-Authored-By: openai/gpt-5.6-sol\n',
     );
+
+    const plainMessage = join(repository, 'PLAIN_COMMIT_EDITMSG');
+    writeFileSync(plainMessage, 'fix: one-line conventional subject\n');
+    const plainResult = Bun.spawnSync(['sh', hook, plainMessage], {
+      cwd: repository,
+      env: { ...agentEnv, PATH: `${fakeBin}:${humanEnv.PATH ?? ''}` },
+    });
+    expect(plainResult.exitCode).toBe(0);
+    expect(readFileSync(plainMessage, 'utf8')).toBe(
+      'fix: one-line conventional subject\n\nAgent-Authored-By: openai/gpt-5.6-sol\n',
+    );
   });
 
   it('places the legacy fallback above a CRLF multi-character scissors marker', () => {
@@ -291,6 +302,7 @@ describe('agent trailer hook integration', () => {
     });
     expect(result.exitCode).toBe(0);
     const text = readFileSync(message, 'utf8');
+    expect(text.match(/^Agent-Authored-By:/gm)).toHaveLength(1);
     expect(text.indexOf('Agent-Authored-By:')).toBeLessThan(
       text.indexOf('// ------------------------ >8'),
     );

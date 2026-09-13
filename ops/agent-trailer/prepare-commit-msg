@@ -45,8 +45,10 @@ squash_msg=$(git rev-parse --git-path SQUASH_MSG 2>/dev/null) || squash_msg=""
 comment_prefix=$(git config --get core.commentString 2>/dev/null) || comment_prefix=""
 [ -n "$comment_prefix" ] || comment_prefix=$(git config --get core.commentChar 2>/dev/null) || comment_prefix=""
 case "$comment_prefix" in
-	""|auto) comment_prefix="#" ;;
+	"") comment_prefix="#" ;;
+	auto) comment_prefix=""; comment_prefix_auto=1 ;;
 esac
+comment_prefix_auto=${comment_prefix_auto:-0}
 if [ -n "$squash_msg" ] && [ -f "$squash_msg" ]; then
 	# prepare-commit-msg may append its editor template comments after copying
 	# SQUASH_MSG, and verbose mode appends a diff below Git's scissors line.
@@ -56,11 +58,15 @@ if [ -n "$squash_msg" ] && [ -f "$squash_msg" ]; then
 	# legacy one-byte core.commentChar. Match the complete line, tolerating the
 	# CR in a CRLF message without treating a body substring as a boundary.
 	message_body=$(awk '
-		BEGIN { prefix = ARGV[1]; ARGV[1] = "" }
+		BEGIN { prefix = ARGV[1]; auto = ARGV[2]; ARGV[1] = ARGV[2] = "" }
+		function is_scissors(line) {
+			marker = " ------------------------ >8 ------------------------"
+			return line == prefix marker || (auto == 1 && length(line) == length(marker) + 1 && substr(line, 2) == marker)
+		}
 		{ candidate = $0; sub(/\r$/, "", candidate) }
-		candidate == prefix " ------------------------ >8 ------------------------" { exit }
+		is_scissors(candidate) { exit }
 		{ print }
-	' "$comment_prefix" "$msg_file" 2>/dev/null | git stripspace --strip-comments 2>/dev/null) || message_body=""
+	' "$comment_prefix" "$comment_prefix_auto" "$msg_file" 2>/dev/null | git stripspace --strip-comments 2>/dev/null) || message_body=""
 	squash_body=$(git stripspace --strip-comments <"$squash_msg" 2>/dev/null) || squash_body=""
 	[ -n "$squash_body" ] && [ "$message_body" = "$squash_body" ] && exit 0
 fi
@@ -126,24 +132,37 @@ fallback=$(mktemp "${msg_file}.agent-trailer.XXXXXX" 2>/dev/null) || {
 	exit 0
 }
 if awk -v trailer="Agent-Authored-By: $label" '
-	BEGIN { prefix = ARGV[1]; ARGV[1] = "" }
+	BEGIN { prefix = ARGV[1]; auto = ARGV[2]; ARGV[1] = ARGV[2] = "" }
+	function is_scissors(line) {
+		marker = " ------------------------ >8 ------------------------"
+		return line == prefix marker || (auto == 1 && length(line) == length(marker) + 1 && substr(line, 2) == marker)
+	}
 	function emit_trailer() {
-		if (previous != "" && previous !~ /^[[:alnum:]][[:alnum:]-]*:[[:space:]]/) print ""
+		if (previous != "" && !(paragraph_separated && paragraph_is_trailers)) print ""
 		print trailer
 	}
 	{
 		candidate = $0
 		sub(/\r$/, "", candidate)
 	}
-	candidate == prefix " ------------------------ >8 ------------------------" && !inserted {
+	is_scissors(candidate) && !inserted {
 		emit_trailer()
 		inserted = 1
 	}
-	{ print; previous = candidate }
+	{
+		print
+		previous = candidate
+		if (candidate == "") {
+			paragraph_separated = 1
+			paragraph_is_trailers = 1
+		} else if (candidate !~ /^[[:alnum:]][[:alnum:]-]*:[[:space:]]/) {
+			paragraph_is_trailers = 0
+		}
+	}
 	END {
 		if (!inserted) emit_trailer()
 	}
-' "$comment_prefix" "$msg_file" >"$fallback" 2>/dev/null && mv "$fallback" "$msg_file" 2>/dev/null; then
+' "$comment_prefix" "$comment_prefix_auto" "$msg_file" >"$fallback" 2>/dev/null && mv "$fallback" "$msg_file" 2>/dev/null; then
 	:
 else
 	rm -f "$fallback" 2>/dev/null || true
