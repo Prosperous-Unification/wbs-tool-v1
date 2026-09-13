@@ -353,7 +353,7 @@ describe('agent trailer hook integration', () => {
     const text = readFileSync(message, 'utf8');
     expect(text.match(/^Agent-Authored-By:/gm)).toHaveLength(1);
     expect(text).toStartWith(
-      'fix: multi-prefix fallback\n\nAgent-Authored-By: openai/gpt-5.6-sol\n',
+      'fix: multi-prefix fallback\r\n\nAgent-Authored-By: openai/gpt-5.6-sol\n// ------------------------ >8 ------------------------\r\n',
     );
     expect(text.indexOf('Agent-Authored-By:')).toBeLessThan(
       text.indexOf('// ------------------------ >8'),
