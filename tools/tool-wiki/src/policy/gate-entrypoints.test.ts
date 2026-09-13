@@ -36,6 +36,19 @@ function write(path: string, source: string): void {
   writeFileSync(path, source, 'utf8');
 }
 
+function workflowRunScript(workflow: string, stepName: string): string {
+  const step = workflow.indexOf(`      - name: ${stepName}\n`);
+  if (step < 0) throw new Error(`workflow step is absent: ${stepName}`);
+  const run = workflow.indexOf('        run: |\n', step);
+  if (run < 0) throw new Error(`workflow run block is absent: ${stepName}`);
+  const next = workflow.indexOf('\n      - name:', run + 1);
+  const block = workflow.slice(run + '        run: |\n'.length, next < 0 ? undefined : next);
+  return block
+    .split('\n')
+    .map((line) => (line.startsWith('          ') ? line.slice(10) : line))
+    .join('\n');
+}
+
 function fixture(): {
   directory: string;
   repository: string;
@@ -975,6 +988,53 @@ await import(${JSON.stringify(productionSnapshotter)});
     expect(ci).toContain('bunx nx run tool-wiki:lint:source --skip-nx-cache');
     expect(workspacePackage.scripts['lint']).toBe(
       'nx run-many -t lint --exclude=tool-wiki && nx run tool-wiki:lint:source',
+    );
+  });
+
+  test('trusted CI stays inactive when activation is absent and refuses partial configuration', () => {
+    const workflow = readFileSync(
+      join(workspace, '.github', 'workflows', 'trusted-wiki.yml'),
+      'utf8',
+    );
+    const script = workflowRunScript(workflow, 'Check activation configuration');
+    const invoke = (variables: Record<string, string>) => {
+      const directory = mkdtempSync(join(tmpdir(), 'tool-wiki-workflow-config-'));
+      scratchPaths.push(directory);
+      const output = join(directory, 'output');
+      const invocation = Bun.spawnSync(['bash', '-c', script], {
+        env: { PATH: process.env['PATH'] ?? '', GITHUB_OUTPUT: output, ...variables },
+        stderr: 'pipe',
+        stdout: 'pipe',
+      });
+      return {
+        invocation,
+        output: existsSync(output) ? readFileSync(output, 'utf8') : '',
+      };
+    };
+
+    const absent = invoke({});
+    expect(absent.invocation.exitCode, streamText(absent.invocation.stderr, 'absent stderr')).toBe(
+      0,
+    );
+    expect(absent.output).toBe('configured=false\n');
+
+    const partial = invoke({ ACTIVATION_VERSION: 'tool-wiki-bootstrap-v1' });
+    expect(partial.invocation.exitCode).not.toBe(0);
+    expect(streamText(partial.invocation.stderr, 'partial stderr')).toContain(
+      'trusted activation configuration is partial',
+    );
+
+    const complete = invoke({
+      ACTIVATION_ARCHIVE_SHA256: 'a'.repeat(64),
+      ACTIVATION_ARCHIVE_URL: 'https://example.test/tool-wiki-bootstrap-v1.tar',
+      ACTIVATION_VERSION: 'tool-wiki-bootstrap-v1',
+    });
+    expect(complete.invocation.exitCode, streamText(complete.invocation.stderr, 'complete stderr')).toBe(
+      0,
+    );
+    expect(complete.output).toBe('configured=true\n');
+    expect(workflow.match(/if: steps\.activation_configuration\.outputs\.configured == 'true'/g)).toHaveLength(
+      5,
     );
   });
 
