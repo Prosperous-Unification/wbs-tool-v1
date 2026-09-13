@@ -255,3 +255,22 @@ The performance matrix was not repeated: the merge changes rendered plan,
 status, deadline and solver behavior, while Playwright worker/retry settings,
 fixture write coordination and accepted recipe compilation paths are unchanged.
 The workers=1 refusal therefore continues to use the preserved frozen matrix.
+
+## Task 3.4 closeout on current main
+
+The branch was clean and `a9a19aa6` was an ancestor of fetched `origin/main`
+`8779208a`; it was fast-forwarded to that exact main commit before the closeout
+checks. The performance matrix and fault-injection output above are the actual
+change evidence and were preserved without claiming new runs. The worker
+decision remains one because the recorded six-attempt acceptance matrix did not
+produce six green samples.
+
+- `bunx nx run-many -t test lint typecheck -p fe-01 contracts` — all 6 targets
+  passed outside the process sandbox in 7m 6s, with 0 cache hits. A preceding
+  sandboxed invocation exited zero after Unix-socket `EPERM` warnings without
+  scheduling targets; that non-execution is explicitly rejected as evidence.
+- `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate --all --json`
+  — 83/83 items passed: 72 changes and 11 specs.
+
+The canonical full workspace gate is recorded below after this evidence is
+committed, because `bin/h2puni-gate.sh` accepts an exact commit SHA.
