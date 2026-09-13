@@ -42,15 +42,25 @@ esac
 merge_head=$(git rev-parse --git-path MERGE_HEAD 2>/dev/null) || merge_head=""
 [ -n "$merge_head" ] && [ -f "$merge_head" ] && exit 0
 squash_msg=$(git rev-parse --git-path SQUASH_MSG 2>/dev/null) || squash_msg=""
+comment_prefix=$(git config --get core.commentString 2>/dev/null) || comment_prefix=""
+[ -n "$comment_prefix" ] || comment_prefix=$(git config --get core.commentChar 2>/dev/null) || comment_prefix=""
+case "$comment_prefix" in
+	""|auto) comment_prefix="#" ;;
+esac
 if [ -n "$squash_msg" ] && [ -f "$squash_msg" ]; then
 	# prepare-commit-msg may append its editor template comments after copying
 	# SQUASH_MSG, and verbose mode appends a diff below Git's scissors line.
 	# Compare the effective messages above that line. If the committer edits the
 	# squash text, that new message is authored and should be attributed.
-	# Git prefixes this exact marker with its configurable one-byte comment
-	# character. Match the complete remainder of the line: an ordinary body
-	# substring containing the dash run is content, not a scissors boundary.
-	message_body=$(awk 'substr($0, 2) == " ------------------------ >8 ------------------------" { exit } { print }' "$msg_file" 2>/dev/null | git stripspace --strip-comments 2>/dev/null) || message_body=""
+	# Git prefixes this exact marker with core.commentString (Git 2.45+) or the
+	# legacy one-byte core.commentChar. Match the complete line, tolerating the
+	# CR in a CRLF message without treating a body substring as a boundary.
+	message_body=$(awk '
+		BEGIN { prefix = ARGV[1]; ARGV[1] = "" }
+		{ candidate = $0; sub(/\r$/, "", candidate) }
+		candidate == prefix " ------------------------ >8 ------------------------" { exit }
+		{ print }
+	' "$comment_prefix" "$msg_file" 2>/dev/null | git stripspace --strip-comments 2>/dev/null) || message_body=""
 	squash_body=$(git stripspace --strip-comments <"$squash_msg" 2>/dev/null) || squash_body=""
 	[ -n "$squash_body" ] && [ "$message_body" = "$squash_body" ] && exit 0
 fi
@@ -109,19 +119,33 @@ fi
 # Fallback for a git too old for --in-place. A verbose message's tail is below
 # Git's scissors marker and is discarded, so put the trailer immediately above
 # that exact boundary; append only when no boundary exists.
-fallback=$(mktemp "${msg_file}.agent-trailer.XXXXXX" 2>/dev/null) || exit 0
-awk -v trailer="Agent-Authored-By: $label" '
-	substr($0, 2) == " ------------------------ >8 ------------------------" && !inserted {
-		print ""
+fallback=$(mktemp "${msg_file}.agent-trailer.XXXXXX" 2>/dev/null) || {
+	# Preserve the measurement on the last-resort path too. An unwritable
+	# message still fails open because the append itself is deliberately soft.
+	printf '\nAgent-Authored-By: %s\n' "$label" >>"$msg_file" 2>/dev/null || true
+	exit 0
+}
+if awk -v trailer="Agent-Authored-By: $label" '
+	BEGIN { prefix = ARGV[1]; ARGV[1] = "" }
+	function emit_trailer() {
+		if (previous != "" && previous !~ /^[[:alnum:]][[:alnum:]-]*:[[:space:]]/) print ""
 		print trailer
+	}
+	{
+		candidate = $0
+		sub(/\r$/, "", candidate)
+	}
+	candidate == prefix " ------------------------ >8 ------------------------" && !inserted {
+		emit_trailer()
 		inserted = 1
 	}
-	{ print }
+	{ print; previous = candidate }
 	END {
-		if (!inserted) {
-			print ""
-			print trailer
-		}
+		if (!inserted) emit_trailer()
 	}
-' "$msg_file" >"$fallback" 2>/dev/null && mv "$fallback" "$msg_file" 2>/dev/null || true
+' "$comment_prefix" "$msg_file" >"$fallback" 2>/dev/null && mv "$fallback" "$msg_file" 2>/dev/null; then
+	:
+else
+	rm -f "$fallback" 2>/dev/null || true
+fi
 exit 0

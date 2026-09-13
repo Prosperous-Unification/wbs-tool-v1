@@ -1,4 +1,11 @@
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -42,21 +49,31 @@ function makeRepository() {
     const wrapper = join(hooks, stage);
     writeFileSync(
       wrapper,
-      '#!/bin/sh\nprintf "%s\\n" "$(basename "$0")" >>"$HOOK_TRACE"\nexec "$FLEET_HOOK" "$@"\n',
+      '#!/bin/sh\n"$FLEET_HOOK" "$@"\nstatus=$?\nif grep -qi "^Agent-Authored-By:" "$1"; then state=present; else state=absent; fi\nprintf "%s:%s\\n" "$(basename "$0")" "$state" >>"$HOOK_TRACE"\nexit "$status"\n',
     );
     chmodSync(wrapper, 0o755);
   }
 
-  const hookEnv = {
+  const hookEnv: FixtureEnvironment = {
     ...humanEnv,
     FLEET_HOOK: hook,
     HOOK_TRACE: trace,
   };
-  const agentEnv = { ...hookEnv, AGENT_AUTHORED_BY: 'openai/gpt-5.6-sol' };
+  const agentEnv: FixtureEnvironment = {
+    ...hookEnv,
+    AGENT_AUTHORED_BY: 'openai/gpt-5.6-sol',
+  };
   return { agentEnv, git, hookEnv, repository, trace };
 }
 
 function stages(trace: string) {
+  return readFileSync(trace, 'utf8')
+    .trim()
+    .split('\n')
+    .map((record) => record.split(':', 1)[0]);
+}
+
+function stageRecords(trace: string) {
   return readFileSync(trace, 'utf8').trim().split('\n');
 }
 
@@ -72,6 +89,8 @@ describe('agent trailer hook integration', () => {
       'HOME',
       'PATH',
     ]);
+    expect(humanEnv.GIT_CONFIG_GLOBAL).toBe('/dev/null');
+    expect(humanEnv.GIT_CONFIG_SYSTEM).toBe('/dev/null');
   });
 
   it('keeps both production lefthook stages wired to the shared hook', () => {
@@ -150,6 +169,10 @@ describe('agent trailer hook integration', () => {
     expect(committed.stderr.toString()).toBe('');
     expect(committed.exitCode).toBe(0);
     expect(stages(trace)).toEqual(['prepare-commit-msg', 'commit-msg']);
+    expect(stageRecords(trace)).toEqual([
+      'prepare-commit-msg:present',
+      'commit-msg:present',
+    ]);
     expect(body(git).match(/^Agent-Authored-By:/gm)).toHaveLength(1);
     expect(body(git)).not.toContain('diff --git');
   });
@@ -201,6 +224,83 @@ describe('agent trailer hook integration', () => {
     expect(text).toContain(
       'body mentions ------------------------ >8 ------------------------ without being a marker',
     );
+  });
+
+  it('recognises a CRLF scissors line with a multi-character comment string', () => {
+    const { agentEnv, git, repository } = makeRepository();
+    expect(git(['config', 'core.commentString', '//'], humanEnv).exitCode).toBe(0);
+    writeFileSync(join(repository, '.git', 'SQUASH_MSG'), 'generated squash subject\n');
+    const message = join(repository, 'COMMIT_EDITMSG');
+    writeFileSync(
+      message,
+      'generated squash subject\r\n\r\n// ------------------------ >8 ------------------------\r\ndiff --git a/a b/a\r\n',
+    );
+    const result = Bun.spawnSync(['sh', hook, message], {
+      cwd: repository,
+      env: agentEnv,
+      stderr: 'pipe',
+      stdout: 'pipe',
+    });
+    expect(result.exitCode).toBe(0);
+    expect(readFileSync(message, 'utf8')).not.toContain('Agent-Authored-By:');
+  });
+
+  it('appends the legacy fallback when no scissors marker exists and preserves a trailer block', () => {
+    const { agentEnv, repository } = makeRepository();
+    const realGit = Bun.spawnSync(['sh', '-c', 'command -v git'], { env: humanEnv })
+      .stdout.toString()
+      .trim();
+    expect(realGit).not.toBe('');
+    const fakeBin = join(repository, 'fake-bin');
+    mkdirSync(fakeBin);
+    writeFileSync(
+      join(fakeBin, 'git'),
+      `#!/bin/sh\nif [ "\${1:-}" = interpret-trailers ]; then exit 1; fi\nexec ${JSON.stringify(realGit)} "$@"\n`,
+    );
+    chmodSync(join(fakeBin, 'git'), 0o755);
+    const message = join(repository, 'COMMIT_EDITMSG');
+    writeFileSync(message, 'fix: legacy message\n\nCo-Authored-By: Peer <peer@example.com>\n');
+    const result = Bun.spawnSync(['sh', hook, message], {
+      cwd: repository,
+      env: { ...agentEnv, PATH: `${fakeBin}:${humanEnv.PATH ?? ''}` },
+    });
+    expect(result.exitCode).toBe(0);
+    expect(readFileSync(message, 'utf8')).toEndWith(
+      'Co-Authored-By: Peer <peer@example.com>\nAgent-Authored-By: openai/gpt-5.6-sol\n',
+    );
+  });
+
+  it('falls open with attribution when mktemp fails and cleans up an awk failure', () => {
+    for (const failedTool of ['mktemp', 'awk']) {
+      const { agentEnv, repository } = makeRepository();
+      const realGit = Bun.spawnSync(['sh', '-c', 'command -v git'], { env: humanEnv })
+        .stdout.toString()
+        .trim();
+      const fakeBin = join(repository, 'fake-bin');
+      mkdirSync(fakeBin);
+      writeFileSync(
+        join(fakeBin, 'git'),
+        `#!/bin/sh\nif [ "\${1:-}" = interpret-trailers ]; then exit 1; fi\nexec ${JSON.stringify(realGit)} "$@"\n`,
+      );
+      chmodSync(join(fakeBin, 'git'), 0o755);
+      writeFileSync(join(fakeBin, failedTool), '#!/bin/sh\nexit 1\n');
+      chmodSync(join(fakeBin, failedTool), 0o755);
+      const message = join(repository, 'COMMIT_EDITMSG');
+      writeFileSync(message, 'fix: failure edge\n');
+      const result = Bun.spawnSync(['sh', hook, message], {
+        cwd: repository,
+        env: { ...agentEnv, PATH: `${fakeBin}:${humanEnv.PATH ?? ''}` },
+      });
+      expect(result.exitCode).toBe(0);
+      if (failedTool === 'mktemp') {
+        expect(readFileSync(message, 'utf8')).toContain(
+          'Agent-Authored-By: openai/gpt-5.6-sol',
+        );
+      }
+      expect(readdirSync(repository).some((name) => name.includes('.agent-trailer.'))).toBe(
+        false,
+      );
+    }
   });
 
   it('treats a non-matching SQUASH_MSG as stale and stamps the explicit message', () => {
