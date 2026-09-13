@@ -299,8 +299,9 @@ Fresh R5 proofs for the repaired boundaries:
   project POST instead of zero before refusal: unavailable predecessor,
   duplicate tag ref and unknown tag ref each failed `Expected: 0, Received: 1`.
   Restoring the guards made all three pass without backend fault interception.
-- The controlled mobile interleaving promotes the selected fixture, opens a
-  different project, then performs the global-list and selected-tree reads.
+- The controlled mobile interleaving captures the selected fixture ID, creates
+  and opens two separate rival projects, then reads the global list and the
+  captured fixture tree.
   Replacing the captured selected ID with the global first project's ID made
   the test return `[]` instead of `["010", "020"]`; restored code passes and
   asserts only that the global first ID is non-null and differs from the
