@@ -471,8 +471,15 @@ async function openSqliteSavedPlanCaptureCase(
 async function openSqliteHistoryBatchCase(
   caseId: CaseId,
   routeThroughCommandCoordinator = false,
+  lifecycle?: {
+    readonly rejectAt?: 'update' | 'readback' | 'settlement';
+    readonly rejectCleanup?: boolean;
+    readonly onOpen?: (directory: string) => void;
+    readonly onClose?: (directory: string) => void;
+  },
 ): Promise<HistoryBatchFixture> {
   const { source, directory } = await seedSqliteSource();
+  lifecycle?.onOpen?.(directory);
   const base = source.history.savedPlans;
   const port: SavedPlanStore = routeThroughCommandCoordinator
     ? {
@@ -494,6 +501,7 @@ async function openSqliteHistoryBatchCase(
   });
   let batch: Promise<void> | undefined;
   let settled = false;
+  let batchFailureObserved = false;
   return {
     fixtureId: `sqlite:${caseId}`,
     port,
@@ -507,19 +515,31 @@ async function openSqliteHistoryBatchCase(
         batch = source.uow.run(async ({ stores }) => {
           const projectId = DETERMINISTIC_SEED.projectIds[0];
           const stamp = { at: 700, by: DETERMINISTIC_SEED.ownerIds[0] };
-          const updated = await stores.projects.update(
-            projectId,
-            { name: `Held ${caseId}` },
-            stamp,
-          );
-          const observed = await stores.projects.findById(projectId);
+          const updated = await (lifecycle?.rejectAt === 'update'
+            ? Promise.reject(new Error('injected SQLite history update failure'))
+            : stores.projects.update(projectId, { name: `Held ${caseId}` }, stamp));
+          const observed = await (lifecycle?.rejectAt === 'readback'
+            ? Promise.reject(new Error('injected SQLite history readback failure'))
+            : stores.projects.findById(projectId));
           if (updated === null || observed?.name !== `Held ${caseId}`)
             throw new Error('SQLite history batch did not complete its in-scope update');
           enter();
           const decision = await released;
+          if (lifecycle?.rejectAt === 'settlement')
+            throw new Error('injected SQLite history settlement failure');
           return { commit: decision === 'commit', value: undefined };
         });
-        await entered;
+        try {
+          await Promise.race([
+            entered,
+            batch.then(() => {
+              throw new Error('SQLite history batch settled before admission');
+            }),
+          ]);
+        } catch (failure) {
+          batchFailureObserved = true;
+          throw failure;
+        }
       },
       entered,
       async settle(decision) {
@@ -527,16 +547,45 @@ async function openSqliteHistoryBatchCase(
         if (settled) throw new Error('SQLite history batch settled twice');
         settled = true;
         release(decision);
-        await batch;
+        try {
+          await batch;
+        } catch (failure) {
+          batchFailureObserved = true;
+          throw failure;
+        }
       },
     },
     close: async () => {
+      let operationFailure: unknown;
       if (batch !== undefined && !settled) {
         settled = true;
         release('rollback');
-        await batch;
+        try {
+          await batch;
+        } catch (failure) {
+          if (!batchFailureObserved) operationFailure = failure;
+        }
       }
-      await closeSqliteResources(source, directory);
+      try {
+        lifecycle?.onClose?.(directory);
+        await closeSqliteResources(source, directory);
+        if (lifecycle?.rejectCleanup === true)
+          throw new Error('injected SQLite history cleanup failure');
+      } catch (cleanupFailure) {
+        if (operationFailure !== undefined)
+          throw new AggregateError(
+            [operationFailure, cleanupFailure],
+            'SQLite history operation and cleanup both failed',
+            { cause: cleanupFailure },
+          );
+        throw cleanupFailure;
+      }
+      if (operationFailure !== undefined)
+        throw operationFailure instanceof Error
+          ? operationFailure
+          : new Error('SQLite history batch cleanup observed a non-Error failure', {
+              cause: operationFailure,
+            });
     },
   };
 }
@@ -6302,6 +6351,106 @@ describe('SQLite existing source conformance', () => {
     // held process coordinator produced `pending`, then release drained the write.
     expect(Bun.stripANSI(report.cases[0].failure)).toContain('pending');
     expect(Bun.stripANSI(report.cases[0].failure)).toContain('snapshot_busy');
+  });
+
+  it('Task 6.5 terminates failed SQLite batch admission and cleanup', async () => {
+    const unhandled: unknown[] = [];
+    const observeUnhandled = (reason: unknown) => {
+      unhandled.push(reason);
+    };
+    process.on('unhandledRejection', observeUnhandled);
+    const observations: {
+      rejectAt: 'update' | 'readback' | 'settlement';
+      closeCalls: number;
+      directoryExists: boolean;
+      status: string | undefined;
+      phase: string | undefined;
+      failure: string;
+    }[] = [];
+    try {
+      for (const rejectAt of ['update', 'readback', 'settlement'] as const) {
+        let closeCalls = 0;
+        let directory = '';
+        const registrations = sourceConformanceRegistrations(
+          { historyAdmission: 'immediate-busy' },
+          {
+            ...openers,
+            historyBatch: (caseId) =>
+              openSqliteHistoryBatchCase(caseId, false, {
+                rejectAt,
+                rejectCleanup: rejectAt === 'settlement',
+                onOpen: (openedDirectory) => {
+                  directory = openedDirectory;
+                },
+                onClose: (openedDirectory) => {
+                  closeCalls += 1;
+                  if (openedDirectory !== directory)
+                    throw new Error('SQLite history fixture closed a different directory');
+                },
+              }),
+          },
+        );
+        const terminal = await Promise.race([
+          runCases(registrations, { focus: ['history.batch:independent-rollback'] }),
+          new Promise<'timed-out'>((resolve) => {
+            setTimeout(() => {
+              resolve('timed-out');
+            }, 500);
+          }),
+        ]);
+        if (terminal === 'timed-out') throw new Error(`${rejectAt} admission did not terminate`);
+        const execution = terminal.cases[0];
+        observations.push({
+          rejectAt,
+          closeCalls,
+          directoryExists: existsSync(directory),
+          status: execution.status,
+          phase: execution.status === 'failed' ? execution.assertionPhase : undefined,
+          failure: execution.status === 'failed' ? execution.failure : '',
+        });
+      }
+      await Promise.resolve();
+    } finally {
+      process.off('unhandledRejection', observeUnhandled);
+    }
+    // Proof: restoring either admission's unconditional `await entered` made its
+    // bounded row time out; restoring cleanup's early throw left its temp directory.
+    expect(
+      observations.map(({ rejectAt, closeCalls, directoryExists, status, phase }) => ({
+        rejectAt,
+        closeCalls,
+        directoryExists,
+        status,
+        phase,
+      })),
+    ).toEqual([
+      {
+        rejectAt: 'update',
+        closeCalls: 1,
+        directoryExists: false,
+        status: 'failed',
+        phase: 'assertion',
+      },
+      {
+        rejectAt: 'readback',
+        closeCalls: 1,
+        directoryExists: false,
+        status: 'failed',
+        phase: 'assertion',
+      },
+      {
+        rejectAt: 'settlement',
+        closeCalls: 1,
+        directoryExists: false,
+        status: 'failed',
+        phase: 'cleanup',
+      },
+    ]);
+    expect(observations[2]?.failure).toContain('injected SQLite history settlement failure');
+    expect(observations[2]?.failure).toContain(
+      'cleanup failed: injected SQLite history cleanup failure',
+    );
+    expect(unhandled).toEqual([]);
   });
 
   it('Task 6.3 capture enrichment failures preserve setup and cleanup causes', async () => {

@@ -2307,3 +2307,51 @@ findings were repaired before the terminal source files at `41908dcd`; the
 subsequent latest-main integration changed neither terminal source file nor
 the manifest. The only remaining task 7.3 evidence is the committed-SHA
 canonical h2puni gate.
+
+### 2026-09-14 final review repair: staged-history proof and batch lifecycle
+
+The memory command-stage disposal mutant is now the registered variant
+`break:history.batch:interleaved-success-survives:staged-owner` and participates
+in the exact memory inventory. Its named `complete-staged-write` phase is reached
+only after the real stage contains the complete expected header and bodies and
+the shared writer has returned exactly `{ outcome: "written" }`. After rollback,
+the fixture separately records that an exact-ID public read returned null; the
+shared case must then fail with that same missing ID. A wrong-body adversary
+(`wrong-stage-body`) is rejected before phase reach, while the actual disposal
+mutant is `observed`.
+
+Both history-batch fixtures now race admission against early batch rejection.
+Update and readback failures therefore reject the shared assertion instead of
+waiting forever for `entered`. Settlement records whether a batch rejection was
+already reported; teardown drains an unobserved batch failure, then always closes
+the source. SQLite additionally always removes its exact opened temporary
+directory. When settlement and cleanup both reject, `runCases` retains the
+operation first and appends the cleanup cause. The bounded terminal tests cover
+update, readback, and settlement failure for both adapters and assert one actual
+close attempt, no unhandled rejection, and (for SQLite) absent opened directories.
+
+#### R5 reversals observed
+
+| Check                                          | Reversal                                                         | Exact observed failure                                                                                                                                                    |
+| ---------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Complete staged prerequisite gates proof reach | Replaced the complete staged-plan equality with an ID-only check | `wrongBodyProof.kind` changed from expected `phase-failed` to received `observed`.                                                                                        |
+| Admission owns early memory rejection          | Restored unconditional `await entered`                           | Bun surfaced `injected memory history update failure` as unhandled and failed the bounded terminal test.                                                                  |
+| Admission owns early SQLite rejection          | Restored unconditional `await entered`                           | Bounded test failed `update admission did not terminate` after 500 ms.                                                                                                    |
+| Cleanup owns a rejected batch before disposal  | Restored the early `await batch` throw in both teardowns         | Update/readback rows changed from one close + assertion phase to zero closes + cleanup phase; SQLite's exact opened directory remained until restored cleanup removed it. |
+
+#### Restored verification
+
+| Command                                                                                                                                             | Result                                                                                                                                                                                           |
+| --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx run store-memory:test:conformance --skip-nx-cache`                                                | 73 passed, 0 failed, 4,850 assertions                                                                                                                                                            |
+| `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx run store-sqlite:test:conformance --skip-nx-cache`                                                | 73 passed, 0 failed, 6,223 assertions                                                                                                                                                            |
+| `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx run conformance:test --skip-nx-cache`                                                             | 33 passed, 0 failed, 58 assertions across 8 files                                                                                                                                                |
+| `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx run store-memory:test --skip-nx-cache`                                                            | 96 passed, 0 failed, 5,064 assertions across 4 files                                                                                                                                             |
+| `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx run store-sqlite:test --skip-nx-cache`                                                            | 724 passed, 0 failed, 8,263 assertions across 60 files                                                                                                                                           |
+| `bun test src/source-conformance.test.ts` from `libs/store-memory`                                                                                  | 6 passed, 0 failed, 18 assertions                                                                                                                                                                |
+| `bun test src/sqlite-unit-of-work.db.test.ts` from `libs/store-sqlite`                                                                              | 6 passed, 0 failed, 18 assertions                                                                                                                                                                |
+| `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx run core:test:portable --skip-nx-cache`                                                           | Restricted run could not start Chromium; approved identical run passed 1/0 after bundling 369 modules, SHA-256 `38ae0a909d349233cfbd17c5d067929be0b5d6e8e35eb263bf14fb176eefd27b`, 922,839 bytes |
+| `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx run-many -t lint,typecheck -p conformance,store-memory,store-sqlite --skip-nx-cache --parallel=1` | All six scoped targets passed                                                                                                                                                                    |
+
+Task 7.3 deliberately remains unchecked: the repaired immutable commit still
+requires the canonical h2puni gate and independent re-review.

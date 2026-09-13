@@ -479,17 +479,38 @@ async function openMemorySavedPlanCaptureCase(
 
 async function openMemoryHistoryBatchCase(
   caseId: CaseId,
-  fault?: 'command-coordinator' | 'claimed-write-without-state' | 'staged-owner',
+  fault?:
+    | 'command-coordinator'
+    | 'claimed-write-without-state'
+    | 'staged-owner'
+    | 'staged-owner-wrong-body',
+  lifecycle?: {
+    readonly rejectAt?: 'update' | 'readback' | 'settlement';
+    readonly rejectCleanup?: boolean;
+    readonly onClose?: () => void;
+    readonly onStagedLoss?: (id: string, stored: StoredSavedPlan | null) => void;
+    readonly stageProof?: { reach(phase: 'complete-staged-write'): boolean };
+  },
 ): Promise<HistoryBatchFixture> {
   const source = await seedMemorySource();
   const base = source.history.savedPlans;
+  let stagedOutcome: SavedPlanWriteOutcome<unknown> | undefined;
   const port: SavedPlanStore =
     fault === undefined
       ? base
-      : fault === 'staged-owner'
+      : fault === 'staged-owner' || fault === 'staged-owner-wrong-body'
         ? {
             ...base,
-            write: (plan, check) => source.commandStagedSavedPlans.write(plan, check),
+            write: async (plan, check) => {
+              const outcome = await source.commandStagedSavedPlans.write(
+                fault === 'staged-owner-wrong-body'
+                  ? { ...plan, input: { ...plan.input, bytes: 'wrong-stage-body' } }
+                  : plan,
+                check,
+              );
+              stagedOutcome = outcome;
+              return outcome;
+            },
           }
         : {
             ...base,
@@ -508,6 +529,7 @@ async function openMemoryHistoryBatchCase(
   });
   let batch: Promise<void> | undefined;
   let settled = false;
+  let batchFailureObserved = false;
   return {
     fixtureId: `memory:${caseId}`,
     port,
@@ -521,37 +543,64 @@ async function openMemoryHistoryBatchCase(
         batch = source.uow.run(async ({ stores }) => {
           const projectId = DETERMINISTIC_SEED.projectIds[0];
           const stamp = { at: 700, by: DETERMINISTIC_SEED.ownerIds[0] };
-          const updated = await stores.projects.update(
-            projectId,
-            { name: `Held ${caseId}` },
-            stamp,
-          );
-          const observed = await stores.projects.findById(projectId);
-          expect({ updated, observed }).toEqual({ updated, observed });
+          const updated = await (lifecycle?.rejectAt === 'update'
+            ? Promise.reject(new Error('injected memory history update failure'))
+            : stores.projects.update(projectId, { name: `Held ${caseId}` }, stamp));
+          const observed = await (lifecycle?.rejectAt === 'readback'
+            ? Promise.reject(new Error('injected memory history readback failure'))
+            : stores.projects.findById(projectId));
           if (updated === null || observed?.name !== `Held ${caseId}`)
             throw new Error('memory history batch did not complete its in-scope update');
-          if (fault === 'staged-owner') source.activateCommandHistoryStage();
+          if (fault === 'staged-owner' || fault === 'staged-owner-wrong-body')
+            source.activateCommandHistoryStage();
           enter();
           const decision = await released;
-          if (fault === 'staged-owner') {
+          if (fault === 'staged-owner' || fault === 'staged-owner-wrong-body') {
             const staged = await source.commandStagedSavedPlans.readOf(
               'history-interleaved-rollback',
             );
-            expect(staged).toMatchObject({
+            expect(staged).toEqual({
               header: {
                 id: 'history-interleaved-rollback',
                 projectId,
+                name: 'Interleaved before rollback',
+                createdBy: 'History Writer',
+                createdById: DETERMINISTIC_SEED.ownerIds[1],
+                createdAt: 732,
                 inputSchemaVersion: 21,
                 inputBytes: 20,
+                inputSha256: 'history-hash-interleaved-rollback',
+                scheduleSchemaVersion: null,
+                scheduleBytes: null,
+                scheduleSha256: null,
+                scheduleInputSha256: null,
+                schedulerAlgorithmId: null,
                 scheduleAbsentReason: 'batch-survival',
               },
               bodies: { input: 'interleaved-rollback', schedule: null },
             });
+            expect(stagedOutcome).toEqual({ outcome: 'written' });
+            if (lifecycle?.stageProof !== undefined) {
+              if (!lifecycle.stageProof.reach('complete-staged-write'))
+                throw new Error('memory staged-history fault reached outside its named phase');
+            }
             source.discardCommandHistoryStage();
           }
+          if (lifecycle?.rejectAt === 'settlement')
+            throw new Error('injected memory history settlement failure');
           return { commit: decision === 'commit', value: undefined };
         });
-        await entered;
+        try {
+          await Promise.race([
+            entered,
+            batch.then(() => {
+              throw new Error('memory history batch settled before admission');
+            }),
+          ]);
+        } catch (failure) {
+          batchFailureObserved = true;
+          throw failure;
+        }
       },
       entered,
       async settle(decision) {
@@ -559,17 +608,50 @@ async function openMemoryHistoryBatchCase(
         if (settled) throw new Error('memory history batch settled twice');
         settled = true;
         release(decision);
-        await batch;
+        try {
+          await batch;
+          if (fault === 'staged-owner' || fault === 'staged-owner-wrong-body') {
+            const id = 'history-interleaved-rollback';
+            lifecycle?.onStagedLoss?.(id, await base.readOf(id));
+          }
+        } catch (failure) {
+          batchFailureObserved = true;
+          throw failure;
+        }
       },
     },
     close: async () => {
+      let operationFailure: unknown;
       if (batch !== undefined && !settled) {
         settled = true;
         release('rollback');
-        await batch;
+        try {
+          await batch;
+        } catch (failure) {
+          if (!batchFailureObserved) operationFailure = failure;
+        }
       }
       source.discardCommandHistoryStage();
-      await source.close();
+      try {
+        lifecycle?.onClose?.();
+        await source.close();
+        if (lifecycle?.rejectCleanup === true)
+          throw new Error('injected memory history cleanup failure');
+      } catch (cleanupFailure) {
+        if (operationFailure !== undefined)
+          throw new AggregateError(
+            [operationFailure, cleanupFailure],
+            'memory history operation and cleanup both failed',
+            { cause: cleanupFailure },
+          );
+        throw cleanupFailure;
+      }
+      if (operationFailure !== undefined)
+        throw operationFailure instanceof Error
+          ? operationFailure
+          : new Error('memory history batch cleanup observed a non-Error failure', {
+              cause: operationFailure,
+            });
     },
   };
 }
@@ -4645,7 +4727,77 @@ function openProgressSeedFailureSource(
   );
 }
 
+interface StagedHistoryMutation {
+  readonly fault: 'staged-owner' | 'staged-owner-wrong-body';
+  readonly stageProof?: { reach(phase: 'complete-staged-write'): boolean };
+}
+
+const historyStagedOwnerFault = defineFault({
+  id: 'break:history.batch:interleaved-success-survives:staged-owner',
+  caseId: 'history.batch:interleaved-success-survives',
+  createControl: () => createFaultControl('complete-staged-write'),
+  mutate: (mutation: StagedHistoryMutation, control) => ({ ...mutation, stageProof: control }),
+});
+
+async function proveStagedHistoryFault(
+  fault: Fault<StagedHistoryMutation, 'complete-staged-write'>,
+): Promise<FaultProof> {
+  return recordFaultProof(fault, {
+    assertion: 'rollback preserves the exact independently written history plan',
+    setup(run) {
+      const mutation = run.mutate({ fault: 'staged-owner' }, run.control);
+      const loss: { id?: string; stored?: StoredSavedPlan | null } = {};
+      const registrations = sourceConformanceRegistrations(declaration, {
+        ...openers,
+        historyBatch: (caseId) =>
+          openMemoryHistoryBatchCase(caseId, mutation.fault, {
+            stageProof: mutation.stageProof,
+            onStagedLoss: (id, stored) => {
+              loss.id = id;
+              loss.stored = stored;
+            },
+          }),
+      });
+      return Promise.resolve({
+        registration: registrations.find(({ caseId }) => caseId === run.caseId),
+        report: null as ExecutionReport | null,
+        loss,
+        control: run.control,
+      });
+    },
+    async exercise(context) {
+      if (context.registration === undefined) throw new Error('missing staged-history case');
+      context.report = await runCases([context.registration], {
+        focus: ['history.batch:interleaved-success-survives'],
+      });
+      const execution = context.report.cases[0];
+      if (!context.control.reached() && execution.status === 'failed')
+        throw new Error(execution.failure);
+    },
+    assert(context) {
+      if (context.report === null) throw new Error('staged history assertion ran before exercise');
+      const execution = context.report.cases[0];
+      if (execution.status !== 'failed')
+        throw new Error('staged history disposal mutant did not fail conformance');
+      if (execution.assertionPhase !== 'assertion')
+        throw new Error(`staged history failed during ${execution.assertionPhase}`);
+      const observedFailure = Bun.stripANSI(execution.failure);
+      if (context.loss.id !== 'history-interleaved-rollback' || context.loss.stored !== null)
+        throw new Error(
+          `staged history exact loss was not observed: ${JSON.stringify(context.loss)}`,
+        );
+      if (
+        !observedFailure.includes('history-interleaved-rollback') ||
+        !observedFailure.includes('"attempted": null')
+      )
+        throw new Error(`staged history loss was not exact: ${observedFailure}`);
+      throw new Error(execution.failure);
+    },
+  });
+}
+
 const namedFaultVariants = [
+  historyStagedOwnerFault,
   savedPlanUtf8LengthFault,
   savedPlanHeaderOnlyFault,
   savedPlanAlteredBodyFault,
@@ -5603,20 +5755,98 @@ describe('memory existing source conformance', () => {
   });
 
   it('Task 6.5 rejects history stored in a rolled-back command stage', async () => {
-    const registrations = sourceConformanceRegistrations(declaration, {
-      ...openers,
-      historyBatch: (caseId) => openMemoryHistoryBatchCase(caseId, 'staged-owner'),
-    });
-    const report = await runCases(registrations, {
-      focus: ['history.batch:interleaved-success-survives'],
-    });
+    const proof = await proveStagedHistoryFault(historyStagedOwnerFault);
+    if (proof.kind !== 'observed')
+      throw new Error(`staged history proof: ${JSON.stringify(proof)}`);
+    expect(proof.kind).toBe('observed');
+    expect(Bun.stripANSI(proof.observedFailure)).toContain('history-interleaved-rollback');
+    expect(Bun.stripANSI(proof.observedFailure)).toContain('"attempted": null');
 
-    expect(report.cases[0]?.status).toBe('failed');
-    if (report.cases[0]?.status !== 'failed') throw new Error('staged history fault passed');
-    // Proof: the exact complete plan existed in the real command-owned stage and
-    // returned `written`; rollback discarded it and the public read observed null.
-    expect(Bun.stripANSI(report.cases[0].failure)).toContain('history-interleaved-rollback');
-    expect(Bun.stripANSI(report.cases[0].failure)).toContain('null');
+    const wrongBodyFault = defineFault({
+      ...historyStagedOwnerFault,
+      mutate: (_mutation: StagedHistoryMutation, control) => ({
+        fault: 'staged-owner-wrong-body' as const,
+        stageProof: control,
+      }),
+    });
+    const wrongBodyProof = await proveStagedHistoryFault(wrongBodyFault);
+    // Proof: an exact-body prerequisite adversary is phase-failed before reach,
+    // while the real disposal mutant reaches only after a complete `written` plan
+    // and is observed through the exact post-settlement public-read loss above.
+    expect(wrongBodyProof.kind).toBe('phase-failed');
+    if (wrongBodyProof.kind !== 'phase-failed')
+      throw new Error(`wrong staged body was ${wrongBodyProof.kind}`);
+    expect(Bun.stripANSI(wrongBodyProof.failure)).toContain('wrong-stage-body');
+  });
+
+  it('Task 6.5 terminates failed memory batch admission and cleanup', async () => {
+    const unhandled: unknown[] = [];
+    const observeUnhandled = (reason: unknown) => {
+      unhandled.push(reason);
+    };
+    process.on('unhandledRejection', observeUnhandled);
+    const observations: {
+      rejectAt: 'update' | 'readback' | 'settlement';
+      closeCalls: number;
+      status: string | undefined;
+      phase: string | undefined;
+      failure: string;
+    }[] = [];
+    try {
+      for (const rejectAt of ['update', 'readback', 'settlement'] as const) {
+        let closeCalls = 0;
+        const registrations = sourceConformanceRegistrations(declaration, {
+          ...openers,
+          historyBatch: (caseId) =>
+            openMemoryHistoryBatchCase(caseId, undefined, {
+              rejectAt,
+              rejectCleanup: rejectAt === 'settlement',
+              onClose: () => {
+                closeCalls += 1;
+              },
+            }),
+        });
+        const terminal = await Promise.race([
+          runCases(registrations, { focus: ['history.batch:independent-rollback'] }),
+          new Promise<'timed-out'>((resolve) => {
+            setTimeout(() => {
+              resolve('timed-out');
+            }, 250);
+          }),
+        ]);
+        if (terminal === 'timed-out') throw new Error(`${rejectAt} admission did not terminate`);
+        const execution = terminal.cases[0];
+        observations.push({
+          rejectAt,
+          closeCalls,
+          status: execution.status,
+          phase: execution.status === 'failed' ? execution.assertionPhase : undefined,
+          failure: execution.status === 'failed' ? execution.failure : '',
+        });
+      }
+      await Promise.resolve();
+    } finally {
+      process.off('unhandledRejection', observeUnhandled);
+    }
+    // Proof: restoring either admission's unconditional `await entered` made its
+    // bounded row time out; restoring cleanup's early throw skipped the close probe.
+    expect(
+      observations.map(({ rejectAt, closeCalls, status, phase }) => ({
+        rejectAt,
+        closeCalls,
+        status,
+        phase,
+      })),
+    ).toEqual([
+      { rejectAt: 'update', closeCalls: 1, status: 'failed', phase: 'assertion' },
+      { rejectAt: 'readback', closeCalls: 1, status: 'failed', phase: 'assertion' },
+      { rejectAt: 'settlement', closeCalls: 1, status: 'failed', phase: 'cleanup' },
+    ]);
+    expect(observations[2]?.failure).toContain('injected memory history settlement failure');
+    expect(observations[2]?.failure).toContain(
+      'cleanup failed: injected memory history cleanup failure',
+    );
+    expect(unhandled).toEqual([]);
   });
 
   it('Task 6.3 observes each saved-plan capture boundary fault and reversals', async () => {

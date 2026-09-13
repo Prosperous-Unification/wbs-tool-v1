@@ -201,6 +201,10 @@ export const FAULT_VARIANTS = {
     caseId: 'savedPlans.write:late-body-failure',
     sources: ['memory', 'sqlite'],
   },
+  'break:history.batch:interleaved-success-survives:staged-owner': {
+    caseId: 'history.batch:interleaved-success-survives',
+    sources: ['memory'],
+  },
 } as const satisfies Record<string, { caseId: CaseId; sources: readonly FaultSource[] }>;
 
 export type FaultSource = 'memory' | 'sqlite';
