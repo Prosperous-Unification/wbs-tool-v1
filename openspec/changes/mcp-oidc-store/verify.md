@@ -195,3 +195,23 @@ Fresh integration evidence:
 
 No new behavior or failure proof was added during this conflict-free publication
 integration. Task 3.2 remains unchecked pending the required host gate.
+
+## Task 3.2 closeout against current main
+
+The change worktree fast-forwarded from `87056705840dfdbfe07a96972be50d01e1694696`
+to the current fetched `origin/main` tip
+`8779208a38b5312cae949d9706c650a392f33415`. `git merge-base --is-ancestor`
+returned zero before `git merge --ff-only origin/main`; no rebase or overwrite was
+used.
+
+Fresh pre-gate evidence at that tip:
+
+- `bun test apps/mcp-01/src/oauth.test.ts apps/mcp-01/src/pending-authorizations.test.ts apps/mcp-01/src/oauth-timing-safe.test.ts libs/auth/src/oidc-store.test.ts apps/be-01/src/controller/oidc.integration.test.ts apps/be-01/src/controller/auth-oidc-endpoints.test.ts apps/be-01/src/http/elysia/auth-oidc.test.ts apps/be-01/src/app.routes.test.ts` — **119 passed, 0 failed, 1,153 assertions across 8 files**, exit 0. The unchanged be-01 integration cases `lets the first tab finish a login a second tab started after it`, `holds three concurrent logins per browser and drops the oldest`, and `refuses a stateless callback without discarding the logins in flight` passed in this run.
+- `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx run-many -t test lint typecheck -p auth mcp-01 be-01 --parallel=2 --skip-nx-cache --output-style=static` — all **9** targets passed uncached, exit 0: auth **96 passed / 0 failed / 254 assertions**; MCP **125 passed / 0 failed / 512 assertions**; be-01 **1,055 passed / 0 failed / 18,467 assertions**, with the one declared solver-supervisor test skipped. All three lint and all three typecheck targets were clean. The auth target's unchanged `oidc-binding.test.ts` plural-binding suite passed all **11** cases, including independent cookie names, reading every binding cookie, three-live-login admission, consuming the state-proven binding while keeping the other, and mismatch preservation.
+- `OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate --all --json` — **83 passed, 0 failed** (**72 changes and 11 specs**), exit 0.
+
+No production safety check changed during this closeout, so it adds no new fault
+injection or `Proof:` comment. The applicable R5 watched failures are the observed
+mutations already recorded in Sections 1–3 and the independent-retained-key review;
+their restored controls are included in the fresh focused and uncached owning runs
+above.
