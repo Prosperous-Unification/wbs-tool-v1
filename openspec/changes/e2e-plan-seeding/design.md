@@ -8,7 +8,7 @@ Reduce prerequisite setup for named static scenarios without weakening browser i
 
 ## Decisions
 
-Add `e2e/plan-fixture.ts` exporting `seedPlan(page, recipe, identity): Promise<SeededPlan>` and `openSeededPlan(page, seeded)`. `SeededPlan` has projectId, row ids by caller ref, step ids by caller name, and expected authored values. `recipe` uses `PlanCommandWire` and explicit settings; no open string kind/index signature. Its batch compiler returns typed chunks of at most 200 commands and rewrites cross-chunk refs to previous chunks' returned ids. Duplicate recipe refs or impossible dependencies fail before a request.
+Add `e2e/plan-fixture.ts` exporting `seedPlan(page, recipe, identity): Promise<SeededPlan>` and `openSeededPlan(page, seeded)`. `SeededPlan` carries the created project id/name plus row, step and tag ids keyed by the caller's refs or names; authored expectations stay in the input recipe and are consumed before return. The recipe is a closed typed shape for rows, estimate maps, tag definitions and tag refs, and its compiler emits shared `PlanCommandWire` commands rather than accepting an open string kind/index signature. It reads the created project's steps but does not author project settings. Its batch compiler returns typed chunks of at most 200 commands and rewrites cross-chunk refs to previous chunks' returned ids. Duplicate recipe refs or impossible dependencies fail before a request.
 
 Use shared contract `clientFromShapes` with a Page-backed same-origin transport, or the already generated client over `page.request` with matching cookies and Origin. Choose Page-backed fetch here because it matches current rendering setup and carries the browser's session/origin behavior. Validate response bodies with the shared schema. No unconstrained `as Promise<T>` helper survives the migration. Server refusals throw from setup with operationId/status and safe refusal code, never success-shaped defaults.
 
@@ -18,7 +18,7 @@ All generated project and directory names carry a run token, worker index and te
 
 The initial adoption allowlist is `rendering-fixture.ts` and static setup in `plan-surface.spec.ts` only. All other specs retain UI setup, including `layout.spec.ts`, `keyboard.spec.ts`, `mobile.spec.ts`, `priority-ramp.spec.ts`, `slack-cell.spec.ts`, `gantt.spec.ts`, `hints.spec.ts` and `project-picker.spec.ts`. This is a decided narrow scope. Within plan-surface, any case asserting focus armed by creation still calls createProject and types its tested gesture. No generic preamble extraction merely to save eighteen lines.
 
-After setup, independently GET the project's tree and settings and assert row identity/order, all requested estimates, edge endpoints and directory references. The expected shape comes from the recipe, not from the response being tested. Verify every batch response index/ref/id before using it. These checks execute before any timing sample and must fail on a dropped command even if HTTP returns 200.
+After setup, independently GET the project's tree and global tags directory and assert row identity/placement order, row names, all requested estimates, directory references and each created tag's recipe-qualified name. The expected shape comes from the recipe, not from the response being tested. Verify every batch response index/ref/id before using it. These checks execute before any timing sample and must fail on a dropped command even if HTTP returns 200.
 
 ## Concurrency Decision
 

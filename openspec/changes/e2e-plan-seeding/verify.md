@@ -274,3 +274,57 @@ produce six green samples.
 
 The canonical full workspace gate is recorded below after this evidence is
 committed, because `bin/h2puni-gate.sh` accepts an exact commit SHA.
+
+## Whole-change review repairs
+
+The review repairs keep the change's observable scope unchanged. `design.md`
+now describes the implemented contract: the recipe authors rows, estimates,
+tags and tag references; `SeededPlan` returns created identities. Project
+settings were removed from the design description because neither the delta
+spec nor callers require the fixture to author them, and returning duplicated
+authored values would weaken the recipe as the independent expectation source.
+
+Fresh R5 proofs for the repaired boundaries:
+
+- The new explicit-placement case authors `[a, b-after-a, c-after-a]`. Before
+  replacing the recipe-array oracle, it failed with stored `[a, c, b]` versus
+  expected `[a, b, c]`; the placement-derived calculation now passes. The full
+  fixture suite retained both 201-row and 201-tag boundary cases: 20 passed in
+  37.4s.
+- The tag-identity negative swaps the first two successful directory command
+  IDs. Before the directory readback check it resolved; restored code refuses
+  at `stored tag identity for first-tag`, before any project command or plan
+  measurement (`projectCommands === 0`).
+- Removing each recipe preflight guard made its permanent negative observe one
+  project POST instead of zero before refusal: unavailable predecessor,
+  duplicate tag ref and unknown tag ref each failed `Expected: 0, Received: 1`.
+  Restoring the guards made all three pass without backend fault interception.
+- The controlled mobile interleaving promotes the selected fixture, opens a
+  different project, then performs the global-list and selected-tree reads.
+  Replacing the captured selected ID with the global first project's ID made
+  the test return `[]` instead of `["010", "020"]`; restored code passes and
+  asserts only that the global first ID is non-null and differs from the
+  selected fixture. The interleaving case and its owning dependency-sheet case
+  both passed (2/2 in 14.4s).
+
+Fresh owning checks after the repairs:
+
+- `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx run-many -t lint typecheck -p fe-01 contracts --parallel=2 --skip-nx-cache --output-style=static`
+  — all four uncached targets passed in 1m 16s. Its first run exposed one
+  `no-unnecessary-condition` violation in the tag readback; removing the
+  unreachable branch restored green while preserving the command-result ID
+  invariant.
+- `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx test fe-01 --skip-nx-cache --output-style=static`
+  — 108 UTC files / 2,745 tests and 2 zoned files / 3 tests passed in 6m 50s.
+- `NX_DAEMON=false NX_ISOLATE_PLUGINS=false bunx nx test contracts --skip-nx-cache --output-style=static`
+  — 392 tests passed across 41 files in 1.5s.
+- A preceding combined interactive Nx wrapper was interrupted after its status
+  remained at 5/6 targets; it is not claimed as passing evidence. The remaining
+  frontend target was rerun uncached with static output above.
+- Strict `e2e-plan-seeding` validation passed 1/1, and `validate --all --json`
+  passed all 83 workspace items.
+
+The recorded six-run performance matrix and production fault injections above
+were preserved as the actual task evidence and were not fabricated or rerun.
+Task 3.4 remains open until this committed SHA passes the canonical h2puni gate
+and receives whole-change re-review.

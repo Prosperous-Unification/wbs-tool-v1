@@ -205,6 +205,56 @@ async function aPeerRenames(page: Page, workItemId: string, name: string): Promi
   expect(status, 'the peer edit was refused by be-01').toBe(200);
 }
 
+interface MobilePlanSnapshot {
+  projectId: string;
+  workItems: { id: string; number: string }[];
+}
+
+/** Reads this page's plan while account-wide recency changes twice around the listing GET. */
+async function readSelectedPlanAfterInterleaving(page: Page): Promise<MobilePlanSnapshot> {
+  const reading = await page.evaluate(async () => {
+    const selectedProjectId = window.localStorage.getItem('wbs.project');
+    if (selectedProjectId === null) throw new Error('the mobile fixture has no selected project');
+    const createAndOpen = async (label: string) => {
+      const made = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: `${label} ${crypto.randomUUID()}` }),
+      });
+      if (made.status !== 200) throw new Error(`${label} creation failed: ${String(made.status)}`);
+      const { project } = (await made.json()) as { project: { id: string } };
+      const opened = await fetch(`/api/projects/${project.id}/opened`, { method: 'POST' });
+      return opened.status;
+    };
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const promotedStatus = await createAndOpen('mobile promoted project');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const interleavedStatus = await createAndOpen('mobile interleaved project');
+    const { projects } = (await (await fetch('/api/projects')).json()) as {
+      projects: { id: string }[];
+    };
+    // Proof: replacing this selected id with `projects[0].id` made the controlled
+    // interleaving case read the empty interleaved project instead of 010/020.
+    const tree = (await (await fetch(`/api/projects/${selectedProjectId}/work-items`)).json()) as {
+      workItems: { id: string; number: string }[];
+    };
+    return {
+      projectId: selectedProjectId,
+      workItems: tree.workItems,
+      promotedStatus,
+      interleavedStatus,
+      globalFirstId: projects[0]?.id ?? null,
+    };
+  });
+  expect(reading.promotedStatus, 'the promoted project was not opened').toBe(204);
+  expect(reading.interleavedStatus, 'the interleaved project was not opened').toBe(204);
+  expect(reading.globalFirstId, 'the global project list was empty').not.toBeNull();
+  expect(reading.globalFirstId, 'global first still names this page selected fixture').not.toBe(
+    reading.projectId,
+  );
+  return { projectId: reading.projectId, workItems: reading.workItems };
+}
+
 /**
  * Everything a finger is ever aimed at, as one selector.
  *
@@ -1148,42 +1198,22 @@ test.describe('the plan on a phone, measured by a browser', () => {
    * measurement is taken, for `aPeerRenames`'s reason: what is measured is
    * what be-01 holds, not what React remembers.
    */
+  test('reads its selected fixture through a controlled project-open interleaving', async ({
+    page,
+  }) => {
+    const selected = await readSelectedPlanAfterInterleaving(page);
+    expect(selected.workItems.map(({ number }) => number)).toEqual(['010', '020']);
+  });
+
   test('keeps the dependency search and the waits in view at the bottom of a long sheet', async ({
     page,
   }) => {
-    const rival = await page.evaluate(async () => {
-      const made = await fetch('/api/projects', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: `mobile isolation rival ${crypto.randomUUID()}` }),
-      });
-      if (made.status !== 200) throw new Error(`making the rival failed: ${String(made.status)}`);
-      const { project } = (await made.json()) as { project: { id: string } };
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      const opened = await fetch(`/api/projects/${project.id}/opened`, { method: 'POST' });
-      const { projects } = (await (await fetch('/api/projects')).json()) as {
-        projects: { id: string }[];
-      };
-      return { opened: opened.status, isFirst: projects[0]?.id === project.id };
-    });
-    expect(rival, 'the rival was not promoted above this fixture in the global list').toEqual({
-      opened: 204,
-      isFirst: true,
-    });
-
-    const seeded = await page.evaluate(async () => {
-      const projectId = window.localStorage.getItem('wbs.project');
-      // Proof: taking the first account-wide project after the rival above was
-      // promoted failed this real case at `no 020 in the seeded plan`. The
-      // exact selected id retains its two rows and reaches the measured sheet.
-      if (projectId === null) throw new Error('the mobile fixture has no selected project');
-      const tree = (await (await fetch(`/api/projects/${projectId}/work-items`)).json()) as {
-        workItems: { id: string; number: string }[];
-      };
-      const last = tree.workItems[tree.workItems.length - 1]?.id ?? null;
+    const selected = await readSelectedPlanAfterInterleaving(page);
+    const seeded = await page.evaluate(async ({ projectId, workItems }) => {
+      const last = workItems[workItems.length - 1]?.id ?? null;
       // Four waits on 020, the shape the fault was found in: a header, four
       // rows already taken, then the long list.
-      const successor = tree.workItems.find((each) => each.number === '020');
+      const successor = workItems.find((each) => each.number === '020');
       if (successor === undefined) throw new Error('no 020 in the seeded plan');
       // Thirty-eight rows and the four waits in one batch: each row after the
       // one before it by ref, the first after the seeded plan's last row.
@@ -1208,8 +1238,8 @@ test.describe('the plan on a phone, measured by a browser', () => {
         }),
       });
       if (res.status !== 200) throw new Error(`seeding the plan failed: ${String(res.status)}`);
-      return { rows: tree.workItems.length + 38 };
-    });
+      return { rows: workItems.length + 38 };
+    }, selected);
     expect(seeded.rows, 'the plan did not take the forty rows').toBe(40);
     await page.reload();
 

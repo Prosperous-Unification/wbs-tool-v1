@@ -48,6 +48,22 @@ test('implicit recipe order appends rows', async ({ page }, testInfo) => {
   expect(Object.keys(seeded.rowIds)).toEqual(['first', 'second']);
 });
 
+test('verifies explicit sibling insertions in their stored order', async ({ page }, testInfo) => {
+  const seeded = await seedPlan(
+    page,
+    {
+      name: 'Explicit sibling order',
+      rows: [
+        { ref: 'a', name: 'A' },
+        { ref: 'b', name: 'B', afterRef: 'a' },
+        { ref: 'c', name: 'C', afterRef: 'a' },
+      ],
+    },
+    identity('explicit-sibling-order', testInfo.workerIndex),
+  );
+  expect(Object.keys(seeded.rowIds)).toEqual(['a', 'b', 'c']);
+});
+
 test('implicit recipe order crosses a chunk boundary', async ({ page }, testInfo) => {
   const creationBatchSizes: number[] = [];
   await page.route('**/api/projects/*/commands', async (route) => {
@@ -95,6 +111,42 @@ test('chunks 201 directory identities and verifies all links', async ({ page }, 
   );
   expect(directoryBatchSizes).toEqual([200, 1]);
   expect(Object.keys(seeded.tagIds)).toEqual(tags.map(({ ref }) => ref));
+});
+
+test('refuses swapped successful tag identities before project commands', async ({
+  page,
+}, testInfo) => {
+  let projectCommands = 0;
+  await page.route('**/api/projects/*/commands', async (route) => {
+    projectCommands += 1;
+    await route.continue();
+  });
+  await page.route('**/api/directory/commands', async (route) => {
+    const response = await route.fetch();
+    const answer = (await response.json()) as { results: { id?: string }[] };
+    const firstId = answer.results[0]?.id;
+    const secondId = answer.results[1]?.id;
+    if (firstId === undefined || secondId === undefined)
+      throw new Error('tag identity fault needs two successful ids');
+    answer.results[0].id = secondId;
+    answer.results[1].id = firstId;
+    await route.fulfill({ response, json: answer });
+  });
+  await expect(
+    seedPlan(
+      page,
+      {
+        name: 'Swapped tag ids',
+        tags: [
+          { ref: 'first-tag', name: 'First tag' },
+          { ref: 'second-tag', name: 'Second tag' },
+        ],
+        rows: [{ ref: 'row', name: 'Tagged row', tagRefs: ['first-tag'] }],
+      },
+      identity('swapped-tag-ids', testInfo.workerIndex),
+    ),
+  ).rejects.toThrow(/stored tag identity for first-tag/);
+  expect(projectCommands).toBe(0);
 });
 
 for (const fault of ['empty', 'missing', 'wrong', 'duplicate'] as const) {
@@ -207,6 +259,82 @@ test('duplicate recipe refs fail before a write request', async ({ page }, testI
     ),
   ).rejects.toThrow('duplicate recipe row ref: same');
   expect(projectWrites).toBe(0);
+});
+
+test('an unavailable predecessor fails before a write request', async ({ page }, testInfo) => {
+  let projectWrites = 0;
+  await page.route('**/api/projects', async (route) => {
+    if (route.request().method() === 'POST') projectWrites += 1;
+    await route.continue();
+  });
+  let refusalMessage = '';
+  try {
+    await seedPlan(
+      page,
+      {
+        name: 'Unavailable predecessor',
+        rows: [{ ref: 'row', name: 'Row', afterRef: 'missing' }],
+      },
+      identity('unavailable-predecessor', testInfo.workerIndex),
+    );
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+    refusalMessage = error.message;
+  }
+  expect(projectWrites).toBe(0);
+  expect(refusalMessage).toContain('recipe row row follows unavailable ref: missing');
+});
+
+test('a duplicate tag ref fails before a write request', async ({ page }, testInfo) => {
+  let projectWrites = 0;
+  await page.route('**/api/projects', async (route) => {
+    if (route.request().method() === 'POST') projectWrites += 1;
+    await route.continue();
+  });
+  let refusalMessage = '';
+  try {
+    await seedPlan(
+      page,
+      {
+        name: 'Duplicate tag ref',
+        tags: [
+          { ref: 'same', name: 'First' },
+          { ref: 'same', name: 'Second' },
+        ],
+        rows: [],
+      },
+      identity('duplicate-tag-ref', testInfo.workerIndex),
+    );
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+    refusalMessage = error.message;
+  }
+  expect(projectWrites).toBe(0);
+  expect(refusalMessage).toContain('duplicate recipe tag ref: same');
+});
+
+test('an unknown row tag ref fails before a write request', async ({ page }, testInfo) => {
+  let projectWrites = 0;
+  await page.route('**/api/projects', async (route) => {
+    if (route.request().method() === 'POST') projectWrites += 1;
+    await route.continue();
+  });
+  let refusalMessage = '';
+  try {
+    await seedPlan(
+      page,
+      {
+        name: 'Unknown tag ref',
+        rows: [{ ref: 'row', name: 'Row', tagRefs: ['missing'] }],
+      },
+      identity('unknown-tag-ref', testInfo.workerIndex),
+    );
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+    refusalMessage = error.message;
+  }
+  expect(projectWrites).toBe(0);
+  expect(refusalMessage).toContain('unknown recipe tag ref: missing');
 });
 
 test('setup refuses a real backend refusal', async ({ page }, testInfo) => {
