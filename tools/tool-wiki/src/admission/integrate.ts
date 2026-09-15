@@ -2,7 +2,7 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, normalize } from 'node:path';
 
-import { parseOrThrow, type } from '@wbs/validation';
+import { parseOrThrow, type } from '@shared/validation';
 
 import {
   CheckReceipt,

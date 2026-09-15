@@ -1,4 +1,4 @@
-import type { Color } from '@wbs/deploy-contract';
+import type { Color } from '@tools/deploy-contract';
 
 // Re-exported because this module's callers take the word from here. Declared
 // in its own words until 2026-09-02 — one of three copies of a two-colour

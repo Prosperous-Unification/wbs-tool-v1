@@ -23,7 +23,6 @@
     "resolveJsonModule": true,
     "types": ["bun-types"],
     "paths": {
-      "@wbs/be-01": ["./apps/wbs/be-01/src/index.ts"],
       "@wbs/auth": ["./libs/wbs/adapters/auth/src/index.ts"],
       "@wbs/config": ["./libs/wbs/adapters/config/src/index.ts"],
       "@wbs/contracts": ["./libs/wbs/domain/contracts/src/index.ts"],
@@ -51,7 +50,6 @@
       "@wbs/domain/canonical-schedule-input": [
         "./libs/wbs/domain/domain/src/canonical-schedule-input.ts"
       ],
-      "@wbs/gw-01": ["./apps/wbs/gw-01/src/index.ts"],
       "@wbs/observability": ["./libs/wbs/adapters/observability/src/index.ts"],
       "@wbs/runtime-portable/testing": ["./libs/wbs/adapters/runtime-portable/src/testing.ts"],
       "@wbs/runtime-portable": ["./libs/wbs/adapters/runtime-portable/src/index.ts"],
@@ -88,10 +86,11 @@
       "@wbs/contracts/solver/supervisor-protocol": [
         "./libs/wbs/adapters/solver-supervisor-protocol/src/index.ts"
       ],
-      "@wbs/deploy-contract": ["./tools/tool-remote-scripts/src/lib/deploy-contract.ts"],
-      "@wbs/tool-compose": ["./tools/tool-compose/src/index.ts"],
-      "@wbs/tool-test-scratch": ["./tools/test/scratch/index.ts"],
-      "@wbs/tool-env": ["./tools/tool-remote-scripts/src/lib/env.ts"],
+      "@tools/deploy-contract": ["./tools/tool-remote-scripts/src/lib/deploy-contract.ts"],
+      "@tools/compose": ["./tools/tool-compose/src/index.ts"],
+      "@tools/test-scratch": ["./tools/test/scratch/index.ts"],
+      "@tools/env": ["./tools/tool-remote-scripts/src/lib/env.ts"],
+      "@shared/validation": ["./libs/shared/domain/validation/src/index.ts"],
       "@wbs/validation": ["./libs/wbs/domain/validation/src/index.ts"],
       "@wbs/validation/fixtures": ["./libs/wbs/domain/validation/src/fixtures/index.ts"]
     }

@@ -14,7 +14,7 @@
     "lint:fast": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "bunx eslint libs/wbs/adapters/store-sqlite/src --cache --cache-location .nx/eslintcache-store-sqlite"
+        "command": "bunx eslint libs/wbs/adapters/store-sqlite/src --cache --cache-location .nx/eslintcache-wbs-store-sqlite"
       }
     },
     "test": {

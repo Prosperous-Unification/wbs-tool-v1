@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
-import { parseOrThrow } from '@wbs/validation';
+import { parseOrThrow } from '@shared/validation';
 import { afterEach, describe, expect, test } from 'bun:test';
 
 import { ClassificationPolicy, RelationshipRequest } from '../contracts/records';

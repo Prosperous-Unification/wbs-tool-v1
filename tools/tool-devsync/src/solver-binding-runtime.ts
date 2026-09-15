@@ -9,7 +9,7 @@ import {
   SOLVER_SUPERVISOR_SOCKET,
   withLock,
   writeAtomic,
-} from '@wbs/deploy-contract';
+} from '@tools/deploy-contract';
 
 import type { TargetSolverBindingDependencies } from './solver-binding-host';
 

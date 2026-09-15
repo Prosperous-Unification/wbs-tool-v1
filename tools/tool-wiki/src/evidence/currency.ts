@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer';
 
-import { parseOrThrow, type } from '@wbs/validation';
+import { parseOrThrow, type } from '@shared/validation';
 
 import { OpaqueId, RelativePath } from '../contracts/records';
 import { hashCanonical } from './content-manifest';

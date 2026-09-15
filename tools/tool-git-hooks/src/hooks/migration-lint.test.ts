@@ -1,7 +1,7 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { scratchSync } from '@wbs/tool-test-scratch';
+import { scratchSync } from '@tools/test-scratch';
 import { afterAll, describe, expect, it } from 'bun:test';
 
 import { lintMigration } from './migration-lint';

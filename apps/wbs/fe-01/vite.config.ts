@@ -176,6 +176,21 @@ export default defineConfig(({ command, mode }) => ({
       // required-alias assertion in vite-config.test.ts, despite map parity.
       '@wbs/contracts': resolve(__dirname, '../../../libs/wbs/domain/contracts/src/index.ts'),
       '@wbs/validation': resolve(__dirname, '../../../libs/wbs/domain/validation/src/index.ts'),
+      // `@wbs/validation`'s index is a bare `export * from '@shared/validation'`,
+      // so an alias for the one without an alias for the other resolves to a
+      // file whose only statement cannot be resolved. Both Vite entries and all
+      // four tsconfig `paths` blocks carry it for that reason.
+      //
+      // Proof: deleted from this file and `vitest.config.ts` together — map
+      // parity intact — `vite-config.test.ts` failed on `expected [ '@',
+      // '@wbs/domain/workday', …(18) ] to include '@shared/validation'`. Deleted
+      // from `vitest.config.ts` alone, `src/lib/wbs-api.test.ts` failed to
+      // collect on `Failed to resolve import "@shared/validation"` with
+      // `Tests  no tests`. Both watched 2026-09-16.
+      '@shared/validation': resolve(
+        __dirname,
+        '../../../libs/shared/domain/validation/src/index.ts',
+      ),
       // The same bargain a third time: `priority-band.ts` is four pure functions
       // and a constant, and the rule it holds — which band a number falls in —
       // is what be-01 validates a ladder against. A second copy here is a table

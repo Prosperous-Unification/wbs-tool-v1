@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer';
 
-import { parseOrThrow, type } from '@wbs/validation';
+import { parseOrThrow, type } from '@shared/validation';
 
 import { IsoInstant, OpaqueId, SchemaVersion } from '../contracts/records';
 import { assertCanonicalJsonValue, hashBytes, hashCanonical } from '../evidence/content-manifest';

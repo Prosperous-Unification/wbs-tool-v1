@@ -67,7 +67,7 @@
     "lint:fast": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "bunx eslint apps/wbs/fe-01/src apps/wbs/fe-01/e2e apps/wbs/fe-01/e2e-packaged apps/wbs/fe-01/playwright.config.ts apps/wbs/fe-01/playwright.packaged.config.ts apps/wbs/fe-01/vite.config.ts apps/wbs/fe-01/vitest.config.ts apps/wbs/fe-01/vitest.node.config.ts apps/wbs/fe-01/vitest.zoned.config.ts apps/wbs/fe-01/vitest.node-suites.ts apps/wbs/fe-01/vite-config.test.ts apps/wbs/fe-01/vitest.setup.ts apps/wbs/fe-01/playwright-config.test.ts --cache --cache-location .nx/eslintcache-fe-01"
+        "command": "bunx eslint apps/wbs/fe-01/src apps/wbs/fe-01/e2e apps/wbs/fe-01/e2e-packaged apps/wbs/fe-01/playwright.config.ts apps/wbs/fe-01/playwright.packaged.config.ts apps/wbs/fe-01/vite.config.ts apps/wbs/fe-01/vitest.config.ts apps/wbs/fe-01/vitest.node.config.ts apps/wbs/fe-01/vitest.zoned.config.ts apps/wbs/fe-01/vitest.node-suites.ts apps/wbs/fe-01/vite-config.test.ts apps/wbs/fe-01/vitest.setup.ts apps/wbs/fe-01/playwright-config.test.ts --cache --cache-location .nx/eslintcache-wbs-fe-01"
       }
     },
     "typecheck": {

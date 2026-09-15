@@ -1,4 +1,4 @@
-import { parseOrThrow } from '@wbs/validation';
+import { parseOrThrow } from '@shared/validation';
 import { describe, expect, test } from 'bun:test';
 
 import { hashCanonical } from '../evidence/content-manifest';

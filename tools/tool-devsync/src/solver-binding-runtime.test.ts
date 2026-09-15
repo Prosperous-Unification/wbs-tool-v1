@@ -1,8 +1,8 @@
 import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { SOLVER_SUPERVISOR_BUN } from '@wbs/deploy-contract';
-import { scratchAsync } from '@wbs/tool-test-scratch';
+import { SOLVER_SUPERVISOR_BUN } from '@tools/deploy-contract';
+import { scratchAsync } from '@tools/test-scratch';
 import { describe, expect, it } from 'bun:test';
 
 import { decodeProdContainerImages, prepareTargetSolverBinding } from './solver-binding-host';

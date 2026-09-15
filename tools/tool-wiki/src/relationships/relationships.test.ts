@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 
-import { parseOrThrow } from '@wbs/validation';
+import { parseOrThrow } from '@shared/validation';
 import { afterEach, describe, expect, test } from 'bun:test';
 
 import { ContentManifestRequest } from '../contracts/records';

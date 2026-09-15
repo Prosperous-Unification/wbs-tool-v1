@@ -48,10 +48,10 @@ fi
 # 24-hour recovery window. Two things
 # need the whole tree rather than the deployer's module graph alone:
 #
-# - The deployer reaches the deploy contract through the `@wbs/*` tsconfig
-#   paths, and Bun resolves those from the tsconfig nearest the importing
+# - The deployer reaches the deploy contract through the workspace tsconfig
+#   `paths`, and Bun resolves those from the tsconfig nearest the importing
 #   file. A bare `sync.ts` copied into $BIN has none: every tick on h2puni
-#   failed on `Cannot find module '@wbs/deploy-contract'` the day that copy
+#   failed on `Cannot find module '@tools/deploy-contract'` the day that copy
 #   was first installed (2026-09-07).
 # - A solver-affecting target publishes its `be` image from its own build
 #   context (TASK-326): Dockerfile, publisher, supervisor unit and lockfile
@@ -86,9 +86,9 @@ git -C "$CANDIDATE_NEXT" checkout --quiet --detach "$SHA"
 # bootstrap deadlock the candidate tree exists to break.
 #
 # The answer is that the deployer's import graph is out of bounds for
-# third-party packages: relative imports, the `@wbs/*` aliases the tree
+# third-party packages: relative imports, the tsconfig path aliases the tree
 # carries, and Bun/Node builtins only. That is what `sync.ts` already is
-# (`@wbs/deploy-contract` plus `bun`), and it is now enforced rather than
+# (`@tools/deploy-contract` plus `bun`), and it is now enforced rather than
 # assumed. Bun's own resolver is the enforcement: bundling the candidate's
 # deployer resolves the whole transitive graph without running it, and with no
 # `node_modules` in or above the candidate, any bare specifier that is not a

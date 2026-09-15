@@ -41,7 +41,7 @@
     "lint:fast": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "bunx eslint apps/wbs/be-01/src --cache --cache-location .nx/eslintcache-be-01"
+        "command": "bunx eslint apps/wbs/be-01/src --cache --cache-location .nx/eslintcache-wbs-be-01"
       }
     },
     "test": {

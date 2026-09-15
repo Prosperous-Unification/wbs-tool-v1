@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer';
 
-import { type } from '@wbs/validation';
+import { type } from '@shared/validation';
 
 const RelativePathPattern =
   /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))(?!.*[*?[\]{}\\])(?!.*\/\/)(?!.*\/$).+$/;

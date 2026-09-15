@@ -1,4 +1,4 @@
-import { parseOrThrow, type } from '@wbs/validation';
+import { parseOrThrow, type } from '@shared/validation';
 
 import { compareCanonicalText, serializeCanonical } from '../evidence/content-manifest';
 import {

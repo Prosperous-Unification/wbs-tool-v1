@@ -1,4 +1,4 @@
-import { type } from '@wbs/validation';
+import { type } from '@shared/validation';
 
 export * from './decode-record';
 export * from './records';

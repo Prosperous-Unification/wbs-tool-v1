@@ -14,7 +14,7 @@
     "lint:fast": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "bunx eslint libs/wbs/application/core/src libs/wbs/application/core/testing libs/wbs/application/core/playwright.config.ts --cache --cache-location .nx/eslintcache-core"
+        "command": "bunx eslint libs/wbs/application/core/src libs/wbs/application/core/testing libs/wbs/application/core/playwright.config.ts --cache --cache-location .nx/eslintcache-wbs-core"
       }
     },
     "test": {

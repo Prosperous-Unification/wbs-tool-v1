@@ -14,7 +14,7 @@
     "lint:fast": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "bunx eslint libs/wbs/domain/domain/src --cache --cache-location .nx/eslintcache-domain"
+        "command": "bunx eslint libs/wbs/domain/domain/src --cache --cache-location .nx/eslintcache-wbs-domain"
       }
     },
     "test": {

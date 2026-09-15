@@ -12,7 +12,7 @@
     "lint:fast": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "bunx eslint libs/wbs/application/conformance/src --cache --cache-location .nx/eslintcache-conformance"
+        "command": "bunx eslint libs/wbs/application/conformance/src --cache --cache-location .nx/eslintcache-wbs-conformance"
       }
     },
     "test": {

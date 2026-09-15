@@ -125,6 +125,37 @@ Nothing below has an owning task in the external queue (`backlog/tasks/task-NNN 
       benefit remains unestablished.
       Precedents, Drift anchors and the extraction trigger:
       [plan](../plans/2026-09-13-tool-wiki-precedents-and-extraction.md).
+- [ ] core↔store-memory cycle: all 27 core importers of `@wbs/store-memory` are under
+      `libs/wbs/application/core/src/testing/` and `libs/wbs/application/core/testing/`. Move
+      `src/testing/harness.ts`, `src/testing/writes-fixture.ts` and `testing/portable-composition.ts`
+      into `libs/wbs/application/conformance` (already `ring:application`, already depends on
+      both), then delete every `ignoredCircularDependencies` entry in `eslint.config.js`.
+- [ ] Solver host tooling relocation: `tools/tool-remote-scripts/src/lib/solver-supervisor-*`,
+      `src/materialize-solver-supervisor-config.ts`, `deploy/solver-supervisor/*` and
+      `tools/dev/write-*-golden-corpus.ts` are WBS code in infra. Move them under `apps/wbs/`
+      (a `wbs-host-tools` project, `ring:adapter`, `product:wbs`), then remove both entries from
+      the `allow` list in `eslint.config.js` and the pinning test in eslint-boundaries.test.ts.
+      The tools-scoped `allow` in eslint.config.js is keyed on the import specifier — each entry
+      anchored, so it excuses that exact specifier and no subpath of it — which still leaves any
+      other tool importing one of the two aliases excused too; the relocation closes that.
+- [ ] Archive completed OpenSpec packets: ~120 unarchived `openspec/changes/*` directories still
+      name pre-move roots; the handoff legacy-path scan therefore covers only the active packet.
+      Archive every packet whose tasks are all checked and merged (`opsx:bulk-archive`), then
+      widen `ACTIVE_OPENSPEC_PACKET` in repo-namespacing-handoff.test.ts to every unarchived packet.
+- [ ] Derive fe-01's alias maps: `apps/wbs/fe-01` repeats the `@wbs/*`/`@shared/*` alias list in
+      eight places (vite, vitest, four tsconfigs) with nothing comparing them to
+      `tsconfig.base.json`; Task 1.3b had to add `@shared/validation` by hand. Generate the Vite
+      alias map from `tsconfig.base.json` and pin equality in vite-config.test.ts.
+- [ ] Make `shared-validation` buildable or drop tool-devsync's buildable status: tool-devsync's
+      shellcheck `build` target makes Nx treat it as buildable, so its tests may not import the
+      non-buildable `@shared/validation` without the eslint-disable in
+      repo-namespacing-handoff.test.ts. Give shared-validation a `build` target or move
+      shellcheck off the `build` name; then delete the disable.
+- [ ] Wiki policy rule overlap: a `*.test.ts` under a `fixtures/` segment matches both the `test`
+      (suffix) and `fixture` (segment) `contentRules` in `docs/wiki-policy/policy.json`, and
+      `classify-entries` refuses the whole candidate. Give the `fixture` rule the
+      `.test.ts`/`.test.tsx` exclusions its siblings carry, in a change that re-activates the
+      trusted policy (W5).
 
 ## R1–R9 archival closeout
 

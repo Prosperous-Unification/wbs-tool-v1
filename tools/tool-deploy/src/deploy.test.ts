@@ -1,4 +1,4 @@
-import { envLayout } from '@wbs/tool-env';
+import { envLayout } from '@tools/env';
 import { describe, expect, it } from 'bun:test';
 
 import { materialize, parseDeployArgs, type Tier } from './affected';

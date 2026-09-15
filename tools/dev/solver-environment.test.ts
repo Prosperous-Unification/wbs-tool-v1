@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolve } from 'node:path';
 
-import { scratchSync } from '@wbs/tool-test-scratch';
+import { scratchSync } from '@tools/test-scratch';
 import { describe, expect, it } from 'bun:test';
 
 import {

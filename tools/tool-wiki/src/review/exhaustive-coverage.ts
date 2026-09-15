@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer';
 import { posix } from 'node:path';
 
-import { parseOrThrow, type } from '@wbs/validation';
+import { parseOrThrow, type } from '@shared/validation';
 
 import {
   ArtifactGraph,

@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer';
 import { posix } from 'node:path';
 
-import { parseOrThrow } from '@wbs/validation';
+import { parseOrThrow } from '@shared/validation';
 import type { PhrasingContent, Root } from 'mdast';
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { toString } from 'mdast-util-to-string';

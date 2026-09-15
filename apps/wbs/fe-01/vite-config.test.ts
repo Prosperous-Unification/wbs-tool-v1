@@ -243,6 +243,11 @@ describe('the app and the run resolve the same modules', () => {
     expect(Object.keys(suiteAliases).sort()).toEqual(Object.keys(appAliases).sort());
     expect(Object.keys(appAliases)).toContain('@wbs/contracts');
     expect(Object.keys(appAliases)).toContain('@wbs/validation');
+    // `@wbs/validation`'s index is a bare `export * from '@shared/validation'`,
+    // so the shared key is not optional here: without it Vite resolves
+    // `@wbs/validation` to a file whose only statement it cannot resolve, and
+    // every file reaching it fails to collect rather than failing an assertion.
+    expect(Object.keys(appAliases)).toContain('@shared/validation');
 
     const domain = '../../../libs/wbs/domain/domain/src';
     const expected = {
@@ -266,6 +271,10 @@ describe('the app and the run resolve the same modules', () => {
       ),
       '@wbs/contracts': resolve(APP_ROOT, '../../../libs/wbs/domain/contracts/src/index.ts'),
       '@wbs/validation': resolve(APP_ROOT, '../../../libs/wbs/domain/validation/src/index.ts'),
+      '@shared/validation': resolve(
+        APP_ROOT,
+        '../../../libs/shared/domain/validation/src/index.ts',
+      ),
       '@wbs/domain/priority-band': resolve(APP_ROOT, domain, 'priority-band.ts'),
       '@wbs/domain/dependency-reach': resolve(APP_ROOT, domain, 'dependency-reach.ts'),
       '@wbs/domain/external-system': resolve(APP_ROOT, domain, 'external-system.ts'),

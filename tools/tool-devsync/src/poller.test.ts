@@ -1,7 +1,7 @@
 import { chmod, mkdir, readdir, readFile, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { scratchAsync } from '@wbs/tool-test-scratch';
+import { scratchAsync } from '@tools/test-scratch';
 import { describe, expect, it } from 'bun:test';
 
 interface CommandResult {
@@ -384,7 +384,7 @@ exec ${process.execPath} build --target=bun --outdir=${out} "$1"
     ]);
 
     // Proof: the single-file loader fails here on
-    // `error: Could not resolve: "@wbs/deploy-contract". Maybe you need to "bun install"?`
+    // `error: Could not resolve: "@tools/deploy-contract". Maybe you need to "bun install"?`
     // (observed 2026-09-07, when the candidate was an archive of pathspecs;
     // since TASK-326 it is a clone of the whole commit, so no pathspec can be
     // dropped any more).

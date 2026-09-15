@@ -14,7 +14,7 @@
     "lint:fast": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "bunx eslint libs/wbs/adapters/realtime/src --cache --cache-location .nx/eslintcache-realtime"
+        "command": "bunx eslint libs/wbs/adapters/realtime/src --cache --cache-location .nx/eslintcache-wbs-realtime"
       }
     },
     "test": {

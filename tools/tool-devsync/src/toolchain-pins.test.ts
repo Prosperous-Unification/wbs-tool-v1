@@ -179,7 +179,7 @@ describe('the two TypeScripts', () => {
 
 /**
  * ESLint is told React's version rather than detecting it — see the
- * `settings.react.version` comment in `eslint.config.js` for why — and a told
+ * `settings.react.version` comment in `apps/wbs/eslint.product.mjs` for why — and a told
  * version can go stale. This is the line that says when it has.
  *
  * Proof: with the pin set to `18.3.1` against React 19.2.8 installed,
@@ -188,7 +188,7 @@ describe('the two TypeScripts', () => {
  */
 describe('the React version ESLint is told', () => {
   it('is the one installed', async () => {
-    const config = await read('eslint.config.js');
+    const config = await read('apps/wbs/eslint.product.mjs');
     const told = /settings: \{ react: \{ version: '([^']+)' \} \}/.exec(config)?.[1];
     const require = createRequire(import.meta.url);
     const { version } = require('react/package.json') as { version: string };

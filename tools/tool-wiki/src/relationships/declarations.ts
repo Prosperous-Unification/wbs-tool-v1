@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
-import { parseOrThrow } from '@wbs/validation';
+import { parseOrThrow } from '@shared/validation';
 import { Database, SQLiteError } from 'bun:sqlite';
 import ts from 'typescript';
 import { parse as parseYaml } from 'yaml';

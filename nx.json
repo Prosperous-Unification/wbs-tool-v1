@@ -37,7 +37,10 @@
       "inputs": [
         "default",
         "{workspaceRoot}/eslint.config.js",
+        "{workspaceRoot}/tools/tool-devsync/product-policies.mjs",
         "{workspaceRoot}/tools/tool-devsync/workspace-projects.mjs",
+        "{workspaceRoot}/apps/*/eslint.product.mjs",
+        "{workspaceRoot}/libs/*/eslint.product.mjs",
         "{workspaceRoot}/apps/**/project.json",
         "{workspaceRoot}/libs/**/project.json",
         "{workspaceRoot}/tools/**/project.json",

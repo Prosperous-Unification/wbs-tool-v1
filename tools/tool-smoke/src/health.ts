@@ -1,4 +1,4 @@
-import { APP_NAME, PORT } from '@wbs/deploy-contract';
+import { APP_NAME, PORT } from '@tools/deploy-contract';
 
 import { resolveColor } from './color';
 
@@ -35,7 +35,7 @@ export interface HealthCheck {
  * check that always silently passes: both hide a real problem instead of
  * reporting it. Mirrors `tools/tool-remote-scripts/src/lib/health.ts`'s
  * `AbortController` + `setTimeout` pattern (not imported directly — this is a
- * different fetch with a different timeout, and `@wbs/deploy-contract` carries
+ * different fetch with a different timeout, and `@tools/deploy-contract` carries
  * the names and ports rather than the fetching).
  */
 async function fetchWithTimeout(

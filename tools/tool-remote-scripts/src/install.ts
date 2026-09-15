@@ -63,7 +63,7 @@ export function parseInstallArgs(argv: string[], defaults?: Partial<InstallArgs>
   return { host, execute, layout };
 }
 
-// The paths themselves are `@wbs/deploy-contract`'s: `tool-deploy` hashes the
+// The paths themselves are `@tools/deploy-contract`'s: `tool-deploy` hashes the
 // same two files before every swap, and the two copies disagreed about whether
 // `remote` was absolute. See `BUNDLE_FILES` there.
 

@@ -243,8 +243,10 @@ export async function readProjects(workspace) {
 
 /**
  * Build Nx dependency constraints for every product present in the project
- * graph. Product-neutral infrastructure contributes no rule; shared product
- * code may depend only on other shared product code.
+ * graph. Shared product code may depend only on other shared product code. One
+ * trailing `scope:infra` rule holds product-less infrastructure to infra and
+ * the shared product, because such a project carries no `product:` tag for the
+ * per-product rules above to match.
  *
  * @param {readonly WorkspaceProject[]} projects
  * @returns {readonly Readonly<{
@@ -261,7 +263,7 @@ export function productConstraints(projects) {
     }
   }
 
-  return [...products].sort().map((product) => ({
+  const perProduct = [...products].sort().map((product) => ({
     sourceTag: `product:${product}`,
     // Proof: removing only the generated product:probe rule made the fixture's
     // actual uncached Nx lint accept its forbidden @wbs/core production import
@@ -270,6 +272,14 @@ export function productConstraints(projects) {
     onlyDependOnLibsWithTags:
       product === 'shared' ? ['product:shared'] : [`product:${product}`, 'product:shared'],
   }));
+  return [
+    ...perProduct,
+    // Proof: without this rule the fixture's probe tool imported `@wbs/core` and its
+    // uncached Nx lint exited 0, failing `refuses a product import from a product-less
+    // tool and admits shared` on `Expected: 1 · Received: 0` (2026-09-15). Tools carry no
+    // product tag, so no per-product rule above ever applies to them.
+    { sourceTag: 'scope:infra', onlyDependOnLibsWithTags: ['scope:infra', 'product:shared'] },
+  ];
 }
 
 /** @param {NamespaceProject} project @param {string} axis */

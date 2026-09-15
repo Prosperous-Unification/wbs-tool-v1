@@ -613,7 +613,7 @@ async function sourceFilesIn(root: URL, prefix: string): Promise<{ path: string;
  * `Tier` was written out four times and inline twice more, `Color` three times,
  * and the image names, container names and ports twice each — across four
  * projects that have to agree or a deploy pushes an image the server will not
- * run. `@wbs/deploy-contract` is the one declaration since 2026-09-02, and this
+ * run. `@tools/deploy-contract` is the one declaration since 2026-09-02, and this
  * is what stops the copies coming back: a re-declared union reads exactly like
  * the original to anybody who does not go looking for the other three.
  *
@@ -773,5 +773,30 @@ describe('the root fast tier discovers every eligible project', () => {
     // inventory, and its deliberate assertion failed on Expected: false,
     // Received: true. Watched through `bun run test:unit` on 2026-09-10.
     expect(Reflect.get(root.scripts, 'test:unit')).toBe('nx run-many -t test:unit');
+  });
+});
+
+describe('lint:fast cache locations', () => {
+  it('every lint:fast cache location is qualified by the Nx project name', async () => {
+    const unqualified = (await readProjects(WORKSPACE)).flatMap((project) => {
+      const options = project.targets['lint:fast']?.options;
+      const command = options?.command;
+      if (typeof command !== 'string') return [];
+      const expected = `--cache-location .nx/eslintcache-${project.name}`;
+      return command.includes(expected) ? [] : [`${project.root}: ${command}`];
+    });
+    // Proof: before the rename this failed with `Expected - 1 / Received + 18`,
+    // listing all 16 product manifests and the unqualified cache each still
+    // named — apps/wbs/be-01 (eslintcache-be-01), apps/wbs/fe-01 (-fe-01),
+    // apps/wbs/gw-01 (-gw-01), apps/wbs/mcp-01 (-mcp-01),
+    // libs/wbs/adapters/auth (-auth), .../config (-config),
+    // .../observability (-observability), .../realtime (-realtime),
+    // .../runtime-portable (-runtime-portable), .../store-memory (-store-memory),
+    // .../store-sqlite (-store-sqlite), libs/wbs/application/conformance
+    // (-conformance), .../core (-core), libs/wbs/domain/contracts (-contracts),
+    // .../domain (-domain) and .../validation (-validation) (2026-09-15).
+    // A second product's be-01 would otherwise share `.nx/eslintcache-be-01`
+    // with WBS, so each would invalidate the other's ESLint cache.
+    expect(unqualified).toEqual([]);
   });
 });

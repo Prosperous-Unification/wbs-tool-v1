@@ -12,7 +12,7 @@ import {
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 
-import { parseOrThrow, type } from '@wbs/validation';
+import { parseOrThrow, type } from '@shared/validation';
 
 import { IsoInstant, OpaqueId, SchemaVersion } from '../contracts/records';
 import { hashBytes, hashCanonical, serializeCanonical } from '../evidence/content-manifest';

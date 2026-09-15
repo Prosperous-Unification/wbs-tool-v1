@@ -1,6 +1,6 @@
 import { posix } from 'node:path';
 
-import { ValidationError } from '@wbs/validation';
+import { ValidationError } from '@shared/validation';
 
 import { decodeRecord } from '../contracts/decode-record';
 import type { ClassificationPolicy, ContentClass, EvidenceRecordKind } from '../contracts/records';

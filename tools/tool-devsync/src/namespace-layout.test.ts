@@ -46,6 +46,21 @@ const VALID_PROJECTS = [
     'runtime:bun',
     'product:wbs',
   ]),
+  // Appended rather than placed in root order: the tag-cardinality cases below
+  // read `VALID_PROJECTS[2]`, so an earlier insertion would silently retarget
+  // them from `wbs-domain` onto this project.
+  //
+  // Proof: renaming this fixture to the unqualified `validation` failed
+  // `accepts both apps, every library ring directory and product-neutral tools`
+  // with `libs/shared/domain/validation: project name must be
+  // shared-validation, found validation` (2026-09-15).
+  project('libs/shared/domain/validation', 'shared-validation', [
+    'scope:shared',
+    'type:validation',
+    'runtime:isomorphic',
+    'ring:domain',
+    'product:shared',
+  ]),
   project('tools/tool-devsync', 'tool-devsync', ['scope:infra', 'ring:adapter', 'runtime:bun']),
 ] as const;
 

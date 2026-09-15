@@ -91,8 +91,14 @@ it('pins the complete moved depth-sensitive configuration inventory', async () =
   // Proof: filtering out `compilerOptions.outDir` made this production-workspace
   // oracle fail with 111 instead of 148 rows and omitted the core outDir below
   // (2026-09-14).
-  expect(paths).toHaveLength(148);
-  expect(new Set(paths.map(({ file }) => file))).toHaveLength(72);
+  // Proof: adding libs/shared/domain/validation's three tsconfigs without
+  // raising these numbers failed with `Received length: 152` rows, then
+  // `Received length: 76` files (2026-09-15).
+  // Proof: adding the `@shared/validation` path mapping to fe-01's four tsconfigs without
+  // raising the row count failed with `Received length: 156` against the pinned 152; the file
+  // count stayed at 76 because all four were already inventoried (2026-09-16).
+  expect(paths).toHaveLength(156);
+  expect(new Set(paths.map(({ file }) => file))).toHaveLength(76);
   expect(paths).toContainEqual({
     file: 'apps/wbs/be-01/tsconfig.json',
     propertyPath: 'extends',

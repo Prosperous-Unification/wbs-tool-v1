@@ -98,6 +98,12 @@ export default defineConfig({
       // required-alias assertion in vite-config.test.ts, despite map parity.
       '@wbs/contracts': resolve(__dirname, '../../../libs/wbs/domain/contracts/src/index.ts'),
       '@wbs/validation': resolve(__dirname, '../../../libs/wbs/domain/validation/src/index.ts'),
+      // Both halves of the validation re-export, for the reason above the
+      // `@wbs/validation` entry in `vite.config.ts`.
+      '@shared/validation': resolve(
+        __dirname,
+        '../../../libs/shared/domain/validation/src/index.ts',
+      ),
       '@wbs/domain/priority-band': resolve(
         __dirname,
         '../../../libs/wbs/domain/domain/src/priority-band.ts',

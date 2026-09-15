@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer';
 import { closeSync, fstatSync, openSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 
-import { parseOrThrow, type } from '@wbs/validation';
+import { parseOrThrow, type } from '@shared/validation';
 
 import {
   CheckReceipt,

@@ -34,7 +34,7 @@ import {
   SOLVER_SUPERVISOR_CONFIG,
   SOLVER_SUPERVISOR_SERVICE,
   SOLVER_SUPERVISOR_SOCKET,
-} from '@wbs/deploy-contract';
+} from '@tools/deploy-contract';
 import { $ } from 'bun';
 
 import { prepareTargetSolverBinding } from './solver-binding-host';
@@ -436,6 +436,10 @@ export const RESTART_PATHS: readonly string[] = [
   'libs/wbs/adapters/store-sqlite/project.json',
   'libs/wbs/domain/validation/project.json',
   'libs/wbs/adapters/solver-py/project.json',
+  // Proof: omitting this entry after creating the project failed `names every
+  // library project.json that exists on disk` with `Expected to contain:
+  // "libs/shared/domain/validation/project.json"` (2026-09-15).
+  'libs/shared/domain/validation/project.json',
 ];
 
 /**

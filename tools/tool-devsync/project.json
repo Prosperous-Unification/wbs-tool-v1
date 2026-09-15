@@ -11,6 +11,7 @@
         "default",
         "^production",
         "{workspaceRoot}/**/*",
+        "{workspaceRoot}/docs/findings/current-document-check-exemptions.json",
         "{workspaceRoot}/bin/dev.sh",
         "{workspaceRoot}/bin/dev-be-probe.sh",
         "{workspaceRoot}/bin/dev-mcp-preflight.sh",

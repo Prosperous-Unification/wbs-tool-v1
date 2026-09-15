@@ -12,7 +12,7 @@
     "lint:fast": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "bunx eslint libs/wbs/adapters/store-memory/src --cache --cache-location .nx/eslintcache-store-memory"
+        "command": "bunx eslint libs/wbs/adapters/store-memory/src --cache --cache-location .nx/eslintcache-wbs-store-memory"
       }
     },
     "test": {

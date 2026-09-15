@@ -30,7 +30,7 @@
     "lint:fast": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "bunx eslint apps/wbs/gw-01/src --cache --cache-location .nx/eslintcache-gw-01"
+        "command": "bunx eslint apps/wbs/gw-01/src --cache --cache-location .nx/eslintcache-wbs-gw-01"
       }
     },
     "test": {

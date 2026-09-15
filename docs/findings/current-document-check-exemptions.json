@@ -1,0 +1,200 @@
+{
+  "expires": "2026-12-31",
+  "entries": [
+    {
+      "path": "docs/2026-08-29-wave-1-decisions.md",
+      "reason": "dated decisions record naming pre-move Nx selectors",
+      "excuses": ["nx-selector"]
+    },
+    {
+      "path": "docs/2026-08-30-agent-loop-audit.md",
+      "reason": "dated audit",
+      "excuses": ["legacy-root"]
+    },
+    {
+      "path": "docs/2026-08-30-sustainability-audit.md",
+      "reason": "dated audit",
+      "excuses": ["legacy-root"]
+    },
+    {
+      "path": "docs/2026-09-02-refactoring-handoff.md",
+      "reason": "dated refactoring handoff",
+      "excuses": ["legacy-root", "nx-selector"]
+    },
+    {
+      "path": "docs/2026-09-02-refactoring-plan.md",
+      "reason": "dated refactoring plan",
+      "excuses": ["legacy-root", "nx-selector", "links"]
+    },
+    {
+      "path": "docs/2026-09-02-refactoring-review/A-be-repository.md",
+      "reason": "dated review",
+      "excuses": ["legacy-root"]
+    },
+    {
+      "path": "docs/2026-09-02-refactoring-review/B-be-service-controller.md",
+      "reason": "dated review",
+      "excuses": ["legacy-root"]
+    },
+    {
+      "path": "docs/2026-09-02-refactoring-review/C-fe-wbs-table.md",
+      "reason": "dated review",
+      "excuses": ["legacy-root"]
+    },
+    {
+      "path": "docs/2026-09-02-refactoring-review/D-fe-rest.md",
+      "reason": "dated review",
+      "excuses": ["legacy-root"]
+    },
+    {
+      "path": "docs/2026-09-02-refactoring-review/E-gw-mcp-libs.md",
+      "reason": "dated review",
+      "excuses": ["legacy-root"]
+    },
+    {
+      "path": "docs/2026-09-02-refactoring-review/F-tools-tests.md",
+      "reason": "dated review",
+      "excuses": ["legacy-root", "nx-selector"]
+    },
+    {
+      "path": "docs/2026-09-02-refactoring-review/README.md",
+      "reason": "dated review index",
+      "excuses": ["legacy-root"]
+    },
+    {
+      "path": "docs/2026-09-05-ports-and-adapters-history.md",
+      "reason": "dated architecture history",
+      "excuses": ["legacy-root", "links"]
+    },
+    {
+      "path": "docs/2026-09-05-ports-and-adapters-plan.md",
+      "reason": "dated architecture plan",
+      "excuses": ["legacy-root", "links"]
+    },
+    {
+      "path": "docs/adr/0008-tags-accumulate-down-the-tree.md",
+      "reason": "historical diff observation",
+      "excuses": ["legacy-root"]
+    },
+    {
+      "path": "docs/adr/0009-a-work-item-type-does-not-inherit-at-all.md",
+      "reason": "historical diff observation",
+      "excuses": ["legacy-root"]
+    },
+    {
+      "path": "docs/findings/checks-that-cannot-fail.md",
+      "reason": "historical incident catalogue",
+      "excuses": ["legacy-root", "nx-selector"]
+    },
+    {
+      "path": "docs/findings/current.md",
+      "reason": "historical migrated root payload",
+      "excuses": ["legacy-root"]
+    },
+    {
+      "path": "docs/local-dev.md",
+      "reason": "historical measured path",
+      "excuses": ["legacy-root"]
+    },
+    {
+      "path": "docs/plans/2026-08-07-table-ui-cleanup.md",
+      "reason": "dated plan",
+      "excuses": ["legacy-root", "nx-selector"]
+    },
+    {
+      "path": "docs/plans/2026-08-08-tailwind-spike-verify.md",
+      "reason": "dated verification",
+      "excuses": ["legacy-root", "nx-selector"]
+    },
+    {
+      "path": "docs/plans/2026-08-09-resource-planning.md",
+      "reason": "dated plan",
+      "excuses": ["legacy-root"]
+    },
+    {
+      "path": "docs/plans/2026-09-13-tool-wiki-precedents-and-extraction.md",
+      "reason": "dated research",
+      "excuses": ["legacy-root"]
+    },
+    {
+      "path": "docs/refactoring/execution-readiness.md",
+      "reason": "historical readiness record linking a retired change packet",
+      "excuses": ["links"]
+    },
+    {
+      "path": "docs/refactoring/verify.md",
+      "reason": "historical refactoring verification",
+      "excuses": ["legacy-root", "nx-selector"]
+    },
+    {
+      "path": "docs/refactoring/w4-4/extraction-map.md",
+      "reason": "historical extraction evidence",
+      "excuses": ["legacy-root"]
+    },
+    {
+      "path": "docs/refactoring/w4-4/verify.md",
+      "reason": "historical extraction verification",
+      "excuses": ["legacy-root", "nx-selector"]
+    },
+    {
+      "path": "docs/runbook-dev-deploy.md",
+      "reason": "dated 2026-08-31 incident",
+      "excuses": ["legacy-root"]
+    },
+    {
+      "path": "docs/state/TASK-347-http-endpoint-port.md",
+      "reason": "historical task state",
+      "excuses": ["legacy-root"]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-02-compose-blue-green-HANDOVER.md",
+      "reason": "frozen legacy plan",
+      "excuses": ["legacy-root"]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-02-compose-blue-green-deploy.md",
+      "reason": "frozen legacy plan",
+      "excuses": ["legacy-root", "nx-selector"]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-04-cheap-dev-deploy.md",
+      "reason": "frozen legacy plan",
+      "excuses": ["legacy-root", "nx-selector"]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-24-password-login.md",
+      "reason": "frozen legacy plan",
+      "excuses": ["legacy-root"]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-15-agentic-scalability-plan.md",
+      "reason": "dated plan",
+      "excuses": ["legacy-root", "nx-selector"]
+    },
+    {
+      "path": "docs/superpowers/specs/2026-04-26-sdd-profile-family-design.md",
+      "reason": "dated profile design linking a retired schema directory",
+      "excuses": ["links"]
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-02-compose-blue-green-deploy-design.md",
+      "reason": "frozen legacy specification",
+      "excuses": ["legacy-root"]
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-05-be01-route-auth-metadata-design.md",
+      "reason": "frozen legacy specification",
+      "excuses": ["legacy-root"]
+    },
+    {
+      "path": "openspec/changes/automatic-dev-solver-binding/tasks.md",
+      "reason": "historical change execution record",
+      "excuses": ["legacy-root"]
+    },
+    {
+      "path": "openspec/changes/automatic-dev-solver-binding/verify.md",
+      "reason": "historical change verification",
+      "excuses": ["legacy-root"]
+    }
+  ]
+}

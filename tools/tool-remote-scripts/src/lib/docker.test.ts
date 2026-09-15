@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-import { renderTemplate, tierComposeTmpl } from '@wbs/tool-compose';
+import { renderTemplate, tierComposeTmpl } from '@tools/compose';
 import { describe, expect, it } from 'bun:test';
 
 import {

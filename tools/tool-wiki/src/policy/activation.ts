@@ -13,7 +13,7 @@ import {
 import { builtinModules } from 'node:module';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
-import { parseOrThrow, type } from '@wbs/validation';
+import { parseOrThrow, type } from '@shared/validation';
 
 import { compareCanonicalText, hashBytes, serializeCanonical } from '../evidence/content-manifest';
 

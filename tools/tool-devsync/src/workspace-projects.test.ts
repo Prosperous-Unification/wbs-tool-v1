@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,11 +10,15 @@ import { productConstraints, readProjects } from '../workspace-projects.mjs';
 
 const WORKSPACE = new URL('../../../', import.meta.url);
 
-const EXPECTED_WBS_PROJECTS = [
+// Every app and library, each one qualified by the product directory it sits
+// in. The product is read back off the root below rather than spelled out per
+// row, so a second product cannot be added here without its directory agreeing.
+const EXPECTED_PRODUCT_PROJECTS = [
   ['apps/wbs/be-01', 'wbs-be-01'],
   ['apps/wbs/fe-01', 'wbs-fe-01'],
   ['apps/wbs/gw-01', 'wbs-gw-01'],
   ['apps/wbs/mcp-01', 'wbs-mcp-01'],
+  ['libs/shared/domain/validation', 'shared-validation'],
   ['libs/wbs/adapters/auth', 'wbs-auth'],
   ['libs/wbs/adapters/config', 'wbs-config'],
   ['libs/wbs/adapters/observability', 'wbs-observability'],
@@ -30,6 +34,36 @@ const EXPECTED_WBS_PROJECTS = [
   ['libs/wbs/domain/domain', 'wbs-domain'],
   ['libs/wbs/domain/validation', 'wbs-validation'],
 ] as const;
+
+/**
+ * The root ESLint config's `allow` list, each alias paired with the project it reaches. It is
+ * repeated here rather than imported because loading `eslint.config.js` runs product lint policy
+ * discovery at import time; `eslint-boundaries.test.ts` pins the list itself against the
+ * effective config and fails once an entry stops being imported.
+ */
+const ALLOWED_INFRA_TO_PRODUCT_EDGES = [
+  ['@wbs/contracts/solver/supervisor-protocol', 'wbs-solver-supervisor-protocol'],
+  ['@wbs/domain', 'wbs-domain'],
+] as const;
+
+/** Every `from '…';` specifier under `root`, skipping comment lines that merely name one. */
+async function importSpecifiersOf(root: string): Promise<readonly string[]> {
+  const entries = await readdir(join(fileURLToPath(WORKSPACE), root), {
+    recursive: true,
+    withFileTypes: true,
+  });
+  const sources = await Promise.all(
+    entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.ts'))
+      .map((entry) => readFile(join(entry.parentPath, entry.name), 'utf8')),
+  );
+  return sources.flatMap((source) =>
+    source
+      .split('\n')
+      .filter((line) => !/^\s*(?:\/\/|\/\*|\*)/.test(line))
+      .flatMap((line) => /from '([^']+)';$/.exec(line)?.slice(1) ?? []),
+  );
+}
 
 interface ProjectManifest {
   readonly name: string;
@@ -132,18 +166,18 @@ describe('readProjects', () => {
     expect(pairs).toEqual(await nxProjectPairs());
   });
 
-  it('pins every moved WBS root and qualified Nx identity in the destination map', async () => {
+  it('pins every product root and qualified Nx identity in the destination map', async () => {
     const projects = await readProjects(WORKSPACE);
-    const wbsProjects = projects
+    const productProjects = projects
       .filter(({ root }) => root.startsWith('apps/') || root.startsWith('libs/'))
       .map(({ root, name }) => [root, name] as const);
 
     // Proof: before the coordinated move this owning Nx target returned all 18
     // unqualified roots and names against this exact destination oracle.
-    expect(wbsProjects).toEqual([...EXPECTED_WBS_PROJECTS]);
+    expect(productProjects).toEqual([...EXPECTED_PRODUCT_PROJECTS]);
   });
 
-  it('activates the WBS product axis on every pre-move app and library', async () => {
+  it('activates the product axis of its own directory on every app and library', async () => {
     const projects = await readProjects(WORKSPACE);
     const products = projects
       .filter(({ root }) => root.startsWith('apps/') || root.startsWith('libs/'))
@@ -151,7 +185,11 @@ describe('readProjects', () => {
 
     // Proof: removing product:wbs from libs/wbs/domain/contracts made the owning Nx target
     // report its exact root with an empty product-tag collection (2026-09-14).
-    expect(products).toEqual(EXPECTED_WBS_PROJECTS.map(([root]) => [root, ['product:wbs']]));
+    // Proof: removing product:shared from libs/shared/domain/validation made it
+    // report that root with an empty product-tag collection (2026-09-15).
+    expect(products).toEqual(
+      EXPECTED_PRODUCT_PROJECTS.map(([root]) => [root, [`product:${root.split('/')[1]}`]]),
+    );
   });
 
   it('discovers projects below another project and ignores only named generated trees', async () => {
@@ -324,7 +362,7 @@ describe('readProjects', () => {
 });
 
 describe('productConstraints', () => {
-  it('generates one sorted same-or-shared rule for every discovered product', () => {
+  it('generates a sorted same-or-shared rule per product, then one infra rule', () => {
     const project = (name: string, tags: readonly string[]) => ({
       root: `libs/${name}`,
       name,
@@ -350,6 +388,8 @@ describe('productConstraints', () => {
         sourceTag: 'product:wbs',
         onlyDependOnLibsWithTags: ['product:wbs', 'product:shared'],
       },
+      // One trailing infra rule, after every per-product rule and never repeated.
+      { sourceTag: 'scope:infra', onlyDependOnLibsWithTags: ['scope:infra', 'product:shared'] },
     ]);
   });
 
@@ -359,26 +399,44 @@ describe('productConstraints', () => {
     const graph = await nxProjectGraph();
     const violations: string[] = [];
     for (const project of projects) {
-      const sourceProduct = project.tags.find((tag) => tag.startsWith('product:'));
-      if (sourceProduct === undefined) continue;
-      const constraint = constraints.find(({ sourceTag }) => sourceTag === sourceProduct);
-      if (constraint === undefined)
-        throw new Error(`missing product constraint for ${sourceProduct}`);
+      // A product-less project is the infra rule's subject: the tools reach infra and the
+      // shared product, plus whatever the root config's `allow` list excuses.
+      const sourceTag = project.tags.find((tag) => tag.startsWith('product:')) ?? 'scope:infra';
+      const constraint = constraints.find((candidate) => candidate.sourceTag === sourceTag);
+      if (constraint === undefined) throw new Error(`missing product constraint for ${sourceTag}`);
+      const specifiers = sourceTag === 'scope:infra' ? await importSpecifiersOf(project.root) : [];
       for (const dependency of graph.dependencies[project.name] ?? []) {
         if (!Object.hasOwn(graph.nodes, dependency.target)) continue;
         const target = graph.nodes[dependency.target];
         if (
-          !constraint.onlyDependOnLibsWithTags.some((allowed) =>
-            target.data.tags?.includes(allowed),
-          )
+          constraint.onlyDependOnLibsWithTags.some((allowed) => target.data.tags?.includes(allowed))
         ) {
-          violations.push(`${project.name} -> ${target.name}`);
+          continue;
         }
+        // Excused only when the edge is reached through an allowed alias and through no
+        // subpath of it: another subpath resolves to the same project, so matching on the
+        // project alone would widen the exception past what lint permits. The root config's
+        // entries are anchored regular expressions and excuse the exact specifier only, and
+        // this oracle refuses the subpaths independently of that spelling.
+        const excusing = ALLOWED_INFRA_TO_PRODUCT_EDGES.filter(
+          ([alias, reached]) => reached === target.name && specifiers.includes(alias),
+        );
+        const subpathed = excusing.some(([alias]) =>
+          specifiers.some((specifier) => specifier.startsWith(`${alias}/`)),
+        );
+        if (excusing.length > 0 && !subpathed) continue;
+        violations.push(`${project.name} -> ${target.name}`);
       }
     }
 
     // Proof: removing product:wbs from libs/wbs/domain/contracts made this real Nx graph
-    // oracle report all ten incoming WBS dependency edges (2026-09-14).
+    // oracle report all ten incoming WBS dependency edges (2026-09-14). Emptying
+    // `ALLOWED_INFRA_TO_PRODUCT_EDGES` made the product-less half report
+    // `tool-dev-setup -> wbs-domain` and `tool-remote-scripts ->
+    // wbs-solver-supervisor-protocol`, the two edges lint's `allow` list excuses. Importing
+    // `@wbs/core` from tools/tool-smoke reported `tool-smoke -> wbs-core`, and importing the
+    // unlisted `@wbs/domain/workday` from tools/dev reported `tool-dev-setup -> wbs-domain`
+    // even with `@wbs/domain` itself allowed (2026-09-15).
     expect(violations).toEqual([]);
   });
 });

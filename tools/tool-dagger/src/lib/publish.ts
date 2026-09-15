@@ -1,4 +1,4 @@
-import { IMAGE_NAME, type Tier } from '@wbs/deploy-contract';
+import { IMAGE_NAME, type Tier } from '@tools/deploy-contract';
 
 // Re-exported because this module's own callers take `Tier` from it. The image
 // names came from a second copy here until 2026-09-02, and they are the pair
