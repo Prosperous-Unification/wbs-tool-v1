@@ -164,3 +164,5 @@ require it for day-to-day dev.
   unwired for safety.
 - No remote observability — run the Compose stack above if you want Grafana.
 - No e2e / smoke checks — those are post-deploy (`tool-smoke`).
+
+Probe (W3 Task 3.3, docs-only pull request): a change touching no application project leaves the browser stack unaffected, so the pixels shards skip and the `pixels` aggregate still passes. Removed with the probe branch.
