@@ -58,3 +58,7 @@ export function parseSecretsOrThrow<T extends Type>(schema: T, input: unknown): 
   }
   return result;
 }
+
+// W3 Task 3.1 step 3 throwaway negative: this line must fail shared-validation:typecheck and
+// the PR gate must not schedule wbs-fe-01:build. Never merge.
+export const affectedGateProbe: number = 'not a number';
