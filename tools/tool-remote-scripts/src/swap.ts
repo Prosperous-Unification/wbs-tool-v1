@@ -6,7 +6,7 @@
 // `--dry-run` is the default. `--execute` opts in to anything destructive.
 //
 // How the Caddy/Compose templates reach the server: they are NOT read from a
-// path on disk at runtime. `@wbs/tool-compose` imports both `.tmpl` files as
+// path on disk at runtime. `@tools/compose` imports both `.tmpl` files as
 // raw text with `with { type: 'text' }`, which Bun's bundler inlines at
 // build time into the single `swap.js` produced by this project's `build`
 // target — the same file `install.ts` already documents rsync-ing to
@@ -17,7 +17,7 @@
 // unrelated directory.
 import { unlink } from 'node:fs/promises';
 
-import { renderTemplate, siteCaddyTmpl, tierComposeTmpl } from '@wbs/tool-compose';
+import { renderTemplate, siteCaddyTmpl, tierComposeTmpl } from '@tools/compose';
 
 import { writeAtomic } from './lib/atomic';
 import {

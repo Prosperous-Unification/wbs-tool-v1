@@ -14,7 +14,12 @@
     },
     "test": {
       "executor": "nx:run-commands",
-      "inputs": ["default", "^production", "{workspaceRoot}/tools/test/scratch/**/*"],
+      "inputs": [
+        "default",
+        "^production",
+        "{workspaceRoot}/lefthook.yml",
+        "{workspaceRoot}/.github/workflows/ci.yml"
+      ],
       "options": {
         "command": "bun test --preload ../test/scratch/preload.ts",
         "cwd": "tools/tool-git-hooks"

@@ -183,8 +183,10 @@ tmp=$(mktemp -d)
 run_case "$tmp" 0 "$tmp/dev.log" --local-solver
 check 'local solver target' 'serve-local-solver' "$(asked_target "$tmp")"
 check 'local solver keeps one nx invocation' '1' "$(wc -l <"$tmp/bin/argv" | tr -d ' ')"
+# Proof: restoring bin/dev.sh's pre-move Nx selectors made this host-permitted
+# suite report that the local solver no longer runs all four namespaced tiers.
 check 'local solver runs all four tiers' 'yes' \
-  "$(grep -q -- '--projects=be-01,gw-01,fe-01,mcp-01' "$tmp/bin/argv" && echo yes || echo no)"
+  "$(grep -q -- '--projects=wbs-be-01,wbs-gw-01,wbs-fe-01,wbs-mcp-01' "$tmp/bin/argv" && echo yes || echo no)"
 rm -rf "$tmp"
 
 # 6. No argument is still the ordinary supervised dev stack, because that path
@@ -277,7 +279,23 @@ check 'fe-01 has no .env and is still checked' 'yes' \
   "$(grep -qx 'fe-01:4200' <<<"$resolved" && echo yes || echo no)"
 rm -rf "$tmp"
 
-# 13. An unreadable .env is not a tier without a port. Both branches exist in
+# 13. A moved-layout checkout resolves its configured port through the default
+#     application root. Copying the production script makes its own parent the
+#     fixture root without adding a test-only root option.
+tmp=$(mktemp -d)
+mkdir -p "$tmp/bin" "$tmp/apps/wbs/be-01"
+cp "$ports_sh" "$tmp/bin/dev-ports.sh"
+printf 'PORT=43117\n' >"$tmp/apps/wbs/be-01/.env"
+resolved=$(bash "$tmp/bin/dev-ports.sh" --resolve 2>"$tmp/stderr")
+# Proof: on 2026-09-14, restoring the copied production script's default to
+# `$repo_root/apps` made this report `expected: be-01:43117 · actual:`. The
+# fixture has only the moved tree and supplies neither --apps-dir nor a root
+# override, so the default itself is the only way to find this pinned port.
+check 'default app root resolves the moved configured port' 'be-01:43117' \
+  "$(grep '^be-01:' <<<"$resolved")"
+rm -rf "$tmp"
+
+# 14. An unreadable .env is not a tier without a port. Both branches exist in
 #     resolve_ports, so both are watched here.
 tmp=$(mktemp -d)
 mkdir -p "$tmp/apps/be-01"
@@ -291,7 +309,7 @@ check 'the refusal says unreadable' 'yes' \
 chmod 600 "$tmp/apps/be-01/.env"
 rm -rf "$tmp"
 
-# 14. The check path stops at a file it cannot read, before probing anything.
+# 15. The check path stops at a file it cannot read, before probing anything.
 #     Exit 1 alone does not say this: an unreadable `.env` makes the `sed` fail
 #     too, and a busy port would also exit 1. What separates the two is whether
 #     any port was probed at all.
@@ -310,7 +328,7 @@ stop_listener "$tmp"
 chmod 600 "$tmp/apps/be-01/.env"
 rm -rf "$tmp"
 
-# 15. This checkout's own four tiers, through the path bin/dev.sh actually
+# 16. This checkout's own four tiers, through the path bin/dev.sh actually
 #     calls. What each tier must do depends on whether it is configured here:
 #     `.env` is gitignored, so a developer who has run `bun run dev:setup` has
 #     three of them and a fresh clone — CI included — has none. A tier is either
@@ -341,7 +359,7 @@ for tier in be-01 gw-01 mcp-01 fe-01; do
 done
 rm -rf "$tmp"
 
-# 16. `--kill` frees a port held by a process belonging to this checkout.
+# 17. `--kill` frees a port held by a process belonging to this checkout.
 tmp=$(mktemp -d)
 held=$(start_listener "$tmp")
 victim=$(cat "$tmp/pid")
@@ -357,7 +375,7 @@ check 'the holder was asked to stop, not shot' 'yes' \
 stop_listener "$tmp"
 rm -rf "$tmp"
 
-# 17. A holder that is not this checkout's is reported and left alone. The
+# 18. A holder that is not this checkout's is reported and left alone. The
 #     ports are shared with every other program on the machine; 3300 belonging
 #     to something else is not permission to shoot it.
 tmp=$(mktemp -d)
@@ -374,7 +392,7 @@ check 'the refusal names the directory it came from' 'yes' \
 stop_listener "$tmp"
 rm -rf "$tmp"
 
-# 18. A holder that ignores SIGTERM is still freed. `kill` returning 0 says a
+# 19. A holder that ignores SIGTERM is still freed. `kill` returning 0 says a
 #     signal was delivered, never that the socket closed.
 tmp=$(mktemp -d)
 cat >"$tmp/deaf.ts" <<'TS'
@@ -404,7 +422,7 @@ kill -9 "$deaf_pid" 2>/dev/null || :
 wait "$deaf_pid" 2>/dev/null || :
 rm -rf "$tmp"
 
-# 19. Without lsof there is no cwd to read, so there is no way to tell this
+# 20. Without lsof there is no cwd to read, so there is no way to tell this
 #     checkout's process from anybody else's. It refuses rather than killing
 #     whatever answers.
 tmp=$(mktemp -d)

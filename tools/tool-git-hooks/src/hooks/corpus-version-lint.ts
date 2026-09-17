@@ -58,20 +58,43 @@ import ts from 'typescript';
  * together, not that the author bumped *because* of the semantic change.
  */
 
-/** Where the constant is declared. One path, spelled out, never searched for. */
-export const CONTRACT_VERSION_PATH = 'libs/domain/src/contract-version.ts';
+/** Where the constant is declared in the current repository layout. */
+export const CONTRACT_VERSION_PATH = 'libs/wbs/domain/domain/src/contract-version.ts';
 
 /**
  * The version-keyed fixtures. Both, because the hole this closes was identical
  * in both and a list of one would leave the other exactly as it was.
  */
 export const CORPUS_FIXTURES = [
-  'libs/domain/fixtures/fast-golden-corpus.json',
-  'libs/domain/fixtures/solver-quantum-golden-corpus.json',
+  'libs/wbs/domain/domain/fixtures/fast-golden-corpus.json',
+  'libs/wbs/domain/domain/fixtures/solver-quantum-golden-corpus.json',
 ] as const;
 
+type CorpusFixture = 'fast' | 'quantum';
+
+interface CorpusLayout {
+  readonly version: string;
+  readonly fixtures: Readonly<Record<CorpusFixture, string>>;
+}
+
+const CORPUS_LAYOUTS: readonly CorpusLayout[] = [
+  {
+    version: 'libs/domain/src/contract-version.ts',
+    fixtures: {
+      fast: 'libs/domain/fixtures/fast-golden-corpus.json',
+      quantum: 'libs/domain/fixtures/solver-quantum-golden-corpus.json',
+    },
+  },
+  {
+    version: CONTRACT_VERSION_PATH,
+    fixtures: { fast: CORPUS_FIXTURES[0], quantum: CORPUS_FIXTURES[1] },
+  },
+] as const;
+
+const CORPUS_FIXTURE_NAMES: readonly CorpusFixture[] = ['fast', 'quantum'];
+
 /**
- * The two git reads this check needs, behind a port so the whole comparison is
+ * The revision-scoped Git reads this check needs, behind a port so the comparison is
  * an ordinary unit test with no subprocess and no repository.
  *
  * `null` means the path does not exist at that revision, which is a real answer
@@ -130,12 +153,15 @@ const ALL_ZERO = /^0{40}$/;
  * statements, a string's contents are never tokens, and a commented-out
  * declaration is trivia the parser never yields.
  */
-function versionDeclarationsIn(source: string): {
+function versionDeclarationsIn(
+  path: string,
+  source: string,
+): {
   readonly file: ts.SourceFile;
   readonly initialisers: readonly (ts.Expression | undefined)[];
 } {
   const file = ts.createSourceFile(
-    CONTRACT_VERSION_PATH,
+    path,
     source,
     ts.ScriptTarget.Latest,
     /* setParentNodes */ true,
@@ -167,19 +193,40 @@ function versionDeclarationsIn(source: string): {
  * make. So the integer is taken off the declaration's initialiser node, and
  * anything that is not exactly one integer-valued declaration is an error.
  */
-function versionAt(rev: string, port: RevisionPort): number {
-  const source = port.readAt(rev, CONTRACT_VERSION_PATH);
+function layoutAt(rev: string, port: RevisionPort): CorpusLayout {
+  const found = CORPUS_LAYOUTS.filter((layout) => port.readAt(rev, layout.version) !== null);
+  // Proof: pinning both revisions to the namespaced production path made the real Git-history
+  // rename test observe "does not exist" at its legacy SHA (33 passed / 3 failed). Removing both
+  // paths makes the missing-file test observe the named no-layout issue; injecting both makes the
+  // ambiguity test observe "both supported corpus layouts" instead of silently choosing one.
+  if (found.length === 0)
+    throw new Error(
+      `Neither supported corpus layout exists at ${rev}; expected exactly one of ${CORPUS_LAYOUTS.map(
+        (layout) => layout.version,
+      ).join(', ')}.`,
+    );
+  if (found.length > 1)
+    throw new Error(
+      `Revision ${rev} contains both supported corpus layouts (${found
+        .map((layout) => layout.version)
+        .join(', ')}), so the governing fixture set is ambiguous.`,
+    );
+  return found[0];
+}
+
+function versionAt(rev: string, layout: CorpusLayout, port: RevisionPort): number {
+  const source = port.readAt(rev, layout.version);
   if (source === null)
-    throw new Error(`${CONTRACT_VERSION_PATH} does not exist at ${rev}, so no version can be read`);
-  const { file, initialisers } = versionDeclarationsIn(source);
+    throw new Error(`${layout.version} does not exist at ${rev}, so no version can be read`);
+  const { file, initialisers } = versionDeclarationsIn(layout.version, source);
   if (initialisers.length === 0)
     throw new Error(
-      `${CONTRACT_VERSION_PATH} at ${rev} declares no exported SCHEDULER_CONTRACT_VERSION, ` +
+      `${layout.version} at ${rev} declares no exported SCHEDULER_CONTRACT_VERSION, ` +
         'so the version this change starts from is unknown.',
     );
   if (initialisers.length > 1)
     throw new Error(
-      `${CONTRACT_VERSION_PATH} at ${rev} declares SCHEDULER_CONTRACT_VERSION twice, ` +
+      `${layout.version} at ${rev} declares SCHEDULER_CONTRACT_VERSION twice, ` +
         'so which one governs the corpora is ambiguous.',
     );
   const initialiser = initialisers[0];
@@ -307,11 +354,15 @@ export function lintCorpusVersion(boundary: Boundary, port: RevisionPort): Corpu
       },
     ];
 
+  let baseLayout: CorpusLayout;
+  let headLayout: CorpusLayout;
   let baseVersion: number;
   let headVersion: number;
   try {
-    baseVersion = versionAt(base, port);
-    headVersion = versionAt(head, port);
+    baseLayout = layoutAt(base, port);
+    headLayout = layoutAt(head, port);
+    baseVersion = versionAt(base, baseLayout, port);
+    headVersion = versionAt(head, headLayout, port);
   } catch (e: unknown) {
     return [{ reason: e instanceof Error ? e.message : String(e) }];
   }
@@ -329,14 +380,16 @@ export function lintCorpusVersion(boundary: Boundary, port: RevisionPort): Corpu
         `${String(headVersion)} at ${head} — a decrease. Stored schedules are keyed on that ` +
         'number, so reusing a version makes rows computed under its older meaning addressable ' +
         'again. Identical fixture cases do not license that: the corpora sample a fixed handful ' +
-        `of inputs and say nothing about the rest. Move ${CONTRACT_VERSION_PATH} forward instead.`,
+        `of inputs and say nothing about the rest. Move ${headLayout.version} forward instead.`,
     });
-  for (const fixture of CORPUS_FIXTURES) {
+  for (const fixtureName of CORPUS_FIXTURE_NAMES) {
+    const baseFixture = baseLayout.fixtures[fixtureName];
+    const headFixture = headLayout.fixtures[fixtureName];
     let before: string | null;
     let after: string | null;
     try {
-      before = casesAt(base, fixture, port);
-      after = casesAt(head, fixture, port);
+      before = casesAt(base, baseFixture, port);
+      after = casesAt(head, headFixture, port);
     } catch (e: unknown) {
       issues.push({ reason: e instanceof Error ? e.message : String(e) });
       continue;
@@ -347,7 +400,7 @@ export function lintCorpusVersion(boundary: Boundary, port: RevisionPort): Corpu
     if (after === null) {
       issues.push({
         reason:
-          `${fixture} does not exist at ${head}. Both golden corpora are checked in, and ` +
+          `${headFixture} does not exist at ${head}. Both golden corpora are checked in, and ` +
           'removing one is not something a contract-version bump can authorise.',
       });
       continue;
@@ -358,11 +411,12 @@ export function lintCorpusVersion(boundary: Boundary, port: RevisionPort): Corpu
     if (headVersion > baseVersion) continue;
     issues.push({
       reason:
-        `${fixture} has different \`cases\` than at ${base}, but SCHEDULER_CONTRACT_VERSION ` +
+        `${headFixture} has different \`cases\` than ${baseFixture} at ${base}, but ` +
+        'SCHEDULER_CONTRACT_VERSION ' +
         `went from ${String(baseVersion)} to ${String(headVersion)} — it did not increase. ` +
         'Stored schedules are keyed on that number, so cached rows computed under the old ' +
         'semantics stay addressable and keep being served. Bump the constant in ' +
-        `${CONTRACT_VERSION_PATH} and regenerate, or restore the fixture.`,
+        `${headLayout.version} and regenerate, or restore the fixture.`,
     });
   }
   return issues;

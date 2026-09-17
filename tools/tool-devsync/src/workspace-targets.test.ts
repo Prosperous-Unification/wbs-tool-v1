@@ -39,7 +39,13 @@ import { readProjects } from '../workspace-projects.mjs';
 const WORKSPACE = new URL('../../../', import.meta.url);
 
 interface ProjectTarget {
-  readonly options?: Readonly<{ command?: string; commands?: readonly string[] }>;
+  readonly cache?: boolean;
+  readonly options?: Readonly<{
+    command?: string;
+    commands?: readonly string[];
+    cwd?: string;
+    forwardAllArgs?: boolean;
+  }>;
   readonly inputs?: readonly (string | Readonly<Record<string, unknown>>)[];
 }
 
@@ -74,12 +80,103 @@ function commandsOf(target: ProjectTarget): string[] {
   ];
 }
 
-describe('every typecheck target compiles files', () => {
-  it('finds a project.json for every project', async () => {
+describe('source conformance target discovery', () => {
+  it('selects each terminal source file exactly and keeps normal test inclusion', async () => {
     const projects = await projectsOnDisk();
-    expect(projects.length).toBeGreaterThan(20);
-  });
+    const expected = {
+      'wbs-store-memory': {
+        root: 'libs/wbs/adapters/store-memory',
+        file: 'src/testing/source-conformance.test.ts',
+        inputs: ['default', '^production'],
+        certificateTargets: ['test', 'test:conformance', 'test:unit'],
+      },
+      'wbs-store-sqlite': {
+        root: 'libs/wbs/adapters/store-sqlite',
+        file: 'src/testing/source-conformance.db.test.ts',
+        inputs: ['default', '^production', '{workspaceRoot}/apps/wbs/be-01/drizzle'],
+        certificateTargets: ['test', 'test:conformance'],
+      },
+    } as const;
+    const observed = Object.fromEntries(
+      Object.entries(expected).map(([name, contract]) => {
+        const project = projects.find(({ config }) => config.name === name);
+        if (project === undefined) throw new Error(`missing source project ${name}`);
+        const target = project.config.targets['test:conformance'];
+        if (target === undefined) throw new Error(`${name} is missing test:conformance`);
+        const command = commandsOf(target);
+        return [
+          name,
+          {
+            command,
+            cwd: target.options?.cwd,
+            cache: target.cache,
+            inputs: target.inputs,
+            normalIncludes: commandsOf(project.config.targets['test'] ?? {}).some(
+              (candidate) =>
+                candidate === 'bun test src --coverage --coverage-reporter=lcov' ||
+                candidate === 'bun test --coverage --coverage-reporter=lcov',
+            ),
+            certificateTargets: Object.entries(project.config.targets)
+              .filter(([, candidate]) =>
+                commandsOf(candidate ?? {}).some(
+                  (candidateCommand) =>
+                    candidateCommand.includes(contract.file) ||
+                    candidateCommand === 'bun test src --coverage --coverage-reporter=lcov' ||
+                    candidateCommand === 'bun test --coverage --coverage-reporter=lcov',
+                ),
+              )
+              .map(([targetName, candidate]) => ({ name: targetName, cache: candidate?.cache })),
+            filtered: command.some((candidate) =>
+              /(?:^|\s)(?:-t|--test-name-pattern)(?:\s|=)/.test(candidate),
+            ),
+            forwardsCliArgs: target.options?.forwardAllArgs ?? true,
+          },
+        ];
+      }),
+    );
 
+    // Proof: deleting either target, broadening its selector, adding a name
+    // filter, or dropping normal discovery changes this exact two-source map.
+    // Proof: removing historyBatchRegistrations made both the dedicated memory
+    // target and normal memory test fail terminal certification naming exactly
+    // independent-commit, independent-rollback and interleaved-success-survives.
+    // Proof: a string assigned to number in this file failed tool-devsync:typecheck
+    // at this exact path; its unused binding also failed the owning lint target.
+    // Proof: broadening memory to `bun test src/testing` failed this map with
+    // that directory received instead of the exact terminal source test file.
+    // Proof: restoring CLI forwarding made the review command with
+    // `--args='-t configuration-reference'` run one case and filter seventy;
+    // with forwarding disabled, that same command runs all seventy-one.
+    // Proof: restoring cache:true, priming this real Nx target on a clean tree,
+    // then adding an untracked workspace-root probe made the identical second
+    // invocation report `existing outputs match the cache` and replay the clean
+    // revision. With cache:false it reruns and prints that same SHA with -dirty.
+    // Discovery includes every broad target that can select the terminal file;
+    // adding another cacheable broad source target therefore changes this map.
+    expect(observed).toEqual(
+      Object.fromEntries(
+        Object.entries(expected).map(([name, contract]) => [
+          name,
+          {
+            command: [`bun test ${contract.file}`],
+            cwd: contract.root,
+            cache: false,
+            inputs: [...contract.inputs],
+            normalIncludes: true,
+            certificateTargets: contract.certificateTargets.map((targetName) => ({
+              name: targetName,
+              cache: false,
+            })),
+            filtered: false,
+            forwardsCliArgs: false,
+          },
+        ]),
+      ),
+    );
+  });
+});
+
+describe('every typecheck target compiles files', () => {
   it('never runs `tsc -p` against a solution-style config', async () => {
     const offenders: string[] = [];
     for (const { config } of await projectsOnDisk()) {
@@ -108,9 +205,12 @@ describe('every typecheck target compiles files', () => {
     // while its suite stayed green (`d4b62a30`). `tsc --build` on the solution
     // config follows every reference, so the tests are compiled with the code.
     //
-    // Proof: with `apps/gw-01/project.json` put back to
-    // `bunx tsc --build --force apps/gw-01/tsconfig.lib.json`, watched failing
+    // Proof: with `apps/wbs/gw-01/project.json` put back to
+    // `bunx tsc --build --force apps/wbs/gw-01/tsconfig.lib.json`, watched failing
     // on `Expected value to be empty · Received: [ "gw-01" ]` (2026-09-02).
+    // Proof: after the namespace move, assigning a string to a number in
+    // libs/wbs/domain/domain/src/estimate.test.ts made the real renamed
+    // wbs-domain:typecheck target fail with TS2322 (2026-09-14).
     const offenders: string[] = [];
     for (const { dir, config } of await projectsOnDisk()) {
       const target = config.targets['typecheck'];
@@ -130,8 +230,8 @@ describe('every typecheck target compiles files', () => {
     // right.
     //
     // Proof: with the `./tsconfig.spec.json` reference struck from
-    // `apps/gw-01/tsconfig.json`, watched failing on `Expected value to be
-    // empty · Received: [ "apps/gw-01" ]` (2026-09-02).
+    // `apps/wbs/gw-01/tsconfig.json`, watched failing on `Expected value to be
+    // empty · Received: [ "apps/wbs/gw-01" ]` (2026-09-02).
     const orphans: string[] = [];
     for (const { dir } of await projectsOnDisk()) {
       let spec: string;
@@ -167,7 +267,7 @@ describe('every typecheck target compiles files', () => {
  * changes, and reports green over a change no command read.
  *
  * The nine on 2026-09-02: five suites drive shell scripts under `bin/`, three
- * read shipped Caddy and Compose fragments under `deploy/`, and `libs/domain`'s
+ * read shipped Caddy and Compose fragments under `deploy/`, and `libs/wbs/domain/domain`'s
  * `every name it can answer is one the migration seeds` reads a be-01 migration
  * to prove the two lists are one fact — an anti-drift check whose own input was
  * invisible to the thing deciding whether to run it.
@@ -179,8 +279,8 @@ describe('every typecheck target compiles files', () => {
  * Proof: with `inputs` deleted from `tool-devsync`'s `test` target, watched
  * failing on `Expected value to be empty · Received: [ "tool-devsync:test does
  * not declare apps", "tool-devsync:test does not declare bin/dev-be-probe.sh",
- * …`; and with `libs/domain`'s deleted, on `Received: [ "domain:test does not
- * declare apps/be-01/drizzle/20260830020000_add_external_ref/migration.sql" ]`.
+ * …`; and with `libs/wbs/domain/domain`'s deleted, on `Received: [ "domain:test does not
+ * declare apps/wbs/be-01/drizzle/20260830020000_add_external_ref/migration.sql" ]`.
  *
  * The fault itself was watched through Nx the same day: with `tool-devsync`'s
  * declaration removed, an edit to `bin/dev-be-probe.sh` gave `nx run
@@ -461,7 +561,7 @@ describe('every cached target declares what it reads', () => {
             pattern.startsWith(`${read}/`),
         );
         // Proof: ignoring dependency inputs failed on
-        // `be-01:test does not declare libs/runtime-portable/src/scheduler.ts`,
+        // `be-01:test does not declare libs/wbs/adapters/runtime-portable/src/scheduler.ts`,
         // even though Nx hashes that production file through `^production`.
         if (!covered && !dependencyInputCovers(read, config.name, projectGraph, nxJson)) {
           undeclared.push(`${config.name}:test does not declare ${read}`);
@@ -513,7 +613,7 @@ async function sourceFilesIn(root: URL, prefix: string): Promise<{ path: string;
  * `Tier` was written out four times and inline twice more, `Color` three times,
  * and the image names, container names and ports twice each — across four
  * projects that have to agree or a deploy pushes an image the server will not
- * run. `@wbs/deploy-contract` is the one declaration since 2026-09-02, and this
+ * run. `@tools/deploy-contract` is the one declaration since 2026-09-02, and this
  * is what stops the copies coming back: a re-declared union reads exactly like
  * the original to anybody who does not go looking for the other three.
  *
@@ -613,7 +713,8 @@ describe('every project says which ring, scope and runtime it is', () => {
     // the ring from `tools/dev/project.json` likewise failed here with its path.
     // Proof: after the focused Nx target returned a 1/1 cache hit, removing the
     // nested ring forced the target to execute and fail here with that path,
-    // proving the recursive manifest input invalidates its cache. Watched 2026-09-10.
+    // proving the recursive manifest input invalidates its cache: the 2026-09-14
+    // run failed with supervisor-protocol's full path and `found 0`.
     expect(wrong).toEqual([]);
   });
 
@@ -634,7 +735,7 @@ describe('every project says which ring, scope and runtime it is', () => {
 describe('the root fast tier discovers every eligible project', () => {
   it('requires a test:unit target independently of target presence', async () => {
     const projects = await projectsOnDisk();
-    const requiredNonLibraries = new Set(['be-01', 'fe-01']);
+    const requiredNonLibraries = new Set(['wbs-be-01', 'wbs-fe-01']);
     const missing: string[] = [];
     const unexpected: string[] = [];
     for (const { dir, config } of projects) {
@@ -672,5 +773,122 @@ describe('the root fast tier discovers every eligible project', () => {
     // inventory, and its deliberate assertion failed on Expected: false,
     // Received: true. Watched through `bun run test:unit` on 2026-09-10.
     expect(Reflect.get(root.scripts, 'test:unit')).toBe('nx run-many -t test:unit');
+  });
+});
+
+describe('lint:fast cache locations', () => {
+  it('every lint:fast cache location is qualified by the Nx project name', async () => {
+    const unqualified = (await readProjects(WORKSPACE)).flatMap((project) => {
+      const options = project.targets['lint:fast']?.options;
+      const command = options?.command;
+      if (typeof command !== 'string') return [];
+      const expected = `--cache-location .nx/eslintcache-${project.name}`;
+      return command.includes(expected) ? [] : [`${project.root}: ${command}`];
+    });
+    // Proof: before the rename this failed with `Expected - 1 / Received + 18`,
+    // listing all 16 product manifests and the unqualified cache each still
+    // named — apps/wbs/be-01 (eslintcache-be-01), apps/wbs/fe-01 (-fe-01),
+    // apps/wbs/gw-01 (-gw-01), apps/wbs/mcp-01 (-mcp-01),
+    // libs/wbs/adapters/auth (-auth), .../config (-config),
+    // .../observability (-observability), .../realtime (-realtime),
+    // .../runtime-portable (-runtime-portable), .../store-memory (-store-memory),
+    // .../store-sqlite (-store-sqlite), libs/wbs/application/conformance
+    // (-conformance), .../core (-core), libs/wbs/domain/contracts (-contracts),
+    // .../domain (-domain) and .../validation (-validation) (2026-09-15).
+    // A second product's be-01 would otherwise share `.nx/eslintcache-be-01`
+    // with WBS, so each would invalidate the other's ESLint cache.
+    expect(unqualified).toEqual([]);
+  });
+});
+
+/**
+ * The one file every workflow oracle reads is the one file `outsideReads` cannot see.
+ *
+ * Both spellings in this workspace slip past that walk. `join(import.meta.dir, '..', '..',
+ * '..', '..', '.github', 'workflows', 'ci.yml')` is not a single `../../../…` literal, and
+ * `read('.github/workflows/ci.yml')` beneath a `new URL('../../../', import.meta.url)`
+ * resolves to the workspace root, which that walk skips as too broad. So a suite whose whole
+ * subject is `.github/workflows/ci.yml` could read it while no target declared it.
+ *
+ * That was not hypothetical. Until 2026-09-16 `tool-git-hooks:test` declared
+ * `["default", "^production", "{workspaceRoot}/lefthook.yml"]` while
+ * `pixels-workflow.test.ts` and `corpus-lint-workflow.test.ts` both read the workflow, and
+ * `tool-wiki:test` declared no inputs at all while `gate-entrypoints.test.ts` and
+ * `selectors.test.ts` read it — and `gate-entrypoints.test.ts` reads
+ * `.github/workflows/trusted-wiki.yml`, which nothing declared either. With the gate now
+ * running `nx affected` on pull requests, that is worse than a stale cache: a pull request
+ * whose only edit is `ci.yml` never schedules the suite that is entirely about `ci.yml`, and
+ * reports green. An oracle is only as reachable as its Nx inputs.
+ *
+ * The list is data, so adding a workflow here is the whole change — but a name in it is not
+ * evidence that anything reads it. See the two non-vacuity assertions below for why that
+ * takes an assertion of its own, and why the obvious one cannot supply it.
+ */
+const TRACKED_WORKFLOWS = [
+  '.github/workflows/ci.yml',
+  '.github/workflows/trusted-wiki.yml',
+] as const;
+
+/** Whether a source names this workflow, with its path written either way. */
+function readsWorkflow(source: string, workflow: string): boolean {
+  return source.replace(/["'`,\s\\/]+/g, '').includes(workflow.replaceAll('/', ''));
+}
+
+describe('every suite that reads a CI workflow declares it', () => {
+  it('names each workflow in the test target that runs it', async () => {
+    const readersOf = new Map<string, string[]>(TRACKED_WORKFLOWS.map((each) => [each, []]));
+    const undeclared: string[] = [];
+    for (const project of await readProjects(WORKSPACE)) {
+      const sources = new Bun.Glob('src/**/*.test.{ts,tsx}');
+      const read = new Set<string>();
+      for await (const path of sources.scan({
+        cwd: new URL(`${project.root}/`, WORKSPACE).pathname,
+      })) {
+        const source = await readFile(new URL(`${project.root}/${path}`, WORKSPACE), 'utf8');
+        for (const workflow of TRACKED_WORKFLOWS)
+          if (readsWorkflow(source, workflow)) read.add(workflow);
+      }
+      if (read.size === 0) continue;
+      const declared = (project.targets['test']?.inputs ?? [])
+        .filter(
+          (each): each is string => typeof each === 'string' && each.startsWith('{workspaceRoot}/'),
+        )
+        .map((each) => each.slice('{workspaceRoot}/'.length));
+      for (const workflow of TRACKED_WORKFLOWS) {
+        if (!read.has(workflow)) continue;
+        readersOf.get(workflow)?.push(project.name);
+        if (!declared.some((pattern) => new Bun.Glob(pattern).match(workflow)))
+          undeclared.push(`${project.name}:test does not declare ${workflow}`);
+      }
+    }
+
+    // Non-vacuity, per workflow, and it takes TWO assertions because they prove different
+    // things and the obvious single one proves neither on its own.
+    //
+    // The first is self-proving that the DETECTOR runs: this file names every tracked path,
+    // so a `readsWorkflow` that stopped matching finds nothing at all and fails here rather
+    // than passing over an empty scan.
+    //
+    // The second is that each ENTRY is real. The first cannot do that job, and neither can
+    // the flattened reader list it replaced: `TRACKED_WORKFLOWS` lives in this file, so
+    // whatever string is in it self-matches and `tool-devsync` is a reader of a typo too.
+    // Watched 2026-09-16 — with the second entry misspelled `trusted-wikii.yml`, asserting
+    // only `toContain('tool-devsync')` stayed GREEN, checking nothing. A tracked workflow
+    // some real suite reads has a reader that is not this file's own project.
+    for (const workflow of TRACKED_WORKFLOWS) {
+      const readers = readersOf.get(workflow) ?? [];
+      expect(readers, `the detector matched nothing for ${workflow}`).toContain('tool-devsync');
+      expect(
+        readers.filter((name) => name !== 'tool-devsync'),
+        `${workflow} is read by no suite but the list that names it`,
+      ).not.toBeEmpty();
+    }
+    // Proof, watched red on 2026-09-16 against the real manifests. Before any input was
+    // added: `["tool-git-hooks:test does not declare .github/workflows/ci.yml",
+    // "tool-wiki:test does not declare .github/workflows/ci.yml"]`. With `ci.yml` declared
+    // and `trusted-wiki.yml` not — `gate-entrypoints.test.ts` reads both — it failed again
+    // on `["tool-wiki:test does not declare .github/workflows/trusted-wiki.yml"]`.
+    // Reverting `tool-git-hooks/project.json` alone reproduces the first line.
+    expect(undeclared).toEqual([]);
   });
 });

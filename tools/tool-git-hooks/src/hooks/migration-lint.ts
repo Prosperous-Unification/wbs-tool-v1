@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 /**
  * Blue and green run against one SQLite file, so a migration that removes or
@@ -91,16 +91,29 @@ const WAIVERS = new Map<string, Waiver>([
   ],
 ]);
 
-/**
- * Where the gate script must sit, given a migration file.
- *
- * The layout is fixed and spelled out rather than searched for:
- * `<root>/apps/be-01/drizzle/<folder>/migration.sql`, so the root is four
- * levels above the file. A search upward for a `bin/` directory would find the
- * wrong root inside a nested checkout and report a missing gate as present.
- */
-function gateScriptPath(file: string, gateScript: string): string {
-  return join(dirname(file), '..', '..', '..', '..', gateScript);
+function assertMigrationWorkspace(file: string, workspaceRoot: string): string {
+  // Proof: injecting `.` as the production boundary's workspace root made
+  // `refuses a relative workspace root` observe this named refusal.
+  if (!isAbsolute(workspaceRoot) || resolve(workspaceRoot) !== workspaceRoot) {
+    throw new Error(`workspace root must be an absolute normalized path: ${workspaceRoot}`);
+  }
+  const migrationsRoot = join(workspaceRoot, 'apps', 'wbs', 'be-01', 'drizzle');
+  const migrationPath = resolve(file);
+  const fromMigrationsRoot = relative(migrationsRoot, migrationPath);
+  // Proof: supplying an unrelated checkout root to the production lint path previously
+  // resolved the waiver by directory depth. The moved-depth fixture observed a resolved
+  // promise instead of the required `workspace root ... migration` refusal (10 pass / 3 fail).
+  if (
+    fromMigrationsRoot === '' ||
+    fromMigrationsRoot === '..' ||
+    fromMigrationsRoot.startsWith(`..${sep}`) ||
+    isAbsolute(fromMigrationsRoot)
+  ) {
+    throw new Error(
+      `workspace root ${workspaceRoot} does not own migration ${migrationPath} under ${migrationsRoot}`,
+    );
+  }
+  return workspaceRoot;
 }
 
 export interface MigrationIssue {
@@ -173,8 +186,12 @@ export function lintDownScriptPresence(file: string): MigrationIssue | null {
   };
 }
 
-export async function lintMigration(file: string): Promise<MigrationIssue | null> {
+export async function lintMigration(
+  file: string,
+  workspaceRoot: string = process.cwd(),
+): Promise<MigrationIssue | null> {
   if (!file.endsWith('.sql')) return null;
+  const root = assertMigrationWorkspace(file, workspaceRoot);
   const missingDown = lintDownScriptPresence(file);
   if (missingDown) return missingDown;
   if (isDownScript(file)) return null;
@@ -194,7 +211,7 @@ export async function lintMigration(file: string): Promise<MigrationIssue | null
   }
   const folder = basename(dirname(file));
   const waiver = WAIVERS.get(folder);
-  if (waiver !== undefined && !existsSync(gateScriptPath(file, waiver.gateScript))) {
+  if (waiver !== undefined && !existsSync(join(root, waiver.gateScript))) {
     return {
       file,
       reason:
@@ -231,8 +248,9 @@ export async function lintMigration(file: string): Promise<MigrationIssue | null
 async function main(): Promise<void> {
   const files = process.argv.slice(2);
   const issues: MigrationIssue[] = [];
+  const workspaceRoot = process.cwd();
   for (const f of files) {
-    const hit = await lintMigration(f);
+    const hit = await lintMigration(f, workspaceRoot);
     if (hit) issues.push(hit);
   }
   if (issues.length > 0) {

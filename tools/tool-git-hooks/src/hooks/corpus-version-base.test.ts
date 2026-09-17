@@ -1,7 +1,7 @@
 import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { scratchSync } from '@wbs/tool-test-scratch';
+import { scratchSync } from '@tools/test-scratch';
 import { afterEach, describe, expect, it } from 'bun:test';
 
 const SCRIPT = join(import.meta.dir, 'corpus-version-base.ts');

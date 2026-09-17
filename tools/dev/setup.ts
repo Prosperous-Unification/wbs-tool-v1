@@ -28,7 +28,7 @@ const APPS: readonly string[] = ['be-01', 'gw-01', 'fe-01'];
 export class MissingEnvExampleError extends Error {
   constructor(readonly app: string) {
     super(
-      `apps/${app}/.env.example is missing. It is committed, so this checkout is ` +
+      `apps/wbs/${app}/.env.example is missing. It is committed, so this checkout is ` +
         `incomplete or the app was renamed. Dev cannot be seeded — fix the checkout ` +
         `rather than running without an .env.`,
     );
@@ -39,8 +39,8 @@ export class MissingEnvExampleError extends Error {
 export type SeedOutcome = 'wrote' | 'already-present';
 
 export async function seedApp(app: string, root: string = ROOT): Promise<SeedOutcome> {
-  const example = resolve(root, 'apps', app, '.env.example');
-  const target = resolve(root, 'apps', app, '.env');
+  const example = resolve(root, 'apps', 'wbs', app, '.env.example');
+  const target = resolve(root, 'apps', 'wbs', app, '.env');
   if (!existsSync(example)) throw new MissingEnvExampleError(app);
   if (existsSync(target)) {
     if (app === 'be-01') {
@@ -51,7 +51,7 @@ export async function seedApp(app: string, root: string = ROOT): Promise<SeedOut
       // case resolve, preserving an unusable local configuration.
       if (environment['AUTH_MODE'] === 'local' && !environment['APP_ORIGIN']) {
         throw new Error(
-          'apps/be-01/.env requires APP_ORIGIN=http://localhost:4200 for local mode. Add the origin of your browser frontend; existing configuration was left unchanged.',
+          'apps/wbs/be-01/.env requires APP_ORIGIN=http://localhost:4200 for local mode. Add the origin of your browser frontend; existing configuration was left unchanged.',
         );
       }
     }
@@ -76,7 +76,7 @@ async function main(): Promise<void> {
   for (const [app, outcome] of Object.entries(outcomes)) {
     console.log(
       outcome === 'wrote'
-        ? `[dev:setup] ${app}: wrote apps/${app}/.env`
+        ? `[dev:setup] ${app}: wrote apps/wbs/${app}/.env`
         : `[dev:setup] ${app}: .env already exists — left alone`,
     );
   }

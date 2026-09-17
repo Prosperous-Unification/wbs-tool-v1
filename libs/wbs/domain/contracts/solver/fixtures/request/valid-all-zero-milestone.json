@@ -1,0 +1,40 @@
+{
+  "baselineOffsets": { "milestone\u0000first": 0, "milestone\u0000second": 0 },
+  "budgetMs": 30000,
+  "contractVersion": "10+0.1.3",
+  "edges": [{ "predecessorKey": "milestone\u0000first", "successorKey": "milestone\u0000second" }],
+  "fastHint": { "milestone\u0000first": 0, "milestone\u0000second": 0 },
+  "horizonUnits": 0,
+  "objective": "pri",
+  "pools": {},
+  "quantum": 48,
+  "slices": [
+    {
+      "deadlineUnits": null,
+      "workItemIsMilestone": true,
+      "durationUnits": 0,
+      "workItemKey": "milestone",
+      "key": "milestone\u0000first",
+      "notBeforeUnits": 0,
+      "personId": null,
+      "poolIds": [],
+      "priorityWeight": 0,
+      "width": 1
+    },
+    {
+      "deadlineUnits": null,
+      "workItemIsMilestone": true,
+      "durationUnits": 0,
+      "workItemKey": "milestone",
+      "key": "milestone\u0000second",
+      "notBeforeUnits": 0,
+      "personId": null,
+      "poolIds": [],
+      "priorityWeight": 0,
+      "width": 1
+    }
+  ],
+  "solverVersion": "0.1.3",
+  "stageBudgetSplit": [0.6, 0.25, 0.15],
+  "wireVersion": 1
+}

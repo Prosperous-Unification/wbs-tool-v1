@@ -1,0 +1,85 @@
+# The lock (tasks.md 5.1). Hash-verified, fully pinned, transitive closure
+# included. Install with:
+#
+#     python3 -m pip install --require-hashes -r libs/wbs/adapters/solver-py/requirements.lock
+#
+# HOW IT WAS MADE, so the next person can reproduce it rather than guess:
+#
+#     python3 -m pip install --dry-run --ignore-installed --report report.json \
+#         "ortools==9.15.6755" "jsonschema==4.26.0"
+#
+# on CPython 3.14.4 / linux x86_64, then each entry of `report.json`'s `install`
+# array rendered as its resolved distribution and that distribution's own
+# sha256. So these are the artifacts pip actually chose, not a re-derivation of
+# what it might choose.
+#
+# WHAT THIS LOCK DOES NOT COVER, stated rather than discovered:
+#
+#  - **One platform.** The wheel filenames in the comments are cp314 /
+#    manylinux x86_64 for ortools, numpy, pandas and rpds-py, so this file
+#    installs on Linux x86_64 under CPython 3.14 and nowhere else. That is the
+#    pinned runtime (pyproject.toml `requires-python`), it is what h2puni and
+#    the CI runner are, and the Python suite is CI-only (5.3) so no developer
+#    machine has to satisfy it. A second target platform needs its own lock
+#    file beside this one — NOT a widened hash list here, which would let a
+#    resolver silently pick a different build.
+#  - **The build of `wbs-solver` itself.** `--require-hashes` covers these
+#    runtime dependencies. Installing this package pulls setuptools into an
+#    isolated build environment unhashed; the image path (5.11) is where that is
+#    pinned, and the suite never installs the distribution at all — it imports
+#    from `src/` and shells `python -m wbs_solver`.
+#  - **Anything test-only.** The suite is stdlib `unittest`, on purpose: a
+#    pytest dependency would need its own lock entry and its own CI install for
+#    no coverage this file cannot already reach.
+#
+# Two hazards, both real, neither hypothetical:
+#  - protobuf is `cp39-abi3`, so its pin is a stable-ABI wheel shared across
+#    interpreter versions. It is still exact.
+#  - ortools declares `protobuf<6.34,>=6.33.1`. A protobuf bump inside that
+#    range is a resolver decision, which is exactly why it is pinned here and
+#    not left to one.
+
+--require-hashes
+
+# absl_py-2.5.0-py3-none-any.whl
+absl-py==2.5.0 \
+    --hash=sha256:0f17b89f2a4eaaedc4f28c622998aa690564b3012a396a4ffad0821007fe03ba
+# attrs-26.1.0-py3-none-any.whl
+attrs==26.1.0 \
+    --hash=sha256:c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309
+# immutabledict-4.3.1-py3-none-any.whl
+immutabledict==4.3.1 \
+    --hash=sha256:c9facdc0ff30fdb8e35bd16532026cac472a549e182c94fa201b51b25e4bf7bf
+# jsonschema-4.26.0-py3-none-any.whl
+jsonschema==4.26.0 \
+    --hash=sha256:d489f15263b8d200f8387e64b4c3a75f06629559fb73deb8fdfb525f2dab50ce
+# jsonschema_specifications-2025.9.1-py3-none-any.whl
+jsonschema-specifications==2025.9.1 \
+    --hash=sha256:98802fee3a11ee76ecaca44429fda8a41bff98b00a0f2838151b113f210cc6fe
+# numpy-2.5.2-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+numpy==2.5.2 \
+    --hash=sha256:318b9a4c845dbea06708a29c84ee429cc3065048db34cdb799047643492050ee
+# ortools-9.15.6755-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+ortools==9.15.6755 \
+    --hash=sha256:7181183cdcafe2b0d83ca5505b65048c7953dc7b5ad479361dded607964cc1b3
+# pandas-3.0.5-cp314-cp314-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl
+pandas==3.0.5 \
+    --hash=sha256:9e94c2c5ca43bd3ca32bf64d32308887b65e5f9bfd8023ea52755107a999f93b
+# protobuf-6.33.6-cp39-abi3-manylinux2014_x86_64.whl
+protobuf==6.33.6 \
+    --hash=sha256:e9db7e292e0ab79dd108d7f1a94fe31601ce1ee3f7b79e0692043423020b0593
+# python_dateutil-2.9.0.post0-py2.py3-none-any.whl
+python-dateutil==2.9.0.post0 \
+    --hash=sha256:a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427
+# referencing-0.37.0-py3-none-any.whl
+referencing==0.37.0 \
+    --hash=sha256:381329a9f99628c9069361716891d34ad94af76e461dcb0335825aecc7692231
+# rpds_py-2026.6.3-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+rpds-py==2026.6.3 \
+    --hash=sha256:dc319e5a1de4b6913aac94bf6a2f9e847371e0a140a43dd4991db1a09bc2d504
+# six-1.17.0-py2.py3-none-any.whl
+six==1.17.0 \
+    --hash=sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274
+# typing_extensions-4.16.0-py3-none-any.whl
+typing_extensions==4.16.0 \
+    --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8

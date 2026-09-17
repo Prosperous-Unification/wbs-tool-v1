@@ -26,7 +26,17 @@ Read methods return detached arrays/records, including label and external-ref ar
 
 Persist each store write first. On success, update every affected retained collection before the wrapper method resolves; same-command reads therefore see it. On a modeled refusal do not advance the maps. On a thrown failure abandon the batch; never catch and keep using a partly advanced cache.
 
-Use authoritative targeted rereads rather than duplicate SQLite revision, label, normalization or cascade logic. Add `WorkItemStore.listByIds(projectId: string, ids: readonly string[]): Promise<LabelledWorkItem[]>`. Add `listByWorkItems(projectId: string, ids: readonly string[])` to `EstimateStore`, `ActualStore`, `StepProgressStore`, `MeasureStore` and `DependencyStore`, each returning its existing `listByProject` element array type. Dependency results include edges with either endpoint in ids. Every source constrains the query by the supplied project id, joining through work items where the satellite has no project column; an id belonging to another project returns no row. Readers validate the same stored-state boundaries and preserve each store's existing ordering. Empty ids return an empty collection by contract. Missing requested rows are ordinary after deletion; malformed returned rows or unexpected ids throw.
+Use authoritative targeted rereads rather than duplicate SQLite revision, label, normalization or cascade logic. Add `WorkItemStore.listByIds(projectId: string, ids: readonly string[]): Promise<LabelledWorkItem[]>`. It hydrates only the affected identities: it must never be expanded to every retained identity to recover collection order. Add the identity-only `WorkItemStore.listPlacements(projectId, ids)` for new retained rows; each requested existing row answers its immediate predecessor in the authoritative full-project reader order, including an unrequested predecessor, while missing or foreign rows are absent. This preserves SQLite BINARY id order and memory insertion order without a core comparator or whole-row hydration. Add `listByWorkItems(projectId: string, ids: readonly string[])` to `EstimateStore`, `ActualStore`, `StepProgressStore`, `MeasureStore` and `DependencyStore`, each returning its existing `listByProject` element array type. Dependency results include edges with either endpoint in ids. Every source constrains the query by the supplied project id, joining through work items where the satellite has no project column; an id belonging to another project returns no row. Readers validate the same stored-state boundaries and preserve each store's existing ordering. Empty ids return an empty collection by contract. Missing requested rows are ordinary after deletion; malformed returned rows or unexpected ids throw.
+
+Each of the four value stores also owns `listPlacements(projectId, ids)`. A requested populated
+work-item group answers its immediate predecessor among populated groups in that same store's
+authoritative full-reader order, including an unrequested predecessor; missing, empty, and foreign
+groups are absent. Value placement deliberately does not borrow `WorkItemStore.listPlacements`:
+memory work items retain insertion order while all four satellite readers order groups lexically.
+The working plan asks this identity-only boundary only when a refresh introduces a group absent
+from that retained value collection, including reinsertion after its last row was removed and a
+new `moveAll` destination. Existing groups keep their retained slots, and targeted value hydration
+remains limited to affected identities.
 
 The exact five return types are respectively `Promise<StoredEstimate[]>`,
 `Promise<StoredActual[]>`, `Promise<StoredProgress[]>`, `Promise<StoredMeasure[]>`

@@ -1,7 +1,7 @@
 import { closeSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { scratchSync } from '@wbs/tool-test-scratch';
+import { scratchSync } from '@tools/test-scratch';
 import { afterEach, describe, expect, it } from 'bun:test';
 
 const SCRIPT = join(import.meta.dir, '../../../bin/with-heavy-lock.sh');
@@ -60,7 +60,9 @@ function contenderEnvironment(
 //
 // `kill` and `printf` are bash builtins and `uname` is reached only by
 // `resolve_heavy_lock_path`, which the contender does not call — so this list is
-// the whole executable surface, not a sample of it.
+// the whole executable surface, not a sample of it. `date` joined it with the
+// ticket queue: every waiter stamps its ticket with `date +%s%N` before it can
+// claim, so a PATH without it refuses (exit 70) rather than queueing.
 //
 // Resolved with `Bun.which` rather than by spawning `sh -c 'command -v'`: a
 // spawn resolves its OWN argv[0] through the supplied `PATH` too, so a pin that
@@ -398,6 +400,7 @@ describe('with-heavy-lock', () => {
       'cat',
       'rm',
       'sleep',
+      'date',
     ]);
     // Both values are present because the exact keys are in the checked list
     // above. Embedding those resolved paths makes the generated shim consume

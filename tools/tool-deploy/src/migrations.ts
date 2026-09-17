@@ -48,27 +48,114 @@ export function assertStopTheWorldNotImplemented(stopTheWorld: boolean): void {
   );
 }
 
-const MIGRATIONS_DIR = 'apps/be-01/drizzle';
+const MIGRATION_DIRS = ['apps/be-01/drizzle', 'apps/wbs/be-01/drizzle'] as const;
+
+type GitTreeReader = (
+  repository: string,
+  sha: string,
+  options: readonly string[],
+  path: string,
+) => string;
+
+function gitLsTree(
+  repository: string,
+  sha: string,
+  options: readonly string[],
+  path: string,
+): string {
+  const invocation = Bun.spawnSync({
+    cmd: ['git', 'ls-tree', '-z', ...options, sha, '--', path],
+    cwd: repository,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  // Proof: an injected nonexistent SHA made the real production command exit non-zero and
+  // `names an unreadable revision` observed the SHA in this refusal instead of `[]`.
+  if (invocation.exitCode !== 0) {
+    throw new Error(
+      `git ls-tree ${options.join(' ')} ${sha} -- ${path} failed in ${repository}: ${invocation.stderr.toString('utf8').trim()}`,
+    );
+  }
+  return invocation.stdout.toString('utf8');
+}
+
+function migrationTreeAtSha(
+  repository: string,
+  sha: string,
+  dir: string,
+  readGitTree: GitTreeReader,
+): boolean {
+  const output = readGitTree(repository, sha, [], dir);
+  if (output === '') return false;
+  const entries = output.split('\0').filter((entry) => entry !== '');
+  // Proof: injecting two valid records made `refuses malformed Git tree output` observe the
+  // exact-entry-count refusal rather than selecting an arbitrary tree.
+  if (entries.length !== 1) {
+    throw new Error(
+      `migration path ${dir} at ${sha} produced ${String(entries.length)} Git entries; expected exactly one`,
+    );
+  }
+  const match = /^([0-7]{6}) (blob|tree|commit) ([0-9a-f]{40,64})\t(.+)$/.exec(entries[0]);
+  // Proof: injecting `not a Git tree record` through the production boundary made
+  // `refuses malformed Git tree output` fail before this parser existed, then pass here.
+  if (match?.[4] !== dir) {
+    throw new Error(`migration path ${dir} at ${sha} has malformed Git state: ${entries[0]}`);
+  }
+  // Proof: committing a blob at `apps/be-01/drizzle` made the production Git reader reach
+  // this branch and `refuses a supported migration path that is not a Git tree` pass.
+  if (match[2] !== 'tree') {
+    throw new Error(`migration path ${dir} at ${sha} is a ${match[2]}, expected a tree`);
+  }
+  return true;
+}
 
 /**
- * Thin git plumbing boundary for `hasNewMigrations`: lists migration folder
- * names present in `apps/be-01/drizzle` at a given commit-ish. Kept separate
- * from the pure comparison above so that function stays trivially testable
- * without shelling out to git.
+ * Thin git plumbing boundary for `hasNewMigrations`: resolves the one supported
+ * migration tree present at the revision, then lists its migration folder names.
+ * The deployed revision may predate repository namespacing, so the working tree
+ * cannot choose the historical path.
  */
-export function migrationsAtSha(sha: string, dir: string = MIGRATIONS_DIR): string[] {
-  const proc = Bun.spawnSync(['git', 'ls-tree', '-r', '--name-only', sha, '--', dir]);
-  if (proc.exitCode !== 0) {
-    throw new Error(`git ls-tree ${sha} -- ${dir} failed: ${proc.stderr.toString('utf8').trim()}`);
+export function migrationsAtSha(
+  sha: string,
+  repository: string = process.cwd(),
+  readGitTree: GitTreeReader = gitLsTree,
+): string[] {
+  // Proof: forcing this selection to `apps/wbs/be-01/drizzle` for every revision made the
+  // rename-spanning production-path fixture return `[]` at the legacy SHA instead of
+  // `['0001_init']` (0 passed / 1 failed).
+  const migrationTrees = MIGRATION_DIRS.filter((dir) =>
+    migrationTreeAtSha(repository, sha, dir, readGitTree),
+  );
+  // Proof: fixtures with neither and both layouts used to return an empty/combined migration
+  // set. The production-path tests observed the named refusals instead of zero migrations.
+  if (migrationTrees.length === 0) {
+    throw new Error(
+      `no supported migration tree at ${sha}; expected exactly one of ${MIGRATION_DIRS.join(', ')}`,
+    );
   }
+  if (migrationTrees.length > 1) {
+    throw new Error(`ambiguous migration trees at ${sha}; found both ${MIGRATION_DIRS.join(', ')}`);
+  }
+  const dir = migrationTrees[0];
+  const output = readGitTree(repository, sha, ['-r', '--name-only'], dir);
   const ids = new Set<string>();
   const prefix = `${dir}/`;
-  for (const raw of proc.stdout.toString('utf8').split('\n')) {
-    const line = raw.trim();
-    if (!line.startsWith(prefix)) continue;
-    const rest = line.slice(prefix.length);
-    const id = rest.split('/')[0];
-    if (id) ids.add(id);
+  for (const path of output.split('\0').filter((entry) => entry !== '')) {
+    // Proof: injecting `outside/0001/migration.sql` through the Git boundary made
+    // `refuses listing output outside the selected migration tree` observe this refusal.
+    if (!path.startsWith(prefix)) {
+      throw new Error(`migration tree ${dir} at ${sha} returned an out-of-tree path: ${path}`);
+    }
+    const relative = path.slice(prefix.length);
+    const separator = relative.indexOf('/');
+    // Proof: committing `drizzle/orphan.sql` made the real Git reader return a path with no
+    // migration folder and `refuses a file stored directly in the migration tree` pass here.
+    if (separator <= 0) {
+      throw new Error(
+        `migration tree ${dir} at ${sha} contains a file outside a migration folder: ${path}`,
+      );
+    }
+    ids.add(relative.slice(0, separator));
   }
   return [...ids].sort();
 }

@@ -11,9 +11,9 @@
  *
  * It lives here, in the project that runs **on the server**, because that is
  * the leaf: the swap imports nothing from the tools that call it, and the tools
- * that call it all import this. The alias is `@wbs/deploy-contract`, which is
+ * that call it all import this. The alias is `@tools/deploy-contract`, which is
  * the public entry point the comments in `deploy.ts` and `install.ts` said did
- * not exist — while `deploy.ts:9` was already importing `@wbs/tool-env` out of
+ * not exist — while `deploy.ts:9` was already importing `@tools/env` out of
  * this same project.
  */
 

@@ -1,0 +1,62 @@
+name: wiki-release
+
+on:
+  push:
+    tags:
+      - 'wiki-v*'
+
+# The only workflow in this repository granted write access. ci.yml and trusted-wiki.yml stay
+# `contents: read`; gate-entrypoints.test.ts pins that split, because a release token reachable
+# from the admission workflow would let a candidate publish the archive that judges it.
+permissions:
+  contents: write
+
+# One release per tag, and never cancelled part-way: a cancelled run can leave a release created
+# with only some of its assets, which an operator would then have to notice.
+concurrency:
+  group: wiki-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    # The three uncached bootstrap checks dominate; this is a ceiling, not a budget.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.ref }}
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+
+      - run: bun install --frozen-lockfile
+
+      # The release target reads the tag's own bytes and refuses a dirty tree, so these three
+      # prove the commit rather than the archive. They are uncached on purpose: a release is rare
+      # and a restored cache entry would report a check that did not run for this tag.
+      - name: Bootstrap checks for the tagged commit
+        run: |
+          set -euo pipefail
+          bunx nx run wiki-cli:test --skip-nx-cache
+          bunx nx run wiki-cli:lint:source --skip-nx-cache
+          bunx nx run wiki-cli:typecheck --skip-nx-cache
+
+      - name: Pack the toolkit
+        run: bunx nx run wiki-cli:release -- --tag "$GITHUB_REF_NAME" --destination "$RUNNER_TEMP/toolkit"
+
+      - name: Publish the toolkit
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          files: |
+            ${{ runner.temp }}/${{ github.ref_name }}.tar
+            ${{ runner.temp }}/toolkit/SHA256SUMS
+          fail_on_unmatched_files: true
+          body: |
+            Tool Wiki toolkit ${{ github.ref_name }}.
+
+            A toolkit certifies no commit. Copy `apps/wiki/consumer/trusted-wiki.yml` into your
+            repository and run `prepare-activation.mjs` from this archive to produce an activation
+            for a commit of your own — see `apps/wiki/consumer/README.md`.

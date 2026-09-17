@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "mappingId": "modules.tool-wiki-bootstrap.v1",
-  "mappingVersion": "tool-wiki-bootstrap-364cc0f8-v1",
+  "mappingVersion": "tool-wiki-bootstrap-6475fdcc-v3",
   "sourceRevision": "364cc0f8ef901cbfc574c6391c385e7f79bf27b4",
   "modules": [
     {
@@ -10,28 +10,28 @@
       "memberships": [
         {
           "kind": "directory-prefix",
-          "prefix": "libs/store-memory/src",
+          "prefix": "libs/wbs/adapters/store-memory/src",
           "exclusions": []
         }
       ],
       "predecessorModuleIds": [],
-      "indexPath": "libs/store-memory/src/README.md",
+      "indexPath": "libs/wbs/adapters/store-memory/src/README.md",
       "externalConsumers": {
         "kind": "declared",
         "memberships": [
           {
             "kind": "directory-prefix",
-            "prefix": "apps/be-01/src/testing",
+            "prefix": "apps/wbs/be-01/src/testing",
             "exclusions": []
           },
           {
             "kind": "directory-prefix",
-            "prefix": "libs/core",
+            "prefix": "libs/wbs/application/core",
             "exclusions": []
           },
           {
             "kind": "directory-prefix",
-            "prefix": "libs/store-sqlite/src",
+            "prefix": "libs/wbs/adapters/store-sqlite/src",
             "exclusions": []
           }
         ]
@@ -43,32 +43,32 @@
       "memberships": [
         {
           "kind": "directory-prefix",
-          "prefix": "libs/core/src/use-cases",
+          "prefix": "libs/wbs/application/core/src/use-cases",
           "exclusions": []
         }
       ],
       "predecessorModuleIds": [],
-      "indexPath": "libs/core/src/use-cases/README.md",
+      "indexPath": "libs/wbs/application/core/src/use-cases/README.md",
       "externalConsumers": {
         "kind": "declared",
         "memberships": [
           {
             "kind": "directory-prefix",
-            "prefix": "libs/core/src/http",
+            "prefix": "libs/wbs/application/core/src/http",
             "exclusions": []
           },
           {
             "kind": "path",
-            "path": "libs/core/src/index.ts"
+            "path": "libs/wbs/application/core/src/index.ts"
           },
           {
             "kind": "directory-prefix",
-            "prefix": "libs/core/src/service",
+            "prefix": "libs/wbs/application/core/src/service",
             "exclusions": []
           },
           {
             "kind": "directory-prefix",
-            "prefix": "libs/core/testing",
+            "prefix": "libs/wbs/application/core/testing",
             "exclusions": []
           }
         ]
@@ -140,12 +140,12 @@
       "memberships": [
         {
           "kind": "directory-prefix",
-          "prefix": "libs/domain/src/saved-plan",
+          "prefix": "libs/wbs/domain/domain/src/saved-plan",
           "exclusions": []
         }
       ],
       "predecessorModuleIds": [],
-      "indexPath": "libs/domain/src/saved-plan/README.md",
+      "indexPath": "libs/wbs/domain/domain/src/saved-plan/README.md",
       "externalConsumers": {
         "kind": "declared",
         "memberships": [
@@ -156,7 +156,7 @@
           },
           {
             "kind": "directory-prefix",
-            "prefix": "libs/core/src",
+            "prefix": "libs/wbs/application/core/src",
             "exclusions": []
           }
         ]
@@ -206,12 +206,12 @@
       "memberships": [
         {
           "kind": "directory-prefix",
-          "prefix": "tools/tool-wiki",
+          "prefix": "apps/wiki/cli",
           "exclusions": []
         }
       ],
       "predecessorModuleIds": [],
-      "indexPath": "tools/tool-wiki/README.md",
+      "indexPath": "apps/wiki/cli/README.md",
       "externalConsumers": {
         "kind": "declared",
         "memberships": [

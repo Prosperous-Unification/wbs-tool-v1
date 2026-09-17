@@ -276,6 +276,11 @@ To skip the path prefix, symlink it once —
 Good things to hand it: run the gate; investigate a red CI run; open a PR for a
 small fix; summarise what changed on main; dry-run a deploy and report.
 
+When several of those run at once, Claire works in lanes — one worker session
+per worktree, gating the exact SHA — and
+[lanes are Claire's v1 mechanism](./docs/lanes-are-claire-v1.md) records what a
+lane owes this repository.
+
 ---
 
 ## Making a change
@@ -318,21 +323,21 @@ critical (migrations never reaching dev) and Gemini asserted a
 
 ## Symptoms
 
-| Symptom                                       | Cause                                                                                         |
-| --------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `bun: command not found` on h1claw            | non-login shell — export the PATH above                                                       |
-| Root `bun test` green, CI red                 | root `bun test` skips fe-01 entirely                                                          |
-| CI format fails, files look fine              | `CLAUDE.md`/`GEMINI.md` are symlinks — see `.nxignore`                                        |
-| Deploy refuses to run                         | dirty tree, stale `release.json`, unbuilt bundle, or lock held — by design                    |
-| `/health` is 200 but the app is broken        | health is a status flag, not a dependency check                                               |
-| Deploy logged success, site unchanged         | `caddy reload` exits 0 having done nothing — check the sha                                    |
-| Agent cannot find the repo                    | say the path                                                                                  |
-| Dev deploy says OK, dev looks stale           | check dev's HEAD: `ssh h2puni 'git -C /home/puni1/wbs-dev/src rev-parse --short HEAD'`        |
-| `dev-deploy.sh` refuses                       | dirty tree, or the commit is not pushed — h2puni pulls from GitHub                            |
-| Dev 403s but prod is fine                     | Vite rejects a Host it was not told about — see `allowedHosts` in `apps/fe-01/vite.config.ts` |
-| Only be-01 came up in dev                     | stale Nx lock in the bind mount, or a tier crashed — `docker logs wbs-dev-src`                |
-| Dev tier answers on the wrong port            | two `env_file`s both set `PORT`; per-tier env belongs in `apps/<tier>/.env`                   |
-| `command -v` says a tool is missing on h2puni | non-login shell — use `ssh h2puni 'bash -lc "..."'`                                           |
+| Symptom                                       | Cause                                                                                             |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `bun: command not found` on h1claw            | non-login shell — export the PATH above                                                           |
+| Root `bun test` green, CI red                 | root `bun test` skips fe-01 entirely                                                              |
+| CI format fails, files look fine              | `CLAUDE.md`/`GEMINI.md` are symlinks — see `.nxignore`                                            |
+| Deploy refuses to run                         | dirty tree, stale `release.json`, unbuilt bundle, or lock held — by design                        |
+| `/health` is 200 but the app is broken        | health is a status flag, not a dependency check                                                   |
+| Deploy logged success, site unchanged         | `caddy reload` exits 0 having done nothing — check the sha                                        |
+| Agent cannot find the repo                    | say the path                                                                                      |
+| Dev deploy says OK, dev looks stale           | check dev's HEAD: `ssh h2puni 'git -C /home/puni1/wbs-dev/src rev-parse --short HEAD'`            |
+| `dev-deploy.sh` refuses                       | dirty tree, or the commit is not pushed — h2puni pulls from GitHub                                |
+| Dev 403s but prod is fine                     | Vite rejects a Host it was not told about — see `allowedHosts` in `apps/wbs/fe-01/vite.config.ts` |
+| Only be-01 came up in dev                     | stale Nx lock in the bind mount, or a tier crashed — `docker logs wbs-dev-src`                    |
+| Dev tier answers on the wrong port            | two `env_file`s both set `PORT`; per-tier env belongs in `apps/wbs/<tier>/.env`                   |
+| `command -v` says a tool is missing on h2puni | non-login shell — use `ssh h2puni 'bash -lc "..."'`                                               |
 
 Known-broken things are in `LLM_README.md` under **Open findings** — read it
 before concluding you broke something.

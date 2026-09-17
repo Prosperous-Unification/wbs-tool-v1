@@ -112,11 +112,11 @@ export function assertDigestPinnedRef(ref: string, tier: Tier): string {
  * reads — see the authoritative list in each app's `src/config.ts`, not
  * guessed:
  *
- * - fe-01 (`apps/fe-01`) is a static `caddy:2-alpine` server with no
+ * - fe-01 (`apps/wbs/fe-01`) is a static `caddy:2-alpine` server with no
  *   `config.ts` at all. It needs, and gets, zero secrets.
- * - be-01 (`apps/be-01/src/config.ts`) reads `INTERNAL_AUTH_SECRET` plus the
+ * - be-01 (`apps/wbs/be-01/src/config.ts`) reads `INTERNAL_AUTH_SECRET` plus the
  *   JWT signing key it uses to mint `/ws` tokens.
- * - gw-01 (`apps/gw-01/src/config.ts`) reads `INTERNAL_AUTH_SECRET` plus the
+ * - gw-01 (`apps/wbs/gw-01/src/config.ts`) reads `INTERNAL_AUTH_SECRET` plus the
  *   JWT signing key(s) it verifies `/ws` tokens against.
  *
  * `REGISTRY_PASS` is deliberately absent from every list: it belongs to the
@@ -501,7 +501,7 @@ export function psColorsFrom(psOutput: string, tier: Tier): Color[] {
  * forwards are split across two releases at roughly 50/50.
  *
  * There is no blackout, so nothing here needs retry logic (and
- * apps/gw-01/src/service/forward-client.ts has none). What there IS, and what
+ * apps/wbs/gw-01/src/service/forward-client.ts has none). What there IS, and what
  * the old comment hid by describing a failure mode that does not exist, is a
  * window where two be-01 releases serve gw concurrently against one shared,
  * already-migrated SQLite database, with no version negotiation between them.

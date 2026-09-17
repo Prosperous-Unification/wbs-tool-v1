@@ -25,10 +25,25 @@
 # All three were run against the real scripts before this file was committed. See
 # AGENTS.md, "Non-vacuous checks".
 #
-# Deliberately run-many, not affected: at ~10k LOC the whole suite is cheap, and
-# `nx affected` needs a base ref that is wrong or missing often enough to make
-# the gate silently narrow. A gate that skips work it should have run is the
+# Run-many everywhere except `pull_request`, which runs `nx affected` against
+# its own merge base. This paragraph said "deliberately run-many, not affected"
+# until 2026-09-16, and the reason it gave has not been retired — it has been
+# answered. `nx affected` with a base ref that is wrong or missing is a gate
+# that silently narrows, and a gate that skips work it should have run is the
 # exact failure this repo keeps hitting.
+#
+# What changed is that the base is no longer guessed. `Gate mode` below takes
+# it from the pull request's immutable payload SHA, refuses an empty one, and
+# refuses outright any event it has no rule for; `merge_group`, `push` and
+# `workflow_dispatch` keep the unchanged full run, so nothing narrows for the
+# merge queue or for `main`, and the h2puni exact-head gate is still the final
+# proof. What a pull-request run no longer proves is composition across
+# projects it did not touch — that proof moves to the merge queue, which is the
+# only place a merged tree exists to prove it on, and it is why the queue is a
+# prerequisite of this change rather than a follow-up to it.
+#
+# The cost it buys back: the full run was 38 minutes at PR #457, and the merged
+# tree then ran all of it again.
 
 name: ci
 
@@ -186,9 +201,10 @@ on:
 # TASK-386 peer review I1, `queue/reviews/t386-r1-sol.txt`, openai/gpt-5.6-sol.
 #
 # Overlapping runs are safe here for a reason that was checked rather than
-# assumed: this workflow has no deploy job. `gate` and `pixels_shard` read the
-# tree and validate — `docker compose config -q` parses the deploy files, it
-# does not apply them — so two `main` runs share nothing but the actions cache,
+# assumed: this workflow has no deploy job. `gate`, `pixels_mode` and
+# `pixels_shard` read the tree and validate — `docker compose config -q` parses
+# the deploy files, it does not apply them, and `pixels_mode` only asks Nx which
+# projects a diff reaches — so two `main` runs share nothing but the actions cache,
 # where a concurrent write is a "cache already exists" warning and not a
 # corruption. If a job that mutates anything outside its own runner is ever
 # added to this file, that job needs its own serialising `concurrency:` block
@@ -214,9 +230,13 @@ jobs:
     # "CI gate budget repair after 6234d1c1".
     steps:
       # Full history: with the default depth of 1 the `main` ref is absent, and
-      # nx falls back to a different file scope rather than failing. Depth 0
-      # also keeps `nx affected` usable if this ever moves off run-many.
-      - uses: actions/checkout@v4
+      # nx falls back to a different file scope rather than failing. Since
+      # 2026-09-16 depth 0 is load-bearing rather than precautionary — this said
+      # it kept `nx affected` usable "if this ever moves off run-many", and it
+      # has: `Gate mode` below resolves a `pull_request` payload base SHA against
+      # this clone, which a depth-1 checkout does not contain. Pinned by
+      # `toolchain-pins.test.ts`, `checks the gate job out at full depth`.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
@@ -226,15 +246,15 @@ jobs:
       # verdict with no commit to attribute it to, and the next person debugging
       # a red main has no version to bisect against. The pin is `.bun-version`,
       # the same file the Dockerfiles are held to by `toolchain-pins.test.ts`.
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: .bun-version
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.14.4'
           cache: pip
-          cache-dependency-path: libs/solver-py/requirements.lock
+          cache-dependency-path: libs/wbs/adapters/solver-py/requirements.lock
 
       # `nx run-many -t build` shellchecks the deploy scripts and is no longer
       # allowed to skip itself when shellcheck is absent. ubuntu-latest ships
@@ -247,7 +267,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Install solver dependencies
-        run: python3 -m pip install --require-hashes -r libs/solver-py/requirements.lock
+        run: python3 -m pip install --require-hashes -r libs/wbs/adapters/solver-py/requirements.lock
 
       # This candidate-owned workflow is diagnostic on PR and merge-queue events. It is not an
       # admission authority; repository rules must require the base-owned trusted-wiki workflow.
@@ -257,24 +277,90 @@ jobs:
           TOOL_WIKI_ACTIVATION_ROOT: ${{ vars.TOOL_WIKI_ACTIVATION_ROOT }}
         run: bash bin/tool-wiki-lint.sh committed . "$GITHUB_SHA"
 
-      # A protected-default push is already admitted. Its audit still refuses to execute the
-      # repository adapter: active rollout selects the launcher from external host state.
-      - name: Tool wiki — externally activated push audit
-        if: github.event_name == 'push'
+      # A repository with no archive variables remains visibly inactive. Once any variable is set,
+      # partial or broken provisioning fails here instead of collapsing back into a green no-op.
+      # Proof: gate-entrypoints.test.ts pins this step ahead of the audit, the three guarded
+      # variables, digest verification before extraction, and the selected-package check.
+      - name: Provision immutable external activation for push audit
+        if: ${{ github.event_name == 'push' && (vars.TOOL_WIKI_ACTIVATION_ARCHIVE_URL != '' || vars.TOOL_WIKI_ACTIVATION_ARCHIVE_SHA256 != '' || vars.TOOL_WIKI_ACTIVATION_VERSION != '') }}
         env:
-          TOOL_WIKI_ACTIVATION_ROOT: ${{ vars.TOOL_WIKI_ACTIVATION_ROOT }}
+          ACTIVATION_ARCHIVE_SHA256: ${{ vars.TOOL_WIKI_ACTIVATION_ARCHIVE_SHA256 }}
+          ACTIVATION_ARCHIVE_URL: ${{ vars.TOOL_WIKI_ACTIVATION_ARCHIVE_URL }}
+          ACTIVATION_VERSION: ${{ vars.TOOL_WIKI_ACTIVATION_VERSION }}
         run: |
           set -euo pipefail
-          if [[ -z "$TOOL_WIKI_ACTIVATION_ROOT" || ! -e "$TOOL_WIKI_ACTIVATION_ROOT/active-v1" ]]; then
-            echo '{"schemaVersion":1,"status":"inactive","certified":false,"reason":"external activation marker is not provisioned"}'
-            exit 0
+          : "${ACTIVATION_ARCHIVE_SHA256:?trusted activation archive digest is not configured}"
+          : "${ACTIVATION_ARCHIVE_URL:?trusted activation archive URL is not configured}"
+          : "${ACTIVATION_VERSION:?trusted activation version is not configured}"
+          # Proof: gate-entrypoints.test.ts executes this production block with `main` and
+          # observes exit 78 before the mutable ref can select an activation archive directory.
+          [[ "$ACTIVATION_VERSION" =~ ^[0-9a-f]{40}$ ]] || {
+            printf 'activation version must be a full commit SHA\n' >&2
+            exit 78
+          }
+          archive="$RUNNER_TEMP/tool-wiki-activation.tar"
+          curl --fail --location --proto '=https' --tlsv1.2 --output "$archive" "$ACTIVATION_ARCHIVE_URL"
+          printf '%s  %s\n' "$ACTIVATION_ARCHIVE_SHA256" "$archive" | sha256sum --check --strict
+          activation_root="$RUNNER_TEMP/tool-wiki-activation/$ACTIVATION_VERSION"
+          mkdir -m 0700 -p "$activation_root"
+          tar --extract --file "$archive" --directory "$activation_root" --no-same-owner --no-same-permissions
+          test -s "$activation_root/selected.json"
+          activation_root=$(realpath -- "$activation_root")
+          # Proof: `jq --raw-output` prints the literal `null` for an absent or non-string key, so a
+          # malformed selection reached the manifest read as `<root>/null/manifest.json` (rc 2) and
+          # a malformed manifest certified a revision named `null`. Refuse the malformed state by
+          # name instead of reporting it as a missing file.
+          if ! selected_directory=$(jq --exit-status --raw-output \
+            'if (.directory|type) == "string" then .directory else empty end' \
+            "$activation_root/selected.json"); then
+            printf 'activation selection has no string directory: %s\n' \
+              "$activation_root/selected.json" >&2
+            exit 78
           fi
-          launcher="$(realpath "$(<"$TOOL_WIKI_ACTIVATION_ROOT/launcher-path")")"
-          [[ -f "$launcher" && -r "$launcher" ]]
-          case "$launcher" in
-            "$GITHUB_WORKSPACE"/*) echo 'external launcher resolved inside candidate checkout' >&2; exit 78 ;;
-          esac
-          bash "$launcher" committed . "$GITHUB_SHA"
+          # Proof: gate-entrypoints.test.ts points the selection at a manifest beside the
+          # extraction directory that names the configured version; without this shape refusal the
+          # step joined a manifest the pinned archive never carried and exported the root.
+          if [[ ! "$selected_directory" =~ ^[0-9A-Za-z][0-9A-Za-z._-]*(/[0-9A-Za-z][0-9A-Za-z._-]*)*$ ]]; then
+            printf 'activation selection names no version directory: %s\n' "$selected_directory" >&2
+            exit 78
+          fi
+          # Proof: a symlinked version directory passes any textual check; with containment textual
+          # only, the step read a manifest outside the extracted archive, matched the configured
+          # version and exported the root at exit 0. The launcher canonicalises the same way.
+          if ! version_directory=$(realpath -- "$activation_root/$selected_directory") ||
+            [[ "$version_directory" != "$activation_root"/* ]]; then
+            printf 'activation selection escapes the extracted archive root: %s\n' \
+              "$selected_directory" >&2
+            exit 78
+          fi
+          if ! certified_revision=$(jq --exit-status --raw-output \
+            'if (.sourceRevision|type) == "string" then .sourceRevision else empty end' \
+            "$version_directory/manifest.json"); then
+            printf 'activation manifest has no string sourceRevision: %s\n' \
+              "$version_directory/manifest.json" >&2
+            exit 78
+          fi
+          # Proof: gate-entrypoints.test.ts provisions an archive certifying 4444... with the
+          # version set to 5555...; without this join the step exited 0 and made an archive that
+          # certifies no configured commit the admission authority.
+          if [[ "$certified_revision" != "$ACTIVATION_VERSION" ]]; then
+            printf 'activation archive certifies %s, not the configured version %s\n' \
+              "$certified_revision" "$ACTIVATION_VERSION" >&2
+            exit 78
+          fi
+          # Provenance for whoever reads this log. Nothing on the admission path reads the
+          # descriptor, so its absence or contents change no decision.
+          if [[ -r "$activation_root/toolkit-release" ]]; then
+            printf 'toolkit release: %s\n' \
+              "$(head -c 200 -- "$activation_root/toolkit-release" | tr -dc '[:print:]')"
+          fi
+          printf 'TOOL_WIKI_ACTIVATION_ROOT=%s\n' "$activation_root" >> "$GITHUB_ENV"
+
+      # A protected-default push is already admitted. Its audit still refuses candidate authority:
+      # both launcher and runtime modules come from the downloaded, digest-pinned activation.
+      - name: Tool wiki — externally activated push audit
+        if: github.event_name == 'push'
+        run: bash bin/tool-wiki-push-audit.sh . "$GITHUB_SHA"
 
       # --all, not the default base..HEAD comparison. Without it the scope is
       # whatever `git diff main HEAD` returns, which is EMPTY on a push to main
@@ -329,19 +415,131 @@ jobs:
       # TASK-289 control: CI 34056520601 completed the unchanged Nx command for
       # all 24 projects, then an unexpected helper argument made this gate red;
       # the always-run nx-gate-log-1 upload still passed.
+      # The scope, chosen from the event and never inferred from whether a base ref
+      # happens to resolve — the same shape `Corpus version lint` below already uses,
+      # for the same reason. Payload values arrive as environment variables rather than
+      # interpolated into the shell, an empty pull-request base SHA is a refusal rather
+      # than a fallback to a mutable ref, and the `*)` arm means subscribing this
+      # workflow to a new event fails loudly instead of picking a scope by accident.
+      #
+      # `nx show projects` prints a ONE-LINE JSON array on a non-TTY runner whatever
+      # `--sep` asks for — measured on Nx 23.2.0, 2026-09-16 — so membership is read
+      # with `jq` and not with `grep`. A `grep -qx wiki-cli` over that array can never
+      # match, which would have dropped Tool Wiki from every pull request while exiting
+      # 0: a check that cannot fail, wearing the exclusion's hat.
+      #
+      # Tool Wiki needs its own arm at all because the workspace run below excludes it
+      # and runs its targets separately; `nx affected` would otherwise exclude it and
+      # nothing would put it back.
+      #
+      # Proof (2026-09-16), re-observed after the nested `case "$tool_wiki_status"` landed —
+      # the first version of this note claimed a failure that had stopped reproducing. In
+      # `tools/tool-devsync/src/toolchain-pins.test.ts`, `the CI gate scope > maps every
+      # subscribed event and refuses one it has no rule for`:
+      #   whole `*)` arm deleted    -> `Expected: ["*"] · Received: []`, 16 passed / 1 failed
+      #   only its `exit 1` deleted -> `Expected to contain: "printf 'no gate mode for event
+      #                                %s\n' "$EVENT_NAME" >&2 exit 1"`, 16 passed / 1 failed
+      # The second fault is the one worth the two lines: an arm that says what happened and
+      # then falls through is log-and-continue, and until that pin was tightened it left the
+      # whole suite green, because the `type == "array"` guard below supplies a second
+      # `exit 1` for a bare `toContain('exit 1')` to find.
+      - name: Gate mode
+        id: gate_mode
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            pull_request)
+              : "${PR_BASE_SHA:?pull_request payload carries no base SHA}"
+              printf 'mode=affected\n' >> "$GITHUB_OUTPUT"
+              printf 'base=%s\n' "$PR_BASE_SHA" >> "$GITHUB_OUTPUT"
+              affected="$(bunx nx show projects --affected --base="$PR_BASE_SHA" --head=HEAD --json)"
+              # jq answers THREE things, not two: 0 for true, 1 for false, and 2 or more for
+              # an error. An `if/else` reads the last of those as `false` and quietly drops
+              # Tool Wiki from the gate while exiting 0. Watched in a real shell on
+              # 2026-09-16 with `affected='Nx read error: could not find project graph'`: the
+              # if/else printed `tool_wiki=skip`, rc 0; this shape refuses, rc 1. The `*)`
+              # arm below guards jq ITSELF failing — with the output already a validated
+              # array the membership filter returns true or false and never errors — and it
+              # was watched firing against a `jq` stub that breaks on the second call.
+              #
+              # `-s` and `length == 1` are the form `bin/h2puni-gate-steps.sh` already uses,
+              # and they are not decoration: without `-s`, jq judges only the LAST document
+              # in its input, so a warning line printed ahead of the array is skipped. Watched
+              # 2026-09-16 — `"warning"` then `["wbs-fe-01"]` passed `type == "array"` rc 0,
+              # and the membership filter then read only the second document. The slurped
+              # form refuses the pair, rc 1.
+              jq -s -e 'length == 1 and (.[0] | type == "array")' <<< "$affected" > /dev/null || {
+                printf 'nx show projects did not return one JSON array: %s\n' "$affected" >&2
+                exit 1
+              }
+              tool_wiki_status=0
+              jq -s -e '.[0] | index("wiki-cli") != null' <<< "$affected" > /dev/null || tool_wiki_status=$?
+              case "$tool_wiki_status" in
+                0) printf 'tool_wiki=run\n' >> "$GITHUB_OUTPUT" ;;
+                1) printf 'tool_wiki=skip\n' >> "$GITHUB_OUTPUT" ;;
+                *)
+                  printf 'jq failed reading the affected project list (status %s)\n' \
+                    "$tool_wiki_status" >&2
+                  exit "$tool_wiki_status"
+                  ;;
+              esac
+              ;;
+            push | merge_group | workflow_dispatch)
+              printf 'mode=full\n' >> "$GITHUB_OUTPUT"
+              printf 'tool_wiki=run\n' >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              printf 'no gate mode for event %s\n' "$EVENT_NAME" >&2
+              exit 1
+              ;;
+          esac
+
       - name: Gate — test, lint, typecheck, build
         id: nx_gate
+        env:
+          GATE_MODE: ${{ steps.gate_mode.outputs.mode }}
+          GATE_BASE: ${{ steps.gate_mode.outputs.base }}
+          GATE_TOOL_WIKI: ${{ steps.gate_mode.outputs.tool_wiki }}
         run: |
           set +e
           # Proof: dropping this exclusion made gate-entrypoints.test.ts fail at
-          # `Expected to contain: --exclude=tool-wiki`; source lint remains explicit below.
-          {
-            bunx nx run-many -t test lint typecheck build --parallel=2 --output-style=stream \
-              --exclude=tool-wiki &&
-            bunx nx run-many -t test typecheck build -p tool-wiki --parallel=2 \
-              --output-style=stream &&
-            bunx nx run tool-wiki:lint:source --skip-nx-cache --output-style=stream
-          } > nx-gate.log 2>&1
+          # `Expected to contain: --exclude=wiki-cli`; source lint remains explicit below.
+          #
+          # Both branches keep the same three parts — the workspace run without Tool
+          # Wiki, Tool Wiki's own targets, its explicit source lint — and the pin suite
+          # counts them rather than containing them, because one branch quietly losing a
+          # part is exactly the narrowing this switch could introduce.
+          #
+          # The `else` is the full gate, so an unset or unrecognised mode runs MORE work
+          # rather than less. This is the one direction it is safe to fail in.
+          if [ "$GATE_MODE" = affected ]; then
+            {
+              bunx nx affected -t test lint typecheck build --base="$GATE_BASE" --head=HEAD \
+                --parallel=2 --output-style=stream --exclude=wiki-cli &&
+              # Proof (2026-09-16): with this branch replaced by `true`, `the CI gate scope >
+              # keeps Tool Wiki in the pull-request gate, read as JSON rather than grepped`
+              # failed on the missing `if [ "$GATE_TOOL_WIKI" = run ]; then`, and its
+              # neighbour on `Expected: 2 · Received: 1` for the wiki-cli run-many —
+              # 14 passed / 2 failed. A pull request touching Tool Wiki would then have
+              # gated everything except Tool Wiki.
+              if [ "$GATE_TOOL_WIKI" = run ]; then
+                bunx nx run-many -t test typecheck build -p wiki-cli --parallel=2 \
+                  --output-style=stream &&
+                bunx nx run wiki-cli:lint:source --skip-nx-cache --output-style=stream
+              fi
+            } > nx-gate.log 2>&1
+          else
+            {
+              bunx nx run-many -t test lint typecheck build --parallel=2 --output-style=stream \
+                --exclude=wiki-cli &&
+              bunx nx run-many -t test typecheck build -p wiki-cli --parallel=2 \
+                --output-style=stream &&
+              bunx nx run wiki-cli:lint:source --skip-nx-cache --output-style=stream
+            } > nx-gate.log 2>&1
+          fi
           gate_status=$?
           annotation_status=0
           bun run tools/tool-git-hooks/src/hooks/ci-gate-annotations.ts nx-gate.log --tail 200 || annotation_status=$?
@@ -352,14 +550,14 @@ jobs:
 
       - name: Upload gate log
         if: ${{ always() && steps.nx_gate.outcome != 'skipped' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: nx-gate-log-${{ github.run_attempt }}
           path: nx-gate.log
           if-no-files-found: error
 
       - name: Solver image smoke
-        run: bunx nx run be-01:solver-image-smoke
+        run: bunx nx run wbs-be-01:solver-image-smoke
 
       # The host-wide heavy-work mutex, which is the only thing keeping two
       # heavy runs off one machine. It went unexercised until 2026-08-30, when
@@ -500,6 +698,103 @@ jobs:
           jq -e '.summary.totals.failed == 0 and .summary.totals.passed > 0' \
             "$RUNNER_TEMP/openspec-validate.json" > /dev/null
 
+  # Whether a pull request can reach the browser stack at all — the shards' half of
+  # the switch `Gate mode` makes for the Nx gate, with the same refusal arm and the
+  # same JSON read.
+  #
+  # The boot set is read from `playwright.config.ts`, not from this job's name:
+  # `webServer` starts be-01, gw-01 AND fe-01, so a backend-only pull request can
+  # break the rendered table while `wbs-fe-01` is not affected at all. Measured
+  # 2026-09-16 on Nx 23.2.0, `bunx nx show projects --affected
+  # --files=apps/wbs/be-01/src/main.ts` answers
+  # `["wbs-be-01","tool-devsync","wiki-cli","tool-dagger"]` — no `wbs-fe-01`. A
+  # switch keyed on the frontend alone would have skipped the eyes for exactly the
+  # changes they exist to catch.
+  #
+  # This job pays one checkout and one install to save up to four ~10-minute shards,
+  # and it cannot itself skip: `pixels` below reads its result, so a scope job that
+  # failed is never mistaken for a deliberate skip.
+  #
+  # It runs unconditionally, including on `push`, `merge_group` and `workflow_dispatch`
+  # where it only prints `stack=affected`. An `if:` skipping it on those events would be
+  # cheaper and wrong: a skipped job's `result` is `skipped`, so the `pixels` aggregate's
+  # `needs.pixels_mode.result == success` would be false on exactly the events whose
+  # browser gate matters most. The checkout and install are the price of one honest verdict.
+  pixels_mode:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      stack: ${{ steps.stack.outputs.stack }}
+    steps:
+      # Full history for the same reason the `gate` job takes it: `--base` cannot
+      # resolve a payload SHA against a depth-1 clone.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      # Proof for the `*)` arm below (2026-09-16), re-observed after the nested
+      # `case "$stack_status"` landed. `the CI pixels scope > decides the browser scope from
+      # the event, and refuses one it has no rule for`:
+      #   whole arm deleted         -> `Expected: ["*"] · Received: []`, 5 passed / 1 failed
+      #   only its `exit 1` deleted -> the normalised message-and-exit pair absent,
+      #                                5 passed / 1 failed
+      # Without the arm a newly subscribed event would scope the browser gate by falling
+      # through rather than by a rule; without its `exit` it would do the same after printing
+      # a warning nobody reads.
+      #
+      # This note lives OUTSIDE the `run:` block on purpose. Inside it, the pin's own literal
+      # would be part of the script the pin reads: on 2026-09-16 a one-line reflow of this
+      # comment plus deleting the arm's `exit 1` left all six cases green. The suites now
+      # strip comment lines before normalising, and this keeps the script commands-only.
+      - name: Browser stack scope
+        id: stack
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            pull_request)
+              : "${PR_BASE_SHA:?pull_request payload carries no base SHA}"
+              affected="$(bunx nx show projects --affected --base="$PR_BASE_SHA" --head=HEAD --json)"
+              # Three answers, not two, and `-s` so a stray document ahead of the array
+              # cannot hide it — see the same guard in `Gate mode` for both measurements.
+              # Here the stakes are higher: reading a jq ERROR, or a leading warning line, as
+              # `false` sets `stack=unaffected`, skips all four shards, and turns the
+              # REQUIRED `pixels` check green having booted no browser at all.
+              jq -s -e 'length == 1 and (.[0] | type == "array")' <<< "$affected" > /dev/null || {
+                printf 'nx show projects did not return one JSON array: %s\n' "$affected" >&2
+                exit 1
+              }
+              stack_status=0
+              jq -s -e 'any(.[0][]; . == "wbs-fe-01" or . == "wbs-be-01" or . == "wbs-gw-01")' \
+                <<< "$affected" > /dev/null || stack_status=$?
+              case "$stack_status" in
+                0) printf 'stack=affected\n' >> "$GITHUB_OUTPUT" ;;
+                1) printf 'stack=unaffected\n' >> "$GITHUB_OUTPUT" ;;
+                *)
+                  printf 'jq failed reading the affected project list (status %s)\n' \
+                    "$stack_status" >&2
+                  exit "$stack_status"
+                  ;;
+              esac
+              ;;
+            push | merge_group | workflow_dispatch)
+              printf 'stack=affected\n' >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              printf 'no browser-stack rule for event %s\n' "$EVENT_NAME" >&2
+              exit 1
+              ;;
+          esac
+
   # The eyes. Everything the `gate` job runs sees this table through jsdom,
   # which lays nothing out: the overlap that prompted this job passed 450 unit
   # tests while a pinned Name painted over "Depends on" on screen. One chromium,
@@ -510,7 +805,7 @@ jobs:
   # for it would make every unrelated red slower to read. Both must pass.
   #
   # Proven non-vacuous on 2026-08-08. The faults are written out at the bottom
-  # of `apps/fe-01/e2e/layout.spec.ts`, each with the failure it was watched
+  # of `apps/wbs/fe-01/e2e/layout.spec.ts`, each with the failure it was watched
   # producing against a real chromium;
   # `openspec/changes/table-geometry-and-tab-order/verify.md` has the run
   # output, including the two faults that turned out NOT to break the test they
@@ -518,6 +813,8 @@ jobs:
   pixels_shard:
     name: pixels shard ${{ matrix.shard }}/4
     runs-on: ubuntu-latest
+    needs: pixels_mode
+    if: ${{ needs.pixels_mode.outputs.stack == 'affected' }}
     # FOUR shards since 2026-09-08, because two were measured badly unbalanced.
     # Playwright shards by file, not by duration, so the split is only as even
     # as the files happen to be. Over the last 8 runs, per job:
@@ -582,12 +879,12 @@ jobs:
         shard: [1, 2, 3, 4]
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       # The same pin as `gate` above, read from the same file, for the same
       # reason: bun is part of what is being tested here — it runs be-01 and
       # gw-01 — and `latest` changes the verdict with no commit to blame.
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: .bun-version
 
@@ -608,26 +905,54 @@ jobs:
       - name: Layout gate
         run: bun run e2e -- --shard=${{ matrix.shard }}/4
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: wbs-table-screenshot-${{ matrix.shard }}-${{ github.run_attempt }}
           # Successful runs keep the deliberate geometry screenshot and HTML
           # report; failed runs additionally keep Playwright's retained trace.
           path: |
-            apps/fe-01/test-results/
-            apps/fe-01/playwright-report/
+            apps/wbs/fe-01/test-results/
+            apps/wbs/fe-01/playwright-report/
 
   # Branch protection asks for one stable `pixels` check. The matrix above has
   # changing display names, so this job reduces its aggregate result without
   # hiding a failed or cancelled shard.
   # Proof: changing `needs` to `gate` made pixels-workflow.test.ts fail with
   # expected "pixels_shard", received "gate".
+  #
+  # Since 2026-09-16 the shards can legitimately not run, and `skipped` is the
+  # result this job then reads. Accepting `skipped` on its own would have been the
+  # whole point thrown away: `pixels_shard` is also skipped when `pixels_mode`
+  # FAILS, so a broken scope job would have reported the required check green
+  # having booted nothing and decided nothing. Hence both jobs in `needs` and the
+  # scope job's own verdict asserted first, before its answer is read at all.
+  # Proof: reduced to its previous `test "${{ needs.pixels_shard.result }}" = success`,
+  # `the required check refuses a skip it cannot explain` failed on the exact
+  # environment and script (2026-09-16).
   pixels:
     if: ${{ always() }}
-    needs: pixels_shard
+    needs: [pixels_mode, pixels_shard]
     runs-on: ubuntu-latest
     timeout-minutes: 1
     steps:
       - name: Require every browser shard
-        run: test "${{ needs.pixels_shard.result }}" = success
+        env:
+          STACK: ${{ needs.pixels_mode.outputs.stack }}
+          STACK_RESULT: ${{ needs.pixels_mode.result }}
+          SHARD_RESULT: ${{ needs.pixels_shard.result }}
+        run: |
+          set -euo pipefail
+          test "$STACK_RESULT" = success
+          case "$STACK" in
+            affected)
+              test "$SHARD_RESULT" = success
+              ;;
+            unaffected)
+              test "$SHARD_RESULT" = skipped
+              ;;
+            *)
+              printf 'pixels mode reported no browser-stack verdict: %s\n' "$STACK" >&2
+              exit 1
+              ;;
+          esac

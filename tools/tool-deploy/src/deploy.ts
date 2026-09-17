@@ -16,8 +16,8 @@ import {
   SOLVER_SUPERVISOR_CONFIG,
   SOLVER_SUPERVISOR_SERVICE,
   SOLVER_SUPERVISOR_SOCKET,
-} from '@wbs/deploy-contract';
-import { type EnvLayout } from '@wbs/tool-env';
+} from '@tools/deploy-contract';
+import { type EnvLayout } from '@tools/env';
 
 import { materialize, parseDeployArgs, type Tier } from './affected';
 import {
@@ -79,7 +79,7 @@ export interface DeployPlanDeps {
     host: string,
     stateDir: string,
   ) => Promise<Partial<Record<Tier, RemoteTierState>>>;
-  /** Migration folder names present under apps/be-01/drizzle at `sha`. */
+  /** Migration folder names under the legacy or namespaced backend tree at `sha`. */
   listMigrations: (sha: string) => string[];
   readRelease: (path: string) => Promise<ReleaseRecord>;
   /**
@@ -347,9 +347,9 @@ export async function buildDeployPlan(
   };
 }
 
-// The app names and the ports come from `@wbs/deploy-contract` — the entry
+// The app names and the ports come from `@tools/deploy-contract` — the entry
 // point the comment here used to say did not exist, while line 9 was already
-// importing `@wbs/tool-env` out of that same project. The health *paths* stay:
+// importing `@tools/env` out of that same project. The health *paths* stay:
 // they are this file's only, and nothing else has a copy of them.
 const TIER_HEALTH_PATH: Record<Tier, string> = { be: '/health', gw: '/health', fe: '/' };
 

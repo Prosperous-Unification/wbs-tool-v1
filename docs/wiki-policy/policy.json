@@ -417,6 +417,10 @@
       "boundaryId": "boundary.domain.saved-plan",
       "selector": {
         "kind": "prefix",
+        "value": "libs/wbs/domain/domain/src/saved-plan"
+      },
+      "sourceSelector": {
+        "kind": "prefix",
         "value": "libs/domain/src/saved-plan"
       },
       "baselineEntries": [
@@ -467,6 +471,10 @@
       "boundaryId": "boundary.application.use-cases",
       "selector": {
         "kind": "prefix",
+        "value": "libs/wbs/application/core/src/use-cases"
+      },
+      "sourceSelector": {
+        "kind": "prefix",
         "value": "libs/core/src/use-cases"
       },
       "baselineEntries": [
@@ -501,6 +509,10 @@
     {
       "boundaryId": "boundary.adapter.store-memory",
       "selector": {
+        "kind": "prefix",
+        "value": "libs/wbs/adapters/store-memory/src"
+      },
+      "sourceSelector": {
         "kind": "prefix",
         "value": "libs/store-memory/src"
       },
@@ -720,8 +732,8 @@
     "schemaVersion": 1,
     "declarationPaths": ["docs/wiki-policy/relationships.json"],
     "typescript": {
-      "configPaths": ["libs/domain/tsconfig.lib.json"],
-      "publicEntrypoints": ["libs/domain/src/saved-plan/index.ts"]
+      "configPaths": ["libs/wbs/domain/domain/tsconfig.lib.json"],
+      "publicEntrypoints": ["libs/wbs/domain/domain/src/saved-plan/index.ts"]
     }
   },
   "pilot": {
@@ -731,14 +743,14 @@
       {
         "selector": {
           "kind": "prefix",
-          "value": "apps/fe-01/e2e"
+          "value": "apps/wbs/fe-01/e2e"
         },
         "reason": "Browser behavior is outside the six-boundary pilot and remains review debt."
       },
       {
         "selector": {
           "kind": "prefix",
-          "value": "apps/be-01/drizzle"
+          "value": "apps/wbs/be-01/drizzle"
         },
         "reason": "Applied migrations are outside the pilot and remain immutable review debt."
       },

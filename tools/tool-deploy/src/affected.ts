@@ -1,5 +1,5 @@
-import type { Tier } from '@wbs/deploy-contract';
-import { type EnvLayout, envLayout } from '@wbs/tool-env';
+import type { Tier } from '@tools/deploy-contract';
+import { type EnvLayout, envLayout } from '@tools/env';
 
 // Re-exported because every module in this project takes `Tier` from here.
 // Declared here in its own words until 2026-09-02, which made four

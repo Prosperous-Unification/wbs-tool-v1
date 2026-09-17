@@ -1,0 +1,126 @@
+{
+  "$comment": "The shared golden corpus both suites run (2.1). Each entry names the branch of solver-wire.v1.json to validate against \u2014 #/$defs/<branch> \u2014 and whether the schema must accept it. A consumer that accepts a message the schema rejects, or rejects one it accepts, fails the contract test. Every slice key here contains a real U+0000, written as the \\u0000 escape: the escape parses to the exact character, so the corpus is verbatim while the files stay text to git and grep.",
+  "schema": "../solver-wire.v1.json",
+  "fixtures": [
+    {
+      "file": "request/valid-two-slices.json",
+      "branch": "request",
+      "valid": true,
+      "why": "Two slices under one predecessor edge; both keys carry a real U+0000. personId null and an empty poolIds are legal states, not omissions."
+    },
+    {
+      "file": "request/valid-quantised-baseline.json",
+      "branch": "request",
+      "valid": true,
+      "why": "2.11's own fixture on the wire: three serial slices at days=1, width=5. Real Fast finishes them at 28.8 units and each duration rounds up to 10, so baselineOffsets and fastHint are the 30-unit integers 0/10/20 and never real Fast's 9.6/19.2. Equal as maps, key-set equal to slices[].key, every offset <= horizonUnits."
+    },
+    {
+      "file": "request/valid-all-zero-milestone.json",
+      "branch": "request",
+      "valid": true,
+      "why": "Two zero-duration slices share one workItemKey and both declare the bidirectional group fact: an all-zero work item is a milestone. Both request consumers run this same oracle."
+    },
+    {
+      "file": "request/valid-positive-with-zero-steps.json",
+      "branch": "request",
+      "valid": true,
+      "why": "Leading, interior and trailing zero steps share a workItemKey with positive work, so every slice declares workItemIsMilestone false and every zero label belongs to the complete work-item projection."
+    },
+    {
+      "file": "request/invalid-zero-width.json",
+      "branch": "request",
+      "valid": false,
+      "why": "A width is people; schedule.ts:478 refuses 0 because duration is effort divided by width and 0 is Infinity days."
+    },
+    {
+      "file": "request/invalid-missing-work-item-key.json",
+      "branch": "request",
+      "valid": false,
+      "why": "workItemKey is required independently of the opaque slice key so consumers can group slices without parsing that key."
+    },
+    {
+      "file": "request/invalid-fractional-width.json",
+      "branch": "request",
+      "valid": false,
+      "why": "Same boundary: 2.5 people do not exist, and Fast returned duration 2.4 when this check was deleted."
+    },
+    {
+      "file": "request/invalid-unknown-key.json",
+      "branch": "request",
+      "valid": false,
+      "why": "2.3 rejects an unknown key; every message object is closed."
+    },
+    {
+      "file": "request/invalid-zero-pool-size.json",
+      "branch": "request",
+      "valid": false,
+      "why": "project_team_capacity.size floors at 1: a pool of 0 slots is a plan of Infinity dates."
+    },
+    {
+      "file": "request/invalid-positional-edge.json",
+      "branch": "request",
+      "valid": false,
+      "why": "An edge is an object of two named endpoints, mirroring the domain's DependencyEdge; the endpoints are asymmetric and a 2-array hides which is which."
+    },
+    {
+      "file": "request/negative-printable-key.json",
+      "branch": "request",
+      "valid": true,
+      "why": "SCHEMA-LEGAL ON PURPOSE, and the reason there is no pattern on a slice key. A sanitised 'wi-1::step-a' is a well-formed string, so no schema can tell it from a real sliceKey() result: only the builder's key-set equality against slices[].key catches a corpus that quietly dropped the U+0000. Kept as the fixture that proves the schema is NOT where that mistake is caught."
+    },
+    {
+      "file": "response/valid-feasible.json",
+      "branch": "response",
+      "valid": true,
+      "why": "All three terms present with a stage that found an incumbent."
+    },
+    {
+      "file": "response/invalid-fourth-stage-status.json",
+      "branch": "response",
+      "valid": false,
+      "why": "The matrix fixes the stage status at three values; quantisation-floor is a publication tag and never a status (Sol r8 Critical 5)."
+    },
+    {
+      "file": "response/invalid-uppercase-term-key.json",
+      "branch": "response",
+      "valid": false,
+      "why": "Wire term keys are lowercase, as tasks.md 4.12b spells the stored Record; MAKESPAN is the mathematical name, not the JSON key."
+    },
+    {
+      "file": "response/invalid-missing-term.json",
+      "branch": "response",
+      "valid": false,
+      "why": "A stage that never ran reports status unknown with null stageValue and bound; it never omits its term."
+    },
+    {
+      "file": "response/valid-infeasible.json",
+      "branch": "response",
+      "valid": true,
+      "why": "The proof outcome. Carries neither offsets nor objectiveValues, because the matrix writes n/a in the objectiveValues column for every stopping row and `value` is defined only on a published schedule."
+    },
+    {
+      "file": "response/valid-unknown-no-incumbent.json",
+      "branch": "response",
+      "valid": true,
+      "why": "The matrix's UNKNOWN-no-incumbent-at-k=1 row: budget exhausted, nothing found, nothing proved. Same shape as infeasible; the two differ only in whether more budget could ever help, which is why infeasible is never mapped onto unknown."
+    },
+    {
+      "file": "response/invalid-response-optimal-status.json",
+      "branch": "response",
+      "valid": false,
+      "why": "THE WATCHED RED FOR THE REFUSED CANDIDATE: reusing the stage vocabulary at the response level would admit `optimal`, which claims the published schedule is optimal — the one claim design.md says it has denied from the start. Per-term `optimal` stays legal and is untouched. PAYLOAD-FREE ON PURPOSE, and the first draft was not: written with offsets and objectiveValues it was rejected by the status/offsets conditional rather than by the enum, so widening the enum back to an open string left the corpus fully green and the fixture proved nothing it claimed. Stripped to the smallest message whose only defect is the token, it goes red exactly when the enum opens."
+    },
+    {
+      "file": "response/invalid-infeasible-with-offsets.json",
+      "branch": "response",
+      "valid": false,
+      "why": "The status/offsets conditional in the publishing-to-non-publishing direction: a run that proved no schedule exists cannot also report one. Without the conditional this passes the schema and only fails a builder key-set check one layer later, reporting a vocabulary error as a corrupt payload."
+    },
+    {
+      "file": "response/invalid-feasible-without-offsets.json",
+      "branch": "response",
+      "valid": false,
+      "why": "The same conditional in the other direction, and the reason `required` could not simply drop offsets: a feasible run that omits the schedule must fail loudly rather than be read as an empty one."
+    }
+  ]
+}

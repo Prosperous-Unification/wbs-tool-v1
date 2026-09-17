@@ -34,7 +34,7 @@ import {
   SOLVER_SUPERVISOR_CONFIG,
   SOLVER_SUPERVISOR_SERVICE,
   SOLVER_SUPERVISOR_SOCKET,
-} from '@wbs/deploy-contract';
+} from '@tools/deploy-contract';
 import { $ } from 'bun';
 
 import { prepareTargetSolverBinding } from './solver-binding-host';
@@ -52,6 +52,7 @@ const CONTAINER = 'wbs-dev-src';
 const LOCK = '/home/puni1/wbs-dev/state/devsync.lock';
 const CONFIG_MAX_BYTES = 256 * 1024;
 const PREPARATION_STATE_MAX_BYTES = 64 * 1024;
+const DIGEST_PINNED_IMAGE = /^[^\s@]+@sha256:[0-9a-f]{64}$/;
 const TARGET_ROOT = resolve(import.meta.dir, '../../..');
 export const LOCK_BUSY_EXIT_CODE = 75;
 
@@ -82,7 +83,7 @@ export function devSolverMappingOf(text: string): DevSolverMapping {
   );
   if (devRules.length !== 1) throw new Error('solver supervisor config needs one dev image rule');
   const image = (devRules[0] as Record<string, unknown>)['solverImage'];
-  if (typeof image !== 'string' || !/^[^\s@]+@sha256:[0-9a-f]{64}$/.test(image)) {
+  if (typeof image !== 'string' || !DIGEST_PINNED_IMAGE.test(image)) {
     throw new Error('solver supervisor config dev image is not digest-pinned');
   }
   return { sourceSha, image };
@@ -102,6 +103,60 @@ export interface SolverPreflightDependencies {
   requireHost(image: string): Promise<void>;
 }
 
+export interface SolverImageHostDependencies {
+  inspect(image: string): Promise<boolean>;
+  pull(image: string): Promise<void>;
+}
+
+export interface SolverHostPreflightDependencies {
+  requireImage(image: string): Promise<void>;
+  requireService(): Promise<void>;
+  requireSocket(): Promise<void>;
+  requireMapping(image: string, configPath: string): Promise<void>;
+}
+
+const SOLVER_IMAGE_HOST_DEPENDENCIES: SolverImageHostDependencies = {
+  inspect: async (image) => {
+    const inspection = await $`docker image inspect --format={{.Id}} ${image}`.quiet().nothrow();
+    return inspection.exitCode === 0;
+  },
+  pull: async (image) => {
+    await $`docker pull ${image}`;
+  },
+};
+
+/** Repairs one absent digest, then proves the supervisor's Docker daemon can resolve it. */
+export async function requireSolverImageInHost(
+  image: string,
+  dependencies: SolverImageHostDependencies = SOLVER_IMAGE_HOST_DEPENDENCIES,
+): Promise<void> {
+  // Proof: sync.test.ts injects a mutable tag and observes refusal before
+  // either Docker inspection or pull can begin.
+  if (!DIGEST_PINNED_IMAGE.test(image)) {
+    throw new Error('solver host image must be digest-pinned');
+  }
+  if (await dependencies.inspect(image)) return;
+  await dependencies.pull(image);
+  // Proof: sync.test.ts makes a pull return without installing the digest and
+  // observes refusal before the injected host preflight can continue.
+  if (!(await dependencies.inspect(image))) {
+    throw new Error(`solver host image is unavailable after pull: ${image}`);
+  }
+}
+
+const SOLVER_HOST_PREFLIGHT_DEPENDENCIES: SolverHostPreflightDependencies = {
+  requireImage: (image) => requireSolverImageInHost(image),
+  requireService: async () => {
+    await $`systemctl --user is-active --quiet ${SOLVER_SUPERVISOR_SERVICE}`;
+  },
+  requireSocket: async () => {
+    await $`test -S ${SOLVER_SUPERVISOR_SOCKET}`;
+  },
+  requireMapping: async (image, configPath) => {
+    await $`${SOLVER_SUPERVISOR_BUN} ${SOLVER_SUPERVISOR_BUNDLE.remote} --preflight=dev --config=${configPath} --solver-image=${image}`;
+  },
+};
+
 /** Lists compatibility inputs changed between two revisions in their owning repository. */
 async function changedSolverPathsIn(
   repository: string,
@@ -115,9 +170,10 @@ async function changedSolverPathsIn(
     .filter((path) => path !== '');
 }
 
-function solverPreflightDependencies(
+export function solverPreflightDependencies(
   repository: string,
   configPath: string,
+  host: SolverHostPreflightDependencies = SOLVER_HOST_PREFLIGHT_DEPENDENCIES,
 ): SolverPreflightDependencies {
   return {
     currentSha: async () => (await $`git -C ${repository} rev-parse HEAD`.text()).trim(),
@@ -128,16 +184,21 @@ function solverPreflightDependencies(
       return new Uint8Array(await file.slice(0, CONFIG_MAX_BYTES + 1).arrayBuffer());
     },
     requireHost: async (image) => {
-      await $`systemctl --user is-active --quiet ${SOLVER_SUPERVISOR_SERVICE}`;
-      await $`test -S ${SOLVER_SUPERVISOR_SOCKET}`;
-      await $`${SOLVER_SUPERVISOR_BUN} ${SOLVER_SUPERVISOR_BUNDLE.remote} --preflight=dev --config=${configPath} --solver-image=${image}`;
+      // A registry publish does not load the host daemon. Repairing the exact
+      // digest makes an absent image self-healing; a pull or final inspection
+      // refusal is emitted by the poller instead of remaining in the user
+      // service journal until the next optimization request.
+      await host.requireImage(image);
+      await host.requireService();
+      await host.requireSocket();
+      await host.requireMapping(image, configPath);
     },
   };
 }
 
 const SOLVER_PREFLIGHT_DEPENDENCIES = solverPreflightDependencies(SRC, SOLVER_SUPERVISOR_CONFIG);
 
-/** Solver host state is a deploy prerequisite only when its compatibility inputs move. */
+/** Skips an unconfigured steady-state host; once configured, verifies host state on every deploy. */
 export async function preflightSolver(
   sha: string,
   dependencies: SolverPreflightDependencies = SOLVER_PREFLIGHT_DEPENDENCIES,
@@ -161,8 +222,9 @@ export async function preflightSolver(
   const changed = await dependencies.changedPaths(mapping.sourceSha, sha);
   assertDevSolverSourceCompatible(changed);
   // Proof: sync.test.ts stages a future mapping before an unrelated target and
-  // observes refusal before its injected host preflight can run.
-  if (targetChanges.length === 0) return;
+  // observes refusal before its injected host preflight can run. A compatible
+  // mapping is checked even for an unrelated target so the next deploy
+  // repairs or reports an image pruned after preparation.
   await dependencies.requireHost(mapping.image);
 }
 
@@ -316,14 +378,14 @@ export async function runDevSyncLock(
  * Paths whose change a running dev environment cannot pick up by itself.
  *
  * - `bun.lock` -- `bun install` cannot run inside a live watcher.
- * - `apps/be-01/drizzle` -- migrations are not imported by any watched module,
+ * - `apps/wbs/be-01/drizzle` -- migrations are not imported by any watched module,
  *   so `bun --watch` never sees them. be-01 migrates at boot in dev
  *   (MIGRATE_ON_STARTUP=true) and reports migrationsApplied=true either way,
  *   so a missed restart means new code on an old schema, reported healthy.
- * - `package.json`, `nx.json`, `apps/<tier>/project.json` -- the Nx supervisor
+ * - `package.json`, `nx.json`, `apps/wbs/<tier>/project.json` -- the Nx supervisor
  *   reads the serve targets once, at startup. A changed port, command or
  *   project list leaves the old topology running while HEAD moves on.
- * - `apps/fe-01/vite.config.ts` -- Vite reloads app code, not its own config.
+ * - `apps/wbs/fe-01/vite.config.ts` -- Vite reloads app code, not its own config.
  *
  * Not covered, deliberately, because they need more than a restart: the
  * Dockerfile and compose.yml (rebuild/recreate), and the gitignored per-tier
@@ -333,47 +395,61 @@ export const RESTART_PATHS: readonly string[] = [
   'bun.lock',
   'package.json',
   'nx.json',
-  'apps/be-01/drizzle',
-  'apps/be-01/project.json',
-  'apps/gw-01/project.json',
-  'apps/fe-01/project.json',
-  'apps/mcp-01/project.json',
-  'apps/fe-01/vite.config.ts',
+  'apps/wbs/be-01/drizzle',
+  'apps/wbs/be-01/project.json',
+  'apps/wbs/gw-01/project.json',
+  'apps/wbs/fe-01/project.json',
+  'apps/wbs/mcp-01/project.json',
+  // The wiki CLI has no serve target, but it is an app on disk and `sync.test.ts`
+  // walks apps rather than trusting this list; a manifest the supervisor's project
+  // graph reads at startup belongs here either way.
+  // Proof: omitting it failed `names every app project.json, which the supervisor
+  // reads once at startup` on `Expected to contain: "apps/wiki/cli/project.json"`
+  // (2026-09-16).
+  'apps/wiki/cli/project.json',
+  'apps/wbs/fe-01/vite.config.ts',
   // TypeScript config is read once, at process start. A moved path alias
   // resolves against the old mapping in three already-running processes while
   // HEAD says otherwise, which presents as an import that exists in the editor
   // and not at runtime.
   'tsconfig.base.json',
-  'apps/be-01/tsconfig.json',
-  'apps/gw-01/tsconfig.json',
-  'apps/fe-01/tsconfig.json',
-  'apps/mcp-01/tsconfig.json',
+  'apps/wbs/be-01/tsconfig.json',
+  'apps/wbs/gw-01/tsconfig.json',
+  'apps/wbs/fe-01/tsconfig.json',
+  'apps/wbs/mcp-01/tsconfig.json',
+  // Proof: omitting this entry failed `names every app tsconfig, which is read once at
+  // process start` on `Expected to contain: "apps/wiki/cli/tsconfig.json"` (2026-09-16).
+  'apps/wiki/cli/tsconfig.json',
   // A library's project.json can change what its serve-time build resolves to,
   // and the Nx supervisor read the project graph at startup like the rest.
   // Listed per library rather than as `libs`, which would restart on every
   // source edit and defeat the watchers. `sync.test.ts` fails if a library on
   // disk is missing from this list, so adding one cannot silently skip it.
-  'libs/auth/project.json',
-  'libs/config/project.json',
-  'libs/conformance/project.json',
-  'libs/contracts/project.json',
-  // Proof: removing this nested entry failed `names every library project.json`
-  // on `Expected to contain: "libs/contracts/solver/supervisor-protocol/project.json"`.
-  'libs/contracts/solver/supervisor-protocol/project.json',
-  'libs/core/project.json',
-  'libs/domain/project.json',
-  'libs/observability/project.json',
-  'libs/realtime/project.json',
-  // Proof: removing this entry failed `names every library project.json that exists on disk`
-  // on `Expected to contain: "libs/runtime-portable/project.json"`.
-  'libs/runtime-portable/project.json',
-  'libs/store-memory/project.json',
+  'libs/wbs/adapters/auth/project.json',
+  'libs/wbs/adapters/config/project.json',
+  'libs/wbs/application/conformance/project.json',
+  'libs/wbs/domain/contracts/project.json',
+  // Proof: restoring the pre-move nested path failed `names every library project.json`
+  // on the namespaced solver-supervisor-protocol manifest.
+  'libs/wbs/adapters/solver-supervisor-protocol/project.json',
+  'libs/wbs/application/core/project.json',
+  'libs/wbs/domain/domain/project.json',
+  'libs/wbs/adapters/observability/project.json',
+  'libs/wbs/adapters/realtime/project.json',
+  // Proof: restoring the pre-move entry failed `names every library project.json that exists on disk`
+  // on the namespaced runtime-portable manifest.
+  'libs/wbs/adapters/runtime-portable/project.json',
+  'libs/wbs/adapters/store-memory/project.json',
   // Proof: recursive project discovery first failed the restart coverage test
   // on conformance, then store-memory, then store-sqlite as each preceding
   // omission was restored. Watched 2026-09-10.
-  'libs/store-sqlite/project.json',
-  'libs/validation/project.json',
-  'libs/solver-py/project.json',
+  'libs/wbs/adapters/store-sqlite/project.json',
+  'libs/wbs/domain/validation/project.json',
+  'libs/wbs/adapters/solver-py/project.json',
+  // Proof: omitting this entry after creating the project failed `names every
+  // library project.json that exists on disk` with `Expected to contain:
+  // "libs/shared/domain/validation/project.json"` (2026-09-15).
+  'libs/shared/domain/validation/project.json',
 ];
 
 /**
@@ -412,7 +488,11 @@ export function needsRestart(before: Fingerprint, after: Fingerprint): boolean {
   return false;
 }
 
-export async function assertMcpEnv(path = `${SRC}/apps/mcp-01/.env`): Promise<void> {
+// Proof: restoring the pre-move default made sync.test.ts resolve MCP_ENV to
+// the removed app root while the real deploy preflight remained namespaced.
+export const MCP_ENV = `${SRC}/apps/wbs/mcp-01/.env`;
+
+export async function assertMcpEnv(path = MCP_ENV): Promise<void> {
   if (!(await Bun.file(path).exists())) {
     throw new Error(`missing ${path}; seed the gitignored mcp-01 environment before deploying`);
   }

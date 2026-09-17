@@ -1,0 +1,2744 @@
+// The one exception to this file's "declare, do not import" rule, and it earns
+// it: a band's three fields are not the interesting part — `priorityBandRankOf`
+// and `priorityLadderProblem` are, they live beside the type in `libs/wbs/domain/domain`,
+// and a wire type declared here would be a second shape those two functions did
+// not accept. It is a deep subpath import of a module holding four small pure
+// functions and no runtime dependency at all, which is the same bargain
+// `plan-export.ts` and `gantt-geometry.ts` already make with `effective-team`
+// and `workday`.
+import {
+  addStep as addStepShape,
+  applyDirectoryCommands,
+  applyProjectCommands,
+  type Client,
+  type ClientBoundaryFailure,
+  type ClientFailure,
+  type ClientInput,
+  type ClientReply,
+  createCalendarMarker as createCalendarMarkerShape,
+  createProject as createProjectShape,
+  exportProject as exportProjectShape,
+  getWorkItems,
+  importProject as importProjectShape,
+  listCalendarMarkers as listCalendarMarkersShape,
+  listExternalSystems as listExternalSystemsShape,
+  listPeople as listPeopleShape,
+  listProjects as listProjectsShape,
+  listServices as listServicesShape,
+  listTags as listTagsShape,
+  listTeams as listTeamsShape,
+  listWorkItemTypes as listWorkItemTypesShape,
+  patchProject as patchProjectShape,
+  type PlanDocument,
+  type PlanDocumentRequest,
+  readProject as readProjectShape,
+  recordProjectOpen,
+  redoProject as redoProjectShape,
+  removeCalendarMarker as removeCalendarMarkerShape,
+  removeStep as removeStepShape,
+  renameStep as renameStepShape,
+  retryProjectOptimization as retryProjectOptimizationShape,
+  undoProject as undoProjectShape,
+  updateCalendarMarker as updateCalendarMarkerShape,
+  validateSchema,
+} from '@wbs/contracts';
+import type { DependencyReach } from '@wbs/domain/dependency-reach';
+import type { PriorityBand } from '@wbs/domain/priority-band';
+// The second exception, and the cheaper one: `IsoDate` is `export type IsoDate =
+// string` in a module with no imports of its own, so this erases entirely at
+// build time. It is here rather than restated as `string` because a marker's
+// date being absolute — never a workday number — is the whole of task 7.4, and
+// a `string` on this seam would be the one place that claim is not written down.
+import type { SettableStatus, WorkItemStatus } from '@wbs/domain/progress';
+import type { IsoDate } from '@wbs/domain/workday';
+
+import { browserClient, unreachable } from './http';
+import { type RefusalWords, sentenceForRefusal } from './refusal';
+
+/**
+ * How a project turns its three-point estimates into the one number it plans
+ * with. Mirrors `EstimateMethod` in `libs/wbs/domain/domain`.
+ *
+ * Declared here rather than imported, like every other wire type in this file:
+ * `libs/wbs/domain/domain` pulls in arktype for its runtime validation, and none of that
+ * belongs in a browser bundle. be-01 validates the value at its boundary — the
+ * client's copy is a description of what comes back, not the rule.
+ */
+export const ESTIMATE_METHODS = ['pert', 'optimistic', 'realistic', 'pessimistic'] as const;
+export type EstimateMethod = (typeof ESTIMATE_METHODS)[number];
+
+/** Whether `value` is one of the four, for reading a `<select>`'s string back. */
+export function isEstimateMethod(value: string): value is EstimateMethod {
+  return (ESTIMATE_METHODS as readonly string[]).includes(value);
+}
+
+/**
+ * The coefficients a project's PERT figure weighs its three points by, and whose
+ * **sum** is the divisor — 1/4/1 is the textbook `/6`, 1/1/1 a plain average.
+ *
+ * Declared here for {@link EstimateMethod}'s reason. be-01 refuses a triple
+ * that cannot average one — negative, non-finite, or summing to zero — with a
+ * 422; this is the description of what comes back, not the rule.
+ */
+export interface PertWeightsView {
+  optimistic: number;
+  realistic: number;
+  pessimistic: number;
+}
+
+/**
+ * How one step's combined figure is charged as days: `floor`, `round`, `ceil`,
+ * or `exact` for the fraction the method produced.
+ *
+ * `ceil` unless the project says otherwise, and applied **per step** before any
+ * sum is taken — a work item's total is the sum of its steps' charged days, and
+ * a parent's is the sum of its descendants'. Mirrors `EstimateRounding` in
+ * `libs/wbs/domain/domain`.
+ */
+/**
+ * The coefficients a project has unless it says otherwise: `(1×o + 4×r + 1×p)`
+ * over their sum, which is the textbook PERT triple.
+ *
+ * Mirrored here rather than imported from `libs/wbs/domain/domain`'s
+ * `DEFAULT_PERT_WEIGHTS`, exactly as {@link ESTIMATE_ROUNDINGS} below mirrors
+ * `EstimateRounding`: this module is the front end's boundary onto be-01's
+ * payloads, and the four `@wbs/domain/*` aliases the browser build resolves are
+ * registered in five files apiece. The domain remains the source of record —
+ * this is a placeholder for the moment before a read has landed, and every
+ * figure the table actually draws comes from `tree.pertWeights`.
+ */
+export const DEFAULT_PERT_WEIGHTS_VIEW: PertWeightsView = {
+  optimistic: 1,
+  realistic: 4,
+  pessimistic: 1,
+};
+
+export const ESTIMATE_ROUNDINGS = ['exact', 'floor', 'round', 'ceil'] as const;
+export type EstimateRoundingView = (typeof ESTIMATE_ROUNDINGS)[number];
+
+/** Whether `value` is one of the four, for reading a control's string back. */
+export function isEstimateRounding(value: string): value is EstimateRoundingView {
+  return (ESTIMATE_ROUNDINGS as readonly string[]).includes(value);
+}
+
+export interface Days {
+  optimistic: number;
+  realistic: number;
+  pessimistic: number;
+}
+
+/**
+ * When a work item can happen, in whole days from the project's day zero.
+ *
+ * No dates: a calendar brings weekends, holidays and timezones, and none of them
+ * are needed to answer what is waiting on what. `estimated` is what stops a
+ * zero-day row being read as instant when it means nobody has looked.
+ */
+export interface ScheduleView {
+  duration: number;
+  estimated: boolean;
+  earliestStart: number;
+  earliestFinish: number;
+  latestStart: number;
+  latestFinish: number;
+  float: number;
+  critical: boolean;
+}
+
+/**
+ * What decided a slice's start: the latest of its floors, named.
+ *
+ * `projectStart` means nothing did. `predecessor` is a dependency onto another
+ * work item, `stepOrder` the work item's own earlier step, `notBefore` a
+ * manual date, `person` the assignee finishing something else, and `capacity`
+ * the work item's **team** having no slot free. A tie is never `person` and
+ * never `capacity`: whoever came free exactly as the dependency cleared was not
+ * holding anything up, and between the two the person is named first. be-01's
+ * `ScheduleFloor` is the rule; this is a description of what comes back.
+ *
+ * `optimizer` is the seventh, and it is here **before** anything can send it.
+ * A wire type narrower than the wire is a lie the compiler enforces: every
+ * exhaustive read of this union would have been checked against six members
+ * while be-01's `ScheduleFloor` already had seven, so the day TASK-220 makes
+ * the optimized route reachable, the missing member surfaces as a payload the
+ * types swore was impossible rather than as a build failure. `gantt-geometry`'s
+ * `BindingFloor` — the same union declared again for a module that knows
+ * nothing about fetching — has carried it since task 4.10; this closes the gap
+ * between them.
+ */
+export type ScheduleFloorView =
+  'projectStart' | 'predecessor' | 'stepOrder' | 'notBefore' | 'person' | 'capacity' | 'optimizer';
+
+/**
+ * One placed slice — one work item's work for one step — as be-01 sends it.
+ *
+ * A row's {@link ScheduleView} is the span this is a projection of, and both
+ * are carried because neither answers the other's question: a row does not say
+ * which step ran when, and a slice does not know its parent's bracket.
+ *
+ * `id` is be-01's own key for the slice and is **opaque** — a string to look up,
+ * never to take apart. `resourcePredecessorId` names another entry of the same
+ * array by that id: the slice this one's assignee was busy with, and only where
+ * `boundBy` is `person`, so a link drawn from it is a wait that really happened.
+ * Reconstructing the id from `workItemId` and `stepId` would be a second copy of
+ * be-01's `sliceKey`, and the two would disagree the day either changes.
+ *
+ * The numbers are be-01's verbatim, fractions and all — a chart drawn from them
+ * and the Start/End columns beside it are then reading the same plan.
+ */
+export interface SliceView {
+  id: string;
+  workItemId: string;
+  /** Null only in a project holding no steps at all, which is reachable. */
+  stepId: string | null;
+  personId: string | null;
+  duration: number;
+  /** False when nobody has estimated this pair, which is not the same as zero days. */
+  estimated: boolean;
+  earliestStart: number;
+  earliestFinish: number;
+  latestStart: number;
+  latestFinish: number;
+  float: number;
+  critical: boolean;
+  boundBy: ScheduleFloorView;
+  resourcePredecessorId: string | null;
+  /** The team pool that set a capacity floor, or null for every other floor. */
+  capacityTeamId: string | null;
+  /**
+   * How many of its team's slots this slice held while it ran — the
+   * **effective** width be-01 scheduled with.
+   *
+   * Already clamped to the team's size and already 1 wherever somebody is
+   * named on the work (one human cannot work beside themselves). The number
+   * somebody *typed* is {@link WorkItemView.maxParallel}, and the two
+   * differing is a fact the chart, the table and the export each state.
+   */
+  width: number;
+  /**
+   * The days of work this slice is, before it was compressed across
+   * {@link SliceView.width} slots — `duration` is `effort / width`.
+   *
+   * Both, because neither answers the other's question: the bar is drawn across
+   * the duration and the estimate the reader typed is the effort. Recomputing
+   * either from the other here would be a second division beside be-01's.
+   */
+  effort: number;
+  /**
+   * Every placed slice that had to end for this one to fit its team's pool.
+   *
+   * The whole blocking set, of which `resourcePredecessorId` names the one an
+   * arrow is drawn from — be-01 picks the latest finisher. Empty for every
+   * floor but `capacity`, and never empty under it: the panel refuses a
+   * capacity floor with nothing behind it rather than drawing a sentence with a
+   * hole in it.
+   */
+  capacityPredecessorIds: string[];
+  /**
+   * How many whole workdays this slice finished past its effective deadline,
+   * or null where it met the deadline or had none.
+   *
+   * be-01's number, read and never recomputed. The client holds
+   * {@link WorkItemView.deadline} and the slice's own dates one column away
+   * from each other, and subtracting them here would be a second implementation
+   * of the arithmetic the plan was actually built with — see that field's own
+   * note. `null` and not `0`: met and missed-by-nothing are the same state, and
+   * the engine says so by publishing nothing rather than a zero the view would
+   * have to special-case into silence.
+   */
+  lateBy: number | null;
+}
+
+export interface WorkItemView {
+  id: string;
+  parentId: string | null;
+  /**
+   * How many times be-01 has written to this work item, counting writes to its
+   * estimates, assignees and dependencies.
+   *
+   * Nothing on screen uses it yet, and nothing sends it back. It is here so a
+   * client that holds a row can later say "apply this only if it has not moved
+   * since I read it" — the primitive conditional undo and write preconditions
+   * are both built on. be-01 owns the rule; this is a description of what
+   * arrives.
+   *
+   * It does **not** move when {@link WorkItemView.number} does. A create
+   * anywhere above renumbers rows nobody wrote to, and the table already
+   * refetches for that.
+   */
+  revision: number;
+  number: string;
+  name: string;
+  notes: string;
+  frozenNumber: string | null;
+  /** True when the estimates are sums of descendants and so not editable here. */
+  rolledUp: boolean;
+  estimates: Record<string, Days>;
+  /** The work items this one waits for, by id. Either end may be a parent. */
+  dependsOn: string[];
+  /**
+   * The one number this row is planned with, per step, and their sum — the
+   * project's estimate method applied to the trio above.
+   *
+   * be-01 computes both, from the same call the schedule's durations come
+   * from. Working them out here instead would be a second implementation of
+   * "the final estimate" sitting one column away from the dates it must agree
+   * with.
+   */
+  finalDays: Record<string, number>;
+  finalTotal: number;
+  /**
+   * When this happens on a calendar, or null while the project has no start
+   * date or the schedule could not be computed.
+   *
+   * Working days only, and `endsOn` is the last day the work is still on
+   * rather than the day after. Computed by be-01 with the project's start
+   * date; the client renders it and counts nothing.
+   */
+  dates: { startsOn: string; endsOn: string } | null;
+  /** A day this item may not start before — a floor the dependencies can push past. */
+  startNoEarlierThan: string | null;
+  /**
+   * Why, in the planner's own words, or null where nobody has said.
+   *
+   * Words about {@link WorkItemView.startNoEarlierThan} and nothing else — not a
+   * status, not a second thing holding the row back, and nothing any date is
+   * computed from. Null unless there is a date beside it: be-01 refuses the
+   * pair, so a client clearing the date sends both fields as null in the one
+   * patch.
+   *
+   * Shown where the date's effect is already explained — the bar's floor
+   * sentence when the not-before is the **binding** floor, and the Not before
+   * cell — and nowhere else, which is what keeps it from reading as a state of
+   * its own.
+   */
+  startNoEarlierThanReason: string | null;
+  /**
+   * The last day this work item may finish on, or null where nobody has said.
+   *
+   * Date-only and nullable, like the floor above it, and **no reason column
+   * beside it** — that was slice 1.1's deliberate choice, and it is why
+   * clearing this is the one field and never a pair.
+   *
+   * Nothing here is computed from it: be-01 resolves the stored date against
+   * the project's start into the offsets the scheduler is given, and answers
+   * with {@link SliceView.lateBy}. A miss counted in this client would be a
+   * second implementation of the lateness one column away from the number the
+   * plan was actually built with.
+   */
+  deadline: string | null;
+  /**
+   * What this work item reads as — `unknown`, `in_progress` or `done` — folded
+   * by be-01 from its steps' progress and, for a parent, from its children.
+   * Never stored and never computed here: the Status cell shows it, and setting
+   * it goes through {@link ProjectApi.setStatus}, which writes every step.
+   */
+  status: WorkItemStatus;
+  /**
+   * The day work on this item actually began, or null where nobody has said.
+   * Date-only like the two constraints above it; read by no engine, drawn as the
+   * start of a done row's bar (ADR 0024).
+   */
+  factStart: IsoDate | null;
+  /**
+   * The day work on this item actually finished, or null where nobody has said.
+   * Filled with the reader's day by {@link ProjectApi.setStatus} when a row is
+   * marked done holding none; where a done row's bar stops, whatever the
+   * estimate says.
+   */
+  factEnd: IsoDate | null;
+  /**
+   * How important this work is — 1 upward, smaller first — or null where
+   * nobody has said.
+   *
+   * An ordering of be-01's leveller and nothing the client computes with: it
+   * decides which of two work items competing for one person is placed first,
+   * and the dates that come back are already the answer. Rendered as a number
+   * and sent back as one.
+   */
+  priority: number | null;
+  /**
+   * How many people may work on this item at once — 1 unless somebody has said
+   * otherwise, and never null.
+   *
+   * `1` and *unset* are the same fact — one at a time — so be-01's column is
+   * `NOT NULL DEFAULT 1` and sending `null` resets it to 1 rather than clearing
+   * it to a second spelling of the same state.
+   *
+   * An ordering of nothing: it compresses an item's own effort across up to
+   * this many of its team's slots, and the dates that come back are already the
+   * answer. A row with children carries whatever it was last given, inert —
+   * a parent holds no slices of its own to run in parallel.
+   */
+  maxParallel: number;
+  /**
+   * The teams this work is labelled with — **0..n**, and the only thing this
+   * client reads. Never constrains who is assigned the work.
+   *
+   * In be-01's order (by team id), so two reads of an unchanged plan give the
+   * same array. Empty means this row states nothing and takes its ancestor's
+   * set; `effectiveTeamsOf` in `libs/wbs/domain/domain` is the reading, shared with be-01's
+   * own scheduler so that a bar and the pool it was placed against cannot
+   * disagree.
+   *
+   * At most one member today: the write path sends one team until R2-4, and the
+   * surfaces that show a second are R2-3.
+   */
+  teamIds: string[];
+  /**
+   * The one team, or null — **written by be-01, read by nothing here.**
+   *
+   * Kept on the wire for one release because blue and green share a database
+   * and an fe-01 from the outgoing release is still served while the incoming
+   * be-01 answers it. `teamIds` above is what this client reads; R2-6 removes
+   * this field.
+   */
+  serviceTeamId: string | null;
+  /**
+   * What kind of thing this work item is, by tag id — `regulatory`,
+   * `tech-debt`, `q3-must-have`.
+   *
+   * In be-01's order (by tag id), so two reads of an unchanged plan give the
+   * same array. **What this row states, and only that** — since ADR 0008 the
+   * tags in force on it are these *plus* every ancestor's, and `effectiveTagsOf`
+   * in `libs/wbs/domain/domain` is that reading. It is no longer the walk `teamIds` above
+   * uses: a team is overridden by a nearer statement, a tag is added to.
+   *
+   * **Independent of `teamIds` in every respect.** A row states either, both or
+   * neither, and inheriting one says nothing about the other. There is no
+   * column behind this and never was — unlike `serviceTeamId` above, which is
+   * `teamIds`' outgoing copy, a tag's whole existence is the join table.
+   *
+   * **Nothing that computes a date reads this.** A team is a pool the scheduler
+   * spends; a tag is a label, and be-01 asserts the empty diff on a plan where a
+   * sized team really does decide dates.
+   *
+   * **Optional on the wire, and required on a `TreeRow`.** Blue and green run
+   * together during a swap, so an fe-01 carrying this change can be served a
+   * tree by the outgoing be-01, which has never heard of the field. `toTree` is
+   * the one place that absence is turned into an empty set; every surface above
+   * it reads a `string[]` and is right to. Typing it as always-present here
+   * would be this file asserting something about a release that does not exist
+   * yet.
+   */
+  tagIds?: string[];
+  /**
+   * What this work item delivers, by service id — the whole set, empty where
+   * nobody has said.
+   *
+   * **A list, as the two dimensions above are**, since task 10.2 replaced the
+   * column with `work_item_service` (design.md D2 as amended): a row delivers as
+   * many services as somebody states. Empty is _unstated_ and takes the
+   * ancestor's answer; `effectiveServicesOf` in `libs/wbs/domain/domain` is the reading, and
+   * it is the same walk `teamIds` and `tagIds` use, now with no conversion at
+   * either edge — the two singleton folds this field used to force are deleted.
+   *
+   * **Independent of `teamIds` and `tagIds` in every respect** — a row states
+   * any of the three, all of them or none, and inheriting one says nothing about
+   * the others. What relates a service to a team is the directory's ownership
+   * map ({@link TeamView.serviceIds}), which labels no work item at all.
+   *
+   * **Nothing that computes a date reads this**, `tagIds`' rule and for its
+   * reason: a team is a pool the scheduler spends, a service is what is being
+   * delivered, and be-01 asserts the empty diff on a plan where a sized team
+   * really does decide dates.
+   *
+   * **Optional on the wire, and required on a `TreeRow`** — `tagIds`' swap
+   * window, argued there. `undefined` here is "the be-01 that answered has never
+   * heard of services"; `toTree` folds it to `[]`, which is the one place it may,
+   * because every surface above reads a `string[]` and is right to. The
+   * distinction the singleton drew between `undefined` and `null` is gone with
+   * the null: absent and empty were only ever different to a reader who could do
+   * nothing with the difference.
+   */
+  serviceIds?: string[];
+  /**
+   * What kind of work this row **is**, by type id — `Story`, `Bug`, `Spike`.
+   *
+   * The fourth dimension, and the one whose empty set means something different
+   * from the three above it. Empty here is the **answer**: a row with no types
+   * has none, and does not take an ancestor's. There is no `effectiveTypesOf`
+   * beside `effectiveTagsOf`, and its absence is load-bearing —
+   * `docs/adr/0009-a-work-item-type-does-not-inherit-at-all.md`.
+   *
+   * That makes this the only one of the four a cell can draw without walking the
+   * tree, and the only one whose chips are all removable: nothing on it was
+   * stated somewhere else.
+   *
+   * **Optional on the wire, required on a `TreeRow`** — `tagIds`' swap window
+   * exactly. `undefined` is "the be-01 that answered has never heard of types";
+   * `toTree` folds it to `[]`, which is the one place it may.
+   */
+  typeIds?: string[];
+  /**
+   * Where this row's work also exists, in the order the refs were added.
+   *
+   * **The only reference-shaped field here that is a list of records rather
+   * than of ids**, and the reason is that a ref is not a label: a tag is a name
+   * from a vocabulary, a ref is a vocabulary name *plus* the address of one
+   * thing, so two refs into one system are two different links rather than one
+   * fact stated twice. Nothing inherits — a ref is on the row that carries it.
+   *
+   * **Optional on the wire, required on a `TreeRow`** — `tagIds`' swap window
+   * exactly. `undefined` is "the be-01 that answered has never heard of external
+   * refs"; `toTree` folds it to `[]`, which is the one place it may.
+   */
+  externalRefs?: ExternalRefView[];
+  /**
+   * Who does this work, by step id.
+   *
+   * `string | undefined` rather than `string`: a step nobody is assigned to is
+   * **absent** from this object, and a type saying otherwise would have every
+   * reader believing an index always finds somebody.
+   */
+  assignees: Record<string, string | undefined>;
+  /** The one person assumed to do every step, when exactly one is assigned. */
+  doesEveryStep: string | null;
+  /**
+   * `estimates` is **effort** and this is **span**. For a parent they differ:
+   * two independent children of 3 and 4 days are 7 days of work in a 4-day
+   * branch. Both are true, and the table labels them so.
+   */
+  schedule: ScheduleView;
+}
+
+export interface StepView {
+  id: string;
+  name: string;
+}
+
+/**
+ * Somebody an assignment on the tree names — their id and what they are called.
+ *
+ * A {@link PersonView} without the teams, because that is all the chart needs
+ * and all be-01 sends on this read: the teams are a question about who could be
+ * assigned, which is `/api/people`'s and the pickers'.
+ */
+export interface AssignedPersonView {
+  id: string;
+  name: string;
+}
+
+/**
+ * One work item whose {@link WorkItemView.doesEveryStep} a removal would move.
+ *
+ * Nobody wrote these rows: the assumption is derived from a work item holding
+ * exactly one assignment, so removing a step can promote somebody to covering
+ * every step or end that reading. be-01 computes them (`assumed-assignee.ts`)
+ * and the confirmation prints them, which is the only reason they cross the
+ * wire — the client never derives one.
+ */
+export interface AssumedAssigneeFlipView {
+  workItemId: string;
+  /** Who is assumed to be doing all of it now, or null for nobody. */
+  assumedNow: string | null;
+  /** Who would be, once the step and its assignments have gone. */
+  assumedAfter: string | null;
+}
+
+/** What removing a step would take with it, as be-01's refusal reports it. */
+export interface StepUsage {
+  estimates: number;
+  actuals: number;
+  progress: number;
+  measures: number;
+  /** Explicit assignments on this step. The assumed ones are in `assumedAssignees`. */
+  assignments: number;
+  assumedAssignees: AssumedAssigneeFlipView[];
+}
+
+/**
+ * What came of asking for a step to be removed.
+ *
+ * `in_use` is a **modeled answer** rather than a thrown code, for the reason
+ * {@link UndoResult}'s refusals are: it is an ordinary state of a plan somebody
+ * has been estimating, and the counts riding along with it are the whole point
+ * of the refusal — the next request is the same one with the cascade, and
+ * nobody can agree to that without being told what it takes. Every other
+ * refusal throws its code, which {@link stepRefusalSentence} turns into a
+ * sentence.
+ */
+export type StepRemoval = { ok: true } | { ok: false; reason: 'in_use'; inUse: StepUsage };
+
+/**
+ * A service or team, global to this deployment. A name and nothing else.
+ *
+ * **No `size`, and its absence is the change.** A team used to carry one global
+ * number for every plan on the deployment; since `capacity-per-project` the
+ * number is the plan's, and be-01 does not send the retired column at all —
+ * `/api/teams` answers `{ id, name }` and a be-01 test pins that shape. So a
+ * fallback to a team's global size cannot be written here: it does not compile.
+ *
+ * That is stronger than the test which used to stand in this file's place, and
+ * it is why that test is gone. How many of a team may be at work at once on one
+ * plan is {@link TeamCapacityView}.
+ */
+export interface TeamView {
+  id: string;
+  name: string;
+  /**
+   * The services this team is **responsible for** — the ownership map, shipped
+   * whole (design D4).
+   *
+   * Not a label on any work item and not inherited: it is directory data about
+   * the team itself, edited on the team's own row. The client needs the map per
+   * row anyway to filter on **built by a non-owner** without a round trip, so
+   * be-01 sends the map rather than a derived flag — a flag would be a second
+   * copy of a rule the client already has to hold, and the copy nobody looks at
+   * is the one that drifts.
+   *
+   * Empty means a team that owns nothing, which is every team until somebody
+   * fills the map in: it ships with no data, because nothing may invent who owns
+   * what.
+   *
+   * **Optional on the wire, for the blue/green window and nothing else** —
+   * `WorkItemView.serviceIds`' rule one level up. `undefined` is "the be-01 that
+   * answered has never heard of services", which a browser holding the new
+   * bundle against the old server sees for the length of a deploy; `[]` is "it
+   * has, and this team owns none". They are the same thing to every reader here,
+   * so `WbsTable` folds the first into the second in the one place it may
+   * (`ownedServicesByTeam`) and nothing below that has to know. A crash in that
+   * window is what this costs a line to avoid.
+   */
+  serviceIds?: string[];
+}
+
+/**
+ * A tag, global to this deployment. A name and nothing else, and the absence is
+ * bigger than {@link TeamView}'s.
+ *
+ * A team has no `size` **any more**; a tag has never had one and has no
+ * per-project table beside it either, so there is no `TagCapacityView` under
+ * this and nothing to write one from. A reader who notices that the directory
+ * page renders tags with no capacity column has learned the model rule.
+ */
+export interface TagView {
+  id: string;
+  name: string;
+}
+
+/**
+ * One link out of a work item: which system, and where.
+ *
+ * `systemId` is the **stored** derivation (design D1) — `systemOfUrl` answered
+ * it when the ref was written and nothing re-derives it on read, so a ref keeps
+ * the type it was given when the rule later changes. A reader who overrode the
+ * derived type simply has a stored value that differs from what the deriver
+ * would say today, and nothing on this client may quietly correct that.
+ *
+ * `url` is a string and not a parsed URL: it is stored as typed, so **every
+ * surface that renders it as a link checks the scheme first**
+ * ({@link followableHref}). A `javascript:` URL written by a peer edit is the
+ * fault that rule exists for.
+ */
+export interface ExternalRefView {
+  id: string;
+  systemId: string;
+  url: string;
+  /**
+   * What a reader calls this link, or `''` where nobody has said.
+   *
+   * **A stated absence and the only spelling of one** — the column is
+   * `NOT NULL DEFAULT ''` — so no surface here has to collapse two ways of
+   * saying the same thing. Where it is `''`, `refLabelOf(url)` is drawn in its
+   * place, computed at render rather than stored, so a rule added to that
+   * function improves every unnamed ref at once.
+   *
+   * Never fetched. Dany asked for it on 2026-09-09 as *"ticket key + summary"*;
+   * the summary is the reader's half, because a field filled from Jira would go
+   * quietly stale and this one cannot.
+   */
+  name: string;
+}
+
+/**
+ * One external system in the global directory — {@link TagView}'s two columns.
+ *
+ * Seeded rather than empty, unlike every other vocabulary here: the names are
+ * exactly what `systemOfUrl` in `@wbs/domain` can answer, so the vocabulary and
+ * the deriving rule are one fact and a pasted URL can type itself on a
+ * deployment nobody has configured.
+ */
+export interface ExternalSystemView {
+  id: string;
+  name: string;
+}
+
+/**
+ * The `href` a ref may be followed by, or `null` for one that may only be read.
+ *
+ * **The scheme guard, and the one place it is decided.** A stored URL is
+ * external data on the way *out*: it was typed by somebody, or written by a
+ * peer edit, or seeded by a script, and neither be-01 nor `systemOfUrl` refuses
+ * a scheme at the write (design D1 — a mismatch has to stay storable or an
+ * override is impossible). So the renderer is where `javascript:` stops, and it
+ * stops on **both** surfaces — the hover card and the modal editor — by both of
+ * them asking here rather than each writing an `href` of its own.
+ *
+ * `null` is a modeled answer and not a failure: the ref is still shown, as
+ * text, because a reader who cannot follow a link is better served by seeing
+ * what it says than by an empty row. It is deliberately not a throw — a plan
+ * that renders nothing at all because one row holds a bad URL is worse than the
+ * URL.
+ *
+ * @returns the URL, when it parses as `http:` or `https:`; `null` otherwise,
+ * including for a string no `URL` constructor accepts.
+ */
+export function followableHref(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? url : null;
+}
+
+/**
+ * One work item type in the global directory — {@link TagView}'s two columns,
+ * and for its reason plus one of its own.
+ *
+ * A tag has no size because nothing about a tag is spent. A type has none for
+ * that reason and because the change that added it rules out a type deciding
+ * anything: no colour, no default, no ordering weight. It is a label, and a
+ * reader's taxonomy is not this tool's to interpret.
+ */
+export interface WorkItemTypeView {
+  id: string;
+  name: string;
+}
+
+/**
+ * One service in the global directory — {@link TagView}'s two columns, and for
+ * a different absence again.
+ *
+ * A tag has no size because nothing about a tag is spent. A service has none
+ * because a service is not a pool either: it is what the work is *part of*, and
+ * who has the people is still {@link TeamView}, whose ownership of services is
+ * {@link TeamView.serviceIds} and not a column here.
+ *
+ * **Read-only on this client so far.** Adding, renaming and removing a service
+ * are the directory page's, and that card is task 7.5; the list arrived early
+ * because the filter's service facet cannot name what it offers without it
+ * (task 6.3). A reader who notices `listServices` standing alone where the tags
+ * have four methods has read the order the change is being built in, not a gap
+ * in the API.
+ */
+export interface ServiceView {
+  id: string;
+  name: string;
+}
+
+/**
+ * How many of one team may be at work at once **on one project's plan**.
+ *
+ * A team the plan has stated nothing about is **absent** from the list, not
+ * present with a `null`: unstated constrains that team's work on that plan not at
+ * all, and it has one spelling on the wire exactly as it has one in the database.
+ * There is deliberately no fallback to a team's retired global size — Dany,
+ * 2026-08-13 — and since that column left {@link TeamView} there is nothing here
+ * to fall back to.
+ */
+export interface TeamCapacityView {
+  serviceTeamId: string;
+  /** At least 1. Never null, and never zero — a pool of no slots is a plan of infinite dates. */
+  size: number;
+}
+
+/**
+ * One rung of what this project calls its priority numbers.
+ *
+ * Structurally {@link PriorityBand} from `libs/wbs/domain/domain`, and named apart for the
+ * reason every other `…View` in this file is: this is the shape on the wire, and
+ * the day be-01 sends a field the domain type does not carry, the two must be
+ * free to differ. The resolution rules — `priorityBandRankOf`,
+ * `priorityLadderProblem` — are the domain's and are imported rather than
+ * re-typed, because a second copy of "which band holds 25" is a second answer.
+ */
+export type PriorityBandView = PriorityBand;
+
+/**
+ * Whether the assignee is a human being or an AI agent.
+ *
+ * Two arms and no third, the same closed set be-01 checks in
+ * `DirectoryService`: a value outside it is `invalid_kind`, a **400**, and this
+ * type is what keeps the page from ever sending one.
+ *
+ * Named `…View` like everything else here because it is the shape on the wire,
+ * and structurally be-01's `PersonKind` rather than an import of it: fe-01 does
+ * not depend on the backend's repository types, and the day be-01 grows a third
+ * arm this file is where the page learns of it.
+ *
+ * An array first and a type off it, {@link ESTIMATE_METHODS}' shape, because a
+ * `<select>` hands its value back as a `string` and something has to narrow it.
+ */
+export const PERSON_KINDS = ['person', 'agent'] as const;
+export type PersonKindView = (typeof PERSON_KINDS)[number];
+
+/** Whether `value` is one of the two, for reading a `<select>`'s string back. */
+export function isPersonKind(value: string): value is PersonKindView {
+  return (PERSON_KINDS as readonly string[]).includes(value);
+}
+
+/** The identity a create command returns before the directory is read again. */
+export interface PersonIdentityView {
+  id: string;
+  name: string;
+  /**
+   * **Required, and never defaulted here.**
+   *
+   * The column is `NOT NULL DEFAULT 'person'`, so every row that comes back out
+   * of be-01 carries a kind whether or not anybody ever sent one — which is
+   * exactly what makes "existing people render as `person` without a request"
+   * (task 7.1) a fact about the read rather than a client-side fallback. A
+   * `kind?: PersonKindView` with `?? 'person'` at the render would draw the
+   * word `person` for a payload that said nothing, and the page would look
+   * identical on the day be-01 stopped sending the field at all.
+   */
+  kind: PersonKindView;
+}
+
+/** Somebody who does work, and the teams they belong to. Empty means a free agent. */
+export interface PersonView extends PersonIdentityView {
+  teamIds: string[];
+}
+
+/**
+ * What removing a directory entry would do to one work item, as be-01 names it.
+ *
+ * Each arm names its kind **and what that kind does**, rather than a count
+ * somebody would have to interpret. Mirrors `DirectoryEffect` in
+ * `apps/wbs/be-01/src/service/directory-usage.ts`, which owns the rule; this is a
+ * description of what arrives.
+ */
+export type DirectoryEffect =
+  | { kind: 'assignment_dropped'; step: { id: string; name: string } }
+  | { kind: 'label_nulled' }
+  /**
+   * The row carries the **tag** being removed, and will stop carrying it.
+   *
+   * Its own kind rather than `label_nulled`, because nothing is nulled: a tag
+   * has no column on the work item to clear, and what goes is the labelling
+   * row. It never appears beside a `capacity_released` — a tag has no pool —
+   * and it is never named on a row that merely *inherits* the tag, because
+   * losing an inherited tag moves no date and there is nothing to confirm.
+   */
+  | { kind: 'label_removed' }
+  | {
+      /**
+       * The pool bounding this work item goes with the team, so its dates may
+       * move earlier.
+       *
+       * Named on **inheriting** rows too, which is why it is a separate arm
+       * from `label_nulled` rather than a field on it: a leaf under a labelled
+       * parent holds no label to clear and its dates move exactly as the
+       * labelled row's do. A confirmation carrying only `label_nulled` would
+       * show one row and move twenty.
+       */
+      kind: 'capacity_released';
+      /** How many of the team may be at work at once today — the bound that goes. */
+      size: number;
+      /**
+       * The row whose label puts this one on the pool: this row itself, or the
+       * nearest ancestor above it that carries the team.
+       *
+       * Equal to the row's own id exactly when the label is its own, so the
+       * payload never says "inherited" twice.
+       */
+      fromId: string;
+    }
+  | {
+      kind: 'assumed_assignee_changed';
+      /**
+       * The **assumed assignee**'s name, or `null` — and `null` means
+       * `unassigned`. A removal that takes a work item's sole assignee names
+       * the flip rather than leaving it to be inferred from an absence, which
+       * is why the confirmation can print it without deriving anything.
+       */
+      assumedNow: string | null;
+      assumedAfter: string | null;
+    };
+
+/** One work item a removal would touch, named as the plan shows it. */
+export interface UsedWorkItem {
+  id: string;
+  /** The derived number the plan shows — `3.1`, never a row index. */
+  number: string;
+  name: string;
+  effects: DirectoryEffect[];
+}
+
+export interface UsedProject {
+  id: string;
+  name: string;
+  workItems: UsedWorkItem[];
+}
+
+/**
+ * **Directory usage**: what removing a person or a service team would take with
+ * it, named rather than counted.
+ *
+ * Both halves are always present and never optional. A confirmation reading
+ * `usage.members` has to be able to tell "nobody" from "this payload does not
+ * say", and an absent key says the second while meaning the first. The shared
+ * endpoint response schema refuses a body missing either.
+ */
+export interface DirectoryUsage {
+  projects: UsedProject[];
+  members: { id: string; name: string }[];
+}
+
+/**
+ * What came of asking for a person or a service team to be removed.
+ *
+ * `in_use` is a **modeled answer** rather than a thrown code, for the reason
+ * {@link StepRemoval}'s is: the usage riding along with it is the whole value of
+ * the refusal. The next request is the same one with the cascade, and nobody
+ * can agree to that without being shown what it takes.
+ */
+export type DirectoryRemoval =
+  { ok: true } | { ok: false; reason: 'in_use'; usage: DirectoryUsage };
+
+/**
+ * What came of renaming a person or a service team, or editing memberships.
+ *
+ * `taken` is modeled for the same reason and a second one: it carries the
+ * **surviving** name — the one the row that already holds it keeps — and a
+ * sentence built from what was typed would read `“ Kat ”` where be-01 kept
+ * `Kat`. Every other refusal throws its code, which
+ * {@link directoryRefusalSentence} turns into a sentence.
+ */
+export type DirectoryWrite<T> =
+  { ok: true; entry: T } | { ok: false; reason: 'taken'; survivingName: string };
+
+/**
+ * The parts of a person a patch may change.
+ *
+ * An absent `teamIds` leaves the memberships alone and an empty one makes a
+ * **free agent** — be-01 tells the two apart, so this type must not collapse
+ * them into one optional array with a default.
+ */
+export interface PersonPatch {
+  name?: string;
+  /**
+   * Marks somebody a person or an agent. Absent leaves the classification
+   * alone, exactly as an absent `name` leaves the name alone.
+   *
+   * Typed as the closed set rather than `string`, which is where this differs
+   * from be-01's own `PersonPatchInput`: the controller takes a `string` on
+   * purpose, so that a value outside the set reaches the service and is refused
+   * as `invalid_kind` rather than being turned away by the framework's
+   * validator (4.4). Nothing on this page can produce such a value — the
+   * control offers two options — so the narrow type here costs nothing and
+   * makes a third arm a compile error rather than a 400.
+   */
+  kind?: PersonKindView;
+  teamIds?: readonly string[];
+}
+
+/**
+ * The parts of a team a patch may change.
+ *
+ * {@link PersonPatch}'s shape and its rule about absence, one entity over: an
+ * absent `serviceIds` leaves the **ownership map** alone and an empty one makes
+ * a team that owns nothing. be-01 tells those two apart inside its own write
+ * transaction, so this type must not collapse them into one array with a
+ * default.
+ *
+ * `serviceIds` is the whole set as it will stand, not a delta — it is the same
+ * full-replacement bargain `teamIds` makes, and for the same reason: a delta
+ * needs the client to know what it is diffing against, and this page redraws
+ * from a directory somebody else may have changed.
+ *
+ * This is directory data **about a team**, not a label on anybody's work: it
+ * says which services the team is responsible for, which is what makes a row
+ * built by a non-owner nameable at all (Dany, 2026-08-20 23:18).
+ */
+export interface TeamPatch {
+  name?: string;
+  serviceIds?: readonly string[];
+}
+
+/**
+ * The deployment's directory, and everything the directory page does to it.
+ *
+ * Separate from {@link ProjectApi} because it belongs to no project: these four
+ * reads are the same on every page, and `httpProjectApi`'s own directory
+ * methods delegate here so each call has exactly one spelling.
+ */
+export interface DirectoryApi {
+  listPeople(): Promise<PersonView[]>;
+  listTeams(): Promise<TeamView[]>;
+  /** Every tag in the global directory, by name. */
+  listTags(): Promise<TagView[]>;
+  /** Every service in the global directory, by name. */
+  listServices(): Promise<ServiceView[]>;
+  /** Every work item type in the global directory, by name. */
+  listWorkItemTypes(): Promise<WorkItemTypeView[]>;
+  /** Adds a work item type — `addTag`'s shape. Idempotent by name at be-01. */
+  addWorkItemType(name: string): Promise<WorkItemTypeView>;
+  /**
+   * Every external system in the global directory, by name.
+   *
+   * **Read-only, and unlike the tags there is no `add` beside it.** The
+   * vocabulary is seeded with exactly the names `systemOfUrl` can answer, and
+   * be-01 offers no create: a ref naming a system the directory does not hold is
+   * refused whole with `unknown_system`. So the ref editor picks from this list
+   * rather than creating from it — see the ref modal for what a reader does with
+   * a URL no rule claims.
+   */
+  listExternalSystems(): Promise<ExternalSystemView[]>;
+  renameWorkItemType(typeId: string, name: string): Promise<DirectoryWrite<WorkItemTypeView>>;
+  /**
+   * Removes a work item type. Without `cascade` a type anything carries is
+   * refused with the usage naming what would be unlabelled — `removeTag`'s
+   * shape, and the same 409-then-confirm gesture.
+   */
+  removeWorkItemType(typeId: string, cascade: boolean): Promise<DirectoryRemoval>;
+  addTag(name: string): Promise<TagView>;
+  renameTag(tagId: string, name: string): Promise<DirectoryWrite<TagView>>;
+  /**
+   * Removes a tag. Without `cascade` a tag anything carries is refused with the
+   * usage naming what would be unlabelled — `removeTeam`'s shape, and the same
+   * 409-then-confirm gesture.
+   */
+  removeTag(tagId: string, cascade: boolean): Promise<DirectoryRemoval>;
+  /**
+   * Adds a service, idempotent by name at be-01.
+   *
+   * Read-only on the plan page until 2026-08-23, when Dany made the service
+   * cell search-or-add like Tags; the cell now creates through here.
+   */
+  addService(name: string): Promise<ServiceView>;
+  renameService(serviceId: string, name: string): Promise<DirectoryWrite<ServiceView>>;
+  /**
+   * Removes a service — `removeTag`'s shape exactly, and since task 10.2 that
+   * is literal rather than analogous: the removal takes labelling **rows** off
+   * `work_item_service` and nulls no column, so its usage arrives as
+   * `label_removed` like a tag's and not as the `label_nulled` a team's does.
+   *
+   * The `team_service` rows it also takes are deliberately **absent** from that
+   * usage (design.md D7): losing an ownership claim about a service that is
+   * going is not an effect on any plan.
+   */
+  removeService(serviceId: string, cascade: boolean): Promise<DirectoryRemoval>;
+  /** Adds a person; no teams means a **free agent**. Idempotent by name at be-01. */
+  addPerson(name: string, teamIds: readonly string[]): Promise<PersonIdentityView>;
+  addTeam(name: string): Promise<TeamView>;
+  /**
+   * Renames a person, marks them a person or an agent, sets exactly the teams
+   * they belong to, or any of those at once — one method for the one route,
+   * `patchTeam`'s standing argument.
+   */
+  patchPerson(id: string, patch: PersonPatch): Promise<DirectoryWrite<PersonView>>;
+  /**
+   * Renames a team, or sets exactly the services it is responsible for, or
+   * both — `patchPerson`'s shape, and **one** spelling for the one route
+   * be-01 offers.
+   *
+   * It was `renameTeam(id, name)` until task 7.5's ownership picker needed the
+   * other field. A second method beside it would have been two ways to write
+   * `PATCH /api/teams/:id`, which is how a page and a picker come to disagree
+   * about what a team is — this client's own standing argument.
+   */
+  patchTeam(id: string, patch: TeamPatch): Promise<DirectoryWrite<TeamView>>;
+  /**
+   * Removes a person, or answers the **directory usage** that would go with
+   * them.
+   *
+   * Called first without a cascade, always: be-01 removes an entry nothing
+   * points at outright and refuses one that is used, with its usage. `cascade`
+   * is the caller saying it has shown that usage to somebody and been told to
+   * go on.
+   */
+  removePerson(id: string, cascade: boolean): Promise<DirectoryRemoval>;
+  removeTeam(id: string, cascade: boolean): Promise<DirectoryRemoval>;
+}
+
+export interface DeleteOptions {
+  strategy?: 'cascade' | 'promote';
+}
+
+/**
+ * What came of walking one step along the undo stack.
+ *
+ * A refusal is a **modeled answer** rather than a thrown error, because both
+ * of them are ordinary states of a shared plan rather than faults: a stack
+ * with nothing left in it, and a change somebody else has since written over.
+ * A network failure still throws — that is the caller's to report as a failed
+ * request, and it says nothing about the stack.
+ */
+export type UndoResult =
+  | {
+      ok: true;
+      /** What was reversed, as be-01 phrased it: `rename “Strip”`. */
+      done: string;
+      /** What could not be put back exactly, or null when everything was. */
+      detail: string | null;
+    }
+  | {
+      ok: false;
+      reason: 'nothing_to_undo' | 'stale_undo';
+      /** Which change stood in the way, for `stale_undo`. */
+      detail: string | null;
+    };
+
+/**
+ * One project as the picker offers it — what fe-01 **reads** of a list entry.
+ *
+ * A subset, deliberately: `GET /api/projects` sends the whole project row plus
+ * the owner's name, and the owner id, estimate method and revision are all on
+ * the wire and none of them are on this screen. Naming only what is read is
+ * the honest version, and it is not a description of the wire —
+ * nobody should later read this as be-01's contract and delete a field from
+ * the query to make the two match. `startDate` is the one wire field this now
+ * reads beyond the entry's own meta: the hover card prints it, and it is the
+ * only project field cheap enough to be worth it — everything else the card
+ * might show (step counts, last *modified*) is not on this wire at all.
+ *
+ * Separate from {@link CreatedProject} because the two routes answer different
+ * things: one type standing for both is how `createProject` came to declare a
+ * `lastOpenedAt` the create route has never sent.
+ */
+export interface ProjectListEntry {
+  id: string;
+  name: string;
+  restricted: boolean;
+  /** When this account last opened it, or null if it never has. */
+  lastOpenedAt: number | null;
+  /** The username of the account that owns it — the first half of the entry meta. */
+  ownerName: string;
+  /**
+   * The calendar day the plan begins, or null while it is not on a calendar.
+   *
+   * On the wire already (see the type's head comment) and read here for the
+   * hover card alone: the picker entry itself never prints it, only the card.
+   */
+  startDate: string | null;
+  /**
+   * When the project was made, as an **epoch millisecond**.
+   *
+   * An instant rather than a calendar day, which is what decides the formatter:
+   * `shortInstant` prints it in the reader's own zone, and `shortIsoDate` — the
+   * table's Start, End and Not before cells — is for the zone-free days a plan
+   * is made of. See `components/wbs/short-date.ts`.
+   */
+  createdAt: number;
+}
+
+/**
+ * A project as the create route answers with it — again, what fe-01 reads.
+ *
+ * No `lastOpenedAt`: create writes the project and answers with it, and an
+ * account's navigation history is not part of a row that has just come into
+ * being. The page selects the id and reloads the list, which is where the
+ * fuller entry comes from.
+ */
+export interface CreatedProject {
+  id: string;
+  name: string;
+  restricted: boolean;
+}
+
+export type ScheduleEngineView = 'fast' | 'optimized';
+export type ScheduleObjectiveView = 'pri' | 'time';
+
+export interface ProjectOptimizationPatch {
+  readonly optimizationEnabled?: boolean;
+  readonly scheduleEngine?: ScheduleEngineView;
+  readonly scheduleObjective?: ScheduleObjectiveView;
+}
+
+export type OptimizationVariantView =
+  | {
+      readonly state: 'ready';
+      readonly proof: 'proven' | 'incomplete' | 'quantisation-floor';
+    }
+  | { readonly state: 'pending' }
+  | { readonly state: 'retrying' }
+  | {
+      readonly state: 'failed';
+      readonly reason:
+        | 'timeout'
+        | 'invalid-output'
+        | 'no-solution'
+        | 'internal-error'
+        | 'oom'
+        | 'horizon-overflow'
+        | 'objective-overflow';
+    }
+  | { readonly state: 'corrupt'; readonly message: string }
+  | {
+      readonly state: 'plan-infeasible';
+      readonly items: readonly {
+        readonly ownerWorkItemId: string;
+        readonly boundWorkItemId: string;
+        readonly effectiveDeadlineOffset: number;
+      }[];
+    }
+  | { readonly state: 'idle' };
+
+/** The selected schedule and both same-input optimizer states from one plan read. */
+export interface PlanOptimizationView {
+  readonly enabled: boolean;
+  readonly engine: ScheduleEngineView;
+  readonly objective: ScheduleObjectiveView;
+  readonly inputHash: string;
+  readonly generation: number | null;
+  readonly contractVersion: string;
+  readonly budgetMs: number;
+  readonly displayed: 'fast' | ScheduleObjectiveView;
+  readonly variants: Readonly<Record<ScheduleObjectiveView, OptimizationVariantView>>;
+  /**
+   * The project finish each computed schedule reaches, in workdays from day
+   * zero. `fast` always; a variant's only while be-01 holds a schedule for it.
+   *
+   * Absolute figures rather than one delta, because the cue reads all three
+   * schedules at once: a delta against Fast is a subtraction of two of these,
+   * and which variant is worth *switching to* is a comparison against whichever
+   * one is displayed. See `optimization-cue-reading.ts`.
+   */
+  readonly finishDays: { readonly fast: number } & Readonly<
+    Partial<Record<ScheduleObjectiveView, number>>
+  >;
+  /**
+   * Whether a variant places the slices it shares with Fast in the same
+   * relative order — present exactly where that variant has a finish above.
+   *
+   * Computed by be-01 over the materialised schedules (`dual-optimized-scheduler`
+   * tasks.md 8.7): it is the half of the comparison no client can derive from
+   * the numbers on the wire, and a second implementation here would label the
+   * same pair differently.
+   */
+  readonly sameOrderAsFast: Readonly<Partial<Record<ScheduleObjectiveView, boolean>>>;
+}
+
+/**
+ * The project's work items, and the event sequence they were read at.
+ *
+ * The sequence is what a socket resumes from, so it belongs to the read that
+ * produced the rows: taken separately it would describe a different moment
+ * than the tree on screen.
+ *
+ * The shared response owns every top-level field. Only rows and steps are
+ * adapted here because the UI keeps mutable label lists and a smaller step view.
+ */
+type PlanReadWire = Extract<ClientReply<typeof getWorkItems>, { kind: 'success' }>['body'];
+
+/** The created project and file-local names reported after one archival restore. */
+export type PlanImportSummary = Extract<
+  ClientReply<typeof importProjectShape>,
+  { kind: 'success' }
+>['body'];
+
+/** A generated-client-validated refusal from the archival import route. */
+export type PlanImportRefusal = Extract<
+  ClientReply<typeof importProjectShape>,
+  { kind: 'refusal' }
+>['body'];
+
+/** Preserves every import refusal field, including a document location when one is supplied. */
+export class PlanImportRefusalError extends Error {
+  constructor(readonly refusal: PlanImportRefusal) {
+    super(refusal.error);
+    this.name = 'PlanImportRefusalError';
+  }
+}
+
+/** The first precise Standard Schema issue in a malformed archival file. */
+export class PlanDocumentSchemaError extends Error {
+  constructor(
+    readonly path: string,
+    readonly detail: string,
+  ) {
+    super('invalid_body');
+    this.name = 'PlanDocumentSchemaError';
+  }
+}
+
+/** Renders Standard Schema path segments in the document's dotted/indexed vocabulary. */
+function planDocumentIssuePath(
+  path: readonly (PropertyKey | { readonly key: PropertyKey })[] | undefined,
+): string {
+  if (path === undefined || path.length === 0) return 'document';
+  return path
+    .map((segment, index) => {
+      const key = typeof segment === 'object' ? segment.key : segment;
+      if (typeof key === 'number') return `[${String(key)}]`;
+      if (typeof key === 'symbol') throw new Error('JSON schema issue path contained a symbol');
+      return index === 0 ? key : `.${key}`;
+    })
+    .join('');
+}
+
+/** Parses and generated-client-validates one untrusted archival JSON file. */
+export async function planDocumentRequestFromJson(json: string): Promise<PlanDocumentRequest> {
+  let untrustedDocument: unknown;
+  try {
+    untrustedDocument = JSON.parse(json);
+  } catch (cause) {
+    // Proof: letting the native SyntaxError escape made `reports invalid JSON
+    // without submitting or changing project` expose engine-specific parser
+    // wording instead of the modeled `invalid_json`. Observed 2026-09-14.
+    if (cause instanceof SyntaxError) throw new Error('invalid_json', { cause });
+    throw cause;
+  }
+  const validation = await validateSchema(importProjectShape.body, untrustedDocument);
+  if (validation.issues !== undefined) {
+    const issue = validation.issues[0];
+    // Proof: replacing this structured issue with `Error('invalid_request')`
+    // made the page's malformed-row case receive that generic failure instead
+    // of exact `workItems[0].priority` and its type detail. Observed 2026-09-14.
+    throw new PlanDocumentSchemaError(planDocumentIssuePath(issue.path), issue.message);
+  }
+  return validation.value;
+}
+export interface PlanRead extends Omit<
+  PlanReadWire,
+  'workItems' | 'slices' | 'steps' | 'waitingForPerson' | 'waitingForCapacity'
+> {
+  workItems: WorkItemView[];
+  slices: SliceView[];
+  /**
+   * The steps the slices above were placed under, in the engine's own order.
+   *
+   * The same list {@link ProjectApi.steps} answers with, carried here so that
+   * a chart drawn from this read never has to pair it with another one. Both
+   * are needed and they are not the same fact: this one describes **these**
+   * slices, and the separate read is what the column headers and the steps
+   * dialog edit.
+   */
+  steps: StepView[];
+}
+
+/**
+ * One calendar marker, as be-01 sends it.
+ *
+ * Lives here and not beside the chart that draws it: it is what comes back on
+ * the wire, and `gantt-panel.tsx` re-exports this same type so the component's
+ * own importers are unchanged. A second declaration there would be a second
+ * shape free to disagree with what `listCalendarMarkers` answers.
+ */
+export interface CalendarMarkerView {
+  id: string;
+  date: IsoDate;
+  name: string;
+  /**
+   * The hex triple the marker is drawn in — never null.
+   *
+   * `null` is what the *store* holds for a marker nobody has recoloured, and
+   * `calendar-marker.routes.ts` resolves it to the automatic colour in
+   * `answered()` on the way out, so it never reaches the wire. Nullable here
+   * would be a client free to invent a second automatic-colour rule for an
+   * answer that cannot arrive (task 284); {@link NewCalendarMarkerView} keeps
+   * the nullable field, because asking for automatic is a request, not a read.
+   */
+  color: string;
+}
+
+/**
+ * A marker as a client asks for it, which is not the same shape as one that
+ * exists.
+ *
+ * `markerId` and not `id`, because that is the name the route reads: the path
+ * `/api/projects/:id/calendar-markers` already spends `id` on the project, so
+ * `calendar-marker.routes.ts` takes the marker's own id under `markerId`
+ * and maps it back to the domain's `id` in the one line of the `POST` handler.
+ * Optional, because be-01 mints one when the client does not name it.
+ */
+export interface NewCalendarMarkerView {
+  markerId?: string;
+  date: IsoDate;
+  name: string;
+  color?: string | null;
+}
+
+/**
+ * Everything the table does to a project.
+ *
+ * An interface rather than bare functions so the table can be driven by a fake
+ * in tests: the keyboard behaviour is the part worth proving, and asserting it
+ * through a real fetch would test the network instead.
+ */
+export interface ProjectApi {
+  /**
+   * Every project, in this account's own order: opened first by recency, then
+   * never-opened by creation date. The order is be-01's and is used as given —
+   * sorting again on the client would be a second implementation of the rule,
+   * and the two would eventually disagree.
+   */
+  listProjects(): Promise<ProjectListEntry[]>;
+  createProject(name: string): Promise<CreatedProject>;
+  /** Records this account as having opened the project, which is what sorts the picker. */
+  openProject(id: string): Promise<void>;
+  /** Renames the project. be-01 answers `forbidden` on a restricted one. */
+  renameProject(id: string, name: string): Promise<void>;
+  /** One read of the plan — see {@link PlanRead}, which be-01 answers whole. */
+  tree(projectId: string): Promise<PlanRead>;
+  /** Downloads the complete versioned archival document, independently of table visibility. */
+  exportPlan(projectId: string): Promise<PlanDocument>;
+  /** Restores one archival document as a new project. */
+  importPlan(document: PlanDocumentRequest): Promise<PlanImportSummary>;
+  /**
+   * Reverses this account's last change to the project, **if nothing it
+   * touched has been written to since**.
+   *
+   * be-01 owns the condition and the wording of what it did; this is a
+   * description of what comes back. A refused step also discards the entry it
+   * refused, so the caller reads the tree again afterwards either way.
+   */
+  undo(projectId: string): Promise<UndoResult>;
+  /** Puts back what {@link ProjectApi.undo} took away, under the same condition. */
+  redo(projectId: string): Promise<UndoResult>;
+  /** Changes how the project turns its three-point estimates into one number. */
+  setEstimateMethod(projectId: string, method: EstimateMethod): Promise<void>;
+  /**
+   * Changes the PERT weights, the rounding, or both.
+   *
+   * One call rather than two, because they are one arithmetic and a surface
+   * that sets them apart would put the plan through two rereads and two
+   * intermediate answers. The weights go as a **triple**: the divisor is their
+   * sum, so a request naming one of them is asking for an arithmetic it has not
+   * stated, and be-01 refuses a partial object outright.
+   *
+   * Every figure and every date in the plan may move on either, so the caller
+   * reads the tree again — `setDepReach`'s rule exactly.
+   */
+  setEstimateArithmetic(
+    projectId: string,
+    arithmetic: { pertWeights?: PertWeightsView; estimateRounding?: EstimateRoundingView },
+  ): Promise<void>;
+  /**
+   * Changes how far into a predecessor this project's dependencies reach.
+   *
+   * A `PATCH` on the project like the estimate method, and for the same reason:
+   * it is a stored choice about the plan, not a parameter of a read. Every date
+   * in the plan may move on it, so the caller reads the tree again.
+   */
+  setDepReach(projectId: string, reach: DependencyReach): Promise<void>;
+  /** Changes the project-wide optimizer flag or the schedule every collaborator sees. */
+  setOptimizationSettings(projectId: string, patch: ProjectOptimizationPatch): Promise<void>;
+  /**
+   * Asks for one more solve of a variant that failed or came back corrupt.
+   *
+   * `inputHash` is the plan the caller was looking at, not a value be-01 can
+   * supply for itself: a Retry pressed against a stale screen must be refused
+   * rather than silently re-solving a plan that has since changed.
+   */
+  retryOptimization(
+    projectId: string,
+    objective: ScheduleObjectiveView,
+    inputHash: string,
+  ): Promise<void>;
+  /** Puts the plan on a calendar, or `null` to take it off again. */
+  setStartDate(projectId: string, startDate: string | null): Promise<void>;
+  /**
+   * The calendar markers on this project, in be-01's order.
+   *
+   * Its own read and not a member of {@link PlanRead}: a marker moves nothing
+   * in the schedule (task 4 axis-1), so folding it into the tree would make
+   * every marker write a full plan reread and every plan reread carry markers
+   * the table never looks at.
+   */
+  listCalendarMarkers(projectId: string): Promise<CalendarMarkerView[]>;
+  /** Puts a marker on an absolute date, answering the one be-01 stored. */
+  createCalendarMarker(
+    projectId: string,
+    marker: NewCalendarMarkerView,
+  ): Promise<CalendarMarkerView>;
+  /**
+   * Rename and recolour are **two calls onto one `PATCH`**, and that is the
+   * route's rule rather than this client's taste: a body naming both asks for
+   * two writes the store applies one at a time, so be-01 answers 422 rather
+   * than partially apply one of them. A single `edit(name?, color?)` here would
+   * be a surface whose two-field call can only ever be refused.
+   */
+  renameCalendarMarker(
+    projectId: string,
+    markerId: string,
+    name: string,
+  ): Promise<CalendarMarkerView>;
+  /** Sets the fill, or `null` to hand the marker back to the automatic colour. */
+  recolorCalendarMarker(
+    projectId: string,
+    markerId: string,
+    color: string | null,
+  ): Promise<CalendarMarkerView>;
+  deleteCalendarMarker(projectId: string, markerId: string): Promise<void>;
+  /**
+   * States how many of one team may be at work at once on this plan, or clears it
+   * to unstated on `null`.
+   *
+   * `PUT`, because the body carries the whole of the fact and the same request
+   * twice is the same state — be-01's shape, and the reason is on its route.
+   *
+   * The number is **not** validated here. `capacity-per-project` owns what it may
+   * be, at be-01's boundary, and a second copy of that rule in this client is a
+   * rule free to disagree with it — so `0`, `-1`, `1.5` and `1001` are all sent
+   * and answered on. The two things the caller decides, because be-01 cannot see
+   * them, are what an *empty box* means and that a non-finite draft is not sent;
+   * both are argued in `teams-panel.tsx` and were C3's D6 before that.
+   */
+  setTeamCapacity(projectId: string, teamId: string, size: number | null): Promise<void>;
+  /**
+   * Replaces what this project calls its priority numbers — the whole ladder, in
+   * one request.
+   *
+   * **All five rungs, never one.** Contiguity is a fact about the five together,
+   * so a per-rung write would have to pass through states in which the ladder is
+   * not one. be-01's shape, and the argument is on its route.
+   *
+   * The ladder is **not** validated here. `priorityLadderProblem` in
+   * `libs/wbs/domain/domain` is the one guard and be-01's controller is its one caller, so a
+   * default outside its own band or a cut below the one beneath it is sent and
+   * answered on — the bargain `setTeamCapacity` makes one fact along.
+   */
+  setPriorityBands(projectId: string, bands: readonly PriorityBandView[]): Promise<void>;
+  steps(projectId: string): Promise<StepView[]>;
+  /** Adds a step to the project. Throws `taken` when the name is already one. */
+  addStep(projectId: string, name: string): Promise<StepView>;
+  renameStep(projectId: string, stepId: string, name: string): Promise<StepView>;
+  /**
+   * Removes a step, or answers what it would take.
+   *
+   * Called first without a cascade, always: be-01 removes a step nothing points
+   * at outright and refuses one that is used, with its counts. `cascade` is the
+   * caller saying it has shown those counts to somebody and been told to go on.
+   */
+  removeStep(projectId: string, stepId: string, cascade: boolean): Promise<StepRemoval>;
+  createWorkItem(
+    projectId: string,
+    /**
+     * `afterId` absent is be-01's own "null or absent puts it first in its
+     * group" (`plan-command-schema.ts`), which is why it is optional here: the
+     * only null this app sends is on an empty group, where first and last are
+     * the same place.
+     */
+    input: { parentId: string | null; afterId?: string | null; name?: string },
+  ): Promise<{ id: string }>;
+  /**
+   * Sets one work item's status as one act — `done` writes every step of it, or
+   * of every leaf beneath a parent, fills an empty fact end with `on` and an
+   * empty fact start with `factStart`; `unknown` takes every statement back and
+   * both facts of a row that read done. `on` is the day the completion prompt
+   * confirmed, always sent (`use-plan-fields.ts` says why). One journal entry,
+   * one undo.
+   */
+  setStatus(id: string, status: SettableStatus, on: IsoDate, factStart?: IsoDate): Promise<void>;
+  patchWorkItem(
+    id: string,
+    patch: {
+      name?: string;
+      notes?: string;
+      startNoEarlierThan?: string | null;
+      /**
+       * Why the work is held back, `null` to take the words off, or absent to
+       * leave them.
+       *
+       * Refused with a 400 (`not_before_reason_needs_a_date`) when the row would
+       * be left holding words with no date for them to be about — so **clearing
+       * the date means clearing this in the same request**. A blank is stored as
+       * no reason; at most 200 characters.
+       */
+      startNoEarlierThanReason?: string | null;
+      /**
+       * The last day this work item may finish on, `null` to take the deadline
+       * off, or absent to leave it.
+       *
+       * **Sent alone, never as a pair.** The floor above it clears in two
+       * fields because a reason with no date is a 400; a deadline has no
+       * reason column, so a request naming `startNoEarlierThanReason` beside
+       * this one would be sending a key about a different constraint.
+       *
+       * Refused with a 422 (`deadline_before_project_start`) for a day that
+       * falls before the project's first working day — the one
+       * deadline-specific refusal, and be-01's, because only it holds the
+       * project to compare against. **Both ends roll, and neither of them is
+       * the stored start date:** day zero is `nextWorkday(projectStart)` and
+       * the deadline is read at `previousWorkday(deadline)`, so a project
+       * starting on a Saturday refuses the Sunday after it. The words are
+       * `DEADLINE_UNREACHABLE_CELL`'s, and the code is `deadlineOffsetOf`'s.
+       *
+       * **422 and not the batch route's own 400 default**, which is what this
+       * paragraph said until TASK-309: `refusal-status.ts`'s `UNPROCESSABLE`
+       * arm lifts this one code out of that default deliberately, because a 400
+       * tells a client the body was malformed and a caller that "fixed the
+       * syntax" would send the identical request again. The status is asserted
+       * at `work-item.controller.test.ts`'s `expect(early.status).toBe(422)`.
+       */
+      deadline?: string | null;
+      /** The day the work actually began, or `null` to take the record off; refused unless a date. */
+      factStart?: string | null;
+      /** The day the work actually finished, or `null` to take the record off; refused unless a date. */
+      factEnd?: string | null;
+      /** An integer of 1 or more, or `null` to leave the work with no priority. */
+      priority?: number | null;
+      /**
+       * An integer from 1 to 1000, or `null` to put it back to one at a time.
+       *
+       * Refused with a 400 on a work item that has children: a parent holds no
+       * slices of its own, so a parallelism on it would be a number that
+       * schedules nothing.
+       */
+      maxParallel?: number | null;
+      serviceTeamId?: string | null;
+      /**
+       * The teams this row states, as one whole replacement set.
+       *
+       * `[]` removes the row's own team labels and absent leaves them alone.
+       * The legacy scalar arm above remains for old callers; a request must
+       * never send both arms together. At most 10 ids.
+       */
+      teamIds?: readonly string[];
+      /**
+       * The tags this row will carry, **whole** — the set as it will stand,
+       * never a member to add or a delta to apply.
+       *
+       * `[]` takes every tag off and is the one spelling of that; absent leaves
+       * them alone. There is no `null` arm, because there is no column to reset
+       * and no third "deliberately untagged" state.
+       *
+       * Refused with a 404 (`unknown_tag`) for an id the directory no longer
+       * holds — the out-of-date picker, decided inside be-01's own write
+       * transaction. At most 50 ids.
+       */
+      tagIds?: readonly string[];
+      /**
+       * The services this row delivers, **whole**: the set as it will stand, not
+       * a delta against the one that is there.
+       *
+       * No `null` arm, and `tagIds`' rule rather than its own since task 10.2:
+       * the store is `work_item_service` and not a nullable column (D2 as
+       * amended), so "no services" is the empty array and a null would be a
+       * second spelling of it. Absent leaves the dimension alone — which is why
+       * the cell that clears it sends `[]` rather than omitting the field.
+       *
+       * Refused with a 404 (`unknown_service`) for an id the directory does not
+       * carry — the **whole** patch, rename included — decided inside be-01's own
+       * write transaction, `unknown_tag`'s rule one dimension over. At most 10
+       * ids.
+       */
+      serviceIds?: readonly string[];
+      /**
+       * What kind of work this row **is**, **whole**: the set as it will stand,
+       * not a delta against the one that is there — `tagIds`' rule and every one
+       * of its reasons, including undo needing a before-value that restores.
+       *
+       * `[]` takes every type off and is the only spelling of it. Unlike the
+       * three above, `[]` here does not put the row back to inheriting: a row
+       * with no types has none
+       * (`docs/adr/0009-a-work-item-type-does-not-inherit-at-all.md`).
+       *
+       * Refused with a 404 (`unknown_type`) for an id the directory does not
+       * carry — the **whole** patch — decided inside be-01's own write
+       * transaction. At most 10 ids.
+       */
+      typeIds?: readonly string[];
+      /**
+       * Where this row's work also exists, **whole**: the list as it will stand,
+       * in the order it will stand in.
+       *
+       * `tagIds`' replacement rule and its undo argument, with one difference
+       * that matters — the members are records, so "the same list" means the
+       * same refs in the same order rather than the same set of ids. `[]`
+       * removes every ref; absent leaves the list alone.
+       *
+       * No `id` on an entry, because the store mints one per row: a caller
+       * states which system and where, and the ref it gets back is a new row
+       * even where the URL is one that was already there. That is what makes
+       * the write a replacement rather than a merge.
+       *
+       * Refused whole with `unknown_system` for a `systemId` the directory does
+       * not hold, decided inside be-01's own write transaction. At most 50
+       * entries.
+       */
+      externalRefs?: readonly { systemId: string; url: string }[];
+    },
+  ): Promise<void>;
+  /** The global team list, and adding to it — idempotent by name at be-01. */
+  listTeams(): Promise<TeamView[]>;
+  /** Every tag in the global directory, by name. */
+  listTags(): Promise<TagView[]>;
+  /**
+   * Every service in the global directory, by name.
+   *
+   * Add was read-only here between task 7.5 and 2026-08-23: the plan page read
+   * the vocabulary for its picker but only the directory page changed it. Dany
+   * reversed that ("services ... search or add"), so the plan cell creates
+   * through {@link addService} exactly as the tag cell creates through
+   * {@link addTag}.
+   */
+  listServices(): Promise<ServiceView[]>;
+  /** Adds a service — `addTag`'s shape. Idempotent by name at be-01. */
+  addService(name: string): Promise<ServiceView>;
+  /** Every work item type in the global directory, by name. */
+  listWorkItemTypes(): Promise<WorkItemTypeView[]>;
+  /**
+   * Adds a work item type — `addTag`'s shape, idempotent by name at be-01.
+   *
+   * The plan cell creates through this from the first, unlike the tag's, which
+   * was read-only here for two weeks: a type has no directory page to be made on
+   * before its column exists, so naming one in the cell is the only way the
+   * vocabulary ever gets a first member.
+   */
+  addWorkItemType(name: string): Promise<WorkItemTypeView>;
+  /**
+   * Every external system in the global directory — {@link
+   * DirectoryApi.listExternalSystems}, read by the plan page for the ref
+   * editor's picker.
+   *
+   * The one vocabulary with no `add` beside it here, and that is a fact about
+   * be-01 rather than an omission: the list is seeded with the names
+   * `systemOfUrl` answers, and there is no create route to make a sixth.
+   */
+  listExternalSystems(): Promise<ExternalSystemView[]>;
+  addTag(name: string): Promise<TagView>;
+  renameTag(tagId: string, name: string): Promise<DirectoryWrite<TagView>>;
+  /**
+   * Removes a tag. Without `cascade` a tag anything carries is refused with the
+   * usage naming what would be unlabelled — `removeTeam`'s shape, and the same
+   * 409-then-confirm gesture.
+   */
+  removeTag(tagId: string, cascade: boolean): Promise<DirectoryRemoval>;
+  addTeam(name: string): Promise<TeamView>;
+  listPeople(): Promise<PersonView[]>;
+  /** Adds a person; no teams means a free agent. */
+  addPerson(name: string, teamIds: readonly string[]): Promise<PersonIdentityView>;
+  /** Sets or (with `null`) clears who does one work item's work for one step. */
+  assignPerson(workItemId: string, stepId: string, personId: string | null): Promise<void>;
+  moveWorkItem(id: string, parentId: string | null, afterId: string | null): Promise<void>;
+  /**
+   * Copies a work item and everything under it, as the next sibling of the
+   * original, answering the copy's id.
+   *
+   * One call rather than a create per row: be-01 writes the whole branch in one
+   * transaction, so nobody watching ever sees half a copy, and the copied
+   * dependencies point at the copies. What is and is not carried over — no
+   * frozen numbers, no edges leaving the branch — is be-01's rule, stated in
+   * `openspec/changes/duplicate-subtree/`.
+   */
+  duplicateWorkItem(id: string): Promise<{ id: string }>;
+  removeWorkItem(id: string, options?: DeleteOptions): Promise<void>;
+  setEstimate(id: string, stepId: string, days: Days): Promise<void>;
+  /**
+   * Takes one work item's stored trio for one step back off.
+   *
+   * Idempotent at be-01, which is what lets the table call it from a gesture —
+   * emptying three boxes — rather than from a button that has to know whether
+   * there is anything there to remove.
+   */
+  clearEstimate(id: string, stepId: string): Promise<void>;
+  /**
+   * Puts every sibling group in the order its bars start.
+   *
+   * No arguments beyond the project: the order is the server's, taken from the
+   * schedule the chart is drawing, inside the write lock. A client that sent
+   * its own ordering would be sending one computed from a read that may already
+   * be stale (ADR 0023).
+   */
+  arrangeBySchedule(projectId: string): Promise<void>;
+  freezeProject(projectId: string): Promise<void>;
+  unfreezeProject(projectId: string): Promise<void>;
+  unfreezeWorkItem(id: string): Promise<void>;
+  /**
+   * Records "`predecessorId`'s **anchor** must finish before this starts" —
+   * its first step somebody estimated, not the whole of it. The steps behind
+   * that anchor run alongside this work item. Since `dep-waits-on-first-role`
+   * (2026-08-11); the edge itself is unchanged, only what it means.
+   */
+  addDependency(id: string, predecessorId: string): Promise<void>;
+  removeDependency(id: string, predecessorId: string): Promise<void>;
+}
+
+const WBS_SHAPES = [
+  addStepShape,
+  applyDirectoryCommands,
+  applyProjectCommands,
+  createCalendarMarkerShape,
+  createProjectShape,
+  getWorkItems,
+  listCalendarMarkersShape,
+  listExternalSystemsShape,
+  listPeopleShape,
+  listProjectsShape,
+  listServicesShape,
+  listTagsShape,
+  listTeamsShape,
+  listWorkItemTypesShape,
+  patchProjectShape,
+  readProjectShape,
+  recordProjectOpen,
+  redoProjectShape,
+  removeCalendarMarkerShape,
+  removeStepShape,
+  renameStepShape,
+  retryProjectOptimizationShape,
+  undoProjectShape,
+  updateCalendarMarkerShape,
+] as const;
+
+const PROJECT_TRANSFER_SHAPES = [exportProjectShape, importProjectShape] as const;
+const PROJECT_SHAPES = [...WBS_SHAPES, ...PROJECT_TRANSFER_SHAPES] as const;
+
+type WbsShape = (typeof WBS_SHAPES)[number];
+export type WbsOperationId =
+  WbsShape['operationId'] | (typeof PROJECT_TRANSFER_SHAPES)[number]['operationId'];
+type RefusalFor<S extends WbsShape> = Extract<ClientReply<S>, { kind: 'refusal' }>['body'];
+type WbsProblemFor<S extends WbsShape> = S extends WbsShape
+  ? | { kind: 'refusal'; operation: S['operationId']; refusal: RefusalFor<S> }
+    | { kind: 'failure'; operation: S['operationId']; failure: ClientFailure }
+  : never;
+
+/** A validated operation-specific refusal or failure at the shared client boundary. */
+export type WbsProblem = WbsProblemFor<WbsShape>;
+export type WbsRefusalFor<O extends WbsOperationId> = Extract<
+  WbsProblem,
+  { kind: 'refusal'; operation: O }
+>['refusal'];
+
+/** Keeps the endpoint correlation while preserving legacy Error callers. */
+export class WbsRequestError extends Error {
+  constructor(readonly problem: WbsProblem) {
+    super(problemCode(problem));
+    this.name = 'WbsRequestError';
+  }
+}
+
+/** The header the edge reads instead of Authorization. */
+const auth = (token: string): HeadersInit => ({ 'x-wbs-token': token });
+
+export function wbsFailureCode(failure: ClientFailure): string {
+  switch (failure.code) {
+    case 'cancelled':
+    case 'invalid_request':
+    case 'invalid_response':
+      return failure.code;
+    case 'unexpected_status':
+      return `http_${String(failure.status)}`;
+    case 'transport':
+      return failure.cause instanceof Error ? failure.cause.message : 'request_failed';
+  }
+  return unreachable(failure);
+}
+
+/** Reads the shared reply discriminant exhaustively before a screen chooses its sentence. */
+function problemCode(problem: WbsProblem): string {
+  switch (problem.kind) {
+    case 'refusal':
+      // Every refusal in the app answered with `error` until the optimizer's
+      // Retry, whose 409 answers with `code` and the variant's `state`. Reading
+      // whichever discriminant is present keeps this the one place that has to
+      // know, rather than every screen.
+      return 'error' in problem.refusal ? problem.refusal.error : problem.refusal.code;
+    case 'failure':
+      return wbsFailureCode(problem.failure);
+  }
+  return unreachable(problem);
+}
+
+type RejectedReply<S extends WbsShape> =
+  Extract<ClientReply<S>, { kind: 'refusal' }> | ClientBoundaryFailure;
+
+function throwReply<S extends WbsShape>(shape: S, reply: RejectedReply<S>): never {
+  // Proof: bypassing this shared failure arm made the malformed team-id production call
+  // resolve with `{ id: 7 }`; wbs-api.test.ts expected WbsRequestError invalid_response.
+  if (reply.kind === 'failure')
+    throw new WbsRequestError({
+      kind: 'failure',
+      operation: shape.operationId,
+      failure: reply.failure,
+    });
+  // The shared client validated this refusal against `shape`; this cast only restores
+  // the operation/body correlation TypeScript loses inside the generic helper.
+  throw new WbsRequestError({
+    kind: 'refusal',
+    operation: shape.operationId,
+    refusal: reply.body,
+  } as WbsProblem);
+}
+
+function jsonBody<S extends WbsShape, T>(
+  shape: S,
+  reply: { kind: 'success'; representation: 'json'; body: T } | RejectedReply<S>,
+): T {
+  if (reply.kind === 'success') return reply.body;
+  // This branch excluded the only success arm; generic Extract narrowing does not
+  // preserve that fact, while the runtime discriminant and shared client do.
+  return throwReply(shape, reply as RejectedReply<S>);
+}
+
+function emptyBody<S extends WbsShape>(
+  shape: S,
+  reply: { kind: 'success'; representation: 'empty' } | RejectedReply<S>,
+): void {
+  if (reply.kind === 'success') return;
+  // The success arm was returned above; see the JSON helper's identical boundary.
+  throwReply(shape, reply as RejectedReply<S>);
+}
+
+type ProjectCommand = ClientInput<typeof applyProjectCommands>['body']['commands'][number];
+type DirectoryCommand = ClientInput<typeof applyDirectoryCommands>['body']['commands'][number];
+type WbsClient = Client<typeof WBS_SHAPES>;
+
+/**
+ * What a refused step change says out loud.
+ *
+ * be-01's codes are the vocabulary everywhere else in this client — `cycle` and
+ * `forbidden` reach a toast as themselves — and steps are the exception on
+ * purpose: these are refusals aimed at somebody typing a name into a box, not at
+ * somebody reading a plan, and `taken` in the corner of the screen is a word
+ * about HTTP rather than about their project.
+ *
+ * `Partial` would make every read a `string | undefined` with a fallback
+ * invented at each call site, which is how two spellings of one refusal happen;
+ * this takes the code as a string and answers for anything, so there is one
+ * fallback and it is here.
+ */
+/** Exported for `steps-panel.tsx`'s `useSettingsSection` — see {@link PRIORITY_BAND_REFUSALS}. */
+export const STEP_REFUSALS: RefusalWords = {
+  sentences: {
+    taken: 'That name is already a step on this plan.',
+    name_required: 'A step needs a name.',
+    in_use: 'That step still holds estimates or assignments on this plan.',
+    unknown_step: 'That step is no longer on this plan — somebody else removed it.',
+    not_found: 'That step is no longer on this plan.',
+    forbidden: 'This plan is not yours to change.',
+  },
+  // No 5xx arm, deliberately and not by omission: a server failure here reads
+  // as `The step could not be changed (http_502).` and has since this surface
+  // was written. Adding one is a wording change for Dany rather than for a
+  // refactor — see {@link RefusalWords.serverFailure}.
+  otherwise: (code) => `The step could not be changed (${code}).`,
+};
+
+/**
+ * Why a directory write was refused, as this client has to phrase it.
+ *
+ * Two arms rather than a bare code, because `taken` is the one refusal that
+ * carries a value: the name the directory kept. {@link directoryRefusedWith}
+ * makes the other arm out of whatever was thrown.
+ */
+export type DirectoryRefusal =
+  { reason: 'taken'; survivingName: string } | { reason: 'refused'; code: string };
+
+/**
+ * The leader of be-01's over-the-ceiling refusal code, whose tail is the
+ * ceiling itself — `size_must_be_at_most_1000` today.
+ */
+const SIZE_CEILING_CODE = 'size_must_be_at_most_';
+
+/**
+ * The leaders of be-01's two built refusal codes for a ladder, whose tails carry
+ * the numbers themselves — `bands_must_number_5` and
+ * `band_label_must_be_1_to_40_characters` today.
+ *
+ * Prefixes rather than literal cases for {@link SIZE_CEILING_CODE}'s reason:
+ * be-01 builds both out of constants in `libs/wbs/domain/domain`, and a `5` or a `40`
+ * written out here would be a second copy free to drift from the rule that
+ * refused the request.
+ */
+const BAND_COUNT_CODE = 'bands_must_number_';
+const BAND_LABEL_CODE = 'band_label_must_be_';
+
+/**
+ * What any 5xx says, in this dialog's own words.
+ *
+ * `wbs-table.tsx`'s refusal helper has carried this arm since 2026-08-09, when
+ * `http_500` reached the corner of the screen verbatim; a proxy error becomes
+ * `http_502` at the boundary, so without this arm the grammatical fallback
+ * below prints a wire code into a dialog somebody is typing a number into. The
+ * sentence never says "the server did not answer", because something did.
+ */
+const SERVER_REFUSAL = 'The server could not save that. Try again.';
+
+/**
+ * What a refused **capacity** change says out loud.
+ *
+ * Its own function rather than an arm of {@link directoryRefusalSentence}, and
+ * that is the whole of `capacity-per-project`'s move on this tier: the two size
+ * arms used to live there, because the box lived on the directory page and the
+ * number was the team's. It is the plan's number now, and every sentence here
+ * says "on this plan" — which the directory's own refusals must not, because the
+ * directory has no plan.
+ *
+ * The ceiling arm is a **prefix**, not a case, because be-01 builds the code out
+ * of its own `MOST_PEOPLE_AT_ONCE`: a literal `size_must_be_at_most_1000` here
+ * would be a second copy of that limit, free to drift from it and to fall back to
+ * printing the wire code the day it did.
+ *
+ * One fallback, and it names the code rather than swallowing it: an unrecognised
+ * refusal is something to report, and a message that hid it would leave nobody
+ * able to say what be-01 answered. A 5xx is taken **before** it, because a proxy
+ * error is not a word of be-01's and `(http_502)` in the corner of a dialog is
+ * the defect `wbs-table.tsx` fixed for `http_500` a week ago.
+ */
+/** Exported for `teams-panel.tsx`'s `useSettingsSection` — see {@link PRIORITY_BAND_REFUSALS}. */
+export const CAPACITY_REFUSALS: RefusalWords = {
+  sentences: {
+    // The floor arm, spelled out rather than left to the fallback: this is a box
+    // somebody types a *number* into, and `(size_must_be_a_whole_number_from_1)`
+    // in the corner of the screen is a wire code where a sentence about their plan
+    // belongs. A pool of nobody is a plan of infinite dates, which is why zero is
+    // a refusal and an empty box is not.
+    size_must_be_a_whole_number_from_1:
+      'How many of a team are at work at once is a whole number of 1 or more. Leave it empty for a team this plan does not limit.',
+    size_required: 'That change asked for nothing, so nothing was sent.',
+    not_found: 'That team or this plan is no longer there — somebody else removed it.',
+    forbidden: 'This plan is restricted, so its capacities cannot be changed from this account.',
+    unexpected_response: 'The server replied with something this page could not read.',
+  },
+  limits: [
+    {
+      prefix: SIZE_CEILING_CODE,
+      says: (limit) => `A plan can have at most ${limit} of one team at work at once.`,
+    },
+  ],
+  serverFailure: SERVER_REFUSAL,
+  otherwise: (code) => `That capacity could not be changed (${code}).`,
+};
+
+/**
+ * What a refused ladder change says out loud.
+ *
+ * {@link capacityRefusalSentence}'s sibling one dialog along, and here for its
+ * reason: every one of these is aimed at somebody typing into a box on the
+ * Priorities surface, and `band_default_must_be_inside_its_own_band` in the
+ * corner of that surface is a wire code where a sentence about their ladder
+ * belongs.
+ *
+ * The 5xx arm is taken **first**, which is C3's P2-2 and C5's R5 #18 and is
+ * written here rather than rediscovered: a proxy error is not a word of be-01's,
+ * and `(http_502)` beside a box somebody is typing in is the same defect a third
+ * time.
+ *
+ * The count arm reads its number out of the code rather than printing a literal
+ * `5`, because be-01 builds the code from `PRIORITY_BAND_COUNT` — a literal here
+ * would be a second copy of that number, free to drift.
+ */
+/**
+ * Exported so `priorities-panel.tsx` can hand it whole to
+ * `useSettingsSection`, which words every refusal that panel can earn.
+ *
+ * There was a `priorityBandRefusalSentence(code)` here until 2026-09-02, and
+ * two siblings beside it; the panels take the table now, so a one-code reader
+ * per surface was three functions doing what `sentenceForRefusal` does.
+ */
+export const PRIORITY_BAND_REFUSALS: RefusalWords = {
+  sentences: {
+    first_band_must_start_at_1:
+      'The most important band has to start at 1, or the priorities below it would have no name.',
+    bands_must_start_in_increasing_order:
+      'Each band has to start above the one before it, so every number belongs to exactly one of them.',
+    band_start_must_be_a_whole_number_from_1: 'A band starts at a whole number of 1 or more.',
+    band_default_must_be_a_whole_number_from_1:
+      'The number a band writes is a whole number of 1 or more.',
+    band_default_must_be_inside_its_own_band:
+      'The number a band writes has to fall inside that band, or picking its name would land on a different one.',
+    band_labels_must_differ:
+      'Two bands cannot share a name — one of the two would do nothing anybody could predict.',
+    not_found: 'This plan is no longer there — somebody else removed it.',
+    forbidden:
+      'This plan is restricted, so its priority bands cannot be changed from this account.',
+    unexpected_response: 'The server replied with something this page could not read.',
+  },
+  limits: [
+    {
+      prefix: BAND_COUNT_CODE,
+      says: (limit) =>
+        `A priority ladder has exactly ${limit} bands — one cannot be added or taken away.`,
+    },
+    {
+      prefix: BAND_LABEL_CODE,
+      says: (limit) => `A band's name is ${limit.replace(/_/g, ' ')}.`,
+    },
+  ],
+  serverFailure: SERVER_REFUSAL,
+  otherwise: (code) => `Those priority bands could not be saved (${code}).`,
+};
+
+/**
+ * What a refused directory change says out loud.
+ *
+ * {@link stepRefusalSentence}'s sibling, and here for the same reason: these
+ * refusals are aimed at somebody typing a name into a box, and `taken` in the
+ * corner of the screen is a word about HTTP rather than about their directory.
+ *
+ * The `taken` sentence is built from the **surviving** name the refusal carried
+ * — never from what was typed. be-01 trims, so a `‹space›Kat‹space›` typed
+ * against a held `Kat` collides with `Kat`, and a sentence made of the local
+ * draft would quote a name nobody's directory holds.
+ *
+ * One fallback, and it names the code rather than swallowing it: an
+ * unrecognised refusal is something to report, and a message that hid it would
+ * leave nobody able to say what be-01 answered.
+ */
+const DIRECTORY_REFUSALS: RefusalWords = {
+  sentences: {
+    name_required: 'A name cannot be blank.',
+    unknown_team: 'One of those teams is no longer in the directory — somebody else removed it.',
+    not_found: 'That entry is no longer in the directory — somebody else removed it.',
+    nothing_to_change: 'That change asked for nothing, so nothing was sent.',
+    unexpected_response: 'The server replied with something this page could not read.',
+  },
+  // No 5xx arm, for {@link STEP_REFUSALS}'s reason.
+  otherwise: (code) => `The directory could not be changed (${code}).`,
+};
+
+export function directoryRefusalSentence(refusal: DirectoryRefusal): string {
+  if (refusal.reason === 'taken') {
+    return `“${refusal.survivingName}” is already in the directory, so nothing was renamed.`;
+  }
+  return sentenceForRefusal(DIRECTORY_REFUSALS, refusal.code);
+}
+
+/**
+ * The deployment's directory over HTTP.
+ *
+ * The one spelling of these calls. `httpProjectApi`'s four directory
+ * methods delegate here rather than repeating the paths, because two copies of
+ * `/api/people` is how a page and a picker come to disagree about what a person
+ * is.
+ */
+/** What `POST …/commands` answers when it applied the batch. */
+interface BatchAnswer {
+  results: {
+    index: number;
+    ref?: string;
+    id?: string;
+    entity?: {
+      id: string;
+      name: string;
+      kind?: PersonKindView;
+      serviceIds?: string[];
+      teamIds?: string[];
+    };
+  }[];
+  undoable?: boolean;
+  redoable?: boolean;
+}
+
+/**
+ * Posts one batch and answers its results, throwing be-01's code — the same
+ * `Error(code)` every write threw before `plan-commands` — when it is refused.
+ * The refusal names the failing command's index and kind; a batch of one has
+ * only one it can be, so the code alone is what the caller phrases.
+ */
+async function postBatch(
+  client: WbsClient,
+  token: string,
+  projectId: string,
+  commands: ProjectCommand[],
+): Promise<BatchAnswer> {
+  return jsonBody(
+    applyProjectCommands,
+    await client.postApiProjectsByIdCommands({
+      params: { id: projectId },
+      body: { commands },
+      headers: auth(token),
+    }),
+  );
+}
+
+/** The one result a batch of one produced. */
+function onlyResult(answer: BatchAnswer): BatchAnswer['results'][number] {
+  if (answer.results.length === 0) throw new Error('unexpected_response');
+  const [only] = answer.results;
+  return only;
+}
+
+/**
+ * The entry a directory command produced, or an `unexpected_response`.
+ * `unknown`, because it is be-01's row of whatever shape the command's list
+ * route shows; the caller names the shape at the boundary.
+ */
+function entryOf(answer: BatchAnswer): NonNullable<BatchAnswer['results'][number]['entity']> {
+  const entity = onlyResult(answer).entity;
+  if (entity === undefined) throw new Error('unexpected_response');
+  return entity;
+}
+
+function personEntry(answer: BatchAnswer): PersonView {
+  const entity = entryOf(answer);
+  if (entity.kind === undefined || entity.teamIds === undefined)
+    throw new Error('unexpected_response');
+  return { id: entity.id, name: entity.name, kind: entity.kind, teamIds: entity.teamIds };
+}
+
+/** A create-person result; memberships are available from the directory read. */
+function personIdentityEntry(answer: BatchAnswer): PersonIdentityView {
+  const entity = entryOf(answer);
+  // Proof: requiring teamIds rejected be-01's successful create response with
+  // `unexpected_response`; the directory-client create test observed it.
+  if (entity.kind === undefined) throw new Error('unexpected_response');
+  return { id: entity.id, name: entity.name, kind: entity.kind };
+}
+
+function teamEntry(answer: BatchAnswer): TeamView {
+  const entity = entryOf(answer);
+  return { id: entity.id, name: entity.name, serviceIds: entity.serviceIds };
+}
+
+function namedEntry(answer: BatchAnswer): TagView {
+  const entity = entryOf(answer);
+  return { id: entity.id, name: entity.name };
+}
+
+/** What a directory batch of one came to: applied, or one of the two worded refusals. */
+type DirectoryBatch =
+  | { outcome: 'applied'; answer: BatchAnswer }
+  | { outcome: 'taken'; survivingName: string }
+  | { outcome: 'in_use'; usage: DirectoryUsage };
+
+/**
+ * A directory write as a batch of one at the directory's own route, modelling
+ * the two refusals the directory answers with words rather than a throw: a
+ * `taken` name (the survivor is named) and an `in_use` removal (the usage is
+ * named). Both arrive as the batch refusal's own fields beside the code.
+ */
+async function directoryBatch(
+  client: WbsClient,
+  token: string,
+  command: DirectoryCommand,
+): Promise<DirectoryBatch> {
+  const reply = await client.postApiDirectoryCommands({
+    body: { commands: [command] },
+    headers: auth(token),
+  });
+  if (reply.kind === 'failure') throwReply(applyDirectoryCommands, reply);
+  if (reply.kind === 'success') return { outcome: 'applied', answer: reply.body };
+  switch (reply.body.error) {
+    case 'taken':
+      return { outcome: 'taken', survivingName: reply.body.name };
+    case 'in_use':
+      return { outcome: 'in_use', usage: reply.body.usage };
+    default:
+      return throwReply(applyDirectoryCommands, reply);
+  }
+}
+
+/** A directory write whose caller wants the entry, or the `taken` refusal. */
+async function directoryWrite<T>(
+  client: WbsClient,
+  token: string,
+  command: DirectoryCommand,
+  read: (answer: BatchAnswer) => T,
+): Promise<DirectoryWrite<T>> {
+  const batch = await directoryBatch(client, token, command);
+  if (batch.outcome === 'taken')
+    return { ok: false, reason: 'taken', survivingName: batch.survivingName };
+  if (batch.outcome === 'in_use')
+    throw new WbsRequestError({
+      kind: 'refusal',
+      operation: applyDirectoryCommands.operationId,
+      refusal: { error: 'in_use', at: 0, kind: command.kind, usage: batch.usage },
+    });
+  return { ok: true, entry: read(batch.answer) };
+}
+
+/** A directory create, which answers the new entry. */
+async function directoryCreate<T>(
+  client: WbsClient,
+  token: string,
+  command: DirectoryCommand,
+  read: (answer: BatchAnswer) => T,
+): Promise<T> {
+  const batch = await directoryBatch(client, token, command);
+  if (batch.outcome !== 'applied')
+    throw new WbsRequestError({
+      kind: 'refusal',
+      operation: applyDirectoryCommands.operationId,
+      refusal:
+        batch.outcome === 'taken'
+          ? { error: 'taken', at: 0, kind: command.kind, name: batch.survivingName }
+          : { error: 'in_use', at: 0, kind: command.kind, usage: batch.usage },
+    });
+  return read(batch.answer);
+}
+
+/** A directory removal, or the `in_use` refusal with its usage. */
+async function directoryRemove(
+  client: WbsClient,
+  token: string,
+  command: DirectoryCommand,
+): Promise<DirectoryRemoval> {
+  const batch = await directoryBatch(client, token, command);
+  if (batch.outcome === 'in_use') return { ok: false, reason: 'in_use', usage: batch.usage };
+  if (batch.outcome === 'taken')
+    throw new WbsRequestError({
+      kind: 'refusal',
+      operation: applyDirectoryCommands.operationId,
+      refusal: { error: 'taken', at: 0, kind: command.kind, name: batch.survivingName },
+    });
+  return { ok: true };
+}
+
+export function httpDirectoryApi(token: string): DirectoryApi {
+  const client = browserClient(WBS_SHAPES);
+  return {
+    async listPeople() {
+      return jsonBody(listPeopleShape, await client.getApiPeople({ headers: auth(token) })).people;
+    },
+    async listTeams() {
+      return jsonBody(listTeamsShape, await client.getApiTeams({ headers: auth(token) })).teams;
+    },
+    addPerson: (name, teamIds) =>
+      directoryCreate(
+        client,
+        token,
+        { kind: 'createPerson', name, teamIds: [...teamIds] },
+        personIdentityEntry,
+      ),
+    addTeam: (name) => directoryCreate(client, token, { kind: 'createTeam', name }, teamEntry),
+    patchPerson: (id, patch) => {
+      const { teamIds, ...fields } = patch;
+      return directoryWrite(
+        client,
+        token,
+        {
+          kind: 'patchPerson',
+          personId: id,
+          patch: { ...fields, ...(teamIds === undefined ? {} : { teamIds: [...teamIds] }) },
+        },
+        personEntry,
+      );
+    },
+    patchTeam: (id, patch) => {
+      const { serviceIds, ...fields } = patch;
+      return directoryWrite(
+        client,
+        token,
+        {
+          kind: 'patchTeam',
+          teamId: id,
+          patch: {
+            ...fields,
+            ...(serviceIds === undefined ? {} : { serviceIds: [...serviceIds] }),
+          },
+        },
+        teamEntry,
+      );
+    },
+    async listTags() {
+      return jsonBody(listTagsShape, await client.getApiTags({ headers: auth(token) })).tags;
+    },
+    async listServices() {
+      return jsonBody(listServicesShape, await client.getApiServices({ headers: auth(token) }))
+        .services;
+    },
+    async listWorkItemTypes() {
+      return jsonBody(
+        listWorkItemTypesShape,
+        await client['getApiWork-item-types']({ headers: auth(token) }),
+      ).workItemTypes;
+    },
+    async listExternalSystems() {
+      return jsonBody(
+        listExternalSystemsShape,
+        await client['getApiExternal-systems']({ headers: auth(token) }),
+      ).externalSystems;
+    },
+    addWorkItemType: (name) =>
+      directoryCreate(client, token, { kind: 'createWorkItemType', name }, namedEntry),
+    renameWorkItemType: (typeId, name) =>
+      directoryWrite(client, token, { kind: 'patchWorkItemType', typeId, name }, namedEntry),
+    removeWorkItemType: (typeId, cascade) =>
+      directoryRemove(client, token, { kind: 'deleteWorkItemType', typeId, cascade }),
+    addService: (name) =>
+      directoryCreate(client, token, { kind: 'createService', name }, namedEntry),
+    renameService: (id, name) =>
+      directoryWrite(client, token, { kind: 'patchService', serviceId: id, name }, namedEntry),
+    removeService: (id, cascade) =>
+      directoryRemove(client, token, { kind: 'deleteService', serviceId: id, cascade }),
+    addTag: (name) => directoryCreate(client, token, { kind: 'createTag', name }, namedEntry),
+    renameTag: (id, name) =>
+      directoryWrite(client, token, { kind: 'patchTag', tagId: id, name }, namedEntry),
+    removeTag: (id, cascade) =>
+      directoryRemove(client, token, { kind: 'deleteTag', tagId: id, cascade }),
+    removePerson: (id, cascade) =>
+      directoryRemove(client, token, { kind: 'deletePerson', personId: id, cascade }),
+    removeTeam: (id, cascade) =>
+      directoryRemove(client, token, { kind: 'deleteTeam', teamId: id, cascade }),
+  };
+}
+
+export function httpProjectApi(token: string): ProjectApi {
+  const client = browserClient(PROJECT_SHAPES);
+  /**
+   * The directory client, spread into the answer below rather than delegated
+   * method by method: the thirteen vocabulary members {@link ProjectApi} shares
+   * with {@link DirectoryApi} were thirteen one-line forwards until 2026-09-02,
+   * and each of them was a chance to forward the wrong argument. Spread, they
+   * are the same functions the directory page calls.
+   *
+   * `DirectoryApi`'s other eight members (the renames and removals the
+   * directory page owns) come along at runtime and are not on `ProjectApi`, so
+   * nothing typed can reach them from a plan. Segregating them would mean a
+   * third interface for no caller.
+   */
+  const directory = httpDirectoryApi(token);
+  /**
+   * Which project each work item this client has seen belongs to — learned
+   * from every tree it reads and every row it creates, because the batch route
+   * is the project's and the write methods are given a work item id. A write on
+   * a row no tree has shown is refused rather than sent to a guessed project.
+   */
+  const projectOf = new Map<string, string>();
+  const projectFor = (workItemId: string): string => {
+    const found = projectOf.get(workItemId);
+    if (found === undefined) throw new Error('unknown_work_item');
+    return found;
+  };
+  /** One plan command on `projectId`, as a batch of one. */
+  const command = (projectId: string, step: ProjectCommand): Promise<BatchAnswer> =>
+    postBatch(client, token, projectId, [step]);
+  /** One command aimed at a work item, on the project that row belongs to. */
+  const onRow = (workItemId: string, step: ProjectCommand): Promise<BatchAnswer> =>
+    command(projectFor(workItemId), step);
+
+  /**
+   * The `PATCH` both edits go through, taking exactly the one field its caller
+   * named — and only ever one, which is what the route accepts.
+   */
+  const editMarker = async (
+    projectId: string,
+    markerId: string,
+    change: { name: string } | { color: string | null },
+  ): Promise<CalendarMarkerView> => {
+    const body = jsonBody(
+      updateCalendarMarkerShape,
+      await client['patchApiProjectsByIdCalendar-markersByMarkerId']({
+        params: { id: projectId, markerId },
+        body: change,
+        headers: auth(token),
+      }),
+    );
+    return body.marker;
+  };
+
+  return {
+    ...directory,
+    async listProjects() {
+      return jsonBody(listProjectsShape, await client.getApiProjects({ headers: auth(token) }))
+        .projects;
+    },
+    async createProject(name) {
+      const body = jsonBody(
+        createProjectShape,
+        await client.postApiProjects({ body: { name }, headers: auth(token) }),
+      );
+      return body.project;
+    },
+    async openProject(id) {
+      emptyBody(
+        recordProjectOpen,
+        await client.postApiProjectsByIdOpened({ params: { id }, headers: auth(token) }),
+      );
+    },
+    async renameProject(id, name) {
+      jsonBody(
+        patchProjectShape,
+        await client.patchApiProjectsById({
+          params: { id },
+          body: { name },
+          headers: auth(token),
+        }),
+      );
+    },
+    async tree(projectId) {
+      const tree = jsonBody(
+        getWorkItems,
+        await client['getApiProjectsByIdWork-items']({
+          params: { id: projectId },
+          headers: auth(token),
+        }),
+      );
+      const plan: PlanRead = {
+        ...tree,
+        workItems: tree.workItems.map((row) => ({
+          ...row,
+          teamIds: [...row.teamIds],
+          tagIds: [...row.tagIds],
+          serviceIds: [...row.serviceIds],
+          typeIds: [...row.typeIds],
+          externalRefs: row.externalRefs.map((ref) => ({ ...ref })),
+        })),
+      };
+      for (const row of plan.workItems) projectOf.set(row.id, projectId);
+      return plan;
+    },
+    async exportPlan(projectId) {
+      const reply = await client.getApiProjectsByIdExport({
+        params: { id: projectId },
+        query: { format: 'json' },
+        headers: auth(token),
+      });
+      if (reply.kind === 'success' && reply.representation === 'json') return reply.body;
+      if (reply.kind === 'success') throw new Error('export_json_returned_non_json');
+      if (reply.kind === 'failure') throw new Error(wbsFailureCode(reply.failure));
+      throw new Error(reply.body.error);
+    },
+    async importPlan(document) {
+      const reply = await client.postApiProjectsImport({
+        body: document,
+        headers: auth(token),
+      });
+      if (reply.kind === 'success') return reply.body;
+      if (reply.kind === 'failure') throw new Error(wbsFailureCode(reply.failure));
+      // Proof: replacing this structured refusal with `Error(reply.body.error)`
+      // made `retains a validated import refusal code, path and detail` lose
+      // `workItems[12].dependsOn[0]` and its exact detail. Observed 2026-09-14.
+      throw new PlanImportRefusalError(reply.body);
+    },
+    async undo(projectId) {
+      const reply = await client.postApiProjectsByIdUndo({
+        params: { id: projectId },
+        headers: auth(token),
+      });
+      if (reply.kind === 'failure') return throwReply(undoProjectShape, reply);
+      if (reply.kind === 'success')
+        return { ok: true, done: reply.body.done, detail: reply.body.detail };
+      if (reply.body.error === 'nothing_to_undo' || reply.body.error === 'stale_undo')
+        return { ok: false, reason: reply.body.error, detail: reply.body.detail };
+      return throwReply(undoProjectShape, reply);
+    },
+    async redo(projectId) {
+      const reply = await client.postApiProjectsByIdRedo({
+        params: { id: projectId },
+        headers: auth(token),
+      });
+      if (reply.kind === 'failure') return throwReply(redoProjectShape, reply);
+      if (reply.kind === 'success')
+        return { ok: true, done: reply.body.done, detail: reply.body.detail };
+      if (reply.body.error === 'nothing_to_undo' || reply.body.error === 'stale_undo')
+        return { ok: false, reason: reply.body.error, detail: reply.body.detail };
+      return throwReply(redoProjectShape, reply);
+    },
+    async assignPerson(workItemId, stepId, personId) {
+      await onRow(workItemId, { kind: 'setAssignee', workItemId, stepId, personId });
+    },
+    async setStartDate(projectId, startDate) {
+      jsonBody(
+        patchProjectShape,
+        await client.patchApiProjectsById({
+          params: { id: projectId },
+          body: { startDate },
+          headers: auth(token),
+        }),
+      );
+    },
+    async listCalendarMarkers(projectId) {
+      return jsonBody(
+        listCalendarMarkersShape,
+        await client['getApiProjectsByIdCalendar-markers']({
+          params: { id: projectId },
+          headers: auth(token),
+        }),
+      ).markers;
+    },
+    async createCalendarMarker(projectId, marker) {
+      const body = jsonBody(
+        createCalendarMarkerShape,
+        await client['postApiProjectsByIdCalendar-markers']({
+          params: { id: projectId },
+          body: marker,
+          headers: auth(token),
+        }),
+      );
+      return body.marker;
+    },
+    async renameCalendarMarker(projectId, markerId, name) {
+      return editMarker(projectId, markerId, { name });
+    },
+    async recolorCalendarMarker(projectId, markerId, color) {
+      // `{ color }` and never `{ name, color }`: the route takes exactly one of
+      // the two and refuses a body naming both, so a shared "edit" spelling
+      // that carried the marker's unchanged name along would be refused every
+      // time. `color: null` is a stated choice and stays on the wire.
+      return editMarker(projectId, markerId, { color });
+    },
+    async deleteCalendarMarker(projectId, markerId) {
+      emptyBody(
+        removeCalendarMarkerShape,
+        await client['deleteApiProjectsByIdCalendar-markersByMarkerId']({
+          params: { id: projectId, markerId },
+          headers: auth(token),
+        }),
+      );
+    },
+    async setTeamCapacity(projectId, teamId, size) {
+      await command(projectId, { kind: 'setCapacity', teamId, size });
+    },
+    async setPriorityBands(projectId, bands) {
+      await command(projectId, { kind: 'setPriorityBands', bands: [...bands] });
+    },
+    async setEstimateMethod(projectId, method) {
+      jsonBody(
+        patchProjectShape,
+        await client.patchApiProjectsById({
+          params: { id: projectId },
+          body: { estimateMethod: method },
+          headers: auth(token),
+        }),
+      );
+    },
+    async setEstimateArithmetic(projectId, arithmetic) {
+      jsonBody(
+        patchProjectShape,
+        await client.patchApiProjectsById({
+          params: { id: projectId },
+          body: arithmetic,
+          headers: auth(token),
+        }),
+      );
+    },
+    async setDepReach(projectId, reach) {
+      jsonBody(
+        patchProjectShape,
+        await client.patchApiProjectsById({
+          params: { id: projectId },
+          body: { depReach: reach },
+          headers: auth(token),
+        }),
+      );
+    },
+    async retryOptimization(projectId, objective, inputHash) {
+      jsonBody(
+        retryProjectOptimizationShape,
+        await client.postApiProjectsByIdOptimizationRetry({
+          params: { id: projectId },
+          body: { objective, inputHash },
+          headers: auth(token),
+        }),
+      );
+    },
+    async setOptimizationSettings(projectId, patch) {
+      jsonBody(
+        patchProjectShape,
+        await client.patchApiProjectsById({
+          params: { id: projectId },
+          body: patch,
+          headers: auth(token),
+        }),
+      );
+    },
+    async steps(projectId) {
+      return jsonBody(
+        readProjectShape,
+        await client.getApiProjectsById({ params: { id: projectId }, headers: auth(token) }),
+      ).steps.map(({ id, name }) => ({ id, name }));
+    },
+    async addStep(projectId, name) {
+      const { step } = jsonBody(
+        addStepShape,
+        await client.postApiProjectsByIdSteps({
+          params: { id: projectId },
+          body: { name },
+          headers: auth(token),
+        }),
+      );
+      return { id: step.id, name: step.name };
+    },
+    async renameStep(projectId, stepId, name) {
+      const { step } = jsonBody(
+        renameStepShape,
+        await client.patchApiProjectsByIdStepsByStepId({
+          params: { id: projectId, stepId },
+          body: { name },
+          headers: auth(token),
+        }),
+      );
+      return { id: step.id, name: step.name };
+    },
+    async removeStep(projectId, stepId, cascade) {
+      const reply = await client.deleteApiProjectsByIdStepsByStepId({
+        params: { id: projectId, stepId },
+        ...(cascade ? { query: { cascade: 'true' } } : {}),
+        headers: auth(token),
+      });
+      if (reply.kind === 'failure') return throwReply(removeStepShape, reply);
+      if (reply.kind === 'success') return { ok: true };
+      if (reply.body.error === 'in_use')
+        return { ok: false, reason: 'in_use', inUse: reply.body.inUse };
+      return throwReply(removeStepShape, reply);
+    },
+    async createWorkItem(projectId, input) {
+      const made = onlyResult(await command(projectId, { kind: 'createWorkItem', ...input }));
+      if (made.id === undefined) throw new Error('unexpected_response');
+      projectOf.set(made.id, projectId);
+      return { id: made.id };
+    },
+    async patchWorkItem(id, patch) {
+      const { teamIds, tagIds, serviceIds, typeIds, externalRefs, ...fields } = patch;
+      await onRow(id, {
+        kind: 'patchWorkItem',
+        patch: {
+          ...fields,
+          ...(teamIds === undefined ? {} : { teamIds: [...teamIds] }),
+          ...(tagIds === undefined ? {} : { tagIds: [...tagIds] }),
+          ...(serviceIds === undefined ? {} : { serviceIds: [...serviceIds] }),
+          ...(typeIds === undefined ? {} : { typeIds: [...typeIds] }),
+          ...(externalRefs === undefined
+            ? {}
+            : { externalRefs: externalRefs.map((ref) => ({ ...ref })) }),
+        },
+        workItemId: id,
+      });
+    },
+    async setStatus(id, status, on, factStart) {
+      await onRow(id, {
+        kind: 'setStatus',
+        workItemId: id,
+        status,
+        on,
+        ...(factStart === undefined ? {} : { factStart }),
+      });
+    },
+    async moveWorkItem(id, parentId, afterId) {
+      await onRow(id, { kind: 'moveWorkItem', workItemId: id, parentId, afterId });
+    },
+    async duplicateWorkItem(id) {
+      const projectId = projectFor(id);
+      const copy = onlyResult(
+        await command(projectId, { kind: 'duplicateWorkItem', workItemId: id }),
+      );
+      if (copy.id === undefined) throw new Error('unexpected_response');
+      projectOf.set(copy.id, projectId);
+      return { id: copy.id };
+    },
+    async removeWorkItem(id, options) {
+      await onRow(id, {
+        kind: 'deleteWorkItem',
+        workItemId: id,
+        ...(options?.strategy === undefined ? {} : { strategy: options.strategy }),
+      });
+    },
+    async setEstimate(id, stepId, days) {
+      await onRow(id, { kind: 'setEstimate', workItemId: id, stepId, days });
+    },
+    async clearEstimate(id, stepId) {
+      await onRow(id, { kind: 'clearEstimate', workItemId: id, stepId });
+    },
+    async arrangeBySchedule(projectId) {
+      await command(projectId, { kind: 'arrangeBySchedule' });
+    },
+    async freezeProject(projectId) {
+      await command(projectId, { kind: 'freezeProject' });
+    },
+    async unfreezeProject(projectId) {
+      await command(projectId, { kind: 'unfreezeProject' });
+    },
+    async unfreezeWorkItem(id) {
+      await onRow(id, { kind: 'unfreezeWorkItem', workItemId: id });
+    },
+    async addDependency(id, predecessorId) {
+      await onRow(id, { kind: 'addDependency', workItemId: id, predecessorId });
+    },
+    async removeDependency(id, predecessorId) {
+      await onRow(id, { kind: 'removeDependency', workItemId: id, predecessorId });
+    },
+  };
+}
+
+export function depthOf(workItem: WorkItemView): number {
+  return workItem.number.split('.').length - 1;
+}

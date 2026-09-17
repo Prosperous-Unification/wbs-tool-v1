@@ -67,7 +67,7 @@ playwright-report/
 # the change's verify.md.
 tmp/
 
-# CPython bytecode from libs/solver-py's suite. The gate runs
+# CPython bytecode from libs/wbs/adapters/solver-py's suite. The gate runs
 # `python -m unittest` inside the checkout, so a `git status --porcelain | wc -l`
 # cleanliness assertion after a gate run counts two untracked directories and
 # reads as a dirty tree — which is how a worker learns to ignore that check.
@@ -82,5 +82,5 @@ __pycache__/
 # The macOS development solver environment (tools/dev/solver-environment.ts)
 # and the setuptools artifacts its install leaves behind.
 .venv-solver/
-libs/solver-py/build/
-libs/solver-py/src/*.egg-info/
+libs/wbs/adapters/solver-py/build/
+libs/wbs/adapters/solver-py/src/*.egg-info/

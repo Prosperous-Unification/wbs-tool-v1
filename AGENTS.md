@@ -33,7 +33,7 @@ Five rules govern this repo:
 - Cross-file decisions, glossary and runbooks live in `docs/`; link them with
   `{@link Symbol}` and update JSDoc with behavior. `CONTEXT.md` is terms only.
 - Only hard-to-reverse, surprising decisions with real alternatives earn `docs/adr/`.
-- No file headers or syntax narration. `apps/be-01/src/repository/db.ts` is the reference.
+- No file headers or syntax narration. `apps/wbs/be-01/src/repository/db.ts` is the reference.
 - No `any`, unchecked cast, `!` or eslint-disable outside tests without an adjacent
   comment naming the boundary that makes it safe.
 

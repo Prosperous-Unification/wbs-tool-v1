@@ -239,6 +239,13 @@ project of `nx:run-commands` targets running a Bun script.
 and Nx versions are peer dependencies asserted at runtime, and a mismatch is a refusal, not
 a warning.
 
+3.8 **Namespace move, 2026-09-16.** The tool became a product inside this repository instead:
+`tools/tool-wiki` is now `apps/wiki/cli`, Nx project `wiki-cli`, tagged `product:wiki`, and its
+marker, publication refs and authority schema no longer name WBS (`module-index`,
+`refs/module-wiki/publications`, `module-wiki-authority.v5`). That is the namespace, not the
+extraction: 3.1 still holds, so the separate repository waits for a second consumer, and the
+counts and paths recorded above describe `main` on 2026-09-13, before the move.
+
 ## Sequencing
 
 1. An OpenSpec change for Part 1. Small, gate-only, measured for four weeks. Independent of

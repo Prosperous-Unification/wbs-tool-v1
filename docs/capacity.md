@@ -154,15 +154,15 @@ the sake of a display promise. The argument is `capacity-engine/design.md`, D7.
 
 ## Where the code is
 
-| Thing                                  | File                                                                    |
-| -------------------------------------- | ----------------------------------------------------------------------- |
-| The stored number                      | `apps/be-01/src/repository/schema.ts`, `projectTeamCapacity`            |
-| The lookup the scheduler uses          | `apps/be-01/src/repository/capacity.ts`, `slotsFor`                     |
-| Placement against the pool             | `apps/libs/domain/src/schedule.ts`                                      |
-| Label inheritance, shared by both apps | `libs/domain/src/effective-team.ts`                                     |
-| The box                                | `apps/fe-01/src/components/wbs/teams-dialog.tsx`                        |
-| The chart's sentence                   | `apps/fe-01/src/components/wbs/gantt-geometry.ts`, `capacityFloorWords` |
-| The chart's clamp line                 | `apps/fe-01/src/components/wbs/gantt-panel.tsx`, `clampWords`           |
+| Thing                                  | File                                                                        |
+| -------------------------------------- | --------------------------------------------------------------------------- |
+| The stored number                      | `apps/wbs/be-01/src/repository/schema.ts`, `projectTeamCapacity`            |
+| The lookup the scheduler uses          | `apps/wbs/be-01/src/repository/capacity.ts`, `slotsFor`                     |
+| Placement against the pool             | `libs/wbs/domain/domain/src/schedule.ts`                                    |
+| Label inheritance, shared by both apps | `libs/wbs/domain/domain/src/effective-team.ts`                              |
+| The box                                | `apps/wbs/fe-01/src/components/wbs/teams-panel.tsx`                         |
+| The chart's sentence                   | `apps/wbs/fe-01/src/components/wbs/gantt-geometry.ts`, `capacityFloorWords` |
+| The chart's clamp line                 | `apps/wbs/fe-01/src/components/wbs/gantt-panel.tsx`, `clampWords`           |
 
 The behaviour is specified in `openspec/changes/capacity-engine/`,
 `capacity-write-paths/`, `capacity-ui/`, `capacity-per-project/` and

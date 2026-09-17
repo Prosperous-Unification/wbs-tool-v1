@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { scratchAsync } from '@wbs/tool-test-scratch';
+import { scratchAsync } from '@tools/test-scratch';
 import { describe, expect, it } from 'bun:test';
 
 import { previewContext, renderAll, renderTemplate } from './render';

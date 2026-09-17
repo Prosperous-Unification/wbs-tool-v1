@@ -10,7 +10,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 
-import { scratchSync } from '@wbs/tool-test-scratch';
+import { scratchSync } from '@tools/test-scratch';
 import { afterAll, describe, expect, it } from 'bun:test';
 
 // TASK-160, finding 4. `configure-caddy.test.ts` asserts on configure.sh's

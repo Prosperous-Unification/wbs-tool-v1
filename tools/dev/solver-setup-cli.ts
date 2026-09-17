@@ -1,5 +1,5 @@
 /**
- * `nx run solver-py:setup-macos` — build and prove the local solver environment.
+ * `nx run wbs-solver-py:setup-local-solver` — build and prove the local solver environment.
  *
  * Separate from `dev:setup`, which seeds `.env` files and must keep working on a
  * machine that will never run a solver. This one is opt-in for the local
@@ -15,7 +15,10 @@ import {
 } from './solver-environment';
 
 const repoRoot = process.cwd();
-const environment = provisionSolverEnvironment(repoRoot);
+const environment = provisionSolverEnvironment(repoRoot, {
+  platform: process.platform,
+  arch: process.arch,
+});
 const report = verifySolverEnvironment(environment);
 const solved = solveGoldenRequest(repoRoot, environment);
 const status = JSON.parse(solved) as { status?: string };
@@ -30,10 +33,19 @@ process.stdout.write(
     `  wbs-solver       ${report.installedVersion}`,
     `  golden request   ${status.status}`,
     '',
-    '  This profile has NO memory enforcement and NO parent-death signal:',
-    '  both are Linux mechanisms the supervised path owns. A solve here is',
-    '  unbounded in memory, and a be-01 crash can leave the child running',
-    '  until its own deadline alarm fires.',
+    // The launcher decides both guards from the interpreter's `sys.platform`,
+    // so the banner reads the same authority rather than Bun's.
+    ...(report.platform === 'linux'
+      ? [
+          '  This profile has NO cgroup memory ceiling: the launcher applies only its',
+          '  address-space backstop (4x SOLVER_MEMORY_LIMIT_MB). The parent-death',
+          '  signal is armed, so a be-01 crash kills the child.',
+        ]
+      : [
+          '  This profile has NO memory enforcement and NO parent-death signal:',
+          '  both are Linux mechanisms. A solve here is unbounded in memory, and a',
+          '  be-01 crash can leave the child running until its own deadline alarm fires.',
+        ]),
     '',
   ].join('\n'),
 );

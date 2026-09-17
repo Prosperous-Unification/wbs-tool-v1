@@ -17,7 +17,9 @@ pre-commit:
       run: bun run tools/tool-git-hooks/src/hooks/plaintext-secrets.ts {staged_files}
     migration-lint:
       run: bun run tools/tool-git-hooks/src/hooks/migration-lint.ts {staged_files}
-      glob: 'apps/be-01/drizzle/**/*.sql'
+      # Proof: restoring the legacy glob made the parsed production hook oracle receive
+      # apps/be-01/drizzle/**/*.sql instead of the moved root (0 passed / 2 failed).
+      glob: 'apps/wbs/be-01/drizzle/**/*.sql'
 
     doc-caps:
       run: bun run tools/tool-git-hooks/src/hooks/doc-caps.ts

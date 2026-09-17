@@ -10,6 +10,8 @@
       "inputs": [
         "default",
         "^production",
+        "{workspaceRoot}/**/*",
+        "{workspaceRoot}/docs/findings/current-document-check-exemptions.json",
         "{workspaceRoot}/bin/dev.sh",
         "{workspaceRoot}/bin/dev-be-probe.sh",
         "{workspaceRoot}/bin/dev-mcp-preflight.sh",
@@ -23,7 +25,10 @@
         "{workspaceRoot}/apps/**/project.json",
         "{workspaceRoot}/libs/**/project.json",
         "{workspaceRoot}/tools/**/project.json",
+        "{workspaceRoot}/apps/**/tsconfig*.json",
+        "{workspaceRoot}/libs/**/tsconfig*.json",
         "{projectRoot}/workspace-projects.mjs",
+        "{projectRoot}/workspace-inventory.mjs",
         "{workspaceRoot}/apps/**/src/**/*.test.ts",
         "{workspaceRoot}/libs/**/src/**/*.test.ts",
         "{workspaceRoot}/tools/**/src/**/*.test.ts",
@@ -32,8 +37,22 @@
         "{workspaceRoot}/libs/**/src/**/*.ts",
         "{workspaceRoot}/tools/**/src/**/*.ts",
         "{workspaceRoot}/.bun-version",
+        "{workspaceRoot}/.dockerignore",
+        "{workspaceRoot}/.gitignore",
         "{workspaceRoot}/.github/workflows/ci.yml",
-        "{workspaceRoot}/apps/*/Dockerfile",
+        "{workspaceRoot}/AGENTS.md",
+        "{workspaceRoot}/HUMAN_README.md",
+        "{workspaceRoot}/LLM_README.md",
+        "{workspaceRoot}/docs/**/*.md",
+        "{workspaceRoot}/docs/wiki-policy/*.json",
+        "{workspaceRoot}/lefthook.yml",
+        "{workspaceRoot}/openspec/changes/automatic-dev-solver-binding/**/*.md",
+        "{workspaceRoot}/openspec/changes/dual-optimized-scheduler/supervisor-amendment.md",
+        "{workspaceRoot}/openspec/changes/repo-namespacing/preflight-inventory.md",
+        "{workspaceRoot}/.prettierignore",
+        "{workspaceRoot}/tsconfig.base.json",
+        "{workspaceRoot}/apps/wbs/be-01/drizzle/**/*",
+        "{workspaceRoot}/apps/**/Dockerfile",
         "{workspaceRoot}/deploy/dev-src/Dockerfile"
       ],
       "options": {
@@ -44,13 +63,13 @@
     "lint": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "bunx eslint tools/tool-devsync/src tools/tool-devsync/workspace-projects.mjs"
+        "command": "bunx eslint tools/tool-devsync/src tools/tool-devsync/workspace-projects.mjs tools/tool-devsync/workspace-inventory.mjs"
       }
     },
     "lint:fast": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "bunx eslint tools/tool-devsync/src tools/tool-devsync/workspace-projects.mjs --cache --cache-location .nx/eslintcache-tool-devsync"
+        "command": "bunx eslint tools/tool-devsync/src tools/tool-devsync/workspace-projects.mjs tools/tool-devsync/workspace-inventory.mjs --cache --cache-location .nx/eslintcache-tool-devsync"
       }
     },
     "typecheck": {

@@ -1,4 +1,4 @@
-import { decodeSolverSupervisorConfig } from '@wbs/deploy-contract';
+import { decodeSolverSupervisorConfig } from '@tools/deploy-contract';
 
 import {
   resumeSolverBindingBeforeReset,

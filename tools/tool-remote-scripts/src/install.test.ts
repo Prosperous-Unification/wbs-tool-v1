@@ -202,6 +202,14 @@ describe('host-wide solver supervisor contract', () => {
     );
     expect(unit).toContain('Restart=always');
     expect(unit).toContain(`RuntimeDirectory=${SOLVER_SUPERVISOR_RUNTIME_DIRECTORY}`);
+    // Proof: removing preservation strands bind-mounted containers on the old directory;
+    // removing cleanup lets socket-only readiness accept the terminated process's inode.
+    expect(unit.split('\n').filter((line) => line.startsWith('RuntimeDirectoryPreserve='))).toEqual(
+      ['RuntimeDirectoryPreserve=restart'],
+    );
+    expect(unit.split('\n').filter((line) => line.startsWith('ExecStopPost='))).toEqual([
+      'ExecStopPost=/bin/rm -f %t/wbs-solver/supervisor.sock',
+    ]);
     expect(unit).not.toContain('/home/puni1/wbs/');
     expect(unit).not.toContain('/home/puni1/wbs-dev/');
   });

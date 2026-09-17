@@ -1,11 +1,11 @@
-Implementation is blocked only on the completed `core-lib-extraction` handoff and current
-solver-path ownership. These are ordered slices for one coordinated namespace candidate;
-none has been executed. Read `design.md`'s mapping before assigning ownership. Names below
+Implementation follows the completed `core-lib-extraction` handoff and current solver-path
+ownership. These are ordered slices for one coordinated namespace candidate. Read
+`design.md`'s mapping before assigning ownership. Names below
 refer to the old root before slice 3 and its mapped destination afterward.
 
 ## 1. Pin scope and make nested projects visible
 
-- [ ] 1.1 Pin the post-extraction commit, clean isolated worktree and complete Nx/project/alias
+- [x] 1.1 Pin the post-extraction commit, clean isolated worktree and complete Nx/project/alias
       inventory. Record all tracked literal and constructed app/lib paths, project selectors,
       wildcard cache inputs and cross-root relative reads in this change's implementation
       evidence. Check the nested supervisor project and all new extracted libs explicitly.
@@ -13,7 +13,7 @@ refer to the old root before slice 3 and its mapped destination afterward.
       tier ports and public alias keys. Test: the inventory matches
       `bunx nx show projects --json` and every table row in `design.md`;
       no fixed minimum count is an oracle.
-- [ ] 1.2 Reuse core extraction's recursive discovery, consolidate the shared entrypoint
+- [x] 1.2 Reuse core extraction's recursive discovery, consolidate the shared entrypoint
       as `tools/tool-devsync/workspace-projects.mjs` and extend its fixture suite
       `src/workspace-projects.test.ts`; migrate any remaining shallow walks in
       `workspace-targets.test.ts` and `sync.test.ts`, including outside-read and deploy-union
@@ -27,7 +27,7 @@ refer to the old root before slice 3 and its mapped destination afterward.
 
 ## 2. Prove the product and layout rules before moving source
 
-- [ ] 2.1 Implement `productConstraints(projects)` and use it in both relevant ESLint rule
+- [x] 2.1 Implement `productConstraints(projects)` and use it in both relevant ESLint rule
       sets; tests remain exempt only from ring rules. In a temporary fixture workspace with
       installed dependencies referenced from this checkout, add `product:probe` projects
       importing own/shared/WBS aliases. Test: actual
@@ -36,7 +36,7 @@ refer to the old root before slice 3 and its mapped destination afterward.
       own/shared controls pass. Negative: remove only the generated probe constraint and
       observe the forbidden-import oracle fail because lint passed; restore it. Also prove
       a shared-product lib cannot depend on WBS. No second product is committed.
-- [ ] 2.2 Add `src/namespace-layout.test.ts` and the layout validator using enumerated
+- [x] 2.2 Add `src/namespace-layout.test.ts` and the layout validator using enumerated
       projects. Exercise directory/ring disagreement, directory/product disagreement,
       unqualified Nx name, absent/duplicate scope/ring/runtime/product tags and product tags
       on tools. Watch each fault through the tool-devsync test target with that check
@@ -47,28 +47,29 @@ refer to the old root before slice 3 and its mapped destination afterward.
 
 ## 3. Move projects and every active consumer in one candidate
 
-- [ ] 3.1 Apply the exact root/name/tag/alias/output mapping in `design.md`, extracting the
+- [x] 3.1 Apply the exact root/name/tag/alias/output mapping in `design.md`, extracting the
       nested supervisor project before moving its old contracts parent. Rewrite manifests,
       tsconfigs, aliases, root scripts and ESLint path scopes in the same candidate. Test:
       project graph and alias keys preserve the pinned set; actual renamed app/library
       typechecks compile source and specs. Negative: inject a type error into a moved test
       file and observe its renamed Nx target fail; restore. Carry core's ring/runtime/
       SQLite negatives through their new paths; do not change their intended exemption.
-- [ ] 3.2 Rewrite Vite/Vitest aliases and outputs, both Playwright configurations and tests,
+- [x] 3.2 Rewrite Vite/Vitest aliases and outputs, both Playwright configurations and tests,
       the packaged-build server, root lint source inputs, CI artifact paths and all
       cross-tree fixtures. Test: frontend configuration/test-tier suites and `wbs-fe-01`
       typecheck/build resolve the moved files. Negative: restore one old alias target and
       one omitted moved root lint input; observe the actual build/lint target fail with a
       deliberate source fault in the omitted file. Remove injected faults before proceeding.
-- [ ] 3.3 Rewrite development setup/environment and solver paths in `tools/dev`, all four
+- [x] 3.3 Rewrite development setup/environment and solver paths in `tools/dev`, all four
       project selectors in `bin/dev.sh` and its test, MCP remote preflight path in
       `bin/dev-deploy.sh`, sync restart/solver-compatibility paths and tests. Test: setup
       operates in a temporary moved-layout fixture, supervisor still selects four apps,
       migration/config changes request restart and solver-image incompatibility refuses.
       Negative: restore each old path at its real caller and observe missing environment,
       missing restart or compatibility-refusal assertion. Do not edit a live remote `.env`.
-- [ ] 3.4 Rewrite the Dagger Dockerfile map, image entrypoints, Docker COPY/WORKDIR/output
-      paths, solver lock/package paths, image-smoke script, corpus-version hook and fixtures,
+- [x] 3.4 Rewrite the Dagger Dockerfile map, image entrypoints, Docker COPY/WORKDIR/output
+      paths, solver lock/package paths, image-smoke script including its moved `script_dir`
+      repository-root ascent, corpus-version hook and fixtures,
       migration-directory discovery, migration-lint root handling and lefthook SQL glob.
       Test: tool-dagger/deploy/git-hooks/devsync suites and moved migration CLI fixtures.
       Test migration discovery against two fixture commits spanning the directory rename:
@@ -78,7 +79,7 @@ refer to the old root before slice 3 and its mapped destination afterward.
       zero migrations. A missing down script and missing root waiver script still refuse;
       restored old Docker COPY input must fail candidate image construction/input resolution.
       Assert preserved migration blobs and all pinned deployment identity values.
-- [ ] 3.5 Correct recursive Nx inputs and every changed out-of-project read declaration,
+- [x] 3.5 Correct recursive Nx inputs and every changed out-of-project read declaration,
       `.dockerignore` dev exclusion, `.prettierignore` migration snapshots and solver build
       ignores. Test: warm `tool-devsync:test`, mutate a nested manifest and a moved Dockerfile
       with separately invalid values and observe a cache miss plus the named failure.
@@ -88,19 +89,19 @@ refer to the old root before slice 3 and its mapped destination afterward.
 
 ## 4. Handoff and production-path evidence
 
-- [ ] 4.1 Update current indexes/runbooks and JSDoc with final root paths and Nx names,
+- [x] 4.1 Update current indexes/runbooks and JSDoc with final root paths and Nx names,
       preserving frozen OpenSpec/history references as historical. Reconcile read dependencies
       with Radical Modularity and any active solver packet. Test: resolved documentation links,
       complete migration/alias/project manifests and source/config path inventory on the
       actual candidate; `git diff --check` and
       `OPENSPEC_TELEMETRY=0 openspec validate repo-namespacing --strict --json`.
-- [ ] 4.2 On the frozen candidate run `bin/h2puni-gate.sh` under its canonical host lock,
+- [x] 4.2 On the frozen candidate run `bin/h2puni-gate.sh` under its canonical host lock,
       then the complete browser gate with `CI=1 E2E_PORT_SHIFT=1900` on verified owned ports,
       and the packaged frontend check if its serving paths changed. Run the renamed backend
       image-smoke target with its required host prerequisites. Record actual commands,
       counts, timings, skipped cases and restored negative outputs in `verify.md`.
 - [ ] 4.3 Build fresh executor bundles through the existing release workflow and run
-      `bunx nx run tool-deploy:deploy --all --env=prod --dry-run` against the candidate's
+      `bunx nx run tool-deploy:deploy --args='--all --env=prod --dry-run'` against the candidate's
       current release inputs. Respect existing release-manifest/clean-tree refusals; do not
       synthesize or reuse stale success evidence. Record all tier plans, moved build inputs
       and relative migration CLI resolution; a dry-run is not a publish or live deploy.

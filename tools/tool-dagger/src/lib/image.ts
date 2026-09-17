@@ -1,4 +1,4 @@
-import type { Tier } from '@wbs/deploy-contract';
+import type { Tier } from '@tools/deploy-contract';
 
 export interface ImageSpec {
   tier: Tier;
@@ -11,14 +11,14 @@ export const DEFAULT_IMAGES: Record<ImageSpec['tier'], ImageSpec> = {
   be: {
     tier: 'be',
     baseImage: 'oven/bun:1.2-debian',
-    entrypoint: ['bun', 'run', 'apps/be-01/src/main.ts'],
-    workdir: '/app',
+    entrypoint: ['bun', 'run', 'src/main.ts'],
+    workdir: '/app/apps/wbs/be-01',
   },
   gw: {
     tier: 'gw',
     baseImage: 'oven/bun:1.2-debian',
-    entrypoint: ['bun', 'run', 'apps/gw-01/src/main.ts'],
-    workdir: '/app',
+    entrypoint: ['bun', 'run', 'src/main.ts'],
+    workdir: '/app/apps/wbs/gw-01',
   },
   fe: {
     tier: 'fe',

@@ -1,4 +1,4 @@
-import { renderTemplate, siteCaddyTmpl } from '@wbs/tool-compose';
+import { renderTemplate, siteCaddyTmpl } from '@tools/compose';
 import { describe, expect, it } from 'bun:test';
 
 import {

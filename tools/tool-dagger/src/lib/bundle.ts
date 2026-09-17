@@ -1,4 +1,4 @@
-import type { Tier } from '@wbs/deploy-contract';
+import type { Tier } from '@tools/deploy-contract';
 
 export interface BundleMeta {
   sha: string;

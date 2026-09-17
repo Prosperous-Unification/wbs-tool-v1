@@ -1,7 +1,7 @@
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { scratchAsync } from '@wbs/tool-test-scratch';
+import { scratchAsync } from '@tools/test-scratch';
 import { $ } from 'bun';
 import { describe, expect, it } from 'bun:test';
 
@@ -14,12 +14,15 @@ import {
   devSolverMappingOf,
   devSyncFailureMessage,
   LOCK_BUSY_EXIT_CODE,
+  MCP_ENV,
   needsRestart,
   preflightSolver,
   RECREATE_PATHS,
+  requireSolverImageInHost,
   RESTART_PATHS,
   runDevSyncLock,
   SOLVER_COMPATIBILITY_PATHS,
+  solverPreflightDependencies,
   solverTargetDependencies,
   sync,
 } from './sync';
@@ -53,14 +56,16 @@ describe('needsRestart', () => {
   // sees it. Without this, dev serves new code against the old schema and
   // reports success -- be-01 sets migrationsApplied=true regardless.
   it('restarts when a migration appeared', () => {
-    expect(needsRestart({ 'apps/be-01/drizzle': 'a' }, { 'apps/be-01/drizzle': 'b' })).toBe(true);
+    expect(needsRestart({ 'apps/wbs/be-01/drizzle': 'a' }, { 'apps/wbs/be-01/drizzle': 'b' })).toBe(
+      true,
+    );
   });
 
   // The Nx supervisor reads these once at startup. A changed port, command or
   // serve target leaves the old topology running while HEAD moves on.
   it('restarts when a serve target changed', () => {
     expect(
-      needsRestart({ 'apps/be-01/project.json': 'a' }, { 'apps/be-01/project.json': 'b' }),
+      needsRestart({ 'apps/wbs/be-01/project.json': 'a' }, { 'apps/wbs/be-01/project.json': 'b' }),
     ).toBe(true);
   });
 
@@ -88,9 +93,9 @@ describe('needsRestart', () => {
 
   it('watches the paths that cannot reach a running process any other way', () => {
     expect(RESTART_PATHS).toContain('bun.lock');
-    expect(RESTART_PATHS).toContain('apps/be-01/drizzle');
+    expect(RESTART_PATHS).toContain('apps/wbs/be-01/drizzle');
     expect(RESTART_PATHS).toContain('package.json');
-    expect(RESTART_PATHS).toContain('apps/fe-01/vite.config.ts');
+    expect(RESTART_PATHS).toContain('apps/wbs/fe-01/vite.config.ts');
   });
 });
 
@@ -109,25 +114,149 @@ describe('RESTART_PATHS coverage', () => {
     }
   });
 
-  it('names every app tsconfig, which is read once at process start', () => {
-    for (const app of ['be-01', 'gw-01', 'fe-01', 'mcp-01']) {
-      expect(RESTART_PATHS).toContain(`apps/${app}/tsconfig.json`);
+  it('names every app tsconfig, which is read once at process start', async () => {
+    const apps = (await readProjects(WORKSPACE)).filter((project) =>
+      project.root.startsWith('apps/'),
+    );
+    expect(apps.map((project) => project.name)).toContain('wbs-mcp-01');
+    for (const app of apps) {
+      expect(RESTART_PATHS).toContain(`${app.root}/tsconfig.json`);
     }
     expect(RESTART_PATHS).toContain('tsconfig.base.json');
   });
 
-  it('names every app project.json, whose serve target the supervisor reads once', async () => {
+  // Every app manifest, serve target or not: the supervisor reads the project graph once at
+  // startup, and `wiki-cli` — an app on disk with no serve target — is still a manifest that
+  // graph is built from. Narrowing this to apps that declare a serve target would let the next
+  // serve-less app's manifest drift past a running stack unnoticed.
+  it('names every app project.json, which the supervisor reads once at startup', async () => {
     const apps = (await readProjects(WORKSPACE))
       .filter((project) => project.root.startsWith('apps/'))
-      .map((project) => project.name);
-    expect(apps).toContain('mcp-01');
+      .map((project) => ({ name: project.name, manifest: `${project.root}/project.json` }));
+    expect(apps.map((app) => app.name)).toContain('wbs-mcp-01');
     for (const app of apps) {
-      expect(RESTART_PATHS).toContain(`apps/${app}/project.json`);
+      expect(RESTART_PATHS).toContain(app.manifest);
     }
   });
 });
 
 describe('dev supervisor', () => {
+  it('refuses a mutable solver image before touching the host daemon', async () => {
+    const events: string[] = [];
+    expect(
+      await rejection(
+        requireSolverImageInHost('registry.example/wbs-be:latest', {
+          inspect: () => {
+            events.push('inspect');
+            return Promise.resolve(true);
+          },
+          pull: () => {
+            events.push('pull');
+            return Promise.resolve();
+          },
+        }),
+      ),
+    ).toContain('solver host image must be digest-pinned');
+    expect(events).toEqual([]);
+  });
+
+  it('skips the registry when the exact solver digest is already in the host daemon', async () => {
+    let inspections = 0;
+    let pulls = 0;
+    await requireSolverImageInHost(DEV_IMAGE, {
+      inspect: () => {
+        inspections += 1;
+        return Promise.resolve(true);
+      },
+      pull: () => {
+        pulls += 1;
+        return Promise.resolve();
+      },
+    });
+    expect({ inspections, pulls }).toEqual({ inspections: 1, pulls: 0 });
+  });
+
+  it('pulls one missing solver digest and verifies the host daemon afterwards', async () => {
+    let inspections = 0;
+    let pulls = 0;
+    await requireSolverImageInHost(DEV_IMAGE, {
+      inspect: () => {
+        inspections += 1;
+        return Promise.resolve(inspections === 2);
+      },
+      pull: () => {
+        pulls += 1;
+        return Promise.resolve();
+      },
+    });
+    expect({ inspections, pulls }).toEqual({ inspections: 2, pulls: 1 });
+  });
+
+  // Proof: a pull that returns without installing the requested digest must
+  // not let the service, socket, mapping, or checkout-reset phases begin.
+  it('refuses when a pull leaves the exact solver digest absent', async () => {
+    let pulls = 0;
+    expect(
+      await rejection(
+        requireSolverImageInHost(DEV_IMAGE, {
+          inspect: () => Promise.resolve(false),
+          pull: () => {
+            pulls += 1;
+            return Promise.resolve();
+          },
+        }),
+      ),
+    ).toContain(`solver host image is unavailable after pull: ${DEV_IMAGE}`);
+    expect(pulls).toBe(1);
+  });
+
+  it('propagates a solver image pull refusal without a second inspection', async () => {
+    let inspections = 0;
+    expect(
+      await rejection(
+        requireSolverImageInHost(DEV_IMAGE, {
+          inspect: () => {
+            inspections += 1;
+            return Promise.resolve(false);
+          },
+          pull: () => Promise.reject(new Error('registry unavailable')),
+        }),
+      ),
+    ).toContain('registry unavailable');
+    expect(inspections).toBe(1);
+  });
+
+  // Proof: a missing-image refusal at the production command boundary leaves
+  // every later service/socket/mapping probe untouched. Removing the image
+  // call, or moving it later, changes this exact ledger.
+  it('wires the production host preflight in fail-closed image-first order', async () => {
+    const events: string[] = [];
+    const configPath = '/srv/wbs/solver-supervisor.json';
+    const dependencies = solverPreflightDependencies('/srv/wbs/source', configPath, {
+      requireImage: (image) => {
+        events.push(`image:${image}`);
+        return Promise.reject(new Error('No such image: exact solver digest'));
+      },
+      requireService: () => {
+        events.push('service');
+        return Promise.resolve();
+      },
+      requireSocket: () => {
+        events.push('socket');
+        return Promise.resolve();
+      },
+      requireMapping: (image, path) => {
+        events.push(`mapping:${image}:${path}`);
+        return Promise.resolve();
+      },
+    });
+
+    expect(await rejection(dependencies.requireHost(DEV_IMAGE))).toContain(
+      'No such image: exact solver digest',
+    );
+    expect(events).toEqual([`image:${DEV_IMAGE}`]);
+  });
+
   // The dev stack's project list feeds `nx run-many -t <target> --projects=...`.
   // A tier left out of that list has no watcher and no supervisor, so it never
   // starts. mcp-01 must run beside be-01, gw-01 and fe-01.
@@ -150,7 +279,12 @@ describe('dev supervisor', () => {
     expect(projects).toBeDefined();
     // One list serves both `serve` and `serve-local-solver`, so a tier missing
     // here is missing from both modes at once.
-    expect(projects?.split(',').sort()).toEqual(['be-01', 'fe-01', 'gw-01', 'mcp-01']);
+    expect(projects?.split(',').sort()).toEqual([
+      'wbs-be-01',
+      'wbs-fe-01',
+      'wbs-gw-01',
+      'wbs-mcp-01',
+    ]);
 
     const pkg = JSON.parse(
       await readFile(new URL('../../../package.json', import.meta.url), 'utf8'),
@@ -160,7 +294,10 @@ describe('dev supervisor', () => {
   });
 
   it('binds the dev mapping to the solver sources and package image', () => {
-    expect(SOLVER_COMPATIBILITY_PATHS).toEqual(['libs/solver-py', 'apps/be-01/Dockerfile']);
+    expect(SOLVER_COMPATIBILITY_PATHS).toEqual([
+      'libs/wbs/adapters/solver-py',
+      'apps/wbs/be-01/Dockerfile',
+    ]);
     expect(
       devSolverMappingOf(
         JSON.stringify({
@@ -173,8 +310,14 @@ describe('dev supervisor', () => {
       assertDevSolverSourceCompatible([]);
     }).not.toThrow();
     expect(() => {
-      assertDevSolverSourceCompatible(['libs/solver-py/src/wbs_solver/solve.py']);
+      assertDevSolverSourceCompatible(['libs/wbs/adapters/solver-py/src/wbs_solver/solve.py']);
     }).toThrow(/mapping is stale.*publish the backend image/);
+  });
+
+  it('checks the namespaced MCP environment before moving the live checkout', () => {
+    // Proof: restoring sync.ts's default to `src/apps/mcp-01/.env` failed this
+    // exact production default assertion without reading a live remote file.
+    expect(MCP_ENV).toBe('/home/puni1/wbs-dev/src/apps/wbs/mcp-01/.env');
   });
 
   it('routes the solver target after fetch and before deployed HEAD is believed', async () => {
@@ -193,7 +336,7 @@ describe('dev supervisor', () => {
     const changedEvents: string[] = [];
     await deploySolverTarget('c'.repeat(40), {
       currentSha: () => Promise.resolve('b'.repeat(40)),
-      changedPaths: () => Promise.resolve(['libs/solver-py/src/wbs_solver/solve.py']),
+      changedPaths: () => Promise.resolve(['libs/wbs/adapters/solver-py/src/wbs_solver/solve.py']),
       compatibilityIdentity: () => Promise.resolve('d'.repeat(64)),
       readState: () => Promise.resolve(undefined),
       prepare: (target, state) => {
@@ -234,13 +377,18 @@ describe('dev supervisor', () => {
     const directory = await scratchAsync('wbs-devsync-source-repository-');
     const sourceRepository = join(directory, 'source');
     const exportedRuntime = join(directory, 'bin', 'sync.target');
-    await mkdir(join(sourceRepository, 'libs', 'solver-py'), { recursive: true });
-    await mkdir(join(sourceRepository, 'apps', 'be-01'), { recursive: true });
+    await mkdir(join(sourceRepository, 'libs', 'wbs', 'adapters', 'solver-py'), {
+      recursive: true,
+    });
+    await mkdir(join(sourceRepository, 'apps', 'wbs', 'be-01'), { recursive: true });
     await mkdir(exportedRuntime, { recursive: true });
-    await writeFile(join(sourceRepository, 'libs', 'solver-py', 'solver.py'), 'version = 1\n');
-    await writeFile(join(sourceRepository, 'apps', 'be-01', 'Dockerfile'), 'FROM scratch\n');
+    await writeFile(
+      join(sourceRepository, 'libs', 'wbs', 'adapters', 'solver-py', 'solver.py'),
+      'version = 1\n',
+    );
+    await writeFile(join(sourceRepository, 'apps', 'wbs', 'be-01', 'Dockerfile'), 'FROM scratch\n');
     await $`git -C ${sourceRepository} init --quiet`;
-    await $`git -C ${sourceRepository} add libs/solver-py apps/be-01/Dockerfile`;
+    await $`git -C ${sourceRepository} add libs/wbs/adapters/solver-py apps/wbs/be-01/Dockerfile`;
     await $`git -C ${sourceRepository} -c user.name=devsync-test -c user.email=devsync@example.invalid commit --quiet -m compatibility`;
     const compatibilitySha = (await $`git -C ${sourceRepository} rev-parse HEAD`.text()).trim();
     const dependencies = solverTargetDependencies({
@@ -287,7 +435,7 @@ describe('dev supervisor', () => {
       }).compatibilityIdentity('a'.repeat(40)),
     );
     expect(message).toContain(`git repository ${missingRepository}`);
-    expect(message).toContain(`${'a'.repeat(40)}:libs/solver-py`);
+    expect(message).toContain(`${'a'.repeat(40)}:libs/wbs/adapters/solver-py`);
   });
 
   it('validates every injected solver path before constructing host dependencies', () => {
@@ -302,7 +450,7 @@ describe('dev supervisor', () => {
     }
   });
 
-  it('does not require supervisor host state for source-unrelated deploys', async () => {
+  it('allows absent optional host state for source-unrelated deploys', async () => {
     const deployedSha = 'b'.repeat(40);
     const targetSha = 'c'.repeat(40);
     let configReads = 0;
@@ -329,6 +477,30 @@ describe('dev supervisor', () => {
     expect(hostChecks).toBe(0);
   });
 
+  // Proof: injecting the incident's missing-image refusal into an unrelated
+  // deploy now makes the poller fail instead of resetting and leaving the only
+  // evidence in the supervisor user journal.
+  it('surfaces host-image refusal for a compatible unrelated deploy', async () => {
+    const deployedSha = 'b'.repeat(40);
+    const targetSha = 'c'.repeat(40);
+    let changedPathReads = 0;
+
+    expect(
+      await rejection(
+        preflightSolver(targetSha, {
+          currentSha: () => Promise.resolve(deployedSha),
+          changedPaths: () => {
+            changedPathReads += 1;
+            return Promise.resolve([]);
+          },
+          readConfig: () => Promise.resolve(solverConfigBytes(deployedSha)),
+          requireHost: () => Promise.reject(new Error('No such image: exact solver digest')),
+        }),
+      ),
+    ).toContain('No such image: exact solver digest');
+    expect(changedPathReads).toBe(2);
+  });
+
   it('names the materialize and install remedy when changed solver sources have no config', async () => {
     let configReads = 0;
     const injectedConfig = '/srv/wbs/state/injected-solver-config.json';
@@ -339,7 +511,8 @@ describe('dev supervisor', () => {
           'c'.repeat(40),
           {
             currentSha: () => Promise.resolve('b'.repeat(40)),
-            changedPaths: () => Promise.resolve(['libs/solver-py/src/wbs_solver/solve.py']),
+            changedPaths: () =>
+              Promise.resolve(['libs/wbs/adapters/solver-py/src/wbs_solver/solve.py']),
             readConfig: () => {
               configReads += 1;
               return Promise.resolve(undefined);
@@ -370,7 +543,7 @@ describe('dev supervisor', () => {
             expect(to).toBe(targetSha);
             expect(from).toBe(changedPathReads === 1 ? deployedSha : futureMappingSha);
             return Promise.resolve(
-              changedPathReads === 1 ? [] : ['libs/solver-py/src/wbs_solver/solve.py'],
+              changedPathReads === 1 ? [] : ['libs/wbs/adapters/solver-py/src/wbs_solver/solve.py'],
             );
           },
           readConfig: () => Promise.resolve(solverConfigBytes(futureMappingSha)),
@@ -400,7 +573,7 @@ describe('dev supervisor', () => {
             changedPathReads += 1;
             expect(to).toBe(targetSha);
             expect(from).toBe(changedPathReads === 1 ? deployedSha : mappingSha);
-            return Promise.resolve(['libs/solver-py/src/wbs_solver/solve.py']);
+            return Promise.resolve(['libs/wbs/adapters/solver-py/src/wbs_solver/solve.py']);
           },
           readConfig: () => Promise.resolve(solverConfigBytes(mappingSha)),
           requireHost: () => {
@@ -425,7 +598,7 @@ describe('dev supervisor', () => {
       currentSha: () => Promise.resolve(deployedSha),
       changedPaths: () => {
         changedPathReads += 1;
-        return Promise.resolve(changedPathReads === 1 ? ['apps/be-01/Dockerfile'] : []);
+        return Promise.resolve(changedPathReads === 1 ? ['apps/wbs/be-01/Dockerfile'] : []);
       },
       readConfig: () => Promise.resolve(solverConfigBytes(mappingSha)),
       requireHost: (image) => {

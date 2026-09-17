@@ -1,0 +1,21 @@
+# apps/wbs/gw-01/Dockerfile
+#
+# Build from the repo root:
+#   docker build -f apps/wbs/gw-01/Dockerfile -t wbs-gw-01:local .
+#
+# See apps/wbs/be-01/Dockerfile for the Bun tag (`.bun-version`) and --production.
+FROM oven/bun:1.4.2-alpine AS deps
+WORKDIR /app
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile --production
+
+FROM oven/bun:1.4.2-alpine AS runtime
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY package.json bun.lock tsconfig.base.json ./
+COPY libs ./libs
+COPY apps/wbs/gw-01 ./apps/wbs/gw-01
+WORKDIR /app/apps/wbs/gw-01
+EXPOSE 3200
+CMD ["bun", "run", "src/main.ts"]

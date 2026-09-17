@@ -3,7 +3,7 @@ import { computeFastGoldenCorpus } from '@wbs/domain';
 import { writeGoldenCorpusFile } from './write-golden-corpus-file';
 
 /**
- * Rewrites `libs/domain/fixtures/fast-golden-corpus.json` from this tree.
+ * Rewrites `libs/wbs/domain/domain/fixtures/fast-golden-corpus.json` from this tree.
  *
  * **Why this exists.** `fast-golden-corpus.test.ts` asserts the corpus in both
  * directions — the stored bytes must reproduce, *and* the stored
@@ -49,5 +49,8 @@ import { writeGoldenCorpusFile } from './write-golden-corpus-file';
  * A writer that had never been run against the current fixture would leave
  * every future regeneration carrying an unknown amount of its own formatting.
  */
-const target = new URL('../../libs/domain/fixtures/fast-golden-corpus.json', import.meta.url);
+const target = new URL(
+  '../../libs/wbs/domain/domain/fixtures/fast-golden-corpus.json',
+  import.meta.url,
+);
 process.stdout.write(`wrote ${await writeGoldenCorpusFile(target, computeFastGoldenCorpus())}\n`);

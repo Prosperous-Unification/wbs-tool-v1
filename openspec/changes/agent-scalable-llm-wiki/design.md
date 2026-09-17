@@ -145,11 +145,11 @@ and fresh shard review, not a vote count. Record model/context overlap.
 ### Index format and root migration
 
 `README.md` indexes remain ordinary Markdown with a single versioned metadata block
-(`<!-- wbs-index { ... } -->`) decoded by `contracts/index.ts`. It contains module id,
-membership declarations, relationship selectors, explicit section inapplicability reasons
-and external-consumer knowledge limits. Human content supplies purpose, relative links,
-cross-file invariants and authoritative check links; symbols keep JSDoc. Link text itself
-does not contain declaration globs.
+(`<!-- module-index { ... } -->`, renamed from `wbs-index` on 2026-09-16 by W6) decoded by
+`contracts/index.ts`. It contains module id, membership declarations, relationship selectors,
+explicit section inapplicability reasons and external-consumer knowledge limits. Human content
+supplies purpose, relative links, cross-file invariants and authoritative check links; symbols
+keep JSDoc. Link text itself does not contain declaration globs.
 
 Membership grammar supports exact relative paths and one directory-prefix set declaration
 with explicit exclusions; no `..`, absolute path, ambiguous wildcard or symlink traversal.

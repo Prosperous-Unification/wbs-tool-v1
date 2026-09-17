@@ -134,9 +134,10 @@ Marking a work item `done` SHALL fill the fact end of every work item the act wr
 leaves and, for a parent, the parent itself — whose `factEnd` is `null` with `on`; `on`
 absent, be-01 SHALL take the calendar day of the act's own write stamp in UTC. A stored fact
 end SHALL NOT be overwritten by the fill. fe-01 SHALL always send `on` as the day the
-completion prompt confirmed. Setting `unknown` SHALL set `factEnd` to `null` on every work
+completion prompt confirmed. Setting `unknown` SHALL set `factEnd` and `factStart` to `null` on every work
 item in scope — the leaves and, for a parent, the parent itself — whose status read `done`
-before the act, and SHALL leave every other fact date untouched. The fill and the clear SHALL
+before the act (`status-from-the-menu` widened this from the fact end alone), and SHALL leave
+the facts of every other row untouched. The fill and the clear SHALL
 be part of the same journal entry as the statements, so one undo takes them away together.
 
 #### Scenario: a typed fact end survives the mark
@@ -156,9 +157,8 @@ be part of the same journal entry as the statements, so one undo takes them away
 - **GIVEN** a done leaf whose fact end reads `2026-09-12` and whose fact start reads
   `2026-09-08`
 - **WHEN** `setStatus` sets it `unknown`, then the actor undoes once
-- **THEN** after the act its `progress` is empty, its fact end is `null` and its fact start is
-  `2026-09-08`; after the undo every statement and the fact end `2026-09-12` are back, from one
-  journal entry
+- **THEN** after the act its `progress` is empty and both facts are `null`; after the undo every
+  statement and both days are back, from one journal entry
 
 #### Scenario: a parent's unknown clears only what read done
 

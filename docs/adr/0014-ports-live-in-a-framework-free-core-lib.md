@@ -4,7 +4,8 @@ status: accepted
 
 # Ports live in a framework-free core lib; adapters live outside it
 
-be-01's store ports, services, use cases and HTTP endpoints move into `libs/core`, which may
+be-01's store ports, services, use cases and HTTP endpoints live in
+`libs/wbs/application/core`, which may
 import `@wbs/domain`, `@wbs/contracts`, `@wbs/validation` and the `StandardSchemaV1` type, and
 **nothing with a runtime**: no `elysia`, `drizzle-orm`, `bun:sqlite`, `jose` or `node:*`, and
 no `Bun`/`process`/`fetch`/timer/`Buffer` globals. Every runtime concern — password hashing,
@@ -21,8 +22,9 @@ a totality test, because a project without a ring is a constraint that never fir
 files are outside the ring constraints** and the import bans (the runtime constraints still
 bind them): the one hole, so that core's tests can compose core over the in-memory source
 without the source being a core dependency. The
-SQLite adapters live in `libs/store-sqlite`, the in-memory source in `libs/store-memory`, the
-portable adapters for the runtime ports in `libs/runtime-portable` (browser and Bun alike), and `apps/be-01` keeps only the
+SQLite adapters live in `libs/wbs/adapters/store-sqlite`, the in-memory source in
+`libs/wbs/adapters/store-memory`, the portable adapters for the runtime ports in
+`libs/wbs/adapters/runtime-portable` (browser and Bun alike), and `apps/wbs/be-01` keeps only the
 Elysia adapter, the composition root with the Bun runtime adapters, and the migrate CLIs.
 The HTTP contract is split along the same line: an endpoint's **shape** — method, path,
 operation id, policies, validators with generated document schemas, modeled reply statuses —
@@ -44,13 +46,14 @@ service graph, so core needs no ambient-context runtime port (D24; ADR 0015).
 
 The same day's review of the plan against the workspace corrected three more. The
 conformance kits are `bun:test` suites, which core's own import ban keeps out of core, so they
-live in `libs/conformance` (`ring:application`, `runtime:bun`). `libs/observability` imports
-Elysia, pino and OpenTelemetry and `libs/config` spawns `sops`, so both are `ring:adapter`,
+live in `libs/wbs/application/conformance` (`ring:application`, `runtime:bun`).
+`libs/wbs/adapters/observability` imports Elysia, pino and OpenTelemetry and
+`libs/wbs/adapters/config` spawns `sops`, so both are `ring:adapter`,
 and the one thing core wanted from them — the `Logger` type with its no-op — moves to
 `@wbs/contracts`. And the `EventLogStore` is a transactional store on `Scope`, not history
 (ADR 0015).
 
-`libs/domain` and `libs/contracts` are conceptually core's innermost ring and stay **separate
+`libs/wbs/domain/domain` and `libs/wbs/domain/contracts` are conceptually core's innermost ring and stay **separate
 Nx projects**: fe-01 imports one from 11 files and gw-01 the other from 4, and a boundary the
 linter can see is per project — `@wbs/core/domain` as a subpath would be a convention it
 cannot check. Their directories are grouped **by ring** — `libs/wbs/{domain,application,adapters}/` — with
@@ -63,7 +66,7 @@ which already means a folder inside one project in this repo.
 
 ## Considered options
 
-**Folders inside `apps/be-01/src` with ESLint path rules.** Least churn. Rejected because
+**Folders inside `apps/wbs/be-01/src` with ESLint path rules.** Least churn. Rejected because
 nothing outside be-01 can then compose the services — a CLI, a worker, gw-01 — which is
 half of what the split is for, and because folder-scoped lint rules are the kind of check
 that is scoped to where the fault is not (`svg-export-and-gutter`, 2026-08-31).
@@ -89,10 +92,10 @@ import `WorkItemService`, and nothing would fail.
 saved plans and the command runner included — with use-case entrypoints (`runCommandBatch`,
 `savePlan`, `replay`, `retentionSweep`) that carry the authorization and announcements the
 controllers hold today, so a worker cannot bypass them. be-01's `boot.ts` is one caller; the
-"any trigger, any runtime" test, `libs/core/src/compose.test.ts`, is another — it composes core
+"any trigger, any runtime" test, `libs/wbs/application/core/src/compose.test.ts`, is another — it composes core
 over `@wbs/store-memory` from inside core, which the test-file exemption above permits and
 which keeps the proof next to the code it proves. A domain module cannot take a core port — the rings point
-inward — so the one `node:crypto` use in `libs/domain` moves to its single caller in the SQLite
+inward — so the one `node:crypto` use in `libs/wbs/domain/domain` moves to its single caller in the SQLite
 adapter rather than behind `Digest`. gw-01 is **out**: Nx forbids app→app imports, so a be-01
 adapter cannot serve it, and its WebSocket upgrade is not an endpoint; a shared
 `libs/http-elysia` is a later decision. The migration SQL folder and the `migrate-*-cli.ts`

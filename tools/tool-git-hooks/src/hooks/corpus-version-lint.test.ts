@@ -1,8 +1,13 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+
+import { scratchSync } from '@tools/test-scratch';
 import { describe, expect, it } from 'bun:test';
 
 import {
   CONTRACT_VERSION_PATH,
   CORPUS_FIXTURES,
+  gitPort,
   lintCorpusVersion,
   type RevisionPort,
 } from './corpus-version-lint';
@@ -11,6 +16,11 @@ const BASE = '1111111111111111111111111111111111111111';
 const HEAD = '2222222222222222222222222222222222222222';
 
 const [FAST, QUANTUM] = CORPUS_FIXTURES;
+const LEGACY_VERSION = 'libs/domain/src/contract-version.ts';
+const LEGACY_FIXTURES = [
+  'libs/domain/fixtures/fast-golden-corpus.json',
+  'libs/domain/fixtures/solver-quantum-golden-corpus.json',
+] as const;
 
 function constantSource(version: string, trailer = ''): string {
   return [
@@ -68,6 +78,84 @@ function reasons(base: Tree, head: Tree): string[] {
     (issue) => issue.reason,
   );
 }
+
+function runGit(repository: string, ...args: string[]): string {
+  const invocation = Bun.spawnSync({
+    cmd: ['git', ...args],
+    cwd: repository,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  if (invocation.exitCode !== 0)
+    throw new Error(`git ${args.join(' ')} failed: ${invocation.stderr.toString('utf8').trim()}`);
+  return invocation.stdout.toString('utf8').trim();
+}
+
+function writeCorpusFile(repository: string, path: string, contents: string): void {
+  const absolute = join(repository, path);
+  mkdirSync(dirname(absolute), { recursive: true });
+  writeFileSync(absolute, contents);
+}
+
+function commit(repository: string, message: string): string {
+  runGit(repository, 'add', '.');
+  runGit(repository, 'commit', '-m', message);
+  return runGit(repository, 'rev-parse', 'HEAD');
+}
+
+function createRenamedCorpusHistory(): {
+  readonly root: string;
+  readonly base: string;
+  readonly head: string;
+} {
+  const root = scratchSync('wbs-corpus-layout-');
+  runGit(root, 'init');
+  runGit(root, 'config', 'user.name', 'Corpus Layout Test');
+  runGit(root, 'config', 'user.email', 'corpus-layout@example.invalid');
+  writeCorpusFile(root, LEGACY_VERSION, constantSource('8'));
+  writeCorpusFile(root, LEGACY_FIXTURES[0], corpus(8, { 'chain-of-three': { units: 48 } }));
+  writeCorpusFile(root, LEGACY_FIXTURES[1], corpus(8, { drift: { units: 48, rounded: false } }));
+  const base = commit(root, 'legacy corpus layout');
+
+  mkdirSync(join(root, 'libs', 'wbs', 'domain'), { recursive: true });
+  runGit(root, 'mv', 'libs/domain', 'libs/wbs/domain/domain');
+  const head = commit(root, 'namespace corpus layout');
+  return { root, base, head };
+}
+
+describe('the repository namespace transition', () => {
+  it('passes a pure layout rename in real Git history', () => {
+    const history = createRenamedCorpusHistory();
+    expect(lintCorpusVersion(history, gitPort(history.root))).toEqual([]);
+  });
+
+  for (const [index, fixture] of CORPUS_FIXTURES.entries()) {
+    it(`still refuses changed cases in moved fixture ${fixture}`, () => {
+      const history = createRenamedCorpusHistory();
+      writeCorpusFile(history.root, fixture, corpus(8, { changed: { fixture: index } }));
+      const changed = commit(history.root, 'change corpus cases without bump');
+      const issues = lintCorpusVersion(
+        { base: history.base, head: changed },
+        gitPort(history.root),
+      );
+
+      expect(issues).toHaveLength(1);
+      expect(issues[0]?.reason).toContain(fixture);
+      expect(issues[0]?.reason).toContain('did not increase');
+    });
+  }
+});
+
+it('refuses a revision containing both supported corpus layouts', () => {
+  const ambiguous = tree({
+    [LEGACY_VERSION]: constantSource('8'),
+    [LEGACY_FIXTURES[0]]: corpus(8, { 'chain-of-three': { units: 48 } }),
+    [LEGACY_FIXTURES[1]]: corpus(8, { drift: { units: 48, rounded: false } }),
+  });
+  const found = reasons(EIGHT, ambiguous);
+  expect(found).toHaveLength(1);
+  expect(found[0]).toContain('both supported corpus layouts');
+});
 
 describe('the case the check exists for', () => {
   it('refuses moved cases under a static constant, naming the fixture and the version', () => {
@@ -424,9 +512,12 @@ describe('unreadable inputs fail closed, because a check that skips itself is th
 
 describe('the fixture list is the one the corpora actually ship', () => {
   it('names both checked-in golden corpora and nothing else', () => {
+    // Proof: restoring all three legacy `libs/domain` paths made the production corpus
+    // boundary fixture receive both old roots (0 passed / 2 failed with the hook glob).
     expect([...CORPUS_FIXTURES]).toEqual([
-      'libs/domain/fixtures/fast-golden-corpus.json',
-      'libs/domain/fixtures/solver-quantum-golden-corpus.json',
+      'libs/wbs/domain/domain/fixtures/fast-golden-corpus.json',
+      'libs/wbs/domain/domain/fixtures/solver-quantum-golden-corpus.json',
     ]);
+    expect(CONTRACT_VERSION_PATH).toBe('libs/wbs/domain/domain/src/contract-version.ts');
   });
 });

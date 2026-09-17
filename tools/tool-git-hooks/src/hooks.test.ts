@@ -1,7 +1,7 @@
 import { chmod, mkdir, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { scratchAsync } from '@wbs/tool-test-scratch';
+import { scratchAsync } from '@tools/test-scratch';
 import { describe, expect, it } from 'bun:test';
 
 import { isConventional } from './hooks/conventional';
@@ -84,27 +84,24 @@ describe('plaintext-secrets.scan', () => {
 });
 
 describe('migration-lint', () => {
+  async function lint(name: string, sql: string) {
+    const root = await scratchAsync('mig-');
+    const migrationDir = join(root, 'apps', 'wbs', 'be-01', 'drizzle', name);
+    await mkdir(migrationDir, { recursive: true });
+    const file = join(migrationDir, 'migration.sql');
+    await writeFile(file, sql, 'utf8');
+    await writeFile(join(migrationDir, 'down.sql'), 'SELECT 1;', 'utf8');
+    return lintMigration(file, root);
+  }
+
   it('flags DROP TABLE', async () => {
-    const d = await scratchAsync('mig-');
-    const f = join(d, '0002_bad.sql');
-    await writeFile(f, 'DROP TABLE users;', 'utf8');
-    const hit = await lintMigration(f);
+    const hit = await lint('0002_bad', 'DROP TABLE users;');
     expect(hit?.reason).toMatch(/DROP TABLE/);
   });
 
   it('allows CREATE TABLE', async () => {
-    const d = await scratchAsync('mig-');
-    const f = join(d, '0003_ok.sql');
-    await writeFile(f, 'CREATE TABLE t (id INTEGER);', 'utf8');
-    expect(await lintMigration(f)).toBeNull();
+    expect(await lint('0003_ok', 'CREATE TABLE t (id INTEGER);')).toBeNull();
   });
-
-  async function lint(name: string, sql: string) {
-    const d = await scratchAsync('mig-');
-    const f = join(d, name);
-    await writeFile(f, sql, 'utf8');
-    return lintMigration(f);
-  }
 
   // The rule was written as the literal 'ALTER TABLE ... RENAME COLUMN' and
   // matched by deleting the ellipsis, producing the needle
@@ -112,17 +109,17 @@ describe('migration-lint', () => {
   // those tokens, so that branch could never match any real migration — the
   // rename rule was dead from the day it was written.
   it('flags a real ALTER TABLE ... RENAME COLUMN, table name and all', async () => {
-    const hit = await lint('0004_rename.sql', 'ALTER TABLE users RENAME COLUMN a TO b;');
+    const hit = await lint('0004_rename', 'ALTER TABLE users RENAME COLUMN a TO b;');
     expect(hit?.reason).toMatch(/RENAME COLUMN/);
   });
 
   it('flags a rename written over several lines', async () => {
-    const hit = await lint('0005_rename.sql', 'ALTER TABLE\n  users\n  RENAME COLUMN a TO b;');
+    const hit = await lint('0005_rename', 'ALTER TABLE\n  users\n  RENAME COLUMN a TO b;');
     expect(hit?.reason).toMatch(/RENAME COLUMN/);
   });
 
   it('flags a quoted table name in a rename', async () => {
-    const hit = await lint('0006_rename.sql', 'ALTER TABLE "users" RENAME COLUMN "a" TO "b";');
+    const hit = await lint('0006_rename', 'ALTER TABLE "users" RENAME COLUMN "a" TO "b";');
     expect(hit?.reason).toMatch(/RENAME COLUMN/);
   });
 
@@ -130,17 +127,17 @@ describe('migration-lint', () => {
   // keywords were split by a newline or doubled spaces, which is exactly how
   // generated SQL tends to be formatted.
   it('flags DROP TABLE split across a newline', async () => {
-    const hit = await lint('0007_drop.sql', 'DROP\nTABLE users;');
+    const hit = await lint('0007_drop', 'DROP\nTABLE users;');
     expect(hit?.reason).toMatch(/DROP TABLE/);
   });
 
   it('flags DROP COLUMN with doubled spaces', async () => {
-    const hit = await lint('0008_drop.sql', 'ALTER TABLE t DROP  COLUMN c;');
+    const hit = await lint('0008_drop', 'ALTER TABLE t DROP  COLUMN c;');
     expect(hit?.reason).toMatch(/DROP COLUMN/);
   });
 
   it('flags lowercase destructive statements', async () => {
-    const hit = await lint('0009_drop.sql', 'drop table users;');
+    const hit = await lint('0009_drop', 'drop table users;');
     expect(hit?.reason).toMatch(/DROP TABLE/);
   });
 
@@ -148,19 +145,22 @@ describe('migration-lint', () => {
   // reported clean, so a migration the hook could not open was indistinguishable
   // from one with nothing wrong in it.
   it('reports an unreadable .sql file as an issue rather than as clean', async () => {
-    const d = await scratchAsync('mig-');
-    const hit = await lintMigration(join(d, 'does-not-exist.sql'));
+    const root = await scratchAsync('mig-');
+    const migrationDir = join(root, 'apps', 'wbs', 'be-01', 'drizzle', 'missing');
+    await mkdir(migrationDir, { recursive: true });
+    await writeFile(join(migrationDir, 'down.sql'), 'SELECT 1;', 'utf8');
+    const hit = await lintMigration(join(migrationDir, 'migration.sql'), root);
     expect(hit?.reason).toMatch(/could not be read/);
   });
 
   // Guard against over-matching: these must stay clean, or the hook becomes
   // noise everyone disables.
   it('leaves a renamed-in-passing identifier alone', async () => {
-    expect(await lint('0010_ok.sql', 'CREATE TABLE rename_column_log (id INTEGER);')).toBeNull();
+    expect(await lint('0010_ok', 'CREATE TABLE rename_column_log (id INTEGER);')).toBeNull();
   });
 
   it('leaves a create-then-copy migration alone', async () => {
     const sql = 'CREATE TABLE t_new (id INTEGER, b TEXT);\nINSERT INTO t_new SELECT id, a FROM t;';
-    expect(await lint('0011_ok.sql', sql)).toBeNull();
+    expect(await lint('0011_ok', sql)).toBeNull();
   });
 });

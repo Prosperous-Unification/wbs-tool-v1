@@ -189,7 +189,7 @@ export async function runBackendHopSmoke(opts: PingOptions): Promise<PingResult>
 
 /**
  * gw-01's `/ws` upgrade is gated by `beforeHandle` on a valid access cookie
- * and exact Origin (see apps/gw-01/src/app.ts). So a real WS smoke check has to
+ * and exact Origin (see apps/wbs/gw-01/src/app.ts). So a real WS smoke check has to
  * mint a token the same way a real client would, using the same signing key
  * gw-01 itself reads from its env (`JWT_SIGNING_KEY_CURRENT`, shared via
  * `/srv/wbs/.env` per tier.compose.tmpl). `SMOKE_JWT_KEY` is accepted first
@@ -202,7 +202,7 @@ async function mintToken(env: NodeJS.ProcessEnv = process.env): Promise<string> 
   if (key === undefined || key === '') {
     throw new Error(
       'SMOKE_JWT_KEY or JWT_SIGNING_KEY_CURRENT must be set — gw-01 rejects the /ws upgrade ' +
-        'without a valid token (apps/gw-01/src/app.ts beforeHandle)',
+        'without a valid token (apps/wbs/gw-01/src/app.ts beforeHandle)',
     );
   }
   return await new SignJWT({ sub: 'smoke' })

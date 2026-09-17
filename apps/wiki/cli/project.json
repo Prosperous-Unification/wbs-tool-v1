@@ -1,0 +1,59 @@
+{
+  "name": "wiki-cli",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/wiki/cli/src",
+  "projectType": "application",
+  "tags": ["scope:app", "type:app", "runtime:bun", "ring:adapter", "product:wiki"],
+  "targets": {
+    "test": {
+      "executor": "nx:run-commands",
+      "inputs": [
+        "default",
+        "^production",
+        "{workspaceRoot}/.github/workflows/ci.yml",
+        "{workspaceRoot}/.github/workflows/trusted-wiki.yml",
+        "{workspaceRoot}/.github/workflows/wiki-release.yml",
+        "{workspaceRoot}/apps/wiki/consumer/**/*"
+      ],
+      "options": {
+        "command": "TOOL_WIKI_TRUSTED_NODE_MODULES=$PWD/../../../node_modules bun test --preload ../../../tools/test/scratch/preload.ts",
+        "cwd": "apps/wiki/cli"
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "inputs": ["{workspaceRoot}/**/*"],
+      "options": {
+        "command": "bash bin/tool-wiki-lint.sh working . HEAD"
+      }
+    },
+    "lint:source": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "bunx eslint apps/wiki/cli/src"
+      }
+    },
+    "lint:fast": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx eslint apps/wiki/cli/src --cache --cache-location .nx/eslintcache-wiki-cli"
+      }
+    },
+    "release": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "bun src/policy/release-cli.ts",
+        "cwd": "apps/wiki/cli"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx tsc --build --force apps/wiki/cli/tsconfig.json"
+      }
+    }
+  }
+}

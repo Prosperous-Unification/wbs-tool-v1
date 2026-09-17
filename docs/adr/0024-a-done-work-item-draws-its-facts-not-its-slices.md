@@ -48,5 +48,5 @@ estimate leaves in the totals).
 Dependency arrows and person links from a done work item leave its done bar, so the
 arrow-anchor lookup reads the drawn bar rather than the raw slice. A duplicate copies no fact
 (a copy has not happened) and a saved plan holds none (a fact moves no date and is read by
-nothing in `libs/domain`). Reversing the drawing rule is cheap; reversing the two columns is a
+nothing in `libs/wbs/domain/domain`). Reversing the drawing rule is cheap; reversing the two columns is a
 destructive `down.sql`, and any plan holding facts loses them.

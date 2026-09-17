@@ -1,23 +1,31 @@
 {
   "schemaVersion": 1,
   "mappingId": "modules.radical-modularity-pilot.v1",
-  "mappingVersion": "pilot-layout-7851161b-v1",
+  "mappingVersion": "pilot-layout-namespaced-v2",
   "sourceRevision": "7851161bf96312750d07b933ca5d42b75ce575c7",
   "modules": [
     {
       "moduleId": "module.adapter.store-memory",
       "name": "Memory source adapter pilot boundary",
       "memberships": [
-        { "kind": "directory-prefix", "prefix": "libs/store-memory/src", "exclusions": [] }
+        {
+          "kind": "directory-prefix",
+          "prefix": "libs/wbs/adapters/store-memory/src",
+          "exclusions": []
+        }
       ],
       "predecessorModuleIds": [],
-      "indexPath": "libs/store-memory/src/README.md",
+      "indexPath": "libs/wbs/adapters/store-memory/src/README.md",
       "externalConsumers": {
         "kind": "declared",
         "memberships": [
-          { "kind": "directory-prefix", "prefix": "apps/be-01/src/testing", "exclusions": [] },
-          { "kind": "directory-prefix", "prefix": "libs/core", "exclusions": [] },
-          { "kind": "directory-prefix", "prefix": "libs/store-sqlite/src", "exclusions": [] }
+          { "kind": "directory-prefix", "prefix": "apps/wbs/be-01/src/testing", "exclusions": [] },
+          { "kind": "directory-prefix", "prefix": "libs/wbs/application/core", "exclusions": [] },
+          {
+            "kind": "directory-prefix",
+            "prefix": "libs/wbs/adapters/store-sqlite/src",
+            "exclusions": []
+          }
         ]
       }
     },
@@ -25,17 +33,33 @@
       "moduleId": "module.application.use-cases",
       "name": "Core application use cases pilot boundary",
       "memberships": [
-        { "kind": "directory-prefix", "prefix": "libs/core/src/use-cases", "exclusions": [] }
+        {
+          "kind": "directory-prefix",
+          "prefix": "libs/wbs/application/core/src/use-cases",
+          "exclusions": []
+        }
       ],
       "predecessorModuleIds": [],
-      "indexPath": "libs/core/src/use-cases/README.md",
+      "indexPath": "libs/wbs/application/core/src/use-cases/README.md",
       "externalConsumers": {
         "kind": "declared",
         "memberships": [
-          { "kind": "directory-prefix", "prefix": "libs/core/src/http", "exclusions": [] },
-          { "kind": "path", "path": "libs/core/src/index.ts" },
-          { "kind": "directory-prefix", "prefix": "libs/core/src/service", "exclusions": [] },
-          { "kind": "directory-prefix", "prefix": "libs/core/testing", "exclusions": [] }
+          {
+            "kind": "directory-prefix",
+            "prefix": "libs/wbs/application/core/src/http",
+            "exclusions": []
+          },
+          { "kind": "path", "path": "libs/wbs/application/core/src/index.ts" },
+          {
+            "kind": "directory-prefix",
+            "prefix": "libs/wbs/application/core/src/service",
+            "exclusions": []
+          },
+          {
+            "kind": "directory-prefix",
+            "prefix": "libs/wbs/application/core/testing",
+            "exclusions": []
+          }
         ]
       }
     },
@@ -87,15 +111,23 @@
       "moduleId": "module.domain.saved-plan",
       "name": "Saved-plan value model pilot boundary",
       "memberships": [
-        { "kind": "directory-prefix", "prefix": "libs/domain/src/saved-plan", "exclusions": [] }
+        {
+          "kind": "directory-prefix",
+          "prefix": "libs/wbs/domain/domain/src/saved-plan",
+          "exclusions": []
+        }
       ],
       "predecessorModuleIds": [],
-      "indexPath": "libs/domain/src/saved-plan/README.md",
+      "indexPath": "libs/wbs/domain/domain/src/saved-plan/README.md",
       "externalConsumers": {
         "kind": "declared",
         "memberships": [
           { "kind": "directory-prefix", "prefix": "apps", "exclusions": [] },
-          { "kind": "directory-prefix", "prefix": "libs/core/src", "exclusions": [] }
+          {
+            "kind": "directory-prefix",
+            "prefix": "libs/wbs/application/core/src",
+            "exclusions": []
+          }
         ]
       }
     },

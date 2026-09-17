@@ -37,4 +37,14 @@ describe('plan*', () => {
     expect(meta.files).toContain('dist/');
     expect(meta.images).toBeUndefined();
   });
+
+  it('starts the Bun tiers from their namespaced application roots', () => {
+    const be = planBe({ sha: 'abc1234', mode: 'build-only' }).image;
+    const gw = planGw({ sha: 'abc1234', mode: 'build-only' }).image;
+
+    expect(be.entrypoint).toEqual(['bun', 'run', 'src/main.ts']);
+    expect(be.workdir).toBe('/app/apps/wbs/be-01');
+    expect(gw.entrypoint).toEqual(['bun', 'run', 'src/main.ts']);
+    expect(gw.workdir).toBe('/app/apps/wbs/gw-01');
+  });
 });

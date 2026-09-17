@@ -41,7 +41,17 @@
     },
     "test": {
       "executor": "nx:run-commands",
-      "inputs": ["default", "^production", "{workspaceRoot}/tools/test/scratch/**/*"],
+      "inputs": [
+        "default",
+        "^production",
+        "{workspaceRoot}/apps/wbs/be-01/src/config.ts",
+        "{workspaceRoot}/libs/wbs/adapters/auth/src/*.ts",
+        "!{workspaceRoot}/libs/wbs/adapters/auth/src/*.test.ts",
+        "{workspaceRoot}/libs/wbs/adapters/config/src/*.ts",
+        "!{workspaceRoot}/libs/wbs/adapters/config/src/*.test.ts",
+        "{workspaceRoot}/libs/wbs/domain/validation/src/*.ts",
+        "!{workspaceRoot}/libs/wbs/domain/validation/src/*.test.ts"
+      ],
       "options": {
         "command": "bun test --preload ../test/scratch/preload.ts",
         "cwd": "tools/tool-remote-scripts"

@@ -1,4 +1,4 @@
-import type { Color } from '@wbs/deploy-contract';
+import type { Color } from '@tools/deploy-contract';
 
 import type { Tier } from './affected';
 

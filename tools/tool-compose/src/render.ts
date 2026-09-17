@@ -56,7 +56,7 @@ function parseArgs(argv: string[]): { outDir: string } {
 // Preview/CLI defaults only — a real deploy never calls this. The swap
 // executor (tools/tool-remote-scripts/src/swap.ts) renders both templates
 // itself with real per-deploy values (digest-pinned image, actual routed
-// colours) via `renderTemplate` directly, imported through `@wbs/tool-compose`.
+// colours) via `renderTemplate` directly, imported through `@tools/compose`.
 export function previewContext(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): RenderContext {

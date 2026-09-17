@@ -7,7 +7,7 @@ Docker, no Hetzner box, no deploy pipeline.
 
 ```bash
 bun install
-bun run dev:setup        # copies apps/*/.env.example → apps/*/.env (non-destructive)
+bun run dev:setup        # copies apps/wbs/*/.env.example → apps/wbs/*/.env (non-destructive)
 ```
 
 That seeds three local env files with safe dev-only defaults. It never overwrites
@@ -15,11 +15,11 @@ an existing `.env`, and it **fails** rather than skipping if a committed
 `.env.example` is missing — that means the checkout is incomplete, and seeding
 around it only moves the failure to an unexplained crash at serve time.
 
-| File              | Purpose                                              |
-| ----------------- | ---------------------------------------------------- |
-| `apps/be-01/.env` | backend config: `PORT`, `DB_PATH`, `INTERNAL_AUTH_*` |
-| `apps/gw-01/.env` | gateway config: ports, `BE_URL`, JWT signing keys    |
-| `apps/fe-01/.env` | Vite `VITE_*` vars pointing at local be-01 + gw-01   |
+| File                  | Purpose                                              |
+| --------------------- | ---------------------------------------------------- |
+| `apps/wbs/be-01/.env` | backend config: `PORT`, `DB_PATH`, `INTERNAL_AUTH_*` |
+| `apps/wbs/gw-01/.env` | gateway config: ports, `BE_URL`, JWT signing keys    |
+| `apps/wbs/fe-01/.env` | Vite `VITE_*` vars pointing at local be-01 + gw-01   |
 
 All three are gitignored. Edit them freely.
 
@@ -29,7 +29,7 @@ All three are gitignored. Edit them freely.
 bun run dev
 ```
 
-That runs `nx run-many -t serve --projects=be-01,gw-01,fe-01 --parallel=3` which
+That runs `nx run-many -t serve --projects=wbs-be-01,wbs-gw-01,wbs-fe-01 --parallel=3` which
 brings up:
 
 | App     | URL                     | Notes                                |
@@ -48,7 +48,7 @@ bun run dev:gw           # just the gateway
 bun run dev:fe           # just the frontend
 ```
 
-Equivalent to `nx run be-01:serve` etc. Each one runs under `bun --watch` (or
+Equivalent to `nx run wbs-be-01:serve` etc. Each one runs under `bun --watch` (or
 Vite's own watcher for fe-01) so source edits reload automatically.
 
 ## Sanity checks
@@ -82,8 +82,8 @@ bun run format                                  # prettier --write
 Use the h2puni gate wrapper, not root `bun test` or the raw full Nx gate. Root `bun test` runs **0** of `fe-01`'s
 test files — they are Vitest + jsdom and `bun:test` does not discover them, so
 it reports a clean run having never looked at the frontend. Measured: root
-`bun test` = 357 tests / 50 files with nothing from `apps/fe-01`;
-`bunx nx test fe-01` = 5 tests / 2 files.
+`bun test` = 357 tests / 50 files with nothing from the frontend (then at
+`apps/fe-01`; historical path); `bunx nx test fe-01` = 5 tests / 2 files.
 
 `build` needs `shellcheck` on PATH (`brew install shellcheck`) and is no longer
 allowed to skip itself when it is absent.
@@ -98,10 +98,10 @@ typescript-eslint needs because TS 7 ships no compiler API until 7.1. VS Code's
 Scoped variants:
 
 ```bash
-bunx nx test be-01
-bunx nx test gw-01
-bunx nx test fe-01           # vitest + jsdom
-bunx nx test validation      # or domain, contracts, realtime, config, ...
+bunx nx test wbs-be-01
+bunx nx test wbs-gw-01
+bunx nx test wbs-fe-01           # vitest + jsdom
+bunx nx test wbs-validation      # or wbs-domain, wbs-contracts, wbs-realtime, wbs-config, ...
 ```
 
 ## Observability stack (optional, local)
@@ -121,10 +121,10 @@ require it for day-to-day dev.
 
 ## Troubleshooting
 
-- **"Failed to run the query" on be-01 startup** — stale `apps/be-01/local.db`
-  from a partial migration. Delete it: `rm apps/be-01/local.db` and restart.
+- **"Failed to run the query" on be-01 startup** — stale `apps/wbs/be-01/local.db`
+  from a partial migration. Delete it: `rm apps/wbs/be-01/local.db` and restart.
 - **Working out when be-01 last wrote, or why it is down** — read the mtime of
-  `apps/be-01/local.db-wal`, not of `local.db`. The database is `journal_mode=wal`
+  `apps/wbs/be-01/local.db-wal`, not of `local.db`. The database is `journal_mode=wal`
   (`repository/db.ts` sets it and asserts it at open), so a crashed be-01 leaves
   its last writes in the `-wal` and the main file's mtime can be a day older.
   **Do not open it with a `sqlite3` client first**: even a read-only `select`
@@ -145,10 +145,10 @@ require it for day-to-day dev.
   fe-01 is the one that hides, because vite sets `strictPort` and so exits in
   under a second while nx lists it as a task that _completed_ beside three
   Continuous ones. To move a tier instead of freeing the port, edit `PORT=` in
-  the relevant `apps/*/.env`; all URLs in peer `.env` files update by
+  the relevant `apps/wbs/*/.env`; all URLs in peer `.env` files update by
   convention, not by magic, so change both ends. `WBS_DEV_PORTS='fe-01:4300'`
   overrides which ports are checked.
-- **`@/` imports fail in fe-01 tests** — run them via `bunx nx test fe-01`
+- **`@/` imports fail in fe-01 tests** — run them via `bunx nx test wbs-fe-01`
   (Vitest resolves the alias); root `bun test` does not.
 - **gw-01 refuses the WS upgrade** — check the configured authentication mode.
   The seeded local mode uses its fixed development identity, so

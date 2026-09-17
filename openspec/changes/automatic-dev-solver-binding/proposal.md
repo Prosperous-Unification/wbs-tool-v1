@@ -1,7 +1,7 @@
 ## Why
 
 Dev promises that `origin/main` reaches h2puni without a human. That promise
-currently breaks whenever `libs/solver-py` or `apps/be-01/Dockerfile` moves:
+currently breaks whenever `libs/wbs/adapters/solver-py` or `apps/wbs/be-01/Dockerfile` moves:
 `preflightSolver` correctly requires a source-compatible digest-pinned solver
 image, but publishing the image and installing its host binding are manual.
 The first enforced change produced 420 consecutive failed poll ticks and parked
@@ -47,4 +47,4 @@ Solver compatibility binding.
 
 ## Decisions Recorded
 
-- [ADR 0018](../../../docs/adr/0018-the-dev-deploy-trigger-owns-solver-compatibility-preparation.md)
+- [ADR 0025](../../../docs/adr/0025-the-dev-deploy-trigger-owns-solver-compatibility-preparation.md)

@@ -60,7 +60,7 @@ The dev source container is not a solver image. Dev uses a host-configured
 digest-pinned solver image whose installed `solverVersion` matches the contract
 reported by the backend; only the peer-derived `wbs-dev-src` caller may use
 that mapping. An exact commit match is required for prod colours. Dev rebuilds
-the mapping when `libs/solver-py/**`, its lockfile, or solver packaging changes;
+the mapping when `libs/wbs/adapters/solver-py/**`, its lockfile, or solver packaging changes;
 unrelated source commits retain the compatible mapping. The mapping is host
 deployment state, never a field the caller may override.
 

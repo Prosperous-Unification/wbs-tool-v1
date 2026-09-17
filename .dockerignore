@@ -26,6 +26,6 @@ coverage
 **/*.db-shm
 
 # The local-solver development entrypoint and its spawner. They must not reach
-# the production image: `COPY apps/be-01` takes the whole app, and the boundary
+# the production image: `COPY apps/wbs/be-01` takes the whole app, and the boundary
 # is this exclusion rather than the directory name.
-apps/be-01/src/dev
+apps/wbs/be-01/src/dev

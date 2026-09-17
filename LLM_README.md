@@ -3,7 +3,9 @@
 TASK-519's idle cue precedence fix is on `fix/task519-idle-cue-precedence`; next: exact-head gate, terminal reviews, green CI, merge, and dev verification.
 **wbs-tool-v1** — collaborative real-time WBS tool. `be-01` (API, Elysia+Drizzle+bun:sqlite, :3100),
 `gw-01` (WS gateway, :3200), `fe-01` (Vite+React, :80 in the image, :4200 under `vite dev`),
-`mcp-01` (MCP server over be-01, stdio, spawned by its client). Nx monorepo, Bun — never npm.
+`mcp-01` (MCP server over be-01, stdio, spawned by its client). A second product lives beside it:
+`wiki-cli` (`apps/wiki/cli`, `product:wiki`) — the module-wiki validator behind the trusted
+activation, released separately so other repositories can run it in CI. Nx monorepo, Bun — never npm.
 
 Three facts explain most decisions:
 
@@ -23,6 +25,7 @@ Three facts explain most decisions:
 bun install                                     # first, on a fresh clone
 bun run dev:setup                               # writes the .env files dev needs
 bin/h2puni-gate.sh <sha>                        # full h2puni gate; checks <sha> out under the lock
+bin/with-heavy-lock.sh status                   # who holds the host lock, and who is queued behind it
 bun run dev                                     # be + gw + fe locally; `bun run e2e` for the browser gate
 bun run test:unit                               # the fast tier: be-01 + every lib, ~17s
 bunx nx run <project>:lint:fast                 # editing only, ~4s; `lint` is uncached and is the gate
@@ -35,9 +38,12 @@ out first: lanes share the gate tree, and a checkout outside the lock is how one
 **Rules: `AGENTS.md`** (symlinked to CLAUDE.md/GEMINI.md) — read it, it governs every change.
 
 `.github/workflows/ci.yml` runs the gate above plus the secrets scan, migration lint and
-`openspec validate` on every push and PR; job `pixels` runs `bun run e2e`, one chromium
-measuring the WBS table against the real stack. lefthook runs a subset pre-commit and
-`--no-verify` skips it; CI is not. Format uses `--all`: the base-ref default checks nothing.
+`openspec validate`. Scope is chosen per event and never inferred: a PR runs `nx affected`
+from its payload base SHA, `merge_group`/`push`/`workflow_dispatch` run the full gate, an
+unmapped event is refused. Job `pixels` runs `bun run e2e`, one chromium measuring the WBS
+table against the real stack, and its shards run only when a PR reaches fe-01, be-01 or
+gw-01. lefthook runs a subset pre-commit and `--no-verify` skips it; CI is not. Format uses
+`--all`: the base-ref default checks nothing.
 
 ## Deploy
 
@@ -103,10 +109,12 @@ The historical R5 failures and their observed proof details live in the linked c
 | `docs/runbook-dagger-engine-registry-dns.md`                                                                                                                                                                                                           | engine can't resolve `registry`                                                                                                                                                                                                                        |
 | `docs/local-dev.md`                                                                                                                                                                                                                                    | running locally                                                                                                                                                                                                                                        |
 | `docs/capacity.md`                                                                                                                                                                                                                                     | why a plan's dates moved; where a team's number is typed                                                                                                                                                                                               |
-| `libs/contracts/src/http/document-from-shapes.ts`                                                                                                                                                                                                      | generated OpenAPI from shared shapes — `bun apps/be-01/src/openapi/emit-openapi-cli.ts [output.json]`                                                                                                                                                  |
-| `apps/mcp-01/README.md`                                                                                                                                                                                                                                | the MCP server: the tools derived from that document, two of them the batch writes                                                                                                                                                                     |
+| `libs/wbs/domain/contracts/src/http/document-from-shapes.ts`                                                                                                                                                                                           | generated OpenAPI from shared shapes — `bun apps/wbs/be-01/src/openapi/emit-openapi-cli.ts [output.json]`                                                                                                                                              |
+| `apps/wbs/mcp-01/README.md`                                                                                                                                                                                                                            | the MCP server: the tools derived from that document, two of them the batch writes                                                                                                                                                                     |
+| `libs/shared/domain/validation`                                                                                                                                                                                                                        | framework-free ArkType parse helpers every product and tool may import (`@shared/validation`); infra aliases are `@tools/*`                                                                                                                            |
+| `apps/wbs/eslint.product.mjs`                                                                                                                                                                                                                          | product lint policy: a function of the shared constraints, discovered by `tools/tool-devsync/product-policies.mjs`; a second product adds its own file, not a root edit                                                                                |
 | `HUMAN_README.md`                                                                                                                                                                                                                                      | operating prod; triage runbook; openclaw path                                                                                                                                                                                                          |
-| `docs/2026-08-30-agent-loop-audit.md`                                                                                                                                                                                                                  | **before gating while other agents are live** — worktree ownership, lock lanes, five false greens                                                                                                                                                      |
+| `docs/2026-08-30-agent-loop-audit.md`                                                                                                                                                                                                                  | **before gating while other agents are live** — worktree ownership, lock lanes, five false greens; lanes are Claire's v1 mechanism, see `docs/lanes-are-claire-v1.md`                                                                                  |
 | `docs/2026-09-02-refactoring-plan.md`, `docs/2026-09-05-ports-and-adapters-plan.md`, [Radical Modularity](docs/plans/2026-09-08-agent-scalable-llm-wiki.md), [precedents and extraction](docs/plans/2026-09-13-tool-wiki-precedents-and-extraction.md) | before refactoring or designing model-scale work: ports split complete and ADR 0014–0015 accepted; adjustable boundaries and the LLM wiki remain queued. Refactoring `-history.md` is not normative. **Status and queue: `docs/refactoring/tasks.md`** |
 
 Conventions: pure planners + thin IO shell; strict types; comments say **why** and what was verified; never print secrets.

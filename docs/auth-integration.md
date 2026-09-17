@@ -204,7 +204,7 @@ the retired header is deliberately counted as presented but never extracted.
 ### Auth0-backed MCP on dev
 
 `mcp-01` reuses the WBS Auth0 client and secret. Its deployment-only keys live
-in `/home/puni1/wbs-dev/src/apps/mcp-01/.env` (mode 600):
+in `/home/puni1/wbs-dev/src/apps/wbs/mcp-01/.env` (mode 600):
 
 ```dotenv
 PORT=3300
@@ -238,7 +238,7 @@ the RFC 8414 authorization-server metadata, and the unauthenticated challenge.
 
 Cut over in this order:
 
-1. Before merging, seed `/home/puni1/wbs-dev/src/apps/mcp-01/.env` with the four
+1. Before merging, seed `/home/puni1/wbs-dev/src/apps/wbs/mcp-01/.env` with the four
    keys above and mode 600; the preflight deliberately blocks every dev deploy
    until this exists.
 2. Merge the reviewed PR and let devsync start `mcp-01`; verify port 3300.

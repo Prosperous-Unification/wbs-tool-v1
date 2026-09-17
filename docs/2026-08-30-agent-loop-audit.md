@@ -1,5 +1,11 @@
 # The agent loop, audited — 2026-08-30
 
+**2026-09-16.** What this audit calls lanes is Claire's first-version SDLC
+mechanism, stated as three repository contracts in
+[lanes are Claire's v1 mechanism](lanes-are-claire-v1.md). Read the rest as
+history: the findings are what was watched on those dates, not a description of
+how the loop runs today.
+
 Written while landing the five outstanding items of
 `openspec/DANY-REQUEST-AUDIT-2026-08-30.md` with a second Claude session and its
 five agents working the same repository at the same time.
@@ -250,6 +256,9 @@ and why.** `git merge-base --is-ancestor` and `git merge-tree` are the cheap
 answers, and both run in under a second.
 
 ## 12. The "queue" is a lottery, and a long job can starve behind short ones
+
+**Resolved 2026-09-16 by the `fifo-heavy-lock` change** (`openspec/changes/fifo-heavy-lock/`):
+the loop takes a ticket and waiters are served in arrival order.
 
 `HEAVY_LOCK_WAIT_SECONDS` reads as queueing, and `bin/with-heavy-lock.sh`'s own
 docstring calls it "queue instead of refusing — that is what several agents

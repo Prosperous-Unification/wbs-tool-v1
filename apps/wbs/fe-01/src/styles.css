@@ -1,0 +1,1647 @@
+/*
+ * Tailwind v4 for this app, with Tailwind's own base layer still never imported
+ * and this file's scoped reset written into the slot it left.
+ *
+ * `@import 'tailwindcss'` pulls three stylesheets: theme (the custom property
+ * palette), preflight (a global reset) and utilities. Only two of them are here.
+ * Preflight is a **document-wide** reset — `*, ::before, ::after { box-sizing:
+ * border-box }`, `font: inherit` on every form control, `border-width: 0` on
+ * everything — and this table's geometry is measured against a browser's own
+ * defaults: `table-frame.ts` sizes the `not-before` column from what Chromium
+ * makes an unconstrained `input[type=date]` in the table's own font.
+ *
+ * shadcn's components need a reset all the same — `h-9 px-3` with a border only
+ * measures right under `border-box`, and a `<button>` that keeps the platform's
+ * 13.3px Arial cannot be given the app's type scale. So the reset is here, and
+ * every rule in it carries `:not([data-grid], [data-grid] *)`. `data-grid` is on
+ * the `<table>` in `wbs-table.tsx`; the cells, their inputs, the ⋯ menu and both
+ * pickers live inside it and keep the box model, the margins and the platform
+ * font the browser gives them.
+ *
+ * **The guard stops the reset. It does not stop inheritance**, and that is not a
+ * hole — it is the other half of the arrangement, and both halves are asserted
+ * in `e2e/tailwind.spec.ts` rather than assumed. Two things cross the line by
+ * inheriting: the **font family**, which is why `--font-sans` below says what it
+ * says, and the **text colour**, which follows `--foreground` from `<main>`. The
+ * colour is deliberate — one palette across the page, and a grid pinned to the
+ * user agent's `#000` while the chrome moved to a token is the version that
+ * would look wrong and would drift unseen on the first dark-mode change. It is
+ * pinned by a browser assertion so a palette edit cannot move it quietly.
+ *
+ * **Why a guard and not the inline styles that are already there.** The tailwind
+ * spike measured this rather than predicting it, and the answer was the
+ * uncomfortable one: with preflight fully enabled, all 22 of `layout.spec.ts`'s
+ * geometry assertions stay green, because the table is styled inline and an
+ * inline style outranks every layer. The geometry gate is blind to this fault
+ * and will stay blind until the first `<td>` is styled by a class. The oracles
+ * are `styles.test.ts`, which reads every selector this layer emits, and
+ * `e2e/tailwind.spec.ts`, which asks a real browser what a cell's `box-sizing`
+ * came out as. Both have been watched failing with the guard removed —
+ * `openspec/changes/shadcn-foundation/verify.md`.
+ */
+@layer theme, base, components, utilities;
+
+/*
+ * `source(none)` turns off automatic content detection, and `@source` names the
+ * one directory that replaces it. Left automatic, Tailwind walks up from this
+ * file to the git root and scans the whole monorepo — be-01's SQL, the deploy
+ * shell scripts, every markdown plan — so a class name would be whatever those
+ * files happen to contain. This app's markup is under `src`, and that is the
+ * whole of it.
+ */
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities) source(none);
+
+@source './';
+
+/*
+ * Tests are not markup. Tailwind's scanner takes every word that could be a
+ * class name out of every file it is given, string literals and comments
+ * included — so with the tests in scope, `styles.test.ts` naming a utility it
+ * asserts is *absent* put that utility in the bundle and made the assertion fail
+ * on itself. Watched 2026-08-09. Nothing under `src` renders from a `.test.`
+ * file, so the production stylesheet has no business reading one.
+ */
+@source not './**/*.test.ts';
+@source not './**/*.test.tsx';
+
+/*
+ * The design tokens, in shadcn's own names, so a component vendored from the
+ * registry needs no edit to find its colours.
+ *
+ * Two blocks rather than one: these are the *values*, and `@theme inline` below
+ * is what turns them into utilities. Splitting them is what makes the dark set
+ * possible at all — `.dark` re-points the same custom properties, and every
+ * `bg-card` in the app follows without knowing anything about it.
+ *
+ * **Dark mode ships since `dark-mode`.** `lib/theme.ts` puts `.dark` on the
+ * root from a remembered three-state answer — system, light, dark — and the
+ * control is in the account menu. The foundation this block was written as
+ * turned out to be exactly one attribute, as promised; what it did not buy was
+ * the contrast review, which that change did and recorded.
+ *
+ * `color-scheme` is declared **beside the tokens, on the same two selectors**,
+ * and nowhere else. It is what the platform reads rather than this app: the
+ * scrollbar down the side of the plan, the calendar a `not-before` field drops,
+ * the caret in every box, and — the fault it was found by — the `ButtonFace`
+ * grey a `<button>` that names no background paints itself. Written from
+ * JavaScript instead it would be a second declaration of the palette that could
+ * disagree with the class; written here it cannot.
+ *
+ * `oklch` rather than hex: it is the registry's own notation since Tailwind v4,
+ * and the lightness channel is what makes a hover shade a number rather than a
+ * guess.
+ */
+:root {
+  color-scheme: light;
+
+  --radius: 0.5rem;
+
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.129 0.042 264.695);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.129 0.042 264.695);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.129 0.042 264.695);
+  --primary: oklch(0.208 0.042 265.755);
+  --primary-foreground: oklch(0.984 0.003 247.858);
+  --secondary: oklch(0.968 0.007 247.896);
+  --secondary-foreground: oklch(0.208 0.042 265.755);
+  --muted: oklch(0.968 0.007 247.896);
+  --muted-foreground: oklch(0.554 0.046 257.417);
+  --accent: oklch(0.968 0.007 247.896);
+  --accent-foreground: oklch(0.208 0.042 265.755);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.984 0.003 247.858);
+  --border: oklch(0.929 0.013 255.508);
+  --input: oklch(0.929 0.013 255.508);
+  --ring: oklch(0.704 0.04 256.788);
+  /*
+   * The one hue shadcn's set does not name and this app needs: what a row
+   * matching the Find box is tinted. Every other colour in the grid is a mix of
+   * the tokens above, and this one cannot be — a highlight has to read as a
+   * highlight rather than as a shade of the page.
+   */
+  --highlight: oklch(0.905 0.147 96);
+  /*
+   * The two statuses that are said in colour — on the status strip at a row's
+   * left edge, in the glyph of the Status cell, and (done only) as the tint
+   * across a done row. Unknown has no colour: it is the absence of a saying.
+   * Green for finished and amber for under way are the two readings nobody
+   * has to learn; neither is a shade the grid already uses for anything else.
+   */
+  --status-done: oklch(0.6 0.16 148);
+  --status-in-progress: oklch(0.72 0.15 72);
+}
+
+.dark {
+  color-scheme: dark;
+
+  --background: oklch(0.129 0.042 264.695);
+  --foreground: oklch(0.984 0.003 247.858);
+  --card: oklch(0.208 0.042 265.755);
+  --card-foreground: oklch(0.984 0.003 247.858);
+  --popover: oklch(0.208 0.042 265.755);
+  --popover-foreground: oklch(0.984 0.003 247.858);
+  --primary: oklch(0.929 0.013 255.508);
+  --primary-foreground: oklch(0.208 0.042 265.755);
+  --secondary: oklch(0.279 0.041 260.031);
+  --secondary-foreground: oklch(0.984 0.003 247.858);
+  --muted: oklch(0.279 0.041 260.031);
+  --muted-foreground: oklch(0.704 0.04 256.788);
+  --accent: oklch(0.279 0.041 260.031);
+  --accent-foreground: oklch(0.984 0.003 247.858);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.984 0.003 247.858);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.551 0.027 264.364);
+  --highlight: oklch(0.62 0.12 96);
+  --status-done: oklch(0.72 0.15 148);
+  --status-in-progress: oklch(0.8 0.14 78);
+
+  /*
+   * **Nothing re-points a `--grid-*` token here, and that is a rule rather than
+   * an omission.** The `:root` block below derives every grid surface from
+   * `--foreground` and `--background`, which the lines above re-point on this
+   * same element — a custom property substitutes at computed-value time, so
+   * those mixes invert by themselves and a `.dark` copy would be a second thing
+   * to keep in step, and the one that drifts.
+   *
+   * Two things to know before overriding one anyway, said here because this is
+   * where somebody would be reading:
+   *
+   * 1. **A `--grid-*` line added to this block would do nothing.** The grid's
+   *    block is `:root`, which is `(0, 1, 0)` — the same weight as `.dark` —
+   *    and it is written *after* this one, so the cascade reads source order
+   *    and `:root` wins. An override has to sit below that block, not in here.
+   *    Measured, 2026-08-12: `--grid-band-hover` set here changed no pixel.
+   * 2. **The hover pair moves together or not at all.** `--grid-hover` at 7%
+   *    and `--grid-band-hover` at 9.5% are one decision — 9.5 is the band's 2.5
+   *    plus the hover's 7 — so re-pointing one of them makes the pointer say
+   *    two different things on alternate rows, which is the exact defect
+   *    `table-mechanics` removed. Watched: `--grid-band-hover` overridden to 7%
+   *    *below* the grid block, `a banded row moves as far under the pointer as
+   *    a plain one, in dark` failed on `Expected: < 3 Received: 3.5748`.
+   *
+   * Before this change none of that had ever been measured in dark, because
+   * nothing put this class on the document: the arithmetic was argued and
+   * believed. It is measured now, in both palettes, by
+   * `e2e/hover-cards.spec.ts`.
+   */
+}
+
+/*
+ * The grid's own surfaces, derived from the tokens above rather than picked.
+ *
+ * One block and no `.dark` twin, deliberately: every value here is a
+ * `color-mix` of properties `.dark` re-points on the same element, and a custom
+ * property substitutes at computed-value time — so on a dark `<html>`
+ * `--grid-band` mixes the dark `--muted` into the dark `--background` without
+ * this block knowing a theme exists. A second copy under `.dark` would be a
+ * second thing to keep in step, and the one that drifts.
+ *
+ * They exist because a table needs shades the token set does not name: a banded
+ * row, a hovered one, the row a second Ctrl+D would delete. Naming them here
+ * rather than writing `color-mix` at each use is what makes "a touch stronger
+ * than the band" a number one file decides.
+ *
+ * The three greys mix `--foreground` into `--background` rather than `--muted`,
+ * and that is a measurement rather than a preference: `--muted` is
+ * `oklch(0.968 …)` against a `oklch(1 …)` page, three percent of lightness
+ * apart, so a band mixed from it is invisible on a screen with any glare on it
+ * — watched at 1400px in Chrome before these numbers were changed. Mixing the
+ * ink in instead gives a scale that can be dialled, and it inverts by itself:
+ * on a dark page `--foreground` is the near-white and the same percentages
+ * lift the band off the black.
+ */
+:root {
+  --grid-header: color-mix(in oklab, var(--foreground) 6%, var(--background));
+  --grid-band: color-mix(in oklab, var(--foreground) 2.5%, var(--background));
+  --grid-hover: color-mix(in oklab, var(--foreground) 7%, var(--background));
+  /*
+   * The hovered *banded* row, and it is one token rather than a second opinion
+   * about how strong a hover is: 9.5% is the band's own 2.5% plus
+   * `--grid-hover`'s 7%. An `oklab` mix is linear in lightness, so adding the
+   * doses adds the steps — the pointer moves a row by the same amount of ink
+   * whichever step of the stripe it lands on.
+   *
+   * Why it has to exist at all. `--grid-hover` is an *absolute* shade, so on a
+   * plain row it was a 0.061 step down from `oklab(1)` and on a banded one a
+   * 0.039 step down from `oklab(0.978225 …)` — the pointer said two different
+   * things on alternate rows, and on the banded half it barely said anything.
+   * The `[data-dep-add]` hover further down already solved this shape by
+   * mixing into `--cell-bg` rather than into the page; a row cannot do that,
+   * because `--cell-bg` is the property it is setting. Two tokens are that
+   * same "the same ink into whatever it lands on" written out longhand.
+   *
+   * No `.dark` twin, for this block's own reason: both values are mixes of
+   * properties `.dark` re-points, so the pair inverts by itself.
+   */
+  --grid-band-hover: color-mix(in oklab, var(--foreground) 9.5%, var(--background));
+  --grid-armed: color-mix(in oklab, var(--destructive) 14%, var(--background));
+  --grid-invalid: color-mix(in oklab, var(--destructive) 10%, var(--background));
+  --grid-drop: color-mix(in oklab, var(--ring) 22%, var(--background));
+  --grid-match: color-mix(in oklab, var(--highlight) 55%, var(--background));
+  /* The rows a hovered Depends on cell names. The drop tint's ink at a lower
+     dose: related-but-different meanings ("where this lands" / "what this
+     waits for") in the same hue, apart from the greys either could sit on.
+
+     Twice, because "the same tint" is a *direction* and not a value. The grid
+     sits on `--background` and the hover card on `--popover`, and the dark
+     palette pulls those apart — `oklch(0.129 …)` against `oklch(0.208 …)`.
+     One absolute colour mixed against the page was lighter than the rows and
+     darker than the card, so the one voice read as a tint in the grid and as a
+     cutout in the card: the same emphasis pointing two opposite ways on one
+     screen. The same dose of the same ink into whichever surface it lands on
+     moves both the same way instead — lighter on a dark page, darker on a
+     light one — because a mix toward `--ring` from below rises and from above
+     falls. The percentages are the same on purpose and must stay so:
+     `--card-dep-lit` is `--grid-dep-lit`'s answer on the other surface, not a
+     second decision about how strong the emphasis is.
+
+     **20% and not the 12% it shipped at**, since `pointed-row-one-ink`. The
+     light used to be the destination of an unbanded row only; now every pointed
+     row lands on it, and a banded row starts 2.5% of the way there — so at 12%
+     the pointer moved a banded row 4.92 in luminance against an unbanded row's
+     9-and-change, measured in Chromium, and the highlight the reader is meant
+     to track read as half a highlight on every other line. The dose is what
+     moved, not the decision: both surfaces take the same one, as above. */
+  --grid-dep-lit: color-mix(in oklab, var(--ring) 20%, var(--background));
+  --card-dep-lit: color-mix(in oklab, var(--ring) 20%, var(--popover));
+  /*
+   * The done row's tint, mixed toward `transparent` and not toward the page:
+   * it is painted as a layer **over** `--cell-bg` (see `--row-tint` below), so
+   * the band, the hover and the lights under it stay what they were and the
+   * green is the same dose on each. 7% is faint on purpose — a whole row of
+   * it, on every finished row of a finished plan, has to stay a page you can
+   * read; 12% was the first cut and Dany asked for it "a little bit fader"
+   * (2026-09-13).
+   */
+  --grid-done-tint: color-mix(in oklab, var(--status-done) 7%, transparent);
+}
+
+/*
+ * The tokens as Tailwind theme keys, which is what emits `bg-card`,
+ * `text-muted-foreground`, `rounded-lg` and the rest.
+ *
+ * `inline` is load-bearing: without it Tailwind copies each value into the
+ * generated utility, and `.dark` re-pointing `--card` would then change
+ * nothing at all. With it the utility reads the custom property at use time,
+ * which is the whole mechanism a theme switch runs on.
+ *
+ * **`--font-sans` is the token, and its value is deliberately the generic
+ * family the table was measured against.** The obvious thing to write here is
+ * shadcn's `ui-sans-serif, system-ui, …` stack, and it was written, and the
+ * browser gate refused it: `layout.spec.ts` failed at 1280×800 with `the
+ * earliest-start field is 138px where this browser wants 143px`. The reason is
+ * the guard's blind side. The reset stops at `[data-grid]`, but **inheritance
+ * does not** — the cells carry `font: inherit` as inline styles of their own,
+ * so the face `<main>` is given is the face the table is laid out in, and
+ * `table-frame.ts`'s `not-before: 146` is a number Chromium gave for an
+ * unconstrained `input[type=date]` in `sans-serif`. A different face is a
+ * different number and a clipped date.
+ *
+ * So the token exists, everything reads it, and it says `sans-serif` until
+ * somebody changes the face **and** re-measures that column. `H
+ * header-fits-a-row` is the change that touches the type scale; this one is
+ * the foundation, and shipping a face here would have been a geometry change
+ * smuggled in under a palette.
+ */
+@theme inline {
+  --font-sans: sans-serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+/*
+ * The scoped reset. Every selector here carries the same guard, and
+ * `styles.test.ts` reads the compiled layer back to check that none of them
+ * ever stops carrying it.
+ *
+ * What is in it is what the vendored components cannot do without, and nothing
+ * else. `border-box` because a shadcn control's height is `h-9` with a border
+ * inside it. `font: inherit` on form controls because a `<button>` otherwise
+ * keeps the platform's own 13.3px face and `text-sm` cannot reach it. Zeroed
+ * heading and paragraph margins because the chrome now spaces itself with
+ * `gap-*` and a user-agent `0.67em` on an `h1` fights it.
+ *
+ * What is deliberately NOT in it: preflight's `border-width: 0` on everything.
+ * Tailwind v4 emits `border-style` and `border-width` together in the `border`
+ * utility, so the preflight line that makes `border` work is redundant here —
+ * and it is the line most likely to erase a border somebody drew with a `style`
+ * prop. Author styles outrank the user agent's whatever the layer, so a
+ * vendored `<Button>` needs it least of all.
+ *
+ * **Preflight's `background-color: transparent` on buttons IS in it now, and
+ * was not.** The reason it was left out — that it would strip every chrome
+ * button no swap had reached down to bare text — expired when the swap
+ * finished, and what it left behind was a hole in the palette that only the
+ * dark set could show. `color: inherit` above makes a `<button>` take the
+ * page's ink; nothing made it take the page's paper, so it kept the user
+ * agent's `ButtonFace`, which follows no token at all.
+ *
+ * `ButtonFace` is not one colour, and that is the part worth writing down: it
+ * is whatever the user agent thinks the page is, and `color-scheme` above is
+ * the only thing that tells it. Before this change the root declared none, so a
+ * forced `.dark` page got the **light** face, `rgb(239, 239, 239)`, under
+ * near-white ink — the Gantt's row labels at **1.10:1**, which is the whole of
+ * the "dark mode is unreachable and broken where it is forced" finding from the
+ * 2026-08-11 UI audit. With `color-scheme: dark` in place the same unstyled
+ * button paints `rgb(107, 107, 107)` and reads at **5.13:1**.
+ *
+ * So this line is not what buys the contrast — `color-scheme` already did — and
+ * it is not written as though it were. It buys the requirement: no surface is
+ * painted a colour the palette does not name, and a mid-grey the browser chose
+ * is exactly that. Measured by reverting each of the two in turn, 2026-08-12;
+ * both reverts and both numbers are in `openspec/changes/dark-mode/verify.md`.
+ *
+ * Every raw `<button>` outside the grid was read before this line was written:
+ * `app-fault.tsx` and `directory-page.tsx` name `bg-background`, `plan-cards.tsx`
+ * draws a border, `steps-dialog.tsx`'s is `sr-only`, and `<Button>` has carried
+ * `bg-transparent` in its own base since it was vendored. The three that
+ * changed are the three that were broken. Inside the grid nothing changes at
+ * all: the guard stops there, and every button in the table has said
+ * `background: none` for itself in the components layer since it was written.
+ */
+@layer base {
+  *:not([data-grid], [data-grid] *),
+  :not([data-grid], [data-grid] *)::before,
+  :not([data-grid], [data-grid] *)::after {
+    box-sizing: border-box;
+  }
+
+  /*
+   * The user agent's 8px on `<body>`, which `H header-fits-a-row` had to take
+   * off: the signed-in page is one window tall, and a window's worth of page
+   * inside a body indented by 8px is 816px of document in an 800px window — the
+   * page scrolled vertically by exactly the margin, behind a frame that was
+   * already the thing meant to scroll. Measured before it was fixed:
+   * `scrollHeight 816, clientHeight 800`.
+   *
+   * The guard is meaningless on `body` — no body is ever inside the grid — and
+   * it is here anyway, because `styles.test.ts` reads every selector this layer
+   * emits and asks whether it carries one. An exception would have to be an
+   * exception in that test too, and a reset with one exception is a reset with
+   * however many the next person needs.
+   */
+  body:not([data-grid], [data-grid] *) {
+    margin: 0;
+  }
+
+  /*
+   * The chain that makes "one window tall" a percentage rather than `100vh`,
+   * and the difference is not academic. `vh` is the *initial containing
+   * block*'s height and CSS `zoom` does not touch it: at `html { zoom: 1.25 }`
+   * — the proxy `layout.spec.ts` and `header.spec.ts` both read 125% through —
+   * `100vh` is still 800 units, which paint as 1000px in an 800px window and
+   * scroll the page by exactly 200. Measured. A percentage resolves against the
+   * real box at every zoom instead.
+   *
+   * `#root` is in it because React's mount point is a real element between
+   * `body` and the app: a height it does not carry is a height the page cannot
+   * inherit, and `h-full` on the app's own wrapper would resolve against `auto`
+   * and quietly do nothing. It is named here rather than classed in
+   * `index.html` because `@source` scans `src` and would emit no utility for a
+   * class it never sees.
+   */
+  html:not([data-grid], [data-grid] *),
+  body:not([data-grid], [data-grid] *),
+  #root:not([data-grid], [data-grid] *) {
+    height: 100%;
+  }
+
+  h1:not([data-grid], [data-grid] *),
+  h2:not([data-grid], [data-grid] *),
+  h3:not([data-grid], [data-grid] *),
+  h4:not([data-grid], [data-grid] *),
+  p:not([data-grid], [data-grid] *),
+  figure:not([data-grid], [data-grid] *),
+  blockquote:not([data-grid], [data-grid] *),
+  dl:not([data-grid], [data-grid] *),
+  dd:not([data-grid], [data-grid] *) {
+    margin: 0;
+  }
+
+  h1:not([data-grid], [data-grid] *),
+  h2:not([data-grid], [data-grid] *),
+  h3:not([data-grid], [data-grid] *),
+  h4:not([data-grid], [data-grid] *) {
+    font-size: inherit;
+    font-weight: inherit;
+  }
+
+  button:not([data-grid], [data-grid] *),
+  input:not([data-grid], [data-grid] *),
+  select:not([data-grid], [data-grid] *),
+  textarea:not([data-grid], [data-grid] *) {
+    font: inherit;
+    color: inherit;
+    letter-spacing: inherit;
+  }
+
+  /*
+   * The other half of `color: inherit` above: a button takes the page's paper
+   * as well as its ink. `button` alone and not the form controls beside it —
+   * a text box's white field is the platform telling a reader where to type,
+   * and `color-scheme` on the root is what makes that field follow the palette
+   * instead.
+   */
+  button:not([data-grid], [data-grid] *) {
+    background-color: transparent;
+  }
+}
+
+/*
+ * The plan grid's look, and the whole of it that is not a geometry.
+ *
+ * **Why this is a stylesheet at all, when the table is styled inline.** Three
+ * of the things asked for here — a row that lights up under the pointer, a
+ * banded row, a drag handle that appears when the row does — are states of a
+ * *row* that every cell in it has to answer, and there is no render that knows
+ * about them: `wbs-table.tsx` would have to hold a hovered-row id in React
+ * state and re-render the table on every pointer move to say in an inline
+ * style what `tr:hover` says for nothing. The cascade is the right tool and
+ * this is where it lives.
+ *
+ * **`--cell-bg` is the join between the two systems.** A pinned cell carries an
+ * opaque background as an *inline* style — it must, or the row scrolling behind
+ * it shows straight through — and an inline style outranks every layer, so a
+ * `tr:hover` rule could never reach one. So the inline declaration is
+ * `background: var(--cell-bg, …)` (`table-frame.ts`) and this file sets
+ * `--cell-bg` on the row: banded, hovered and drop-target rows re-point one
+ * custom property and the pinned columns follow the rest of their row. The
+ * fallback in that inline value is not decoration — it is what keeps a pinned
+ * cell opaque if this block is ever deleted, because an undefined custom
+ * property makes `background` invalid at computed-value time, which is
+ * `transparent`, which is the overlap bug back with nothing to notice it.
+ *
+ * **Nothing in here may move a pixel.** `e2e/layout.spec.ts` measures this
+ * table's real rectangles against `table-frame.ts`'s numbers — column widths,
+ * pinned offsets, the intrinsic width of a date input — and a restyle that
+ * shifted one of them is a bug wearing a palette. So the properties used here
+ * are the ones that cannot: colour, `background`, `box-shadow` (which is what
+ * draws every separator in this table — an `inset` shadow occupies no space
+ * where a `border-width` would), `opacity`, `transition`, and `border-color`
+ * without ever touching `border-width` or `border-style`. Two exceptions are
+ * deliberate and both are outside anything measured: the heading row's type,
+ * which cannot change a column laid out `table-layout: fixed`, and the padding
+ * of the dependency chips, which only decides how many fit on a line of a cell
+ * whose height nothing asserts.
+ *
+ * The third exception is `spreadsheet-geometry`'s, and it is the largest: the
+ * grid body's own type, 13px over a 1.4 line. It moves pixels on purpose —
+ * that is the change — and it moves them in one direction only, because every
+ * column in `table-frame.ts` was measured at the browser's 16px and none of
+ * them was made narrower here. So every envelope holds with room to spare
+ * (`e2e/layout.spec.ts` asserts the declared width is **at least** what the
+ * browser needs, and each of those assertions was re-run), the rows are
+ * shorter, and the columns are the width they were. Making them narrower is a
+ * measurement of its own and is deliberately not in this change.
+ *
+ * `@layer components`, so a `className` on a cell still wins: the layer order
+ * at the top of this file puts utilities last. The base layer's `[data-grid]`
+ * guard is not in play here — that guard scopes the *reset* away from the grid,
+ * and this block is aimed at the grid on purpose.
+ */
+@layer components {
+  /*
+   * The row's colour, which every cell in it paints. Declared on the grid so
+   * that it is always defined: a `tr` that sets nothing inherits this.
+   */
+  [data-grid] {
+    --cell-bg: var(--background);
+    /*
+     * The second layer every cell paints, over `--cell-bg`: the done tint on a
+     * done row and `transparent` everywhere else. A property of its own rather
+     * than a mix into `--cell-bg` because that property is *chosen* by the
+     * chain of row states below, and a done row is also banded, hovered, lit
+     * or a drop target — one layer on top says "and it is done" without a
+     * second copy of the chain. `table-frame.ts`'s `ROW_BACKGROUND` paints the
+     * same pair inline for the pinned cells.
+     */
+    --row-tint: transparent;
+  }
+
+  [data-grid] tbody tr[data-row-status='done'] {
+    --row-tint: var(--grid-done-tint);
+  }
+
+  /*
+   * The grid's own type, which is the whole of "make it feel like a
+   * spreadsheet" that is not a padding (Dany, 2026-08-08, U4).
+   *
+   * The table read at the browser's default 16px — the size a paragraph is set
+   * in — with a 26px row, and a plan is not prose: it is a page of short
+   * strings and figures that a reader scans down a column of. 13px is what a
+   * spreadsheet sets its cells in, and it buys back four pixels a row and
+   * about a fifth of every string's width across a table that has to fit a
+   * 1280px laptop.
+   *
+   * `tbody` and not `[data-grid]`, for the reason the number's 11px rule
+   * beside it already gives: `plan-cards.tsx` carries `data-grid` too, so
+   * `editable-grid.ts` can find the phone's cards, and a card is not a cell in
+   * a fixed column — it is the whole of a work item on a 390px screen. A card
+   * list has no `<tbody>`. The heading row is untouched as well: it is a 10px
+   * caption already and it is above the `<tbody>`, not in it.
+   *
+   * Named on the boxes as well as on the cells, and that is not belt and
+   * braces. The base reset's `font: inherit` for form controls stops at
+   * `[data-grid]` deliberately, so a box in this table takes the *browser's*
+   * font unless something says otherwise — some cells carry `font: inherit`
+   * inline and some do not, which is a table typed in two sizes the moment
+   * this rule reaches only one of them.
+   *
+   * **The buttons are deliberately not in that list**, and they were, for one
+   * commit. A grid `<button>` keeps the platform's 13.33px — the chips, the
+   * dependency cell's `+`, the ⋯ — and that is not an oversight either: it is
+   * what `e2e/tailwind.spec.ts`'s `leaves a control inside the grid the
+   * platform's text size` asserts, because a chip at the cell's size is how a
+   * lost `[data-grid]` guard would show. Typing them here made that test fail
+   * in CI's `pixels` (run 31617201732) — the guard intact and its only oracle
+   * defeated by a rule one layer up. A third of a pixel of type is not worth
+   * blinding it. What the difference cost was a `+` sitting 2.09px off the box
+   * beside it, and the fix for that is where it belongs:
+   * `e2e/deps-cell.spec.ts` compares the two controls' **centres**, which is
+   * what "on one line" means under `align-items: center`.
+   *
+   * `line-height` at 1.4 rather than the plan's ~1.45 because 1.4 is already
+   * this repository's line: `cell-input.tsx` caps a resting box at
+   * `maxRestRows * 1.4em`, and a stylesheet at 1.45 against a cap at 1.4 is
+   * two line heights, the second of which crops the third line of a note by a
+   * couple of pixels.
+   *
+   * Proof: the `font-size` dropped from this block, `sets the grid body's type
+   * below the page's own, and keeps a row inside its budget` failed on
+   * `Expected: "13px" / Received: "16px"`. Watched on h2puni, 2026-08-12
+   * (fault F3).
+   */
+  [data-grid] tbody,
+  [data-grid] tbody input,
+  [data-grid] tbody textarea {
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
+  /*
+   * Every hover card's own type, wherever the card is drawn.
+   *
+   * A card that opens from a cell is a **child of that cell**, so it takes the
+   * grid's 13px over a 1.4 line from the rule above by inheritance and always
+   * has. A card that is **portalled** — the hint layer's, which is what most of
+   * the table's columns answer with, the Gantt's, and the project picker's — is
+   * a child of `<body>`, which is outside the `font-sans` on `<main>` and
+   * outside `[data-grid]` both. Measured in Chromium on 2026-09-11: the Slack
+   * cell's fact came out `Times / 16px / normal` beside the notes preview's
+   * `sans-serif / 13px / 18.2px`. One pop-up, two typefaces and three points of
+   * size, in a table where Dany had just asked for _"same look and feel"_ across
+   * every column.
+   *
+   * `@apply font-sans` rather than the family written out, so the one place a
+   * face is chosen stays `--font-sans` above — and the geometry warning beside
+   * it, that a different face is a different `not-before` column, keeps
+   * applying. The size is the grid's own, written here rather than added to the
+   * selector list above because that rule is about the grid **body** and this is
+   * a box that is usually not in it.
+   *
+   * Proof: this block deleted — `e2e/hints.spec.ts`'s `a card reads in the
+   * table's own type, wherever it is drawn` failed on `the portalled card's type
+   * · Expected: "sans-serif / 13px / 18.2px" · Received: "Times / 16px /
+   * normal"`. Watched in Chromium, 2026-09-11.
+   */
+  [role='tooltip'] {
+    @apply font-sans;
+
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
+  /*
+   * A modal surface is portalled to `<body>` too (`ui/modal.tsx`), so it was
+   * outside `<main>`'s `font-sans` for exactly the reason above: the completion
+   * prompt came out in Times on 2026-09-13, and so, unnoticed, had every modal
+   * before it. The face only — a modal keeps its own type scale, unlike a card
+   * that has to match the grid it hangs off.
+   */
+  [data-modal-surface] {
+    @apply font-sans;
+  }
+
+  /*
+   * The five pixels under every box, which are a row's height and nothing a
+   * reader can see.
+   *
+   * A `<textarea>` is `inline-block` and sits on its line's **baseline**, so
+   * the line box under it reserves room for descenders that no glyph in the
+   * box will ever use: measured on h2puni, a 21.8px box in a 27.19px line,
+   * which is a 29.19px row against this change's 28px budget. `middle` takes
+   * the box off the baseline and the reservation with it.
+   *
+   * `vertical-align` and not `display: block`, which would also have worked:
+   * this is one property about one alignment, where blockifying the boxes
+   * changes how every cell that puts something *beside* its box lays out — the
+   * assignee cell's assumed name, the dependency strip's chips. Both of those
+   * are flex containers, which ignore this property entirely, so the rule is
+   * inert exactly where it would have been a risk.
+   *
+   * Proof: this declaration set back to `baseline`, `sets the grid body's type
+   * below the page's own, and keeps a row inside its budget` failed on `a
+   * single-line row is taller than the budget — Expected: <= 28 / Received:
+   * 29.1875`. Watched on h2puni, 2026-08-12 (fault F4).
+   */
+  [data-grid] tbody input,
+  [data-grid] tbody textarea {
+    vertical-align: middle;
+  }
+
+  [data-grid] th {
+    background: var(--cell-bg);
+  }
+
+  [data-grid] td {
+    background: linear-gradient(var(--row-tint), var(--row-tint)), var(--cell-bg);
+  }
+
+  [data-grid] th,
+  [data-grid] td {
+    /* Long enough to read as a fade, short enough that the row is lit by the
+       time the pointer has stopped. */
+    transition: background-color 100ms ease;
+  }
+
+  /*
+   * The heading: a quiet micro-caption, the same one the Gantt panel's axis and
+   * its row rail already use. `text-align` and the type are all that is left to
+   * say — the padding, the sticky position and the background are the cell
+   * styles' in `table-frame.ts`, and an inline style outranks this.
+   */
+  [data-grid] thead tr {
+    --cell-bg: var(--grid-header);
+  }
+
+  [data-grid] thead th {
+    box-shadow: inset -1px -1px 0 var(--border);
+    color: var(--muted-foreground);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-align: left;
+    text-transform: uppercase;
+  }
+
+  /* The step accordion's toggle, which is a `<button>` in a heading cell: the
+     caption's own type, not a platform control's bevel. */
+  [data-grid] thead button {
+    border: 0;
+    background: none;
+    color: inherit;
+    padding: 0;
+    cursor: pointer;
+  }
+
+  [data-grid] thead button:hover {
+    color: var(--foreground);
+  }
+
+  /*
+   * The body: banded, and a touch stronger under the pointer. Subtler than the
+   * chart's banding on purpose — there is text in every cell here.
+   */
+  [data-grid] tbody tr[data-row-parity='even'] {
+    --cell-bg: var(--grid-band);
+  }
+
+  [data-grid] tbody tr:hover {
+    --cell-bg: var(--grid-hover);
+  }
+
+  /*
+   * The same pointer on a banded row, which already carries the band's ink.
+   *
+   * The three `:not()`s are what keeps "lit" and "would land here" winning over
+   * "under the pointer", and source order is **not** what does it. This
+   * selector is `(0, 6, 2)` — one attribute, five pseudo-classes, two types,
+   * and `:not()` takes the weight of its argument — against `(0, 2, 2)` for
+   * each of `[data-grid] tbody tr[data-dep-lit]` and `[data-grid] tbody
+   * tr[data-row-lit]` below and `[data-grid] tbody tr[data-drop='into']` at the
+   * foot of this file. It outranks all three, so putting it first decides
+   * nothing; the only thing that can hold them up is this rule declining to
+   * match their rows at all.
+   *
+   * That is not hypothetical. `data-dep-lit` is written from `depHover ??
+   * depFocus`, and the *focus* half lights a row while the pointer rests
+   * somewhere else entirely: Tab into `030`'s Depends on box with the pointer
+   * over `020`, and before these `:not()`s the light held on an odd row
+   * and was overpainted by the band's hover on an even one. A highlight that
+   * behaves differently on alternate stripes is the defect class this whole
+   * change exists to remove.
+   *
+   * `data-row-lit` walked into it a second time, in `linked-row-hover`, and
+   * since `pointed-row-one-ink` it is the **whole mechanism** rather than a
+   * guard. A row the pointer rests on here carries `data-row-lit` now, so this
+   * rule declines to match it and the row light below is what paints it —
+   * which is how a pointed row is one colour whatever stripe it stands on.
+   * Dany, 2026-09-01: _"highlighted row is colored independently of which odd
+   * or even row this is"_.
+   *
+   * Read the other way, that is the fault this rule was written against: three
+   * `:not()`s to stop the light displacing the band's hover, and the thing they
+   * were protecting turned out to be the defect. The band still says which row
+   * is which **at rest**; it has no say in what a pointed row looks like.
+   *
+   * Watched, and watched wrong first: with the negative written from a bar it
+   * passed with `data-row-lit` out of this chain — a check that could not fail.
+   * Rewritten to point from the table, `lights the same colour on an even row
+   * as on an odd one` then failed on `Expected "oklab(0.96448 …)" Received
+   * "oklab(0.917255 …)"`. Both runs 2026-08-14;
+   * `openspec/changes/linked-row-hover/verify.md` has them.
+   *
+   * Anything added to the two rules below has to join this chain, and its
+   * negative has to hover the row it is about.
+   *
+   * `[data-drop='into']` and not `[data-drop]`: `above` and `below` draw an
+   * edge on the `<td>`s and leave `--cell-bg` alone, so a row being dragged
+   * past keeps its hover.
+   */
+  [data-grid]
+    tbody
+    tr:not([data-dep-lit]):not([data-row-lit]):not(
+      [data-drop='into']
+    )[data-row-parity='even']:hover {
+    --cell-bg: var(--grid-band-hover);
+  }
+
+  /*
+   * A row some hovered Depends on cell is waiting for (`data-dep-lit`,
+   * written by `wbs-table.tsx`'s dependency hover). Re-points `--cell-bg` for
+   * the reason `tr:hover` does: the pinned cells' inline backgrounds follow
+   * the row only through that join. After `tr:hover` at equal specificity on
+   * purpose: the two *do* name the same row — `depFocus` lights a row the
+   * pointer happens to be resting on — and "lit" is what should win, which at
+   * `(0, 2, 2)` each it gets from being second. The banded-hover rule above
+   * carries more weight than this one and stays out of the way by predicate
+   * instead; anything else added there has to do the same.
+   *
+   * Proof: this rule withheld from PR #38's first head (`ec1580e`) — the
+   * attribute set, the paint unchanged, jsdom green throughout — and the
+   * `pixels` job watched failing all three dependency-hover tests in
+   * `e2e/hover-cards.spec.ts` on the unmoved colour (`Expected: not
+   * "oklab(0.978225 …)"`, poll timeout). Watched, 2026-08-10;
+   * `openspec/changes/dep-hover-highlights/verify.md` has the runs.
+   */
+  [data-grid] tbody tr[data-dep-lit] {
+    --cell-bg: var(--grid-dep-lit);
+  }
+
+  /*
+   * The **pointed row**: the one row the pointer is on, whichever face of the
+   * plan it is over — this table, or a bar or row label on the Gantt panel.
+   * Written by `wbs-table.tsx`'s `pointedAt`.
+   *
+   * The same ink as `data-dep-lit` above and a **different attribute**. The ink
+   * is shared because there is one pointer, so the two causes can never be on
+   * screen at once and one tint is never ambiguous about which it means; the
+   * attribute is not, because `data-dep-lit` says "some Depends on cell waits
+   * for this row" to a reader and to the tests that select on it, and a bar's
+   * hover would make that untrue.
+   *
+   * Re-points `--cell-bg` rather than setting a background here, for the reason
+   * `tr:hover` does: a pinned cell paints its own opaque background and follows
+   * the row only through that join.
+   */
+  [data-grid] tbody tr[data-row-lit] {
+    --cell-bg: var(--grid-dep-lit);
+  }
+
+  /*
+   * The separators. Horizontal everywhere, vertical only at the boundaries that
+   * carry meaning — the end of the numbering, the end of the row's links, the
+   * end of the pinned block, and the end of what a row waits for.
+   *
+   * The links one is the newest and was the least obvious: the column is 40px
+   * of small marks, and with no rule after it those marks read as belonging to
+   * the name beside them rather than to the row. Dany asked for it from a
+   * screenshot on 2026-08-31, where an empty Links column and the Name column
+   * were one undivided field.
+   */
+  [data-grid] tbody td {
+    box-shadow: inset -1px -1px 0 var(--border);
+  }
+
+  /*
+   * The **status strip**: the row's status said at its left edge, before the
+   * drag handle, whether or not the Status column is on screen. Drawn as an
+   * inset shadow on the drag cell — the same medium as every separator in
+   * this table, so it occupies no space and moves no pixel — and drawn in one
+   * declaration with the row separator above, because a second `box-shadow`
+   * rule replaces the first rather than adding to it. Unknown draws nothing:
+   * it is the absence of a saying, and a strip for it would be a colour for
+   * "nobody knows". On a drop-target row the drop rules further down win for
+   * the length of the drag; accepted (`status-at-a-glance` D2).
+   */
+  [data-grid] tbody tr[data-row-status='done'] td[data-column='drag'] {
+    box-shadow:
+      inset 3px 0 0 var(--status-done),
+      inset -1px -1px 0 var(--border);
+  }
+
+  [data-grid] tbody tr[data-row-status='in_progress'] td[data-column='drag'] {
+    box-shadow:
+      inset 3px 0 0 var(--status-in-progress),
+      inset -1px -1px 0 var(--border);
+  }
+
+  /*
+   * The right-edge rule is every column's since `column-rules-and-add-buttons`
+   * (Dany, 2026-09-13: "add column delimiters to all columns"): `tbody td` and
+   * `thead th` above draw it, so the list that named the pinned columns and
+   * Depends on as the only ruled ones is gone. The figures to the right of
+   * Depends on used to sit in one undivided field.
+   */
+
+  /*
+   * Every box a cell is typed into: nothing at rest but the row's own colour,
+   * and a ring when it has the focus. `border-color` alone — never the width or
+   * the style — because the browser's own metrics for these controls are what
+   * `table-frame.ts`'s columns were measured against, the `not-before` date
+   * field above all.
+   */
+  [data-grid] input,
+  [data-grid] textarea {
+    background: transparent;
+    border-color: transparent;
+    border-radius: var(--radius-sm);
+    color: inherit;
+  }
+
+  /*
+   * No resize grip on the Name cell — nor on the two `CellInput` textareas the
+   * phone's cards render, which carry `data-grid` as well and had the same
+   * handle for the same reason. That second reach is deliberate and is a fix
+   * too; it is only the table's that was measured.
+   *
+   * Every row of every plan shipped with a drag handle in its bottom-right
+   * corner, and dragging it is not an edit. It writes an inline height the
+   * auto-grow never reads back, the Gantt row beside it keeps the height the
+   * plan gave it, and the two are out of line for the rest of the session with
+   * no undo and no way back but a reload. Measured on dev, 2026-08-12: one
+   * drag took a 28px row to 124px against a 28px chart row.
+   *
+   * The grip was **inline**, from the Name cell's own `style` object in
+   * `wbs-table.tsx` — not from Tailwind's preflight, which this build's served
+   * CSS carries no `resize` rule from at all. That matters here because it is
+   * the difference between this rule being the fix and this rule being unable
+   * to reach the box: an inline property outranks a stylesheet whatever its
+   * layer. The inline `resize` is gone, and a browser's own default for a
+   * textarea is `both`, so this rule is what holds — proven by taking it out
+   * and watching `e2e/name-cell.spec.ts` report `both`.
+   *
+   * `none` rather than a smaller grip, because the height of this box is not a
+   * reader's choice to make: it is the height of the text in it, decided by
+   * `cell-input.tsx`'s measurement and capped by `maxRestRows`. That machinery
+   * is untouched — this property is about the handle, not about `style.height`
+   * — which is what `the box still grows with the text it is given` in
+   * `e2e/name-cell.spec.ts` holds down beside the drag itself.
+   */
+  [data-grid] textarea {
+    resize: none;
+  }
+
+  /*
+   * The Name cell's two boxes, and which of them a reader sees.
+   *
+   * A name renders inline markdown at rest (`inline-markdown.tsx`), and a
+   * `<textarea>` holds characters — it cannot hold an `<em>`. So the rendered
+   * reading is a second box laid over the box that holds the text, and these
+   * two rules are the whole of the swap: at rest the textarea's own ink is
+   * transparent and the rendered box is what shows; the moment somebody writes
+   * in the cell the rendered box goes away and the source comes back.
+   *
+   * `color: transparent` rather than an opaque background on the box above it,
+   * because the textarea is what paints the search-match tint and the focus
+   * ring, and a second opaque box would hide both.
+   *
+   * Both rules are CSS rather than React state on purpose: a focus and a blur
+   * on every cell of the table would be two renders of a memoised column tree
+   * that nothing asked to be rebuilt (`LLM_README.md`'s first landmine).
+   *
+   * They are also the reason this pair cannot be proved in jsdom, which applies
+   * no stylesheet and computes no layout: the negative is in
+   * `e2e/name-markdown.spec.ts`, in a browser.
+   */
+  [data-grid] textarea[data-rendered-at-rest]:not(:focus) {
+    color: transparent;
+  }
+
+  [data-grid] textarea[data-rendered-at-rest]:focus + [data-cell-rendered] {
+    display: none;
+  }
+
+  /*
+   * The rendered box's own metrics, which are the **textarea's** metrics.
+   *
+   * `padding: 2px` and a 1px border are the user agent's own for a
+   * `<textarea>`, and this file restyles neither — "`border-color` alone, never
+   * the width or the style, because the browser's own metrics for these
+   * controls are what `table-frame.ts`'s columns were measured against", one
+   * rule up. So the drawn text sits exactly where the typed text sits.
+   *
+   * Here rather than in `cell-input.tsx`'s `style` object on purpose: a caller
+   * whose box has a padding of its own — the phone card's `p-2 text-base` —
+   * puts that class on **both** boxes, and a utility class outranks this layer
+   * while an inline style would outrank the class. One spelling, two boxes.
+   *
+   * Transparent border and background: the textarea underneath paints the
+   * search-match tint and the focus ring, and a second opaque box over it would
+   * hide both.
+   *
+   * `position: absolute` is what makes "nothing a name contains may change a
+   * row's height" true by construction — and there is deliberately no `bottom`
+   * and no clipping, so a rendered name that grew a block box spills visibly
+   * out of its row instead of being hidden inside it. That is the only way the
+   * browser gate can see that fault at all.
+   */
+  [data-cell-rendered] {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    margin: 0;
+    box-sizing: border-box;
+    padding: 2px;
+    border: 1px solid transparent;
+    background: transparent;
+    pointer-events: none;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
+
+  /*
+   * The one thing on the drawn box a pointer may hit.
+   *
+   * The box takes no pointer so that a click anywhere in the cell reaches the
+   * textarea under it and opens the editor. A link is the exception Dany asked
+   * for on 2026-08-30: a name that reads as a link with no way to follow it is
+   * a link drawn as decoration. `auto` here and nowhere else, so the exception
+   * is exactly the link's own pixels.
+   *
+   * Proof: this rule deleted, `a link in a name is not a tab stop but can be
+   * followed` failed on `page.waitForEvent: Test timeout of 60000ms exceeded`
+   * — no popup at all, because the click went through the link to the box
+   * under it. Watched in Chromium, 2026-08-30.
+   */
+  [data-cell-rendered] a {
+    pointer-events: auto;
+  }
+
+  [data-grid] input:focus,
+  [data-grid] textarea:focus {
+    /* An outline rather than a shadow or a border: it takes no space, and at a
+       negative offset it is drawn inside a cell that clips its overflow. */
+    outline: 2px solid var(--ring);
+    outline-offset: -2px;
+    background: var(--background);
+  }
+
+  [data-grid] ::placeholder {
+    color: var(--muted-foreground);
+    opacity: 0.7;
+  }
+
+  /* The estimate shorthand's `o/r/p` is a reminder of a syntax, not a prompt to
+     fill anything in: quieter than the rest. */
+  [data-grid] td[data-column$='-final'] ::placeholder {
+    opacity: 0.45;
+  }
+
+  /*
+   * The Number column: a figure, read as one. Muted, because the name beside it
+   * is what a plan is read by — except on a frozen row, where the number is the
+   * thing that has been pinned and says so.
+   */
+  [data-grid] [data-number] {
+    color: var(--muted-foreground);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /*
+   * Smaller than the name beside it, which is the paragraph above taken one
+   * step further: a work item number is a reference, not prose, and the
+   * table's own text is the browser default 16px.
+   *
+   * It is also half the fix for the audit's depth-4 clipping, 2026-08-12.
+   * `050.1.1.1` and `050.1.1.1.1` both drew as `050.1` in a 93px column, and a
+   * number nobody can read is the column doing nothing at all; the other half
+   * is `DEEPEST_INDENT`, which gave 24px of that column back. At this size
+   * five levels of a leaf row fit whole where two did.
+   *
+   * It moves no pixel of the layout: the column is `table-layout: fixed` at a
+   * declared width, and the lock and the expander beside this span keep the
+   * cell's 16px line box, so the row is the height it always was. The same
+   * exception the heading row's 10px caption already takes.
+   *
+   * `tbody` and not `[data-grid]` alone, which is the whole reason this is its
+   * own rule rather than one more declaration in the block above. The phone
+   * renderer carries `data-grid` too — `plan-cards.tsx` sets it so
+   * `editable-grid.ts` can find the grid at all — and its card header renders
+   * the same `[data-number]` span. Every argument written above is a table
+   * argument: a fixed column at a declared width, a lock and an expander
+   * holding a 16px line box, an outline capped by `numberIndentFor`. None of
+   * it holds for a flex card header, whose indent comes from `cardIndentFor`
+   * and did not move. Left unscoped, this shrank the card's number to 11px
+   * inside a change whose Known limits say the cards are out of scope. A card
+   * list has no `<tbody>`, so this is the narrowest thing that says "the
+   * table's number".
+   */
+  [data-grid] tbody [data-number] {
+    font-size: 11px;
+  }
+
+  [data-grid] tbody tr[data-frozen='true'] [data-number] {
+    color: var(--foreground);
+    font-weight: 600;
+  }
+
+  [data-grid] td[data-column='number'] button {
+    border: 0;
+    background: none;
+    color: var(--muted-foreground);
+    padding: 0 2px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  [data-grid] td[data-column='number'] button:hover {
+    color: var(--foreground);
+  }
+
+  /*
+   * The drag handle: all but invisible until the pointer is on the row, which
+   * is the only time it can be used. A frozen row keeps a fainter one — the
+   * handle is where the refusal is explained, so it must not disappear.
+   */
+  [data-grid] td[data-column='drag'] [role='button'] {
+    display: inline-block;
+    color: var(--muted-foreground);
+    opacity: 0.3;
+    line-height: 1;
+    transition: opacity 120ms ease;
+  }
+
+  [data-grid] tbody tr:hover td[data-column='drag'] [role='button'] {
+    opacity: 1;
+  }
+
+  [data-grid] td[data-column='drag'] [aria-disabled='true'] {
+    opacity: 0.18;
+  }
+
+  [data-grid] tbody tr:hover td[data-column='drag'] [aria-disabled='true'] {
+    opacity: 0.5;
+  }
+
+  /*
+   * A dependency chip. Compact on purpose: seven of them share a 110px column
+   * and rest clipped to one line behind the strip's fade, and the padding is
+   * the only thing deciding how many are on screen before the clip. Spacing
+   * is the strip's `gap` in `wbs-table.tsx`, not a margin here: a chip's own
+   * bottom margin would make the strip's one rested line taller than a
+   * chipless row's, and equal row heights are the point of `deps-single-line`.
+   *
+   * `:not([data-dep-add])` because the add affordance beside them is a button
+   * in the same cell and means the opposite thing: a chip's hover goes
+   * `--destructive`, which is the ✕ saying what the click will do, and an
+   * "add" that turned red under the pointer would be promising a removal.
+   */
+  [data-grid] td[data-column='depends'] button:not([data-dep-add]) {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: color-mix(in oklab, var(--muted) 70%, var(--background));
+    color: var(--muted-foreground);
+    padding: 0 4px;
+    line-height: 1.5;
+    cursor: pointer;
+  }
+
+  [data-grid] td[data-column='depends'] button:not([data-dep-add]):hover {
+    border-color: var(--destructive);
+    color: var(--destructive);
+  }
+
+  /*
+   * The add affordance. Always on screen — that is the whole of what it is for
+   * (Dany, 2026-08-11), so nothing here fades it in on a row hover the way the
+   * ⋯ button is faded: an affordance nobody sees marks nothing, which is the
+   * note the notes marker already carries.
+   *
+   * Quiet all the same: no border and no fill, so a column of them reads as a
+   * margin rather than as a column of controls, and the row's ink stays on the
+   * chips. `line-height: 1.5` and `padding: 0 4px` are the chip's own, to the
+   * pixel — the chips set the strip's line box, and an affordance taller than
+   * one would make every deps row taller than every other row in the table.
+   */
+  /*
+   * **One `+`, four columns.** Depends on, Tags, Services and Types each open
+   * their picker from a `+` on the strip's leading edge, and until
+   * `column-rules-and-add-buttons` only Depends on's was styled here — the
+   * other three fell back to the platform button: black, square, `1px 6px` of
+   * padding (measured in Chromium, 2026-09-13). Dany: "i want the + btn in the
+   * depends on col and tags col (and types, services) be similar in design,
+   * now they feel different". Every add button carries `data-reference-add`,
+   * so that is the selector, and the Depends on rule that said the same about
+   * `[data-dep-add]` alone is folded in.
+   */
+  [data-grid] button[data-reference-add] {
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--muted-foreground);
+    padding: 0 4px;
+    line-height: 1.5;
+    cursor: pointer;
+  }
+
+  [data-grid] button[data-reference-add]:hover {
+    background: color-mix(in oklab, var(--foreground) 7%, var(--cell-bg));
+    color: var(--foreground);
+  }
+
+  /*
+   * The create affordance on the team/tag/service cells, the same quiet shape
+   * as the deps `+` beside it: no border and no fill by default, so a column
+   * of them reads as a margin rather than a column of controls. `background:
+   * none` is what keeps it off the user-agent `ButtonFace` the dark-mode
+   * palette tests flag; the fill appears only under the pointer, at the deps
+   * `+`'s own dose.
+   */
+  [data-grid] button[data-creatable-add],
+  [data-modal-surface] button[data-creatable-add] {
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--muted-foreground);
+    cursor: pointer;
+  }
+
+  [data-grid] button[data-creatable-add]:hover,
+  [data-modal-surface] button[data-creatable-add]:hover {
+    background: color-mix(in oklab, var(--foreground) 7%, var(--cell-bg));
+    color: var(--foreground);
+  }
+
+  /*
+   * Hovered: the row's own ink at the row's own dose, into whatever surface
+   * the row is currently painted — `--cell-bg`, which is the join every other
+   * state in this file re-points (banded, hovered, dep-lit, drop target).
+   *
+   * `var(--accent)` was here and pointed the wrong way on a light page. It is
+   * an absolute colour, `oklch(0.968)`, and a row under the pointer is
+   * `--grid-hover` at `oklch(0.939)`: the patch came out *lighter* than the
+   * row it sits in, so the affordance read as a hole punched through the row
+   * to the page behind it rather than as something the pointer had picked up.
+   * Measured in a cloud Chromium on dev at `2b2affec`, 2026-08-11 — button
+   * `oklch(0.968 0.007 247.896)` against cell `oklab(0.93903 …)`. On a
+   * dependency-lit row it was worse and quieter at once: the lit row is
+   * `oklab(0.96448 …)`, four thousandths away, so the hover all but vanished.
+   * Dark mode was right by accident — `--accent` is `oklch(0.279)` there,
+   * above the `oklab(0.18885 …)` row — which is the tell that one absolute
+   * value cannot answer for two themes.
+   *
+   * The same ink into whichever surface it lands on moves both the same way
+   * instead: down on a light page, up on a dark one, because a mix toward
+   * `--foreground` from below rises and from above falls. `--card-dep-lit`'s
+   * pattern (see the token block), one layer further in — the surface here is
+   * not the page but the row, and the row is already a mix. 7% is
+   * `--grid-hover`'s own dose, so the affordance stands off the hovered row
+   * by exactly as much as the hovered row stands off the page.
+   *
+   * Which is why the one absolute shade named above — `--grid-hover` at
+   * `oklch(0.939)` — stopped being the only answer when `table-mechanics`
+   * added `--grid-band-hover`: on a hovered *banded* row `--cell-bg` is the
+   * 9.5% mix, so the affordance lands near 16.15% rather than 13.5%. The
+   * mechanism is untouched, which is the point of quoting this block as the
+   * precedent for that one; only the arithmetic in the paragraph above is a
+   * light-palette, odd-row snapshot now.
+   */
+  /*
+   * The dependency count, between the add affordance and the first chip.
+   *
+   * Reads as a number and not as a chip: no border and no fill, the add
+   * affordance's own quiet. Two bordered tokens on the leading edge would look
+   * like two controls, and this one does nothing when clicked.
+   *
+   * `line-height: 1.5` and `padding: 0 4px` are the chip's, to the pixel, for
+   * the reason `[data-dep-add]` gives above — the chips set the strip's line
+   * box, and anything taller in it makes every deps row taller than every
+   * other row in the table.
+   *
+   * `tabular-nums` so a column of counts lines up on the digit rather than on
+   * whatever the face felt like, which is what the derived figures below do
+   * for the same reason.
+   */
+  [data-grid] td[data-column='depends'] [data-dep-count] {
+    color: var(--muted-foreground);
+    padding: 0 4px;
+    line-height: 1.5;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* The derived figures. Tabular, so a column of them lines up on the decimal
+     point rather than on whatever the face felt like. */
+  [data-grid] [data-start],
+  [data-grid] [data-finish],
+  [data-grid] [data-float],
+  [data-grid] [data-final-total] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  [data-grid] [data-start],
+  [data-grid] [data-finish],
+  [data-grid] [data-float] {
+    color: var(--muted-foreground);
+  }
+
+  /*
+   * A critical row's slack, which is not a number and should not be read as
+   * one: a quiet tag rather than a word in the column's own type. The cell is
+   * 56px, so it is sized to fit one — see `wbs-table.tsx` for why the text is a
+   * single word.
+   *
+   * **Neutral, and that is the point of it** (`quiet-critical-slack`,
+   * 2026-08-31). This was `--destructive` ink on a `--destructive` tint until
+   * Dany read a plan of dependent work and found a column of red tags: in a
+   * chain of three rows all three are critical, so the palette's red was
+   * marking the ordinary case and the two things it actually means — this will
+   * destroy something, this value was refused — had lost the only ink that says
+   * them. The ink is the column's own `--muted-foreground`, so the tag reads as
+   * quietly as the figures beside it; the ground is a tint of that same grey, so
+   * it is still a tag rather than a word read down the column as a number.
+   * Measured in both palettes by `e2e/slack-cell.spec.ts`.
+   */
+  [data-grid] [data-float][data-critical] {
+    display: inline-block;
+    border-radius: var(--radius-sm);
+    background: color-mix(in oklab, var(--muted-foreground) 16%, var(--background));
+    color: var(--muted-foreground);
+    padding: 0 4px;
+    font-size: 10px;
+    font-weight: 600;
+  }
+
+  /*
+   * The ⋯ button, which is furniture until somebody wants it. Addressed through
+   * its wrapper so the menu's own items — buttons in the same cell — are left
+   * to `actions-menu.tsx`.
+   */
+  /*
+   * The ⋯ sits in the middle of its 40px cell rather than against the left
+   * padding (Dany, 2026-09-13: "center the actions dots"). `text-align` on
+   * the cell, because the button's wrapper is `inline-block` and the cell is
+   * what has the width.
+   */
+  [data-grid] td[data-column='actions'] {
+    text-align: center;
+  }
+
+  [data-grid] td[data-column='actions'] > span > button {
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--muted-foreground);
+    opacity: 0.45;
+    cursor: pointer;
+    transition:
+      opacity 120ms ease,
+      color 120ms ease;
+  }
+
+  [data-grid] tbody tr:hover td[data-column='actions'] > span > button,
+  [data-grid] td[data-column='actions'] > span > button:focus,
+  [data-grid] td[data-column='actions'] > span > button[aria-expanded='true'] {
+    opacity: 1;
+  }
+
+  [data-grid] td[data-column='actions'] > span > button:hover {
+    background: var(--accent);
+    color: var(--foreground);
+  }
+
+  /* An option under an open picker, hovered or already chosen.
+     The depends list's own: it has no active line of its own to paint inline,
+     so the stylesheet answers both its pointer and its keyboard highlight. */
+  [data-grid] [role='option']:hover,
+  [data-grid] [role='option'][aria-selected='true'] {
+    background: var(--accent);
+  }
+
+  /* A CreatablePicker's list is the exception the rule above must not reach.
+     It carries its active line inline — the one Enter takes, walked to with
+     the arrows — and a second line painted the same solid accent reads as a
+     second active line: hovering below the top used to do exactly that
+     (TASK-104). Both selectors outrank the shared rule by one attribute,
+     which is what keeps the depends list on it. Hover gets a faded read of the
+     same hue — feedback, not a claim; and the entry already in force is said
+     in weight rather than background, because a chosen line that is not the
+     active one wearing the accent would be the same two-active-lines defect
+     by another route. Where the two meet — the chosen line, hovered — the
+     fade wins over the weight's transparency, which is the right read of a
+     pointer resting on what is already picked. */
+  [data-grid] [data-picker-list] [role='option'][aria-selected='true'] {
+    background: transparent;
+    font-weight: 600;
+  }
+
+  [data-grid] [data-picker-list] [role='option']:hover {
+    background: color-mix(in oklab, var(--accent) 60%, transparent);
+  }
+
+  [data-grid] [role='menu'] button:hover {
+    background: var(--accent);
+  }
+
+  /* The ✕ that empties a picker: furniture beside the box it belongs to, not a
+     platform button in the middle of a row of figures. */
+  [data-grid] [aria-label^='Clear '] {
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--muted-foreground);
+    padding: 0 2px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  [data-grid] [aria-label^='Clear ']:hover {
+    color: var(--foreground);
+    background: var(--accent);
+  }
+
+  /*
+   * Where a dropped row would land. Last, so these beat the separators above
+   * them — same specificity, and the cascade reads source order.
+   *
+   * `into` re-points the row's colour rather than drawing a line, because
+   * "inside this row" has no edge to draw: it is the whole row that would take
+   * the dragged one as a child.
+   */
+  [data-grid] tbody tr[data-drop='into'] {
+    --cell-bg: var(--grid-drop);
+  }
+
+  [data-grid] tbody tr[data-drop='above'] td {
+    box-shadow:
+      inset 0 2px 0 var(--ring),
+      inset 0 -1px 0 var(--border);
+  }
+
+  [data-grid] tbody tr[data-drop='below'] td {
+    box-shadow: inset 0 -2px 0 var(--ring);
+  }
+
+  /*
+   * The wait ring's fill — the arc that closes while a tool hint waits.
+   *
+   * A CSS animation rather than per-frame React state, for the reason written
+   * on `WaitRing` in `hint.tsx`: the ring is drawn on every control in the app
+   * and a layer re-rendering sixty times a second under the pointer is a cost
+   * charged everywhere. The duration is the *remaining* wait and comes from the
+   * component as an inline `animation-duration`, so the two constants that
+   * decide it live in one file and this rule holds neither.
+   *
+   * `forwards`, so the arc stays closed for the frame between the fill ending
+   * and the card replacing it. Without it the ring snaps back to empty first.
+   */
+  .wait-ring-fill {
+    animation-name: wait-ring-fill;
+    animation-timing-function: linear;
+    animation-fill-mode: forwards;
+  }
+
+  @keyframes wait-ring-fill {
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+
+  /*
+   * A reader who has asked for less motion still gets the ring — it is the only
+   * sign a hint is coming — but as a still half-arc rather than a sweep. The
+   * animation is what is refused, not the mark.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    .wait-ring-fill {
+      animation: none;
+      stroke-dashoffset: 50%;
+    }
+  }
+
+  /*
+   * The line of the links card the pointer is resting on.
+   *
+   * A rule and not an inline style, for the two reasons an inline style cannot
+   * cover: a `style` prop cannot say `:hover` at all, and a React
+   * `onMouseEnter` per line would re-render the card on every row the pointer
+   * crosses on its way to the one it wants. `ExternalRefsCard` gives each line
+   * `pointer-events: auto` — the card itself takes no pointer — which is what
+   * lets this selector match anything.
+   *
+   * `--accent` and not a hand-mixed colour: it flips with the palette, and the
+   * card's ground is `--popover`, so the two stay a step apart on a light page
+   * and on a dark one.
+   *
+   * This is deliberately **not** in the banded-hover `:not()` chain the table
+   * rows share (see `[data-grid] tbody tr:hover` above): a card line is not a
+   * `<tr>`, nothing else tints it, and there is no rule here for it to lose to.
+   */
+  [data-refs-card-line]:hover {
+    background: var(--accent);
+  }
+}
+
+/*
+ * The 44px a finger needs, on the three surfaces a phone reaches controls
+ * through — and only on a phone.
+ *
+ * The cards themselves have been right since `M mobile-cards`: `plan-cards.tsx`
+ * writes `min-h-11` on every box it draws and `e2e/mobile.spec.ts` measures it.
+ * What that assertion never reached is everything *around* a card, and the sweep
+ * of 2026-08-22 measured the hole at 390×844: **36 of 36** controls on the `Plan
+ * actions` sheet under 44px (the filter tick boxes at **13px**), 9 of 9 in the
+ * Teams dialog, 4 of 4 in the account menu. `Button size="sm"` is `h-8`, the
+ * capacity boxes are `h-8`, and the ✕ is 25px — every one of them a size chosen
+ * for a mouse, on the only surfaces a phone has.
+ *
+ * **Here rather than on each control**, which is what the same rule would look
+ * like written 49 times. The toolbar's controls are *one array* rendered into
+ * both the desktop row and the phone's sheet (`wbs-table.tsx`'s
+ * `toolbarControls`), so a class on any of them is a class on the desktop too —
+ * the density this app's tables are built around. A media query is the only
+ * place the two viewports can differ for a control neither of them owns. It also
+ * reaches a control added to a dialog next month, which a class list cannot.
+ *
+ * **767.98px is `CARDS_BELOW - 0.02`** (`plan-renderer.ts`): the renderer swaps
+ * to cards strictly below 768, and this has to change hands at the same width or
+ * there is a viewport with a table in it and a phone's sizing on its dialogs.
+ * `e2e/mobile.spec.ts` pins both ends — 390 measures the floor, and 768 measures
+ * that the floor is *not* there.
+ *
+ * **499.98px is `TABLE_NEEDS_HEIGHT - 0.02`**, and the comma is an `or`. The
+ * same invariant, in the dimension `plan-renderer.ts` grew on 2026-08-23: a
+ * landscape phone is 844 CSS px wide, so a width-only query left the one
+ * viewport this app draws cards on with a mouse's sizing — 44px targets on a
+ * screen 390px tall being the whole reason cards are drawn there. The two rules
+ * change hands together or neither of them means anything; `the same phone,
+ * turned sideways` in `mobile.spec.ts` measures this end.
+ *
+ * **Unlayered, and that is the load-bearing part.** `@layer theme, base,
+ * components, utilities` puts utilities last, so `min-h-6` on a facet's label
+ * would beat this rule from the components layer no matter how specific it is —
+ * watched: with this block inside `@layer components`, the tick-box rows stayed
+ * 24px and `every control on the Plan actions sheet is at least 44px` failed on
+ * exactly those. Unlayered styles beat every layered one, which is what a floor
+ * has to do.
+ *
+ * The tap target is the **label**, not the tick box, wherever a label wraps one.
+ * A 44px checkbox glyph is a 44px checkbox glyph; the rectangle a finger can
+ * actually hit is the row, because a click anywhere in a `<label>` toggles the
+ * control inside it. `mobile.spec.ts` proves that rather than assuming it — it
+ * taps the top-left corner of a row and watches the box change.
+ */
+@media (max-width: 767.98px), (max-height: 499.98px) {
+  [data-modal-surface] button,
+  [data-modal-surface] summary,
+  [data-modal-surface] select,
+  [data-modal-surface] textarea,
+  [data-modal-surface] input:not([type='checkbox'], [type='radio']),
+  [data-modal-surface] label:has(> input[type='checkbox']),
+  [data-modal-surface] label:has(> input[type='radio']),
+  /*
+   * A file input delegates its tap target to its visible label just as the
+   * checkbox and radio rows do. Proof: without this selector the whole-browser
+   * phone sweeps measured Import JSON at 32px in portrait and landscape.
+   */
+  [data-modal-surface] label[data-import-file],
+  [data-account-menu] button,
+  /*
+   * The Gantt panel's control strip, added 2026-08-23 with the collapsible
+   * label column. It is the third scope this floor has, and the first that is
+   * not a surface a phone opens **over** the plan — which is exactly why the
+   * panel's controls went unmeasured for so long: `wbs-card-field-pickers`
+   * chunks 3, 6 and 7 each rediscovered that a control drawn inside the plan
+   * gets none of this, and the day scale shipped at 28px one chunk ago for the
+   * same reason.
+   *
+   * Reachable at all only because those controls left the 176px corner for a
+   * strip as wide as the panel — see `[data-gantt-controls]` in
+   * `gantt-panel.tsx`. `flex-wrap` on that row is the other half: four 44px
+   * controls do not fit across 343px, so they take a second line rather than
+   * an ellipsis.
+   */
+  [data-gantt-controls] button,
+  [data-gantt-controls] select {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /*
+   * A square target for the two controls whose width is their glyph: the ✕, and
+   * the three words of the palette switch, which sit in one row and would
+   * otherwise be 44px of nothing to aim at.
+   */
+  [data-modal-surface] [aria-label='Close'],
+  [data-modal-surface] [data-clear-button],
+  [data-account-menu] [role='menuitemradio'] {
+    min-width: 44px;
+  }
+
+  /*
+   * The glyph in the middle of the box the two rules above just grew. Every
+   * `<Button>` is already `inline-flex items-center justify-center`; these two
+   * are a bare `<button>` and a `<button>` with `text-left`, and a floor applied
+   * to either of them without this puts the word at the top of a 44px box.
+   */
+  [data-modal-surface] [aria-label='Close'],
+  [data-modal-surface] [data-clear-button],
+  [data-account-menu] [role='menuitemradio'],
+  [data-account-menu] [role='menuitem'] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  [data-account-menu] [role='menuitem'] {
+    justify-content: flex-start;
+  }
+
+  /*
+   * The tick box itself, grown from the platform's 13px to something visible at
+   * arm's length. Not to 44 — the row is the target, and a 44px checkbox in a
+   * six-group facet panel is a page of squares.
+   */
+  [data-modal-surface] input[type='checkbox'],
+  [data-modal-surface] input[type='radio'] {
+    width: 22px;
+    height: 22px;
+  }
+
+  /*
+   * The option rows a combobox drops — the team picker's list, and the tag
+   * and service pickers beside it. The floor above sizes every *control* a
+   * modal sheet draws, but a picker's list is a stack of `<li role="option">`
+   * with `padding: 2px 6px` in `creatable-picker.tsx`, and none of the
+   * `button`, `summary`, `select`, `textarea` or `input` rules above selects a
+   * list item. A finger aiming at a team therefore met a 20px stripe with no
+   * gap to the next row, and a miss landed on the neighbouring team — a silent
+   * wrong write. `wbs-team-picker-option-rows-20px` measured exactly this: 12
+   * rows at `eff: 20` on both phone faces, while the Plan actions sheet in the
+   * same document was clean.
+   *
+   * `display: flex` + `align-items: center` is the same repair the close-box
+   * and the palette switch need above: a bare `min-height` on a line whose text
+   * is `padding: 2px 6px` off the top leaves the word at the top of the box it
+   * just grew. A `<li>` is block-level by default, so `flex` keeps it the full
+   * width of the list and therefore a full-width target.
+   */
+  [data-modal-surface] [role='option'] {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+}
+
+/*
+ * A **done** row (`data-row-done`, written by `wbs-table.tsx`'s `PlanRow` off
+ * the row's status): its name reads struck through and muted, and its number
+ * with it. Ink only — this touches no `--cell-bg`, so every stripe, the pointed
+ * row's light and a dependency light paint under it exactly as they did, and
+ * the `:not()` chain above it has nothing new to exclude. What a done row looks
+ * like is a fact about the row at rest, not about where the pointer is.
+ */
+[data-grid] tbody tr[data-row-done='true'] td[data-column='name'] [data-cell],
+[data-grid] tbody tr[data-row-done='true'] [data-number] {
+  text-decoration: line-through;
+  color: var(--muted-foreground);
+}

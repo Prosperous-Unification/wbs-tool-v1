@@ -191,20 +191,29 @@ No `verify.md` exists until implementation produces observations.
 
 ## 7. Controlled experiments and policy adoption
 
-- [ ] 7.1 Implement `experiments/accounting.ts`, strict trial/outcome/receipt schemas and
+- [x] 7.1 Implement `experiments/accounting.ts`, strict trial/outcome/receipt schemas and
       portable JSONL/CSV export in `experiments/export.ts`. Test `accounting.test.ts` and
       `export.test.ts`: one accepted outcome counts once after split/retry/commits; reconcile
       all sessions including failure/censoring with elapsed, raw usage, human and infra cost.
       Negative: split outcome to inflate count, omit failed attempt, lose usage/price identity,
       or exclude waiting/gate time; report validation refuses. Independently recompute from
       exports without importing tool-wiki code.
-- [ ] 7.2 Implement `experiments/runner.ts` over the structured `ExecutionAdapter`, with
+      Implementation evidence: commits `69ad8069` and `80ea57f1`; focused and complete Tool Wiki
+      results, production-path reversals, and independent acceptance are recorded in `verify.md`.
+      This slice was dependency-ready before 5.3 and 6.1–6.3 because it consumes the established
+      manifest/receipt contracts without activating policy, freezing the operational exhaustive
+      sweep, adopting final namespacing, or executing reviews. Those earlier-numbered operational
+      tasks remain open and are not satisfied by this accounting/export completion.
+- [x] 7.2 Implement `experiments/runner.ts` over the structured `ExecutionAdapter`, with
       pinned manifests, seeds, actual model receipts, resource/cache conditions, bounded retries
       and active-session intervals. Test `runner.test.ts`: injected deterministic executor
       proves randomization/repeat order, warm/cold labeling and full accounting. Negative:
       substitute two four-session groups for eight, silently switch model or alter corpus/
       threshold after observation; comparability/concurrency validation refuses. Provision
       real eight-way capacity and trusted usage capture before the corresponding live cohort.
+      Implementation evidence: commit `9c120de0`; the deterministic adapter suite, named
+      production-path reversals, complete Tool Wiki results, and operational limits are recorded
+      in `verify.md`. No live cohort or eight-way-capacity claim is included in this slice.
 - [ ] 7.3 Execute at least three randomized repeats of real one/two/four/eight-session
       cohorts on the pinned corpus, initially varying concurrency alone. Keep independent
       module/shared-contract strata, fixed-total/fixed-per-session allocation and held-out

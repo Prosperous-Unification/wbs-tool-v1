@@ -3,7 +3,7 @@ import { computeQuantumGoldenCorpus } from '@wbs/domain';
 import { writeGoldenCorpusFile } from './write-golden-corpus-file';
 
 /**
- * Rewrites `libs/domain/fixtures/solver-quantum-golden-corpus.json` from this
+ * Rewrites `libs/wbs/domain/domain/fixtures/solver-quantum-golden-corpus.json` from this
  * tree.
  *
  * **Why this exists**, and it is `write-fast-golden-corpus.ts`'s reason for the
@@ -36,7 +36,7 @@ import { writeGoldenCorpusFile } from './write-golden-corpus-file';
  * with it rather than left to fail later.
  */
 const target = new URL(
-  '../../libs/domain/fixtures/solver-quantum-golden-corpus.json',
+  '../../libs/wbs/domain/domain/fixtures/solver-quantum-golden-corpus.json',
   import.meta.url,
 );
 process.stdout.write(

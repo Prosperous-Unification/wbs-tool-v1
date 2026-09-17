@@ -8,35 +8,56 @@ The stable anchors and source markers sit outside those historical payloads.
 The IDs below are permanent catalogue keys. Several early source paragraphs grouped multiple
 incidents; those IDs deliberately share one preserved payload anchor.
 
-| Incident | Preserved source payload              |
-| -------- | ------------------------------------- |
-| R5-01    | [r5.catalogue.001](#r5-catalogue-001) |
-| R5-02    | [r5.catalogue.001](#r5-catalogue-001) |
-| R5-03    | [r5.catalogue.001](#r5-catalogue-001) |
-| R5-04    | [r5.catalogue.001](#r5-catalogue-001) |
-| R5-05    | [r5.catalogue.001](#r5-catalogue-001) |
-| R5-06    | [r5.catalogue.001](#r5-catalogue-001) |
-| R5-07    | [r5.catalogue.002](#r5-catalogue-002) |
-| R5-08    | [r5.catalogue.002](#r5-catalogue-002) |
-| R5-09    | [r5.catalogue.002](#r5-catalogue-002) |
-| R5-10    | [r5.catalogue.003](#r5-catalogue-003) |
-| R5-11    | [r5.catalogue.003](#r5-catalogue-003) |
-| R5-12    | [r5.catalogue.004](#r5-catalogue-004) |
-| R5-13    | [r5.catalogue.004](#r5-catalogue-004) |
-| R5-14    | [r5.catalogue.005](#r5-catalogue-005) |
-| R5-15    | [r5.catalogue.006](#r5-catalogue-006) |
-| R5-16    | [r5.catalogue.007](#r5-catalogue-007) |
-| R5-17    | [r5.catalogue.004](#r5-catalogue-004) |
-| R5-18    | [r5.catalogue.016](#r5-catalogue-016) |
-| R5-19    | [r5.catalogue.023](#r5-catalogue-023) |
-| R5-20    | [r5.catalogue.026](#r5-catalogue-026) |
-| R5-21    | [r5.catalogue.031](#r5-catalogue-031) |
-| R5-22    | [r5.catalogue.037](#r5-catalogue-037) |
-| R5-23    | [r5.catalogue.041](#r5-catalogue-041) |
-| R5-24    | [r5.catalogue.046](#r5-catalogue-046) |
-| R5-25    | [r5.catalogue.047](#r5-catalogue-047) |
-| R5-26    | [r5.catalogue.048](#r5-catalogue-048) |
-| R5-27    | [r5.catalogue.049](#r5-catalogue-049) |
+| Incident | Preserved source payload                                                                         |
+| -------- | ------------------------------------------------------------------------------------------------ |
+| R5-01    | [r5.catalogue.001](#r5-catalogue-001)                                                            |
+| R5-02    | [r5.catalogue.001](#r5-catalogue-001)                                                            |
+| R5-03    | [r5.catalogue.001](#r5-catalogue-001)                                                            |
+| R5-04    | [r5.catalogue.001](#r5-catalogue-001)                                                            |
+| R5-05    | [r5.catalogue.001](#r5-catalogue-001)                                                            |
+| R5-06    | [r5.catalogue.001](#r5-catalogue-001)                                                            |
+| R5-07    | [r5.catalogue.002](#r5-catalogue-002)                                                            |
+| R5-08    | [r5.catalogue.002](#r5-catalogue-002)                                                            |
+| R5-09    | [r5.catalogue.002](#r5-catalogue-002)                                                            |
+| R5-10    | [r5.catalogue.003](#r5-catalogue-003)                                                            |
+| R5-11    | [r5.catalogue.003](#r5-catalogue-003)                                                            |
+| R5-12    | [r5.catalogue.004](#r5-catalogue-004)                                                            |
+| R5-13    | [r5.catalogue.004](#r5-catalogue-004)                                                            |
+| R5-14    | [r5.catalogue.005](#r5-catalogue-005)                                                            |
+| R5-15    | [r5.catalogue.006](#r5-catalogue-006)                                                            |
+| R5-16    | [r5.catalogue.007](#r5-catalogue-007)                                                            |
+| R5-17    | [r5.catalogue.004](#r5-catalogue-004)                                                            |
+| R5-18    | [r5.catalogue.016](#r5-catalogue-016)                                                            |
+| R5-19    | [r5.catalogue.023](#r5-catalogue-023)                                                            |
+| R5-20    | [r5.catalogue.026](#r5-catalogue-026)                                                            |
+| R5-21    | [r5.catalogue.031](#r5-catalogue-031)                                                            |
+| R5-22    | [r5.catalogue.037](#r5-catalogue-037)                                                            |
+| R5-23    | [r5.catalogue.041](#r5-catalogue-041)                                                            |
+| R5-24    | [r5.catalogue.046](#r5-catalogue-046)                                                            |
+| R5-25    | [r5.catalogue.047](#r5-catalogue-047)                                                            |
+| R5-26    | [r5.catalogue.048](#r5-catalogue-048)                                                            |
+| R5-27    | [r5.catalogue.049](#r5-catalogue-049)                                                            |
+| R5-28    | none — see [Checks kept without a reachable negative](#checks-kept-without-a-reachable-negative) |
+
+## Checks kept without a reachable negative
+
+This section is outside the mapped payload region below: it is new prose, not a block preserved
+from `AGENTS.md`, so it carries no `root-source` marker and
+`docs/findings/root-migration.v1.json` does not own it. Everything from the next heading onward is
+mapped, and nothing may be inserted there.
+
+**R5-28 — a contract guard whose fault cannot be injected, kept deliberately and labelled.**
+`apps/wiki/cli/src/policy/release-cli.ts` runs `assertStandaloneValidator` over each bundle the
+release target packs (`T6`). `Bun.build` with no `external` configuration either inlines every bare
+specifier or fails the build, so this repository cannot currently emit a bundle that reaches the
+refusal: the fault cannot be injected on the production path, and the check has never been watched
+failing. It is not deleted, because an `external` entry or a loader change would silently
+reintroduce the case and a consumer would then load unreviewed bytes at admission —
+`prepareActivation` applies the same rule where it _does_ have an observed negative, and the bundle
+it guards is separately proven to run standalone by executing it. The rule this records is the
+labelling, not the exception: a check whose negative cannot be reached says so at its throw site
+and here, and is never counted in a verify.md proof table as though it had been watched. Claiming
+it green would be the incident.
 
 <a id="r5-catalogue-heading"></a>
 <!-- root-source:r5.catalogue.heading -->

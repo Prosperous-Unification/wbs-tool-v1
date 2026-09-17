@@ -10,7 +10,7 @@ image-selection authority out of application containers and CI.
 
 #### Scenario: a real solver source change deploys without a human
 
-- **WHEN** `origin/main` changes a file under `libs/solver-py`
+- **WHEN** `origin/main` changes a file under `libs/wbs/adapters/solver-py`
 - **THEN** one trigger run prepares and verifies the target binding, resets dev
   to that target, and the served-commit proof succeeds without an operator step
 

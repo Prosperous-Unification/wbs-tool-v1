@@ -3212,3 +3212,258 @@ diagnostic Tool Wiki lint, whole-repository format check, strict OpenSpec valida
 external activation root is provisioned. No production semantics, global timeout, retry, skip,
 exit-status handling, workflow budget, external activation, or operational evidence changed. A
 successful full CI run at the repaired head remains pending.
+
+#### Final independent review of completed epics 1–5.2
+
+An Astra xhigh review accepted epics 2–3 at
+`2b6f4666cbe0626248e2e868733177a8feca3231` and retained the earlier acceptance of
+epics 1, 4, and completed Tasks 5.1–5.2. It reported no Critical, Important, or Minor
+finding. The review covered the trusted Nx startup repair, public structural currency,
+target-only gate drift, and add/add terminalization. Tasks 5.3 and 6–8, operational
+activation, the host/browser gates, and exhaustive scalability claims were outside this
+checkpoint.
+
+Fresh evidence was 129 focused tests with 2,033 assertions, two additional two-path
+boundary tests with 70 assertions, source lint, forced typecheck, and formatting. Eight
+deliberate reversals failed at their intended boundaries and every changed production file
+was restored and compared byte-for-byte with the reviewed commit. OpenSpec validation was
+unavailable in the review archive because the cached CLI could not resolve `commander`; no
+OpenSpec artifact changed in the repair series.
+
+### Slice 7.1 fixed-outcome accounting and portable export
+
+The local implementation packet adds strict trial, outcome, attempt, session, allocation, and
+accounting-report boundaries. Accounting joins every session, attempt, invocation receipt, elapsed
+receipt, and infrastructure allocation to the pinned manifest and frozen outcome corpus. Accepted
+throughput is derived from distinct frozen outcomes, so two attempts and two commits for the same
+accepted outcome still count once. Failed and censored attempts retain raw usage and cost; phase,
+trial-wall-clock, aggregate-session, human-time, and infrastructure totals remain explicit.
+
+Observed production-path REDs before restoring the implementation and guards:
+
+| Injected fault                                            | Observed RED                                                                                   |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| accounting/export modules absent                          | focused run failed both files with module-not-found errors                                     |
+| implementation stubs retained                             | focused run failed all five initial behavior tests with `trial accounting is not implemented`  |
+| accepted count changed from one to two before export      | export emitted a contradictory trial row and the negative failed with `function did not throw` |
+| accepted outcome artifact removed                         | strict production decoder refused the accepted outcome at `acceptanceArtifact`                 |
+| failed attempt removed from a submitted report            | complete-journal comparison refused the report                                                 |
+| waiting receipt removed from a submitted report           | complete-journal comparison refused the report                                                 |
+| failed invocation raw usage emptied                       | production accounting refused missing raw usage telemetry                                      |
+| infrastructure price identity removed                     | strict production decoder refused the allocation receipt                                       |
+| manifest identity, seed, executor, or resource changed    | production accounting named the mismatched pinned condition                                    |
+| session/outcome/receipt ownership link removed or rebound | production accounting refused incomplete or mismatched coverage                                |
+| aggregate charge exceeded the safe-integer range          | production accounting refused the total instead of rounding it                                 |
+
+The portable export documents and emits canonical JSONL observations plus trial and outcome CSV
+tables. A test using only JSON parsing and arithmetic, without the Tool Wiki implementation,
+recomputed one accepted outcome, 150,000 milliseconds of phase time, and 375 USD micros of charge.
+Reversing input trial order retained identical export bytes.
+
+Task 7.1 remains unchecked for independent review and integration. No trial runner, real cohort,
+scaling result, policy activation, external receipt, or host-gate acceptance is claimed by this
+packet.
+
+On the final `bcc862ca` base, the focused accounting/export run passed 9 tests with 36 assertions,
+and the unfiltered Tool Wiki suite passed 542 tests with 4,972 assertions across 29 files in 833.15
+seconds. Fresh uncached Tool Wiki source lint and forced typecheck exited 0. Whole-repository format
+check, strict OpenSpec validation, and `git diff --check` exited 0; OpenSpec printed
+`Change 'agent-scalable-llm-wiki' is valid`. Its optional PostHog flush could not resolve
+`edge.openspec.dev` in the restricted environment after validation had completed.
+
+#### Task 7.1 independent-review correction
+
+Portable export now accepts only a strict complete-journal/report pair and reconciles the report
+against that journal before emitting bytes. Standalone report decoding also normalizes every
+identity-keyed collection, reconstructs the strict journal view, validates all joins, and recomputes
+accepted outcomes, trial/session/phase elapsed totals, and currency totals. A fully self-consistent
+report that excised one failed attempt, its invocation, gate receipt, links, phase total, and charge
+passed its own arithmetic but failed export against the unchanged complete journal.
+
+JSONL now includes session observations and carries the manifest identity and acceptance identity
+on every observation. Its trial observation embeds the strict pinned manifest. The independent
+reader recomputed the trial interval, both session intervals, all phase time, accepted/outcome
+counts, and invocation plus allocation charges, then matched every CSV headline while retaining
+completed, failed, and censored status rows. Changing only the pinned prompt hash changed the
+manifest identity and exported bytes. Nested input permutations now retain byte-identical output.
+
+Review-correction production faults were removed one at a time and restored:
+
+| Removed protection                             | Observed focused RED                                                                              |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| complete-journal reconciliation at export      | self-consistent failed-work omission exported; expected refusal reported `function did not throw` |
+| trial/session interval containment             | one-year-old invocation accounted as verified; expected refusal reported `function did not throw` |
+| session observation emission                   | independently recomputed aggregate session time was `0`, expected `1200000`                       |
+| manifest identity and embedded manifest export | prompt-changed and original exports became equal                                                  |
+| normalized outcome ordering                    | permuted report was refused as internally inconsistent instead of producing canonical bytes       |
+| strict submission unknown-key rejection        | caller `verificationOverride` exported; expected refusal reported `function did not throw`        |
+
+The final restored focused suite passed 13 tests with 51 assertions. The unfiltered Tool Wiki suite
+passed 546 tests with 4,987 assertions across 29 files in 840.52 seconds. Fresh uncached Tool Wiki
+source lint and forced typecheck exited 0. Whole-repository format check, strict OpenSpec validation,
+and `git diff --check` exited 0; OpenSpec printed `Change 'agent-scalable-llm-wiki' is valid` before
+its optional PostHog flush reported restricted DNS. At that repair checkpoint, Task 7.1 remained
+unchecked pending the second independent review; no runner, cohort, scaling, activation, or host
+acceptance was inferred.
+
+#### Task 7.1 independent acceptance
+
+Astra independently reviewed the clean exact commit
+`80ea57f101e869ca4bcfd53c2ea25d498ae8fa15` from an immutable Git archive and returned **ACCEPT**
+with 0 Critical, 0 Important, and 0 Minor findings outstanding. The review closed all four Important
+and one Minor findings from its first pass. Its final restored focused run passed 13 tests with 51
+assertions. Eight review probes passed 15 tests with 150 assertions, and a separate Python
+standard-library reader checked all 12 trial CSV columns and all 6 outcome CSV columns against the
+JSONL observations. That reader independently derived 1 accepted outcome of 2, 600,000 trial
+milliseconds, 1,200,000 session milliseconds, 150,000 phase milliseconds, and 375 USD micros; it
+also checked canonical manifest hashing, identity propagation, failed/censored status retention,
+and bidirectional session ownership.
+
+The reviewer independently reversed complete-journal reconciliation, standalone total comparison,
+each of the three receipt containment checks, session emission, manifest identity/content emission,
+outcome normalization, and strict submission unknown-key rejection. Every production-path mutation
+failed its intended assertion and was restored byte-for-byte. Restored source SHA-256 values were
+`574adf5ac0141d99a40ac84d250bce6d9207e9ad88d1d101ccc97ac4e732e8e9` for `accounting.ts` and
+`e4ba10881750450fdce2a3a1ade3dc0c089fa9f5611cf9668831cc9419fe0f30` for `export.ts`.
+
+Acceptance is limited to Task 7.1 accounting and portable evidence. The complete journal remains an
+input trust boundary; the review did not authenticate operator journals, raw artifacts, or usage
+provenance. It did not run the full Tool Wiki suite, host gate, full-repository gates, browser suite,
+CI, OpenSpec validation, or operational activation. It does not implement or accept the runner,
+real concurrency, live cohorts, one-factor comparisons, adoption, or scaling claims in Tasks
+7.2–7.5. The coordinator's fresh implementation checks remain recorded immediately above; the
+review did not treat that prior evidence as its own.
+
+### Slice 7.2 controlled experiment runner
+
+Commit `9c120de0` adds the strict structured execution packet, session evidence, run request, and
+durable checkpoint boundaries. The runner deterministically randomizes the frozen outcome set by
+seed and repeat, labels each packet with the pinned cache/resource envelope, launches one distinct
+execution session per assignment, and requires the requested simultaneous interval overlap before
+accounting. It retains completed evidence when another session times out or is canceled, returns an
+explicit pending checkpoint when the adapter or capacity is unavailable, and never emits verified
+zero accounting for incomplete work. The Task 7.1 accounting boundary then validates all retry,
+receipt, raw-usage, price, allocation, interval, ownership, and actual-executor links.
+
+Initial TDD ran before `runner.ts` existed and failed with 0 passing, 1 failing, and 1 module-load
+error. The first implementation run passed 8 and failed 4, exposing invalid fixture trial linkage,
+evidence-validation errors incorrectly modeled as pending, and missing retained partial evidence.
+Those paths were corrected before the restored focused run.
+
+Named protections were removed independently and restored:
+
+| Removed protection                    | Observed focused RED                                                                               |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| requested active-session overlap      | the sequential two-groups-of-four case resolved instead of rejecting; `expected promise to reject` |
+| exact manifest identity comparability | the post-observation threshold pair was returned as comparable; `Received function did not throw`  |
+| actual model versus pinned executor   | the silent `gpt-substitute` receipt resolved instead of rejecting; `expected promise to reject`    |
+
+The restored focused runner/accounting run passed 14 tests with 65 assertions. On reconciled commit
+`67a06f7e` (including `origin/main` `c61b370d`), the unfiltered Tool Wiki target passed 553 tests
+with 5,017 assertions across 30 files in 837.72 seconds. Fresh uncached Tool Wiki source lint and
+forced typecheck exited 0. Changed-file Prettier and `git diff --check` exited 0. Strict
+`OPENSPEC_TELEMETRY=0 bunx @fission-ai/openspec@1.3.0 validate agent-scalable-llm-wiki --strict
+--json` passed 1 of 1 change with no issues. An earlier mistyped `bunx openspec` invocation was not
+a validation substitute: the sandbox attempt failed with `EROFS`, and the escalated package named
+`openspec` had no executable; the pinned repository command above supplied the successful result.
+
+No live model invocation, one/two/four/eight-session cohort, trusted usage capture, real capacity
+provisioning, scaling result, policy adoption, host gate, browser suite, or CI run was performed.
+Task 7.3 therefore remains open pending inspection and provisioning of its operational inputs.
+
+#### Task 7.2 lifecycle review correction
+
+Astra's initial concern about repeated process IDs was withdrawn after confirming that the contract
+counts distinct execution sessions and permits a process to multiplex them. No process-identity
+restriction was added. The remaining review finding reproduced a terminal lifecycle defect: invalid
+evidence from the first session rejected the trial before its sibling was canceled or settled, so
+that sibling could later append another `running` checkpoint.
+
+The production-path negative first failed with `Expected ["canceled"], Received []`; after moving
+the late-write assertion ahead of cancellation, the same unfixed runner failed with `Expected
+length: 1, Received length: 2`. The runner now gives each launch an owned abort controller, cancels
+all owned siblings on evidence failure, waits for every launch wrapper to settle, emits one terminal
+`pending` checkpoint, and then rethrows the evidence error. Restored focused runner, accounting, and
+export tests passed 21 tests with 88 assertions. Fresh uncached Tool Wiki source lint and forced
+typecheck, repository-wide format check, strict change validation, and `git diff --check` passed.
+Tasks 7.3–7.5 remain unchanged.
+
+### Slice 5.3 sole-parent proof completion
+
+The production-path negative constructs a real two-parent Git commit whose tree equals the checked
+candidate tree and whose first parent equals the independently expected base. Its immutable marker,
+serialized binding publication tuple, and separately retained publication tuple all name that commit,
+so verification reaches the Git sole-parent count check rather than failing on an earlier tuple join.
+
+After adding the test, the focused baseline run passed 6 tests with 24 assertions. Removing only
+`parents.length !== 1 ||` from `assertCommit` then made `trusted verification refuses a publication
+commit with a second parent` fail with `Received function did not throw`; 5 tests passed and 1 failed.
+Restoring the guard and adding the adjacent observed `Proof:` comment returned the same focused command
+to 6 passed, 0 failed, and 24 assertions:
+`bun test --preload ../test/scratch/preload.ts src/admission/attestation.test.ts` from
+`tools/tool-wiki`.
+
+Fresh proportional checks on the restored tree:
+
+- uncached `tool-wiki:lint:source` exited 0;
+- uncached forced `tool-wiki:typecheck` exited 0;
+- uncached `tool-wiki:lint` exited 0 with
+  `{status:"inactive",certified:false,reason:"external activation root is not provisioned"}`; this is
+  diagnostic only and is not admission evidence;
+- strict pinned OpenSpec validation passed 1 of 1 change with no issues; and
+- `NX_DAEMON=false NX_ISOLATE_PLUGINS=false ./node_modules/.bin/nx format:check --all` exited 0.
+
+The unfiltered Tool Wiki suite, h2puni gate, browser suite, CI, external trusted review and receipts,
+activation administration, ruleset, authority snapshot, and external binding publication were not
+run or created. The operational obligations remain pending, so Task 5.3 stays unchecked.
+
+### Repo namespace pilot mapping repair
+
+The repository namespace move had mechanically rewritten the live pilot policy's historical
+baseline paths while retaining reviewed source revision `7851161bf96312750d07b933ca5d42b75ce575c7`.
+The exact source-tree comparison consequently failed with an empty old-revision selection against
+eight renamed saved-plan tuples. The repair retains the original path/mode/blob packets and models
+each moved boundary with an old `sourceSelector` and current `selector`; the live module mapping
+keeps current ownership paths and advances to `pilot-layout-namespaced-v2`. Bootstrap policy,
+bootstrap mapping, and external activation archives remain unchanged.
+
+The production-path source-selector negative independently removed the saved-plan source selector
+and observed exit 1 with `trusted boundary baseline escapes selector`; changing its kind from
+`prefix` to `path` independently observed exit 1 with `trusted boundary source selector kind
+differs`. The restored combined negative passed 1 test with 40 assertions. The original focused
+positive then passed 1 test with 27 assertions, including exact tuples from `7851161b`, current
+index reconciliation, and observe lint through external local-operator trust.
+
+The final combined pilot-policy, trusted-policy, and contract-decoder run passed 85 tests with 1,760
+assertions. Fresh uncached Tool Wiki source lint and forced typecheck exited 0. Strict pinned OpenSpec
+validation passed the change. The isolated worktree initially lacked its ignored `node_modules`
+link, producing `trusted TypeScript runtime modules are unreadable`; linking the repository's
+existing dependency tree restored the established test environment before the successful runs.
+
+#### Exact-path compatibility correction
+
+A production `lint-local ratchet` negative then exposed that the relocation helper also rewrote a
+path-selector baseline when `sourceSelector` was absent. Renaming byte-identical `validator.ts` to
+`renamed-validator.ts`, updating only the current selector, and leaving the original exact baseline
+incorrectly exited 0 with `accepted:true`, `changedBoundaryIds:[]`, and no refusals. The corrected
+helper preserves every baseline tuple exactly unless the policy explicitly supplies a validated
+source selector. The restored focused negative exited 1, named `boundary.validator`, and reported
+both activation and ratchet refusals; it passed 1 test with 22 assertions. The explicit namespaced
+pilot relocation positive remained green with 1 test and 27 assertions. The final combined
+trusted-policy, pilot-policy, and contract-decoder run passed 86 tests with 1,782 assertions. Fresh
+uncached Tool Wiki source lint and forced typecheck, repository-wide format check, strict pinned
+OpenSpec validation, and `git diff --check` exited 0.
+
+#### Non-pilot source-selector correction
+
+A second production `lint-local ratchet` negative supplied baseline `validator.ts`, explicit source
+selector `not-the-baseline.ts`, current selector `renamed-validator.ts`, and a byte-identical
+candidate rename under a non-pilot policy. Before the guard it incorrectly exited 0 with
+`accepted:true`, `changedBoundaryIds:[]`, and no refusals. Because a non-pilot policy has no reviewed
+`pilot.sourceRevision` to anchor the source location, policy validation now refuses any such source
+selector. The restored negative exited 1 with `trusted boundary source selector requires pilot
+policy` and passed 1 test with 22 assertions. The no-source exact-path negative also passed 1 test
+with 22 assertions, and the explicit pilot relocation positive passed 1 test with 27 assertions.
+The final combined trusted-policy, pilot-policy, and contract-decoder run passed 87 tests with 1,804
+assertions. Fresh uncached Tool Wiki source lint and forced typecheck, repository-wide format check,
+strict pinned OpenSpec validation, and `git diff --check` exited 0.

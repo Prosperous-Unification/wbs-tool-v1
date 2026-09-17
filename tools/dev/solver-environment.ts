@@ -1,14 +1,15 @@
 /**
- * Provision and verify the macOS development solver environment.
+ * Provision and verify the local development solver environment.
  *
- * **Why this exists.** `libs/solver-py/requirements.lock` installs on Linux
- * x86_64 and nowhere else, and says so in its own header; the Python suite has
- * therefore been CI-only, and `solver-py:test` on a Mac resolves bare `python3`
- * to whatever the developer has first on PATH — here an Anaconda 3.13 with no
- * OR-Tools, so the target fails before it reaches a single assertion. This
+ * **Why this exists.** Each solver lock is single-platform by construction:
+ * `libs/wbs/adapters/solver-py/requirements.lock` is the Linux x86_64 runtime
+ * lock h2puni and CI install, and
+ * `libs/wbs/adapters/solver-py/requirements.macos-arm64.lock` pins the same
+ * versions to macOS arm64 wheels. `wbs-solver-py:test` on a developer machine
+ * resolves bare `python3` to whatever is first on PATH — on one Mac an Anaconda
+ * 3.13 with no OR-Tools, so the target failed before a single assertion. This
  * builds the one interpreter-and-wheels environment that both the suite and the
- * local solver use, from
- * `libs/solver-py/requirements.macos-arm64.lock`, hash-verified.
+ * local solver use, hash-verified from the lock for the host it runs on.
  *
  * **One environment object, both uses.** {@link solverEnvironment} returns the
  * absolute paths, and every consumer takes them from here rather than
@@ -33,14 +34,36 @@ export interface SolverEnvironment {
   readonly lock: string;
 }
 
-/** The repo-relative layout, resolved against a caller-supplied root for tests. */
-export function solverEnvironment(repoRoot: string): SolverEnvironment {
+/** The host a lock must match; `process.platform` and `process.arch` in production. */
+export interface SolverHost {
+  readonly platform: string;
+  readonly arch: string;
+}
+
+const LINUX_LOCK = 'libs/wbs/adapters/solver-py/requirements.lock';
+const MACOS_LOCK = 'libs/wbs/adapters/solver-py/requirements.macos-arm64.lock';
+
+function lockFor(host: SolverHost): string {
+  if (host.platform === 'linux' && host.arch === 'x64') return LINUX_LOCK;
+  if (host.platform === 'darwin' && host.arch === 'arm64') return MACOS_LOCK;
+  throw new Error(
+    `no solver lock for ${host.platform}/${host.arch}; locks exist for linux/x64 and darwin/arm64`,
+  );
+}
+
+/**
+ * The repo-relative layout, resolved against a caller-supplied root for tests.
+ *
+ * @throws When no lock was generated for `host`; every lock is single-platform,
+ * so any other choice fails later as a wheel hash mismatch instead.
+ */
+export function solverEnvironment(repoRoot: string, host: SolverHost): SolverEnvironment {
   const root = resolve(repoRoot, '.venv-solver');
   return {
     root,
     python: join(root, 'bin', 'python'),
     bin: join(root, 'bin'),
-    lock: resolve(repoRoot, 'libs/solver-py/requirements.macos-arm64.lock'),
+    lock: resolve(repoRoot, lockFor(host)),
   };
 }
 
@@ -132,11 +155,13 @@ export function assertLocksAgree(linuxLockText: string, macLockText: string): vo
  * `--no-deps` afterwards so the lock stays the only resolver authority and the
  * install cannot quietly pull an unpinned transitive of its own.
  */
-export function provisionSolverEnvironment(repoRoot: string): SolverEnvironment {
-  const environment = solverEnvironment(repoRoot);
+export function provisionSolverEnvironment(repoRoot: string, host: SolverHost): SolverEnvironment {
+  const environment = solverEnvironment(repoRoot, host);
+  // Checked on every host, not only macOS: a Linux developer who regenerates
+  // the runtime lock is the one who leaves the macOS lock behind.
   assertLocksAgree(
-    readFileSync(resolve(repoRoot, 'libs/solver-py/requirements.lock'), 'utf8'),
-    readFileSync(environment.lock, 'utf8'),
+    readFileSync(resolve(repoRoot, LINUX_LOCK), 'utf8'),
+    readFileSync(resolve(repoRoot, MACOS_LOCK), 'utf8'),
   );
 
   const created = run(SOLVER_PYTHON, ['-m', 'venv', environment.root]);
@@ -162,7 +187,7 @@ export function provisionSolverEnvironment(repoRoot: string): SolverEnvironment 
     'install',
     '--quiet',
     '--no-deps',
-    resolve(repoRoot, 'libs/solver-py'),
+    resolve(repoRoot, 'libs/wbs/adapters/solver-py'),
   ]);
   if (distribution.status !== 0) {
     throw new Error(`wbs-solver install failed: ${distribution.stderr.trim()}`);
@@ -246,7 +271,10 @@ export function solverChildPath(environment: SolverEnvironment): string {
 /** Run one golden request through the real console script, as the final readiness proof. */
 export function solveGoldenRequest(repoRoot: string, environment: SolverEnvironment): string {
   const request = readFileSync(
-    resolve(repoRoot, 'libs/contracts/solver/fixtures/request/valid-quantised-baseline.json'),
+    resolve(
+      repoRoot,
+      'libs/wbs/domain/contracts/solver/fixtures/request/valid-quantised-baseline.json',
+    ),
     'utf8',
   );
   const solved = spawnSync(join(environment.bin, 'wbs-solver'), [], {

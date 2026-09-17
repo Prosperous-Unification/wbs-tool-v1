@@ -11,7 +11,7 @@ A work item's effective tag set is its own tags **plus every ancestor's**,
 unioned, with each tag carrying the row that states it. A row that states tags of
 its own no longer replaces what it was carrying. Teams and services are
 unchanged: a row that states either means that set **instead** of its ancestor's,
-and they keep the overriding walk in `libs/domain/effective-label.ts`.
+and they keep the overriding walk in `libs/wbs/domain/domain/src/effective-label.ts`.
 
 ## Why
 
@@ -107,4 +107,5 @@ Compliance)`. Types have no analogue, because they have no provenance.
   depth — so the cell keeps its one clipped line however many it carries, and the
   facet and the export must cope with a long one rather than assume a short one.
 - Nothing about dates changes. A tag is still not a pool and not a size, and
-  `libs/domain/src/schedule.ts` still has an empty diff.
+  `libs/domain/src/schedule.ts` still had an empty diff. Its current location is
+  `libs/wbs/domain/domain/src/schedule.ts`.

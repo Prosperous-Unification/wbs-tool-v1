@@ -7,7 +7,7 @@ status: proposed
 Two siblings may share a `position`. `work_item_siblings`
 (`schema.ts:562`) is a plain `index('work_item_siblings').on(projectId, parentId, position)`
 with no uniqueness, and `placeAfter` appends at `last + POSITION_STEP` from a group it read
-outside any lock (`libs/domain/src/place-sibling.ts:53`), so two appends racing on one parent
+outside any lock (`libs/wbs/domain/domain/src/place-sibling.ts:53`), so two appends racing on one parent
 both compute the same number. That tie is not inert: `deriveNumbers` sorts each sibling group
 with `Array#sort`, which is **stable**, so the order the repository answered in survives into
 the derived number, and the number is the third of `goesFirst`'s four tie-breaks

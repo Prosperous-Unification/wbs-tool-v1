@@ -1,7 +1,12 @@
 import { createHash } from 'node:crypto';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 
-export const SOLVER_COMPATIBILITY_PATHS = ['libs/solver-py', 'apps/be-01/Dockerfile'] as const;
+// Proof: restoring either pre-move path made the real target-tree reader in
+// solver-preparation.test.ts reject the fixture with "has no object id".
+export const SOLVER_COMPATIBILITY_PATHS = [
+  'libs/wbs/adapters/solver-py',
+  'apps/wbs/be-01/Dockerfile',
+] as const;
 
 const LIVE_SOURCE_ROOT = '/home/puni1/wbs-dev/src';
 const COMMIT_SHA = /^[0-9a-f]{40}$/;

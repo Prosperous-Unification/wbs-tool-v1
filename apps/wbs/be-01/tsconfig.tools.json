@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "../../../dist/out-tsc-tools",
+    "noEmit": true
+  },
+  // Proof: before `scripts` joined this project, the staged-file lint hook
+  // refused both container-side solver-supervisor fixture scripts as absent
+  // from the TypeScript project service.
+  "include": ["drizzle.config.ts", "tools/**/*.ts", "scripts/**/*.ts"],
+  // `capture-capacity-oracle.ts` is a **pin**, not a script anybody runs again:
+  // it was run once at `050fd45`, before `change/capacity-per-project` had a
+  // line in it, and the JSON it printed is committed as the oracle
+  // `capacity-migration-identity.db.test.ts` replays. It therefore does not
+  // compile against this tree — `WorkItemServiceOptions` has gained five ports
+  // and every store method a `WriteStamp` since — and editing it until it does
+  // would mean the capture was produced by a script that no longer exists. Read
+  // its own JSDoc first: it says this, and it said it before any target
+  // compiled this folder. A tools file added from here on is checked.
+  "exclude": ["tools/capture-capacity-oracle.ts"]
+}

@@ -31,8 +31,8 @@ repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # expected: 2 · actual: 0` beside `unknown argument never reaches nx · actual:
 # no`. The fake `bunx` proves the shell wiring only — that nx can resolve all
 # four tasks was checked separately with `--graph=stdout`, which listed
-# be-01/fe-01/gw-01/mcp-01 `:serve-local-solver`, and listed **three** with
-# mcp-01's alias deleted.
+# wbs-be-01/wbs-fe-01/wbs-gw-01/wbs-mcp-01 `:serve-local-solver`, and listed
+# **three** with wbs-mcp-01's alias deleted.
 target=serve
 if (( $# > 0 )); then
   if (( $# != 1 )) || [[ $1 != --local-solver ]]; then
@@ -55,7 +55,9 @@ fi
 # no` — nx started the whole stack over a port that was already taken.
 "$repo_root/bin/dev-ports.sh"
 
-args=(run-many -t "$target" "--projects=be-01,gw-01,fe-01,mcp-01")
+# Proof: restoring the four pre-move selectors made bin/dev.test.sh report the
+# namespaced tiers missing from the real supervisor command.
+args=(run-many -t "$target" "--projects=wbs-be-01,wbs-gw-01,wbs-fe-01,wbs-mcp-01")
 
 if [[ -z "${WBS_DEV_LOG:-}" ]]; then
   exec bunx nx "${args[@]}"

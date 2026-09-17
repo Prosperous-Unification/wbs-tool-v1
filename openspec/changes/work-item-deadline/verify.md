@@ -453,8 +453,11 @@ identity and not a second comparison.
 **Measured on h2puni at `eff07d9f` (PR 256), one fault per side of the seam, and
 each reds exactly one case.**
 
-`libs/solver-py/src/wbs_solver/model.py` clause 6 ships as
-`start + max(duration, 1) <= deadlineUnits`. Substituting the pre-change
+This historical TASK-267 measurement predates TASK-508, which superseded the
+clause with `end + int(workItemIsMilestone) <= deadlineUnits` so a zero step in
+a positive work item does not acquire milestone occupancy. At the head measured
+here, `libs/solver-py/src/wbs_solver/model.py` clause 6 shipped as
+`start + max(duration, 1) <= deadlineUnits`. Substituting that run's pre-change
 `end <= int(deadline)` back takes `solver-py`'s unittest suite from a green
 **195 OK** to **1 red / 194 green**, and the red is
 `test_a_zero_duration_milestone_one_day_late_is_infeasible`.
@@ -477,9 +480,9 @@ cases, the new `refuses a zero-duration milestone standing on the exclusive
 boundary`.
 
 No restoring md5 is quoted for either half — both substitutions were made and
-undone inside the same h2puni gate session. What is checkable at this head is
-that clause 6 reads `start + max(duration, 1) <= deadlineUnits` and that the
-revalidator's verdict goes through `isOnTime`.
+undone inside the same h2puni gate session. What was checkable at this historical
+head was that clause 6 read `start + max(duration, 1) <= deadlineUnits` and that
+the revalidator's verdict went through `isOnTime`; TASK-508 owns the current clause.
 
 ### W5 — solver `infeasible` folded onto `unknown` (8.6)
 

@@ -1067,6 +1067,23 @@ A recorded, scoped judgment about repository content and relationships, carrying
 the evidence and limits of the review that produced it.
 _Avoid_: certificate of correctness, proof of completeness
 
+**Relocation activation**:
+An activation prepared from a candidate commit whose policy carries `sourceSelector` for the
+boundaries that moved, activated before that candidate merges.
+_Avoid_: rebase activation, migration activation, move policy
+
+**Toolkit release**:
+The tagged archive of the wiki roles that are identical for every repository and commit —
+launcher, snapshotter, validator bundle, trusted runtime modules, root descriptor constants —
+plus the preparer that turns them into an activation. It certifies no commit.
+_Avoid_: release archive, activation release, distribution
+
+**Toolkit activation**:
+An activation a consumer prepares from a toolkit release and its own commit, sourcing the
+reusable roles from the toolkit by digest and every per-commit role from that commit. Named by
+the consumer's own `TOOL_WIKI_ACTIVATION_VERSION`.
+_Avoid_: consumer activation, downstream activation, bootstrap activation
+
 **Port**:
 An interface core owns and an adapter satisfies: every store, the unit of work, the gate, the
 clock, the broadcaster, the identity resolver, and every runtime concern — password hashing,
@@ -1159,6 +1176,7 @@ _Avoid_: contract tests (alone), shared tests, test harness
 **Product**:
 One application family in this repository — WBS is the first — named by a top-level directory,
 a project-name prefix and a `product:` tag that keeps one product's code out of another's.
+`wiki` is the second: one CLI, `apps/wiki/cli`, released separately from the WBS tool.
 Tools belong to no product.
 _Avoid_: app (that is one deployable), workspace, scope (that is an Nx tag axis already in use)
 
@@ -1355,3 +1373,18 @@ pid. A `starting` row counts against the 4-per-project and 16-fleet ceilings exa
 `running` one — it _is_ the reservation — and is reclaimed by the same
 `now > admittedDeadlineAt` rule.
 _Avoid_: slot state, pending, provisional
+
+### Host tooling
+
+**Ticket**:
+One waiting run's place in the host-wide heavy lock's queue: a file under `<lock path>.queue`
+named `<nanoseconds>-<pid>` that holds the run's pid, lane label, start time, the deadline it
+stops waiting at, and its command. The oldest live one is served next; one whose pid is gone or
+whose deadline passed over a minute ago is removed by whoever sees it.
+_Avoid_: queue entry, slot, place in line
+
+**Lane label**:
+The name a run gives itself in that queue, from `HEAVY_LOCK_LABEL` — `gate:<sha>` for an h2puni
+gate, `unlabeled` for a run that names none. It identifies the run to a human reading `status`,
+never to the lock itself.
+_Avoid_: job name, tag, owner

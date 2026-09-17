@@ -1,7 +1,7 @@
 import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { scratchAsync } from '@wbs/tool-test-scratch';
+import { scratchAsync } from '@tools/test-scratch';
 import { describe, expect, it } from 'bun:test';
 
 import { MissingEnvExampleError, seedApp } from './setup';
@@ -9,11 +9,11 @@ import { MissingEnvExampleError, seedApp } from './setup';
 async function makeFakeRepo(apps: Record<string, { example?: string; env?: string }>) {
   const root = await scratchAsync('dev-setup-');
   for (const [app, files] of Object.entries(apps)) {
-    await mkdir(join(root, 'apps', app), { recursive: true });
+    await mkdir(join(root, 'apps', 'wbs', app), { recursive: true });
     if (files.example !== undefined)
-      await writeFile(join(root, 'apps', app, '.env.example'), files.example, 'utf8');
+      await writeFile(join(root, 'apps', 'wbs', app, '.env.example'), files.example, 'utf8');
     if (files.env !== undefined)
-      await writeFile(join(root, 'apps', app, '.env'), files.env, 'utf8');
+      await writeFile(join(root, 'apps', 'wbs', app, '.env'), files.env, 'utf8');
   }
   return root;
 }
@@ -22,7 +22,7 @@ describe('dev:setup seedApp', () => {
   it('writes .env from .env.example when .env is absent', async () => {
     const root = await makeFakeRepo({ 'be-01': { example: 'PORT=3100\n' } });
     expect(await seedApp('be-01', root)).toBe('wrote');
-    expect(await Bun.file(join(root, 'apps', 'be-01', '.env')).text()).toBe('PORT=3100\n');
+    expect(await Bun.file(join(root, 'apps', 'wbs', 'be-01', '.env')).text()).toBe('PORT=3100\n');
   });
 
   it('leaves an existing .env alone', async () => {
@@ -31,7 +31,7 @@ describe('dev:setup seedApp', () => {
     });
     expect(await seedApp('be-01', root)).toBe('already-present');
     // The point of non-destructive: the developer's edits survive.
-    expect(await Bun.file(join(root, 'apps', 'be-01', '.env')).text()).toBe('PORT=9999\n');
+    expect(await Bun.file(join(root, 'apps', 'wbs', 'be-01', '.env')).text()).toBe('PORT=9999\n');
   });
 
   // The negative test. This used to log "no .env.example — skipping" and return,
@@ -40,6 +40,9 @@ describe('dev:setup seedApp', () => {
   it('throws when .env.example is missing rather than skipping', async () => {
     const root = await makeFakeRepo({ 'be-01': {} });
     expect(seedApp('be-01', root)).rejects.toThrow(MissingEnvExampleError);
+    // Proof: restoring seedApp's pre-move `apps/<app>` lookup made this moved
+    // fixture throw the legacy path instead of this namespaced diagnostic.
+    expect(seedApp('be-01', root)).rejects.toThrow('apps/wbs/be-01/.env.example is missing');
   });
 });
 
@@ -52,7 +55,7 @@ describe('the seeded env files must agree where two tiers share a secret', () =>
   it('gives be-01 and gw-01 the same JWT_SIGNING_KEY_CURRENT', async () => {
     const root = new URL('../../', import.meta.url).pathname;
     const read = async (app: string): Promise<string> => {
-      const text = await Bun.file(`${root}apps/${app}/.env.example`).text();
+      const text = await Bun.file(`${root}apps/wbs/${app}/.env.example`).text();
       const line = text.split('\n').find((l) => l.startsWith('JWT_SIGNING_KEY_CURRENT='));
       if (line === undefined) throw new Error(`${app}/.env.example has no JWT_SIGNING_KEY_CURRENT`);
       return line.slice('JWT_SIGNING_KEY_CURRENT='.length);
@@ -69,7 +72,7 @@ describe('the seeded env files must agree where two tiers share a secret', () =>
   it('seeds be-01 and gw-01 into local auth with an explicit development signal', async () => {
     const root = new URL('../../', import.meta.url).pathname;
     const read = async (app: string): Promise<Map<string, string>> => {
-      const text = await Bun.file(`${root}apps/${app}/.env.example`).text();
+      const text = await Bun.file(`${root}apps/wbs/${app}/.env.example`).text();
       return new Map(
         text
           .split('\n')
@@ -103,7 +106,7 @@ describe('existing local backend configuration', () => {
         expect(String(error)).toContain('APP_ORIGIN=http://localhost:4200');
       },
     );
-    expect(await Bun.file(join(root, 'apps/be-01/.env')).text()).toBe(existing);
+    expect(await Bun.file(join(root, 'apps/wbs/be-01/.env')).text()).toBe(existing);
   });
   it('accepts an existing configured local origin and quoted auth mode', async () => {
     const root = await makeFakeRepo({
@@ -132,7 +135,7 @@ it('refuses an unreadable existing backend environment', async () => {
       env: 'AUTH_MODE=local\nAPP_ORIGIN=http://localhost:4200\n',
     },
   });
-  const target = join(root, 'apps/be-01/.env');
+  const target = join(root, 'apps/wbs/be-01/.env');
   await chmod(target, 0);
   try {
     await seedApp('be-01', root).then(

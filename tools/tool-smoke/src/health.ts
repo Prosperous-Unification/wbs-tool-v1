@@ -1,4 +1,4 @@
-import { APP_NAME, PORT } from '@wbs/deploy-contract';
+import { APP_NAME, PORT } from '@tools/deploy-contract';
 
 import { resolveColor } from './color';
 
@@ -35,7 +35,7 @@ export interface HealthCheck {
  * check that always silently passes: both hide a real problem instead of
  * reporting it. Mirrors `tools/tool-remote-scripts/src/lib/health.ts`'s
  * `AbortController` + `setTimeout` pattern (not imported directly — this is a
- * different fetch with a different timeout, and `@wbs/deploy-contract` carries
+ * different fetch with a different timeout, and `@tools/deploy-contract` carries
  * the names and ports rather than the fetching).
  */
 async function fetchWithTimeout(
@@ -140,7 +140,7 @@ export async function runHealthChecks(
  * drift a same-process unit test can never see, because tests inject the
  * secret directly rather than reading it from the two independently
  * assembled env chains gw-01 and be-01 actually load. be-01's `onForward`
- * handler is a no-op today (`apps/be-01/src/app.ts`), so calling it
+ * handler is a no-op today (`apps/wbs/be-01/src/app.ts`), so calling it
  * repeatedly has no side effects.
  */
 export function resolveInternalForwardUrl(env: NodeJS.ProcessEnv = process.env): string {
