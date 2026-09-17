@@ -655,8 +655,8 @@ order`, with their tests. A repository assertion that no unqualified
       comment about a union or a memo; there was nothing to borrow. The mark is
       `role="img"` with a row-naming accessible name, carries **no**
       `data-cell` (`editableGrid` collects `[data-cell]` descendants, so a mark
-      that joined the keyboard grid would put a stop between Due and Start that
-      nobody can type into), sits out of flow with `pointerEvents: none` inside
+      that joined the keyboard grid would put a stop between Deadline and Start
+      that nobody can type into), sits out of flow with `pointerEvents: none` inside
       the width `DEADLINE_MARK_PX` reserves, and is drawn in
       `var(--destructive)`, which `styles.css` defines in both themes. The
       stored date is still printed beside it, which is §2.3's "not silently
@@ -1224,8 +1224,9 @@ a reader reconstructing the normative blast radius from it would have missed
 two artifacts. The strings the rename aligns to are already asserted by
 `optimization-indicator.test.tsx`, green on `main`.
 
-**8.9 stays open on its second half, and an earlier revision of this paragraph
-put a count on it that was wrong. The count is withdrawn (Sol r5 Critical 1).**
+**Before its closure below, 8.9's second half remained open, and an earlier
+revision of this paragraph put a count on it that was wrong. The count is
+withdrawn (Sol r5 Critical 1).**
 It said "thirteen literals" in shipped `apps/fe-01/src`, then enumerated
 fourteen; it was built by extracting **distinct literal values** with one regex
 over `.tsx` alone, and then described as an inventory of occurrences. Comments
@@ -1265,8 +1266,9 @@ in **one declared unit** and includes JSX text and `aria-label`.
 Both closures above now ship. The formerly bare reader-facing occurrences
 are qualified, and the later normative amendment defines the only two exact
 **Deadline** labels: the table heading and its matching Columns-control entry.
-The scanner recognizes those labels by AST shape rather than by a permissive
-file list, and a real-tree assertion requires exactly one at each source site.
+The scanner recognizes each label only when both its exact source path and its
+documented AST shape match; a real-tree assertion requires exactly one at each
+of those two source sites.
 
 | was                                                                      | is                                                              |
 | ------------------------------------------------------------------------ | --------------------------------------------------------------- |
@@ -1293,14 +1295,17 @@ JSX text and `aria-label`. The narrow heuristic exempts only a lower-case
 identifier token in a position a reader is not shown; one-word displayed copy
 remains in scope.
 
-**The controls run every time, without pinning their number.** Focused source
-fixtures cover bare and qualified attributes and JSX, repeated occurrences,
-identifiers, comments, quoted keys, module specifiers, shallow syntax trees and
-template holes. Real-tree checks prevent vacuity: they require both copy-bearing
-components, require exactly the two AST-shaped contract labels at their named
-sites, and retain the formerly bare occurrences by text rather than movable
-line numbers. A watched red would prove one mutation once; these controls keep
-the relevant boundaries executable on every run.
+**The focused control fixtures run every time without pinning their case or
+occurrence count.** They cover bare and qualified attributes and JSX, repeated
+occurrences, identifiers, comments, quoted keys, module specifiers, shallow
+syntax trees and template holes. That count-free fixture claim does not relax
+the intentional real-tree count of `Work item deadline for ` sites. Real-tree
+checks prevent vacuity: they require both copy-bearing components, require
+exactly the two path-and-AST-shaped contract labels at their named sites, retain
+the formerly bare occurrences by text rather than movable line numbers, and
+pin that `Work item deadline for ` inventory separately. A watched red would
+prove one mutation once; these controls keep the relevant boundaries executable
+on every run.
 
 **The peer found the hole in the first draft of that scan, and it was the
 whitespace rule.** Sol r6b (`queue/reviews/t241-r6b-sol.md`, 9173 bytes, sha256
