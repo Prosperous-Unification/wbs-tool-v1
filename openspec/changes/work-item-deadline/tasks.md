@@ -618,7 +618,7 @@ order`, with their tests. A repository assertion that no unqualified
       **Deadline** table heading and matching Columns-control label.
       **Closed both halves.** The rename shipped in PR 246 (`9a1f79e7`) and
       8.9b brought the normative text to it; the assertion is
-      `apps/fe-01/src/deadline-copy.test.ts`, and closing it needed the five
+      `apps/wbs/fe-01/src/deadline-copy.test.ts`, and closing it needed the five
       remaining unqualified occurrences in `wbs-table.tsx` qualified first —
       see "## 8.9, closed" below.
 - [x] 8.9b **The normative text mandating the old strings is amended in the same
@@ -651,7 +651,8 @@ order`, with their tests. A repository assertion that no unqualified
       shows its Work item deadline with the existing "impossible" affordance and
       is not silently dropped.
       **The affordance this names did not exist, so 9.4 built one.**
-      `rg -n impossible apps/fe-01/src` returns 17 hits and every one is a code
+      at that pre-namespacing head, `rg -n impossible apps/fe-01/src` returned
+      17 hits and every one was a code
       comment about a union or a memo; there was nothing to borrow. The mark is
       `role="img"` with a row-naming accessible name, carries **no**
       `data-cell` (`editableGrid` collects `[data-cell]` descendants, so a mark
@@ -702,7 +703,8 @@ order`, with their tests. A repository assertion that no unqualified
       shipped head. A single "every fault was reverted and hashed" sentence
       covering all six would have been false.
 - [x] 10.2 Full remote autotest + lint + typecheck gate **at the exact head**,
-      for `libs/domain`, `apps/be-01` and `apps/fe-01`. Nothing is built or run
+      for the then-current pre-namespacing paths `libs/domain`, `apps/be-01`
+      and `apps/fe-01`. Nothing is built or run
       on the workspace box.
       **Read h2puni, ran on CI, and the substitution is deliberate, measured,
       and WEAKER — the word "downgrade" is the right one and an earlier draft
@@ -1227,8 +1229,9 @@ two artifacts. The strings the rename aligns to are already asserted by
 **Before its closure below, 8.9's second half remained open, and an earlier
 revision of this paragraph put a count on it that was wrong. The count is
 withdrawn (Sol r5 Critical 1).**
-It said "thirteen literals" in shipped `apps/fe-01/src`, then enumerated
-fourteen; it was built by extracting **distinct literal values** with one regex
+It said "thirteen literals" in shipped `apps/fe-01/src` — the
+pre-namespacing path at that measured head — then enumerated fourteen; it was
+built by extracting **distinct literal values** with one regex
 over `.tsx` alone, and then described as an inventory of occurrences. Comments
 were counted in the same list as runtime strings, template literals outside the
 indicator were missed, and JSX text and accessibility attributes were never
@@ -1241,8 +1244,8 @@ literals across `column-hints.ts`, `table-frame.ts` and `wbs-table.tsx`, and
 three already-qualified Work-item forms at `optimization-indicator.tsx:69,79`
 and `wbs-table.tsx:2562`, and **five unqualified** cell and accessibility forms
 at `wbs-table.tsx:2021,10271,10330,10336,10415`. Three strings the withdrawn
-list called identifiers occur only inside JSDoc. Whoever writes 8.9 re-measures
-in **one declared unit** and includes JSX text and `aria-label`.
+list called identifiers occur only inside JSDoc. The 8.9 closure re-measured in
+**one declared unit** and included JSX text and `aria-label`.
 
 **Two corrections that survive the withdrawn count, and they change the item.**
 
@@ -1283,7 +1286,7 @@ follow the label; nothing asserted the two sentence strings.
 `optimization-indicator.tsx`'s six were already qualified and are untouched.
 
 **The assertion, and the unit it is measured in.**
-`apps/fe-01/src/deadline-copy.test.ts` declares the unit in the file rather
+`apps/wbs/fe-01/src/deadline-copy.test.ts` declares the unit in the file rather
 than in prose about the file: **one occurrence of the word inside one run of
 user-visible text**, where a run is what the TypeScript parser calls a string
 literal, a template literal's fixed text, or JSX text. Taking runs from the
@@ -1321,8 +1324,9 @@ every `StringLiteral` including a **quoted property name**, so an internal key
 `{ 'release deadline': 1 }` would have reddened the suite over copy no reader
 can reach — a false positive is what teaches a later author to weaken a guard.
 Quoted names are now excluded by position. Minor 1 corrected the cwd note: the
-`apps/fe-01` cwd comes from `project.json`'s targets, **not** from either
-config, and `test-tiers.test.ts` overstates that too.
+then-`apps/fe-01` cwd (now `apps/wbs/fe-01`) came from `project.json`'s
+targets, **not** from either config, and `test-tiers.test.ts` overstates that
+too.
 
 **Measured before pushing, not after.** A standalone parser scan over the
 committed tree found the shipped deadline-copy runs and **0 unqualified**. The
